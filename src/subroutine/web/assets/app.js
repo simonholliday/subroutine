@@ -31,8 +31,8 @@ import {
 	withShowing, widened,
 } from "./address.js";
 import {
-	Boundary, aboutTheProject, accumulated, forgiven, inOrder, mergeOrder, newestFirst, notChanged,
-	refusal, sunkOrder, unpacked, unrenderable, unsaved,
+	Boundary, aboutTheProject, accumulated, forgiven, inOrder, mergeOrder, newestFirst, notAdded,
+	notChanged, refusal, sunkOrder, unpacked, unrenderable, unsaved,
 } from "./answers.js";
 import {
 	Facts, Foot, Note, Place, Prose, SavedViews, THEMES, Theme, Wordmark, You, applyTheme,
@@ -2140,7 +2140,7 @@ export function App () {
 			   failure. */
 			return true;
 		} catch (failure) {
-			setNote({ text: `That was not added. ${failure.message}`, tone: "bad" });
+			setNote({ text: notAdded(failure), tone: "bad" });
 
 			return false;
 		} finally {
@@ -3986,6 +3986,7 @@ export {
 	HORIZON_DAYS,
 } from "./settings.js";
 export {
+	WRITTEN_FOR_ANYBODY,
 	aboutTheProject,
 	accumulated,
 	forgiven,
@@ -3993,6 +3994,7 @@ export {
 	mergeOrder,
 	namesTheOtherKind,
 	newestFirst,
+	notAdded,
 	notChanged,
 	refusal,
 	sunkOrder,

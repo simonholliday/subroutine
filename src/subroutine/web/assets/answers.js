@@ -466,6 +466,31 @@ export function aboutTheProject (failure) {
 		&& (failure.body.errors || []).some((one) => ["query.project", "project"].includes(one.field)));
 }
 
+/*
+	The hints either item form shows, because each is written for anybody - `#3654`.
+
+	**A refusal's hint is shown only where a form asks for it, because many of the instance's
+	name a terminal command** (`#2434`). The add and edit forms never asked, since they meet both
+	kinds, so an event refused a deadline was told only that it could not have one - and never
+	the sentence saying what to do instead, which is in the form's own words. Simon's answer of
+	2026-09-26 was to show that and change nothing else. **Listed by their words**, and each is
+	held by `test_web.py` to the hint the instance really sends, so rewording one there fails a
+	test rather than hiding it here again.
+*/
+export const WRITTEN_FOR_ANYBODY = [
+	"Give it a start instead, and set 'until' to when it is over.",
+	"Clear its deadline in the same change: a start says when it happens, and 'until' "
+		+ "when it is over.",
+];
+
+function shown (failure, asked) {
+	/* A refusal's hint as this page may show it: any where the form asked, and otherwise only
+	   one written for anybody (`#2434`, `#3654`). */
+	const hint = failure && failure.body && failure.body.hint;
+
+	return hint && (asked || WRITTEN_FOR_ANYBODY.includes(hint)) ? ` ${hint}` : "";
+}
+
 export function unsaved (item, base, failure) {
 	/*
 		What the edit form says when its save is refused — `#3592`.
@@ -473,11 +498,21 @@ export function unsaved (item, base, failure) {
 		**A move that went through stands**, so the note says so rather than that nothing was
 		saved: the form moves an item and then saves it, and a refusal of the save is about the save
 		alone. `base` is what the save was checked against, which is the form's own item unless a
-		move answered with another.
+		move answered with another. **Its hint where that is written for anybody** (`#3654`).
 	*/
+	const said = `${failure.message}${shown(failure, false)}`;
+
 	return base !== item
-		? `#${item.ref} was moved, and the rest was not saved. ${failure.message}`
-		: `#${item.ref} was not saved. ${failure.message}`;
+		? `#${item.ref} was moved, and the rest was not saved. ${said}`
+		: `#${item.ref} was not saved. ${said}`;
+}
+
+export function notAdded (failure) {
+	/*
+		What the add form says when its item is refused - `#3654`: the refusal's own sentence, and
+		its hint where that is written for anybody, as the edit form's note does.
+	*/
+	return `That was not added. ${failure.message}${shown(failure, false)}`;
 }
 
 
@@ -530,11 +565,10 @@ export function notChanged (ref, failure, { hinted = false } = {}) {
 		them. They are not all written for a browser - twenty-two of the instance's name a
 		terminal command - so showing them everywhere would hand a reader advice they cannot
 		take. A form whose refusals are known to be written for anybody asks, and the comment box
-		is the first: a comment too long is told to become a finding document instead.
+		is the first: a comment too long is told to become a finding document instead. **A hint in
+		`WRITTEN_FOR_ANYBODY` is shown wherever it arrives** (`#3654`).
 	*/
-	const hint = hinted && failure && failure.body && failure.body.hint;
-
-	return `#${ref} was not changed. ${failure.message}${hint ? ` ${hint}` : ""}`;
+	return `#${ref} was not changed. ${failure.message}${shown(failure, hinted)}`;
 }
 
 export function unrenderable (failure, what) {

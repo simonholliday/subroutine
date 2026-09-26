@@ -11315,6 +11315,8 @@ def _views (
 					argument.moved ? {{ ...argument.item, version: argument.moved }} : argument.item,
 					app.refusal(argument.status, argument.problem),
 				)
+			: name === "notAdded" ? app.notAdded(app.refusal(argument.status, argument.problem))
+			: name === "WRITTEN_FOR_ANYBODY" ? app.WRITTEN_FOR_ANYBODY
 			: name === "columns" ? app.columns(argument)
 			: name === "mergedEntries" ? app.mergedEntries(argument.held, argument.arriving)
 			/* The day headings are the reader's locale's (`SR#2252`), so what is compared is which
@@ -20887,6 +20889,87 @@ def test_a_move_is_checked_against_the_version_the_form_was_opened_on (
 
 	assert after_a_move.startswith(f"#{opened['ref']} was moved, and the rest"), after_a_move
 	assert alone.startswith(f"#{opened['ref']} was not saved."), alone
+
+
+def test_an_event_refused_a_deadline_is_told_what_to_do_on_either_form (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3654`: an event's refused deadline was shown without the sentence saying what to do.
+
+	Simon made a task with a start and a deadline into an event. The edit form sends every date
+	back, so the save was refused for the deadline it resent, and the hint - *set 'until' to when
+	it is over* - went unshown, as every hint on the two item forms did (`SR#2434`). His answer
+	was to show it and change nothing else. **Refusals the instance really sent**: the edit form's
+	own body for his change, a type change alone, and an event added with a deadline. And a hint
+	naming a command stays unshown on both forms - one the instance writes (`users.py`), put
+	where the top-level hint goes, since none of the item forms' own refusals carries one there.
+	"""
+
+	world = test_api_tasks._world(session)
+	dated = {"starts": "2026-10-10T11:00", "due": "2026-10-10T13:00"}
+	made = world.call("POST", "/v1/tasks", json={"title": "Dentist", **dated}).json()
+	[values] = _views(tmp_path, [("fromItem", {"item": made})])
+	[body] = _views(tmp_path, [("edited", {"values": {**values, "type": "event"}, "item": made})])
+
+	resent = world.call("PATCH", f"/v1/tasks/{made['ref']}", json=body)
+	alone = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"type": "event"})
+	added = world.call("POST", "/v1/tasks", json={"title": "Dentist", "type": "event", **dated})
+	command = {
+		"detail": "There is nobody called 'kim' here.",
+		"hint": "Run 'subroutine user list' to see who there is.",
+	}
+
+	for refused in (resent, alone, added):
+		assert refused.status_code == 422, refused.text
+		assert "'until'" in refused.json()["hint"], refused.text
+
+	edit, typed, add, edit_command, add_command = _views(tmp_path, [
+		("unsaved", {"item": made, "moved": None, "status": 422, "problem": resent.json()}),
+		("unsaved", {"item": made, "moved": None, "status": 422, "problem": alone.json()}),
+		("notAdded", {"status": 422, "problem": added.json()}),
+		("unsaved", {"item": made, "moved": None, "status": 422, "problem": command}),
+		("notAdded", {"status": 422, "problem": command}),
+	])
+
+	for said, refused in ((edit, resent), (typed, alone), (add, added)):
+		assert said.endswith(f"{refused.json()['detail']} {refused.json()['hint']}"), said
+
+	assert edit.startswith(f"#{made['ref']} was not saved."), edit
+	assert add.startswith("That was not added."), add
+	assert edit_command == f"#{made['ref']} was not saved. {command['detail']}", edit_command
+	assert add_command == f"That was not added. {command['detail']}", add_command
+
+	# **And the add form asks for it**, source-level for `SR#640`'s reason: its note is composed
+	# inside `App`, where nothing but the source can be asked. The edit form's is asserted above.
+	assert "setNote({ text: notAdded(failure), tone: \"bad\" });" in _without_comments(_our_source())
+
+
+def test_a_hint_every_item_form_shows_is_one_the_instance_sends_and_names_no_command (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3654`'s list may hold only hints the instance really writes, and none for a terminal.
+
+	Each is shown on both item forms whatever refused, so one naming a command would hand a reader
+	advice they cannot take (`SR#2434`), and one the instance no longer sends would match nothing,
+	leaving its refusal unexplained again without failing anything.
+	"""
+
+	[listed] = _views(tmp_path, [("WRITTEN_FOR_ANYBODY", None)])
+	written = {
+		node.value.value
+		for path in (ROOT / "src" / "subroutine").rglob("*.py")
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+		if isinstance(node, ast.keyword) and node.arg == "hint"
+		and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+	}
+
+	assert listed, "nothing is listed, so neither item form shows a hint"
+
+	for hint in listed:
+		assert hint in written, f"no refusal in the instance sends {hint!r}"
+		assert not re.search(r"subroutine [a-z]|'subroutine|--[a-z]", hint), (
+			f"{hint!r} names a command"
+		)
 
 
 def test_a_name_in_a_saved_view_is_read_back_as_that_name (tmp_path: pathlib.Path) -> None:
