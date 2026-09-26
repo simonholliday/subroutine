@@ -1,9 +1,14 @@
 {
   "plugins": {
     "subroutine": "0.9.9",
-    "subroutine-remote": "0.9.8"
+    "subroutine-remote": "0.9.9"
   },
   "releases": [
+    {
+      "version": "0.9.9",
+      "schema": "58c81c09d101",
+      "date": "2026-09-26"
+    },
     {
       "version": "0.9.8",
       "schema": "58c81c09d101",
