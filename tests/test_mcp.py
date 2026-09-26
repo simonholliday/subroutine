@@ -3835,7 +3835,7 @@ def test_asking_who_you_are_says_what_a_narrow_credential_cannot_do (
 
 
 def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (
-	bound: subroutine.mcp.protocol.Server,
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""`#1620`. A new installation's agent works on the person's credential, and this says so.
 
@@ -3843,9 +3843,12 @@ def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (
 	rests on an agent being somebody of its own. ``whoami`` is the moment somebody is already
 	asking who they are, so it names the command - with ``--here`` since `#3286`, which writes
 	the credential where this project's sessions read it and prints nothing, so an agent can
-	run it for a person who may.
+	run it for a person who may. **Asked where the `subroutine` plugin started this process**,
+	which is where these tools answer on a local connection and where `--here` reaches them
+	(`SR#3461`).
 	"""
 
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(OURS))
 	whoami, failed = _called(bound, "subroutine_whoami")
 
 	assert not failed, whoami
@@ -3888,9 +3891,11 @@ def test_the_agent_create_hint_names_whoever_may_run_it (
 			token=issued.value.get_secret_value(),
 		)
 
+		# The `subroutine` plugin's relay, which names its program and is where `--here` reaches
+		# (`SR#3461`); who may make the account is the question here.
 		with client:
 			server = subroutine.mcp.protocol.Server(
-				subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+				subroutine.mcp.tools.catalogue(client, caller=STDIO), name="subroutine", version="0"
 			)
 			text, failed = _called(server, "subroutine_whoami")
 
@@ -3909,6 +3914,68 @@ def test_the_agent_create_hint_names_whoever_may_run_it (
 	# work; a member's credential is made by an administrator and handed over instead.
 	assert "--here" in said[setup.user.username], said
 	assert "--here" not in said[member.username], said
+
+
+#: The `subroutine` plugin's relay, which names both its program and its plugin (`SR#839`).
+STDIO = subroutine.installations.Caller(program="0.9.4", plugin="0.9.4")
+
+#: The plugin this repository ships, which is what ``CLAUDE_PLUGIN_ROOT`` names when it starts
+#: ``subroutine mcp``.
+OURS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "subroutine"
+
+
+def test_here_is_offered_only_where_it_reaches_the_callers_tools (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3461`: '--here' was offered to every caller not recognised as subroutine-remote.
+
+	It writes Claude Code's own settings, which only processes Claude Code starts there read. So a
+	caller that says nothing - any other MCP client, configured by hand with an address and a
+	token, or a relay older than the headers - is told what works for any client instead: a
+	credential made by `agent create` and handed over. The relay, which names its program, and a
+	process the plugin started, where the tools answer in process, are still offered it.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="whoami", workspace_id=setup.workspace.id
+	)
+	session.flush()
+
+	def said (caller: subroutine.installations.Caller) -> str:
+		"""Return what the tools answer this caller when asked who they are."""
+
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=api_support.factory_for(session),
+			token=issued.value.get_secret_value(),
+		)
+
+		with client:
+			server = subroutine.mcp.protocol.Server(
+				subroutine.mcp.tools.catalogue(client, caller=caller), name="subroutine", version="0"
+			)
+			text, failed = _called(server, "subroutine_whoami")
+
+		assert not failed, text
+
+		return text
+
+	handed = "can run 'subroutine agent create <name>' and give this client the credential it prints"
+	unknown = said(subroutine.installations.SAID_NOTHING)
+	relayed = said(STDIO)
+
+	assert "--here" not in unknown, unknown
+	assert f"{setup.user.username} {handed}" in unknown, unknown
+	assert "--here" in relayed and handed not in relayed, relayed
+
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(OURS))
+	in_process = said(subroutine.installations.SAID_NOTHING)
+
+	assert "--here" in in_process and handed not in in_process, in_process
 
 
 def test_the_here_hint_says_it_cannot_reach_subroutine_remotes_tools (

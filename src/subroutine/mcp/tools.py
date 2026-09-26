@@ -1674,6 +1674,20 @@ def _claimed (
 	return said
 
 
+def _here_reaches (caller: subroutine.installations.Caller) -> bool:
+	"""Say whether ``--here`` would reach the tools answering this caller (`#3461`).
+
+	``--here`` writes Claude Code's ``.claude/settings.local.json``, which only processes Claude
+	Code starts in that project read. **So it is offered where the caller is known to be the
+	``subroutine`` plugin**: its relay names the program it runs, and where the tools answer in
+	process, a plugin started this very process. A caller that says nothing may be any other MCP
+	client, configured by hand, which ``--here`` cannot reach at all - or a relay from before
+	these headers, which loses the offer, the safe direction.
+	"""
+
+	return caller.program is not None or subroutine.installations.plugin() is not None
+
+
 def _whoami (
 	client: subroutine.clients.base.Client,
 	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
@@ -1746,11 +1760,21 @@ def _whoami (
 				"default connection."
 			)
 
-		elif subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:
+		elif (
+			subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
+			and _here_reaches(caller)
+		):
 			lines.append(
 				f"What you write here is recorded as {me.user.username}'s. For a name of your own "
 				f"in this project, {me.user.username} can run 'subroutine agent create <name> "
 				"--workspace <workspace> --here' in its directory, then start a new session there."
+			)
+
+		elif subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:
+			lines.append(
+				f"What you write here is recorded as {me.user.username}'s. For a name of your own, "
+				f"{me.user.username} can run 'subroutine agent create <name>' and give this client "
+				"the credential it prints."
 			)
 
 		else:

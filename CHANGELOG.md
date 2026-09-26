@@ -166,6 +166,12 @@ upgrade involves.
   and the second was planned for the whole of Monday with *from 9am to 5pm* left in it. *from*
   reads two times only beside a day, so *Move the meeting from 2pm to 3pm* stays as written.
 
+- **`subroutine_whoami` offers `agent create --here` only where it can work**: in Claude Code,
+  through the `subroutine` plugin. `--here` writes Claude Code's own settings, so an agent in
+  any other MCP client, configured with an address and a token, was sent to a command that could
+  not reach it. It is told instead to have a credential made with `agent create` and handed
+  over, which works for any client.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added
