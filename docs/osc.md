@@ -84,8 +84,8 @@ empty string say it instead.
 
 ## In Subsequence
 
-A composition listens with `composition.osc()` and gives an address a handler with
-`composition.osc_map`. The handler is given the address, then the values above:
+A Subsequence composition listens with `composition.osc()` and gives an address a handler
+with `composition.osc_map`. The handler is given the address, then the values above:
 
 ```python
 composition.osc(receive_port=9000)

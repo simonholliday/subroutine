@@ -314,8 +314,7 @@ If you have been handed an address and a token and want to get to work, that is 
 - **[CHANGELOG.md](https://github.com/simonholliday/subroutine/blob/main/CHANGELOG.md)** - what changed, and which releases need a database
   migration.
 
-These five are moving to the guide, which is why the links above point at the repository rather
-than at the site.
+These five are moving to the guide.
 
 ## A few commands worth knowing
 
