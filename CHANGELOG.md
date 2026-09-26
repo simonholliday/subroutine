@@ -14,6 +14,14 @@ upgrade involves.
 
 ## Unreleased
 
+- **A retired document leaves the open list, as finished work does.** `subroutine list`,
+  `subroutine search`, the agent tools' `subroutine_list` and `subroutine_search`, and the
+  browser's list now leave superseded and archived documents out, so retiring a document
+  shortens the list. Naming the category or a status in one, as a filter or in the search line,
+  asking about the trash, or naming one by its number still finds them - `subroutine list
+  --filter status_category.in=superseded,archived` lists every one - and the browser's
+  *everything* shows them. `GET /v1/documents` still lists every document unless it is asked
+  for `open=true`.
 - **The browser says what to do when an event is refused a deadline.** Adding an event with a
   deadline, or saving a task that has one as an event, said only that an event cannot have a
   deadline; the note now adds the remedy - clear the deadline, and set *Until* to when it is

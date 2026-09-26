@@ -241,6 +241,15 @@ def listing (
 	deleted: bool = fastapi.Query(
 		False, description="Show *only* what is in the trash, rather than including it."
 	),
+	open: bool = fastapi.Query(
+		False,
+		description=(
+			"Only what is still open, as a task listing is by default: leave superseded and "
+			"archived documents out, unless the request names one of those categories or a status "
+			"in one, asks about the trash or about when something was touched, or names one item "
+			"by its number. Left unsaid, every document is listed."
+		),
+	),
 	order: str | None = fastapi.Query(None, description="Comma-separated sort fields."),
 	limit: int | None = fastapi.Query(
 		None,
@@ -348,6 +357,22 @@ def listing (
 				)
 			)
 		)
+
+	# **The open listing, where the caller asked for it** (`#3549`): the domain says what it keeps,
+	# and the local client asks it the same question.
+	if open:
+		kept = subroutine.domain.documents.kept_open(
+			session,
+			workspace.id,
+			comparisons=dates.comparisons,
+			status=status,
+			status_category=status_category,
+			deleted=deleted,
+			words=q,
+		)
+
+		if kept is not None:
+			statement = statement.where(model.status_id.in_(kept))
 
 	# **Resolved before the `if`, and from *this application's* settings** (`#883`). It was
 	# read inside the branch and used again below under a second `if`, which is correct only by

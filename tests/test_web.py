@@ -14685,6 +14685,62 @@ def test_a_search_narrows_the_documents_it_asks_for (tmp_path: pathlib.Path) -> 
 	)
 
 
+def test_the_list_asks_documents_for_the_open_listing_unless_everything_was_chosen (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3549`: the browser's list kept every superseded and archived document in it.
+
+	Its request builder said none of a document's categories meant *stop showing me this*, where
+	the domain said a retired document had finished its lifecycle. Simon's answer was that it has,
+	for an open listing. **The builder's own requests, sent to the application**, so the parameter
+	is one the route reads and what it leaves out is the retired half - and the trash still
+	reaches a retired document, as it reaches a finished task.
+	"""
+
+	world = test_api_tasks._world(session)
+	refs = {}
+
+	for status in ("active", "superseded", "archived"):
+		written = world.call("POST", "/v1/documents", json={"title": f"The {status} one"}).json()
+		world.call("PATCH", f"/v1/documents/{written['ref']}", json={"status": status})
+		refs[status] = written["ref"]
+
+	slug = world.workspace.slug
+
+	def documents_asked (selection: dict[str, typing.Any]) -> str:
+		"""Return the path of the documents request the list builds for this selection."""
+
+		[path] = [
+			request["path"]
+			for request in _built(tmp_path, [("listingRequests", [slug, None, None, selection])])
+			if "/documents" in request["path"]
+		]
+
+		return str(path)
+
+	def listed (path: str) -> set[int]:
+		"""Return the refs the application answers that request with."""
+
+		answer = world.call("GET", f"/v1{path}")
+
+		assert answer.status_code == 200, answer.text
+
+		return {one["ref"] for one in answer.json()["items"]}
+
+	plain = documents_asked({})
+	everything = documents_asked({"include_completed": True})
+
+	assert "open=true" in plain and "open=true" not in everything, (plain, everything)
+	assert listed(plain) == {refs["active"]}, "a retired document is still on the open list"
+	assert listed(everything) >= set(refs.values()), "everything no longer shows everything"
+
+	world.call("DELETE", f"/v1/documents/{refs['superseded']}")
+
+	trashed = world.call("GET", "/v1/documents", params={"open": "true", "deleted": "true"})
+
+	assert refs["superseded"] in {one["ref"] for one in trashed.json()["items"]}, trashed.text
+
+
 def test_every_selection_parameter_says_which_collections_answer_it (
 	tmp_path: pathlib.Path,
 ) -> None:

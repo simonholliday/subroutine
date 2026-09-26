@@ -3590,6 +3590,10 @@ def _listing (
 			# the list *widened* the part of it nobody had filtered. A status and a type
 			# are separate vocabularies per entity (§5.5), so `bug` being absent from the
 			# document types is the ordinary answer — no documents — rather than an error.
+			#
+			# **The open listing, and a search is that listing with words** (`#3549`): a superseded
+			# or archived document stays out as a finished task does, and the line or a filter that
+			# names its category brings it back - the domain decides, for both transports.
 			try:
 				found_documents = client.documents(
 					workspace=workspace.slug,
@@ -3598,6 +3602,7 @@ def _listing (
 					project=project,
 					q=q,
 					deleted=trash,
+					open=True,
 					status=status,
 					type=type,
 					tag=tag,

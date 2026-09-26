@@ -357,14 +357,15 @@ export const SELECTABLE = {
 	- **`sent`** — pass it through. `order` (narrowed further by `ORDERINGS[…].both`, `#782`)
 	  and **`q`**, which `GET /v1/documents` has always filtered correctly. Only the browser
 	  was not asking.
-	- **`already`** — omit it and keep the collection, because the answer is the same either
-	  way. `include_completed` is a measured 422 on documents, *and* a document listing shows
-	  every document there is — a superseded specification is in it by default. So the
-	  parameter is unsendable and its absence changes nothing.
+	- **`already`** — omit it and keep the collection. `include_completed` is a measured 422
+	  on documents, which answer its question in their own terms: `listingRequests` asks them
+	  for the open listing unless everything was chosen, and that leaves superseded and
+	  archived documents out as finished tasks are (`#3549`). So the parameter is unsendable,
+	  and what it means reaches documents by another word.
 	- **`cannot`** — drop the collection. `status_category` is a 422 *and* its absence would
 	  give the wrong rows: a document's categories are `draft`, `current`, `superseded` and
-	  `archived`, and none of them means *finished*, so a listing of finished work has no
-	  honest document half at all.
+	  `archived`, and none of them is a task's `done`, so a page of finished work has no
+	  document half to ask for by that word.
 */
 export const ANSWERED_BY = {
 	status_category: { task: "sent", document: "cannot" },

@@ -3311,7 +3311,9 @@ def test_an_acting_command_says_a_document_is_a_document (
 	assert "subroutine show 2" in result.output
 
 
-def _a_document (home: pathlib.Path, *, title: str, body: str) -> None:
+def _a_document (
+	home: pathlib.Path, *, title: str, body: str, status_key: str | None = None
+) -> int:
 	"""Write a document into the installation in ``home``.
 
 	Reaching past the CLI for the same reason :func:`_second_workspace` does: there is no
@@ -3340,10 +3342,17 @@ def _a_document (home: pathlib.Path, *, title: str, body: str) -> None:
 
 			assert project is not None, "a fresh installation has an Inbox"
 
-			subroutine.domain.documents.create(
-				session, project=project, title=title, body=body, actor=principal
+			written = subroutine.domain.documents.create(
+				session,
+				project=project,
+				title=title,
+				body=body,
+				actor=principal,
+				status_key=status_key,
 			)
 			session.commit()
+
+			return written.ref
 
 	finally:
 		engine.dispose()
@@ -3880,6 +3889,37 @@ def test_the_list_holds_documents_as_well_as_tasks (
 	# And the type column tells them apart, which is what makes one list readable.
 	assert "Note" in listed
 	assert "Task" in listed
+
+
+def test_a_retired_document_leaves_the_list_and_a_search_and_is_found_by_asking (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""`SR#3549`: retiring a document never took it off the list that calls itself open.
+
+	Found by an agent tidying a backlog: ten documents superseded or archived, and the list no
+	shorter. **A search is that listing with words**, and leaves them out as it already left
+	finished tasks out (Simon, 2026-09-26); naming the category, or the number, finds them.
+	"""
+
+	run("init")
+	_a_document(home, title="The plan in force", body="Rehearse on Thursday.")
+	replaced = _a_document(
+		home, title="The plan it replaced", body="Rehearse on Tuesday.", status_key="superseded"
+	)
+	_a_document(home, title="The plan put away", body="Rehearse on Monday.", status_key="archived")
+
+	listed = run("list").output
+	searched = run("search", "Rehearse").output
+	asked = run("list", "--filter", "status_category.in=superseded,archived").output
+	named = run("search", str(replaced)).output
+
+	assert "The plan in force" in listed, listed
+	assert "The plan it replaced" not in listed and "The plan put away" not in listed, listed
+	assert "The plan in force" in searched and "The plan it replaced" not in searched, searched
+	assert "The plan it replaced" in asked and "The plan put away" in asked, asked
+	assert "The plan in force" not in asked, asked
+	assert "The plan it replaced" in named, named
 
 
 def test_ls_is_the_same_command_under_a_shorter_name (

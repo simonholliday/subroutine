@@ -3674,8 +3674,14 @@ def completion_wanted (
 	about_activity: bool = False,
 	about_deletion: bool = False,
 	naming_one_item: bool = False,
+	finished: frozenset[str] = FINISHED_CATEGORIES,
 ) -> bool:
 	"""Say whether a listing should reach finished work.
+
+	**``finished`` says which categories are finished, and a document listing passes its own**
+	(`#3549`): ``superseded`` and ``archived``, for the open listing
+	:func:`subroutine.domain.documents.kept_open` answers. It never says ``asked=False``, so the
+	refusals below stay a task's.
 
 	**Here rather than in the router, because both transports have to agree** — the same reason
 	:mod:`subroutine.domain.ordering` exists. A rule applied on one side would make
@@ -3764,7 +3770,7 @@ def completion_wanted (
 	# one and ``status.in=open,done`` names two, and leaving the finished half unreachable
 	# would answer part of the question while looking complete.
 	named_finished = any(
-		status.category in FINISHED_CATEGORIES for status in status_named
+		status.category in finished for status in status_named
 	)
 
 	# **A sequence since `#3093`, and that is the sixth spelling arriving** — the one the
@@ -3781,7 +3787,7 @@ def completion_wanted (
 	wants_finished = (
 		about_completion
 		or named_finished
-		or any(one in FINISHED_CATEGORIES for one in categories)
+		or any(one in finished for one in categories)
 	)
 
 	if not wants_finished:

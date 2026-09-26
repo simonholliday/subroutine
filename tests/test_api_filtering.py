@@ -1457,6 +1457,10 @@ NOT_A_PROPERTY: dict[tuple[str, str], str] = {
 	# rather than narrowing it — the opposite direction from everything a registry entry does.
 	("task", "deleted"): "widens the readable set to include soft-deleted rows",
 	("document", "deleted"): "the same, on the other entity",
+	# **A flat boolean, as `ready` is, and for the same reason** (`SR#3549`): it says which listing
+	# this is rather than comparing a field with a value.
+	("document", "open"): "which listing this is - the open one, whose retired documents stay "
+	"out unless the request asks for them - not a comparison with a field",
 	# **§5.11's resumable cursor, and the registry's own head says why it is not a filter**:
 	# `since` is inclusive-with-dedupe, where a comparison would be an ordinary one, and two
 	# spellings of one number where one quietly loses the resume guarantee is `SR#1017`'s shape.

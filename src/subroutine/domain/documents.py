@@ -33,6 +33,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
+import subroutine.domain.filtering
 import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.patch
@@ -65,6 +66,12 @@ CURRENT_CATEGORY = "current"
 #: those were in force and were replaced, which is a finished lifecycle rather than an unfinished
 #: one, so surfacing them would ask a reader to act on something already settled.
 DRAFT_CATEGORY = "draft"
+
+#: The categories a document is retired in (`#3549`, Simon 2026-09-26): in force once and then
+#: replaced, or put away - the finished lifecycle the paragraph above says they are. **The open
+#: listing leaves them out**, as a task listing leaves finished work out, unless the request
+#: asks for them; :func:`kept_open` says when.
+RETIRED_CATEGORIES = frozenset({"superseded", "archived"})
 
 #: The types that are true the moment they are written, and so start *active* rather than
 #: *draft* (`#506`, Simon 2026-08-05; widened to every seeded type by `#537`, Simon
@@ -989,6 +996,71 @@ def status_for (
 			noun="status",
 		),
 	)
+
+
+def kept_open (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	*,
+	comparisons: "typing.Sequence[subroutine.domain.filtering.Comparison]",
+	status: str | None,
+	status_category: str | None,
+	deleted: bool,
+	words: str | None,
+) -> list[uuid.UUID] | None:
+	"""Return the statuses the open listing keeps, or ``None`` where retired ones were asked for.
+
+	**A retired document is finished, for an open listing** (`#3549`, Simon 2026-09-26). Every
+	surface called its listing *open* and kept every superseded and archived document in it, so
+	retiring one - how an agent says a document is no longer in force - never took it off, and a
+	tidied backlog looked no shorter. So the open listing keeps :data:`DRAFT_CATEGORY` and
+	:data:`CURRENT_CATEGORY` alone, in a search as in a list, since a search is that listing
+	with words.
+
+	**Unless the request asks for the others, by the rule that decides it for finished tasks**, so
+	the two kinds cannot answer one question two ways: naming a retired category, or a status in
+	one, as a parameter or in the search line; asking about the trash; asking what was touched
+	when; or naming one item by its number. :func:`subroutine.domain.tasks.completion_wanted` is
+	that rule, told which categories are finished here and asked as a listing that said nothing
+	about them, so nothing here is refused.
+
+	**Only where the caller asks for the open listing.** A document listing left unasked still
+	answers every document, which a parent's children and anything reading the API directly
+	were told before this, and still are.
+	"""
+
+	categories = ([] if status_category is None else [status_category]) + (
+		subroutine.domain.filtering.values_for(
+			comparisons,
+			subroutine.domain.filtering.STATUS_CATEGORY,
+			only=subroutine.domain.filtering.ASKING_FOR,
+		)
+	)
+	named = [
+		status_for(session, workspace_id, key)
+		for key in ([] if status is None else [status])
+		+ subroutine.domain.filtering.values_for(comparisons, subroutine.domain.filtering.STATUS)
+	]
+	wanted = subroutine.domain.tasks.completion_wanted(
+		categories,
+		None,
+		status_named=named,
+		about_activity=subroutine.domain.filtering.about(
+			(comparison.field for comparison in comparisons),
+			subroutine.domain.filtering.TOUCHED_AT,
+		),
+		about_deletion=deleted,
+		naming_one_item=words is not None and subroutine.domain.refs.parse_ref(words) is not None,
+		finished=RETIRED_CATEGORIES,
+	)
+
+	if wanted:
+		return None
+
+	return [
+		*statuses_in_category(session, workspace_id, DRAFT_CATEGORY),
+		*statuses_in_category(session, workspace_id, CURRENT_CATEGORY),
+	]
 
 
 def statuses_in_category (

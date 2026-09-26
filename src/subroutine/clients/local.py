@@ -1301,6 +1301,7 @@ class Client:
 		project: str | None = None,
 		q: str | None = None,
 		deleted: bool = False,
+		open: bool = False,
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
@@ -1353,6 +1354,20 @@ class Client:
 				else subroutine.domain.documents.statuses_in_category(
 					session, chosen.id, status_category
 				)
+			)
+			# **The open listing, by the rule `GET /v1/documents` asks** (`#3549`).
+			kept = (
+				subroutine.domain.documents.kept_open(
+					session,
+					chosen.id,
+					comparisons=subroutine.domain.filtering.understood(terms, entity="document"),
+					status=status,
+					status_category=status_category,
+					deleted=deleted,
+					words=q,
+				)
+				if open
+				else None
 			)
 			# **Resolved here with the others, and refused here too** (`#1319`). A tag nobody
 			# uses is a typo far more often than it is an empty set, so it is turned down by
@@ -1430,6 +1445,7 @@ class Client:
 						if in_category is None
 						else model.status_id.in_(in_category)
 					)
+					.where(sqlalchemy.true() if kept is None else model.status_id.in_(kept))
 					.where(
 						sqlalchemy.true() if carrying is None else model.id.in_(carrying)
 					)

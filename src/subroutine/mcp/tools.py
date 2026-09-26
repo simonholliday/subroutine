@@ -2327,12 +2327,15 @@ def _listed (
 
 	if documents_asked:
 		try:
+			# **The open listing** (`#3549`): a retired document stays out as a finished task does,
+			# unless the filter or the line names its category.
 			documents = client.documents(
 				workspace=workspace,
 				project=project,
 				limit=limit,
 				q=query,
 				filters=filters,
+				open=True,
 			)
 
 		except subroutine.errors.ValidationError as unknown:

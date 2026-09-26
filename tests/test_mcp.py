@@ -5113,6 +5113,45 @@ def test_listing_ready_work_leaves_documents_out_of_it (
 	assert "A task somebody could start" in startable, startable
 
 
+def test_listing_leaves_retired_documents_out_unless_asked_for (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#3549`: an agent retired ten documents in a backlog triage and the list stayed as long.
+
+	So the tools' listing, and their search with it, leaves a superseded or archived document out
+	as it leaves a finished task out, and a filter naming the category brings it back.
+	"""
+
+	inbox = session.scalars(
+		sqlalchemy.select(subroutine.db.models.project.Project).where(
+			subroutine.db.models.project.Project.is_inbox
+		)
+	).one()
+
+	for title, key in (
+		("The plan in force", None),
+		("The plan it replaced", "superseded"),
+		("The plan put away", "archived"),
+	):
+		subroutine.domain.documents.create(
+			session, project=inbox, title=title, body="Rehearse on Thursday.", status_key=key
+		)
+
+	session.flush()
+
+	listed, _failed = _called(bound, "subroutine_list")
+	searched, _failed = _called(bound, "subroutine_search", q="Rehearse")
+	asked, _failed = _called(
+		bound, "subroutine_list", filter={"status_category.in": "superseded,archived"}
+	)
+
+	for said in (listed, searched):
+		assert "The plan in force" in said, said
+		assert "The plan it replaced" not in said and "The plan put away" not in said, said
+
+	assert "The plan it replaced" in asked and "The plan put away" in asked, asked
+
+
 def test_an_agent_can_write_the_document_it_is_told_to_write (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

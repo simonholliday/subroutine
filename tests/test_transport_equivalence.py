@@ -980,6 +980,41 @@ def test_both_render_a_task_identically (pair: Pair) -> None:
 	assert from_local.status_category == "todo"
 
 
+def test_both_leave_retired_documents_out_of_the_open_listing_unless_asked (pair: Pair) -> None:
+	"""`SR#3549`: a retired document is finished, for an open listing, on both transports.
+
+	Retiring a document is how an agent says it is no longer in force, and it never took one off
+	the open list, so a tidied backlog looked no shorter. The open listing keeps draft and current
+	documents, and the request brings the others back wherever it names them - by category or
+	status, as a parameter or in the search line, by asking what was touched when, or by naming
+	one by its number - by the rule that decides the same for finished tasks. **Left unasked, the
+	listing answers every document**, as a parent's children are read from.
+	"""
+
+	local, remote = pair.both()
+	refs = {}
+
+	for status in ("draft", "active", "superseded", "archived"):
+		written = local.create_document(title=f"The {status} one")
+		refs[status] = local.update_document(ref=written.ref, status=status).ref
+
+	def listed (client: subroutine.clients.base.Client, **asked: typing.Any) -> set[int]:
+		"""Return the refs one client's open listing answers with, asked this way."""
+
+		return {one.ref for one in client.documents(open=True, **asked)}
+
+	for client in (local, remote):
+		assert listed(client) == {refs["draft"], refs["active"]}, client
+		assert {one.ref for one in client.documents()} >= set(refs.values()), (
+			"a listing left unasked hid a document"
+		)
+		assert refs["superseded"] in listed(client, status_category="superseded"), client
+		assert refs["archived"] in listed(client, q="status_category:archived"), client
+		assert refs["superseded"] in listed(client, status="superseded"), client
+		assert refs["archived"] in listed(client, q=str(refs["archived"])), client
+		assert set(refs.values()) <= listed(client, filters=[("touched_at.gte", "today")]), client
+
+
 def test_both_list_the_same_rows_in_the_same_order (pair: Pair) -> None:
 	"""Ordering is where a listing diverges without anybody noticing.
 

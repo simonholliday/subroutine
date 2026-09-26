@@ -513,6 +513,7 @@ class Client(typing.Protocol):
 		project: str | None = None,
 		q: str | None = None,
 		deleted: bool = False,
+		open: bool = False,
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
@@ -544,11 +545,10 @@ class Client(typing.Protocol):
 		and then sort it in another, which returns the wrong rows rather than the wrong order
 		— the newest documents, cut to a limit, presented as the oldest by ref.
 
-		**Superseded documents are included**, deliberately and for now. ``tasks`` excludes
-		completed work because ``completed_at`` says so without a join; the equivalent for a
-		document is a status *category*, which is a join to the vocabulary table inside the
-		one helper every listing narrows through. Not worth that until something is actually
-		superseded — deleted and archived are already excluded, which is the part that matters.
+		**``open`` asks for the open listing** (`#3549`), which leaves superseded and archived
+		documents out as :meth:`tasks` leaves finished work out, unless the request itself asks for
+		them - :func:`subroutine.domain.documents.kept_open` decides that for both transports.
+		Left false, every document is listed, which is what a parent's children are read from.
 		"""
 
 	def document (

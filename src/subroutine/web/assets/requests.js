@@ -745,12 +745,12 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		  arrangement are now reachable**, and neither was possible while a view name carried the
 		  selection.
 
-		**Only the tasks request carries it**, and the asymmetry is right rather than an
-		omission. `GET /v1/documents` accepts neither — measured, 422 for both — because a
-		document has no completed axis: its categories are `draft`, `current`, `superseded` and
-		`archived`, and none of them means *stop showing me this*. A superseded specification is
-		in the listing by default, so the documents request already receives every one there is,
-		and `collectionsFor` drops it entirely when the selection is one it cannot answer.
+		**Only the tasks request carries it**, and documents are asked in their own terms.
+		`GET /v1/documents` accepts neither — measured, 422 for both — because a document's
+		categories are `draft`, `current`, `superseded` and `archived`. **The last two are
+		finished, for an open listing** (`#3549`), so the documents request asks for the open
+		listing unless everything was chosen - below - and `collectionsFor` drops it entirely when
+		the selection is one it cannot answer.
 
 		**`status_category=done` implies `include_completed`, and the constraint is one-sided.**
 		Measured on the served instance rather than read off the code: sending `true` beside it
@@ -811,7 +811,13 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		(`#782`), so nothing built here ever reaches a request. Re-checking it would be a copy of
 		that rule free to disagree with it, which is the defect this whole change is about.
 	*/
-	const readable = sending("document");
+	/*
+		**And the open listing, unless everything was chosen** (`#3549`). A superseded or archived
+		document is finished, as a done task is, so the documents half leaves them out where the
+		tasks half leaves finished work out - and the server keeps them wherever the request itself
+		names them, by category, status or number.
+	*/
+	const readable = sending("document") + (asking.include_completed ? "" : "&open=true");
 
 	/*
 		**A grouped request is bounded by `group_limit`, and `limit` means nothing to it**
