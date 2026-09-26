@@ -11736,10 +11736,13 @@ def test_a_deadline_can_be_given_as_a_weekday_or_a_written_date (
 	run("add", "Something to finish")
 	run("update", "1", "--due", written)
 
-	zone = subroutine.config.system_timezone()
+	stored = json.loads(run("show", "1", "--json").output)["item"]
+	# **In the zone the item is read in** (`SR#3640`), which is the account's - the ``home``
+	# fixture's London - and never the machine's: on a UTC machine the two name different days
+	# for the last hour of every summer evening, and this failed then and only then.
+	zone = stored["timezone"]
 	today = subroutine.domain.schedule.local_date(subroutine.db.types.utcnow(), zone)
 	expected = subroutine.domain.dates.day_named(written, today=today)
-	stored = json.loads(run("show", "1", "--json").output)["item"]
 	due = datetime.datetime.fromisoformat(stored["due_at"]).astimezone(
 		subroutine.domain.dates.zone(zone, "due")
 	)
@@ -11782,12 +11785,12 @@ def test_a_date_written_with_its_year_reaches_the_item_in_that_year (
 	run("add", "Ship the release")
 	run("update", "2", "--due", "March 31, 2028")
 
-	zone = subroutine.config.system_timezone()
-
 	for number, title in (("1", "Ship the beta"), ("2", "Ship the release")):
 		stored = json.loads(run("show", number, "--json").output)["item"]
+		# The item's own zone, for `SR#3640`'s reason: a machine ahead of it reads the last
+		# microsecond of 31 March as 1 April.
 		due = datetime.datetime.fromisoformat(stored["due_at"]).astimezone(
-			subroutine.domain.dates.zone(zone, "due")
+			subroutine.domain.dates.zone(stored["timezone"], "due")
 		)
 
 		assert stored["title"] == title, stored
@@ -11820,7 +11823,10 @@ def test_a_deadline_the_instance_reads_still_goes_to_it_as_written (
 			subroutine.domain.dates.resolve(word, now=now, timezone=zone), zone
 		)
 
-	account = day_in(subroutine.config.system_timezone())
+	# The day in the account's own zone, which the item states (`SR#3640`), and not the machine's:
+	# they differ for part of every day, and a zone picked against the wrong one may name the same
+	# day as the account after all.
+	account = day_in(json.loads(run("show", "1", "--json").output)["item"]["timezone"])
 	elsewhere = next(
 		zone for zone in ("Pacific/Kiritimati", "Pacific/Pago_Pago") if day_in(zone) != account
 	)
