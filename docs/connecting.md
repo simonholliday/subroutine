@@ -159,11 +159,12 @@ deletes it:
 - **when you uninstall the plugin**, even with `--keep-data`;
 - **when you remove the plugin's marketplace**, for every plugin in it.
 
-**Updating the plugin keeps it.** We checked every release from 0.8.29 to 0.9.5, on four
-versions of Claude Code, and the token was there after each update and was sent as before.
+**Updating the plugin keeps it.** We checked every update to the plugin published from 21 to 23
+September 2026, on four versions of Claude Code, and the token was there after each one and was
+sent as before.
 
 **What an emptied field looks like depends on the plugin.** `subroutine-remote` sends no token,
-so every call is refused and Claude Code reports *Server rejected the configured Authorization
+so every call is refused and Claude Code reports *Server rejected the configured `Authorization`
 header (HTTP 401)*, followed by the instance's own sentence - on a current instance, *No token
 came with this request*. Enter the same token again with `/plugin` in a Claude Code terminal
 session. Ask for a new one only if you no longer have it. **The `subroutine` plugin goes on
