@@ -320,8 +320,11 @@ _CLOCKED_DAY = re.compile(
 #: 15:00`` (`#675`). Signalled exactly as a single time is - after ``at``, or straight after
 #: a date already read - so a range in prose stays prose, which is what keeps *Email Bob re:
 #: 3pm* untouched whether or not somebody writes a second time after it.
+#:
+#: **``from`` signals a range too, but only beside a day** (`#3642`): *tomorrow from 11:00 to
+#: 13:00* is how an appointment is ordinarily said, and :func:`_signalled` holds the condition.
 _TIME_RANGE = re.compile(
-	rf"{_STARTS_A_WORD}(?P<at>at\s+)?(?P<first>{_CLOCK})"
+	rf"{_STARTS_A_WORD}(?P<at>(?:at|from)\s+)?(?P<first>{_CLOCK})"
 	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?(?P<last>{_CLOCK})"
 	rf"(?!\d)(?!\w)",
 	re.IGNORECASE,
@@ -1470,10 +1473,33 @@ def _signalled (
 	deadline four words on as the range's signal, and invented an appointment today.
 	"""
 
-	return match.group("at") is not None or any(
+	beside = any(
 		(end <= match.start() and not text[end:match.start()].strip())
 		or (match.end() <= start and not text[match.end():start].strip())
 		for start, end in after
+	)
+	signal = (match.group("at") or "").strip().lower()
+
+	# **`from` signals two times only beside a day** (`#3642`). *Meeting tomorrow from 11:00 to
+	# 13:00* and *Standup on monday from 9am to 5pm* are appointments, and each was refused or
+	# half read. With no day beside it, *Move the meeting from 2pm to 3pm* is a change being
+	# described rather than one, and read as an appointment it would lose its words to a start
+	# today. The day may not have been read yet: a bare *tomorrow* is read only once it is last,
+	# which it is after the range leaves the line.
+	if signal == "from":
+		return beside or _a_day_beside(text, match.span())
+
+	return bool(signal) or beside
+
+
+def _a_day_beside (text: str, span: tuple[int, int]) -> bool:
+	"""Say whether a day this grammar has a word for sits right against ``span``, either side."""
+
+	start, end = span
+	before = text[:start].rstrip()
+
+	return any(found.end() == len(before) for found in _UNREAD_DAY.finditer(before)) or bool(
+		_UNREAD_DAY.match(text[end:].lstrip())
 	)
 
 

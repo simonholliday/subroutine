@@ -161,6 +161,11 @@ upgrade involves.
   the only other date on the form, and an event refuses a deadline - which now says to set
   *until* to when it is over, where it said only to give it a start.
 
+- **A time range written after its day is read.** *Meeting tomorrow from 11:00 to 13:00* and
+  *Standup on monday from 9am to 5pm* file appointments, where the first stayed in the title
+  and the second was planned for the whole of Monday with *from 9am to 5pm* left in it. *from*
+  reads two times only beside a day, so *Move the meeting from 2pm to 3pm* stays as written.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

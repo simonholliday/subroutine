@@ -1795,6 +1795,38 @@ A_RANGE = (
 		datetime.datetime(2026, 8, 3, 14, 0),
 		datetime.datetime(2026, 8, 3, 15, 30),
 	),
+	# **`from` beside a day** (`SR#3642`): the day first and the range after it, which is how the
+	# report behind that item was worded - each was refused, or its day read as a whole one.
+	(
+		"Meeting tomorrow from 11:00 to 13:00",
+		"Meeting",
+		datetime.datetime(2026, 7, 31, 11, 0),
+		datetime.datetime(2026, 7, 31, 13, 0),
+	),
+	(
+		"Dentist tomorrow from 11am to 1pm",
+		"Dentist",
+		datetime.datetime(2026, 7, 31, 11, 0),
+		datetime.datetime(2026, 7, 31, 13, 0),
+	),
+	(
+		"Standup on monday from 9am to 5pm",
+		"Standup",
+		datetime.datetime(2026, 8, 3, 9, 0),
+		datetime.datetime(2026, 8, 3, 17, 0),
+	),
+	(
+		"Meeting from 11:00 to 13:00 tomorrow",
+		"Meeting",
+		datetime.datetime(2026, 7, 31, 11, 0),
+		datetime.datetime(2026, 7, 31, 13, 0),
+	),
+	(
+		"Review from 2pm to 3pm on monday",
+		"Review",
+		datetime.datetime(2026, 8, 3, 14, 0),
+		datetime.datetime(2026, 8, 3, 15, 0),
+	),
 	# The afternoon after a morning start: the first five ended the next morning until then, and
 	# the last was right already.
 	(
@@ -1930,6 +1962,21 @@ def test_a_range_in_prose_is_left_alone_as_one_time_is () -> None:
 	captured = _parse("Dentist 2pm-3pm")
 
 	assert captured.title == "Dentist 2pm-3pm"
+	assert captured.starts_at is None
+	assert captured.ends_at is None
+
+
+def test_from_between_two_times_with_no_day_beside_it_stays_prose () -> None:
+	"""`SR#3642`: *from* signals a range only beside a day.
+
+	*Move the meeting from 2pm to 3pm* describes a change, and read as an appointment it would
+	lose its words to a start today. So nothing is set and the words stay, as they did before
+	*from* was a signal at all; beside a day, the table above reads them.
+	"""
+
+	captured = _parse("Move the meeting from 2pm to 3pm")
+
+	assert captured.title == "Move the meeting from 2pm to 3pm"
 	assert captured.starts_at is None
 	assert captured.ends_at is None
 
