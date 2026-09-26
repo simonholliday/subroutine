@@ -1539,7 +1539,8 @@ restore refuses the wrong one rather than discovering it partway through.
 
 **Match on `subroutine-*` in a retention script, never on one suffix.** A glob written against
 `*.sql` matches nothing on SQLite, nothing on a current PostgreSQL instance, and *only* the
-backups taken before 0.8.8 - which is the worst of the three, because it looks like it works.
+backups an earlier version wrote - which is the worst of the three, because it looks like it
+works.
 
 **`.sql` files taken by an earlier version still restore.** PostgreSQL backups used to be
 plain-format scripts, and they are still read; nothing writes one any more. The change is that
@@ -1738,24 +1739,25 @@ answers, and when a backup was last taken.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine doctor
-  program       0.8.8.dev74+gec0b98131, at /opt/subroutine/bin/subroutine
+  program       <version>, at /opt/subroutine/bin/subroutine
   config        /var/lib/subroutine/config/subroutine
   data          /var/lib/subroutine/data/subroutine
   state         /var/lib/subroutine/state/subroutine
   signing key   set
   cors_origins  empty, so only this instance's own pages may call it
   rate_limit    on, because this instance is published
-  local         0.8.8.dev74+gec0b98131, schema 1f61c97bf2ca, as laurence (person)
+  local         <version>, schema 1f61c97bf2ca, as laurence (person)
   backups       108 in /srv/backups/subroutine, newest subroutine-default-20260904T101113Z-1f61c97bf2ca.dump (8,730,600 bytes, today)
 
   Nothing here needs attention.
 ```
 
-That is a real run on a published instance, pasted whole. **Two tokens in it are not what the
-command printed**: the backup directory, which on the machine this came from names a host, and
-the account name, which was a real login - a public page carries neither, and `laurence` is the
-operator throughout these pages. Everything else - the versions, the schema revision, the
-counts, the alignment - is as it came out.
+That is a real run on a published instance, pasted whole. **Three things in it are not what the
+command printed**: the backup directory, which on the machine this came from names a host; the
+account name, which was a real login - a public page carries neither, and `laurence` is the
+operator throughout these pages; and the version, which is `<version>` here because a number
+would be out of date by the next release. Everything else - the schema revision, the counts,
+the alignment - is as it came out.
 
 **A published instance prints these nine lines. An unpublished one prints eight**, and the
 difference is not the one you would guess: it shows a single `exposure` line saying nothing is
@@ -1865,7 +1867,8 @@ and `/readyz` is how you find out you are not on it.
 
 `subroutine db upgrade` is the whole of the second step, and its value is the ordering rather than
 any one part of it: report what is installed and what the database is at, back up and verify the
-copy where it landed, migrate, then read the schema back rather than assuming.
+copy where it landed, migrate, then read the schema back rather than assuming. In the
+transcripts below, `<version>` is the release you installed in the first step.
 
 ```console
 # sudo -u subroutine env \
@@ -1873,7 +1876,7 @@ copy where it landed, migrate, then read the schema back rather than assuming.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine 0.7.1 expects schema 58c81c09d101.
+  Subroutine <version> expects schema 58c81c09d101.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.dump (63,584 bytes).
@@ -1891,7 +1894,7 @@ also the cheapest way to ask the question:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine 0.7.1 expects schema 58c81c09d101.
+  Subroutine <version> expects schema 58c81c09d101.
   The database is at 58c81c09d101.
   Nothing to do.
 ```
@@ -1960,11 +1963,12 @@ reference by name:
 **Check that it took, because pip may say nothing either way.** On a direct URL it clones,
 resolves the commit, builds the metadata and prints neither *Successfully installed* nor
 *already up to date* - so its output cannot tell *already at HEAD* from *declined to replace*.
-The version is what answers:
+The version is what answers. Below, `<version>` is the release the branch is working towards,
+and the rest of the line is what a build from it prints:
 
 ```console
 $ /opt/subroutine/bin/subroutine --version
-  subroutine 0.8.2.dev14+g80e1a4a06
+  subroutine <version>.dev14+g80e1a4a06
   schema 58c81c09d101
 ```
 
@@ -1973,7 +1977,8 @@ install printed.
 
 **`subroutine db upgrade --check` asks about releases, so it cannot answer this question.** It
 compares what is running against what has been published, which for a build from a branch is a
-comparison between two different things - and it says so rather than guessing:
+comparison between two different things - and it says so rather than guessing, `<release>` being
+the newest published one:
 
 ```console
 # sudo -u subroutine env \
@@ -1981,8 +1986,8 @@ comparison between two different things - and it says so rather than guessing:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade --check
-  Running 0.8.2.dev14+g80e1a4a06, which is not a published release.
-  The newest is 0.8.1.
+  Running <version>.dev14+g80e1a4a06, which is not a published release.
+  The newest is <release>.
   Its database schema is older than this build's, so it is not an upgrade. Nothing here downgrades a database.
 ```
 
@@ -2024,9 +2029,9 @@ substitute.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine 0.8.2.dev14+g80e1a4a06 expects schema 58c81c09d101.
+  Subroutine <version>.dev14+g80e1a4a06 expects schema 58c81c09d101.
   The database is at 58c81c09d101.
-  0.8.2.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it - it can compare as newer than anything published.
+  <version>.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it - it can compare as newer than anything published.
   Nothing to do.
 ```
 

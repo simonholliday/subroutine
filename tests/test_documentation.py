@@ -15,7 +15,6 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 import ast
 import collections
 import datetime
-import json
 import pathlib
 import re
 import shlex
@@ -49,7 +48,6 @@ DIAGNOSIS = ROOT / "src" / "subroutine" / "diagnosis.py"
 CONNECTING = ROOT / "docs" / "connecting.md"
 README = ROOT / "README.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
-RELEASES = ROOT / "docs" / "releases.json"
 
 
 #: The sentence in which a published page tells a reader how long they stay signed in.
@@ -2495,9 +2493,12 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 	head, because that is the line a reader compares against their own instance, and this
 	build's head is by definition unreleased whenever a migration is unshipped. `#343` settled
 	the other half — the version is illustrative and is not pinned, because pinning it would
-	make every release edit this page. So the pair is a version from ``releases.json`` beside
-	the schema the reader will actually see, and the third thing the review counted is a
-	consequence of two decisions rather than a mistake.
+	make every release edit this page.
+
+	**And since `SR#3059` the version is not a number at all**, but ``<version>``, which the page
+	says is the release the reader installed (Simon, 2026-09-26). A number typed here is one the
+	published site refuses, since it derives every version it prints from one field - and this
+	one had gone stale beside the schema, which `0003c11` moved while the version stayed 0.7.1.
 	"""
 
 	page = HOSTING.read_text(encoding="utf-8")
@@ -2592,13 +2593,9 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 		f"{template[1]!r} with {default} filled in"
 	)
 
-	published = {
-		release["version"] for release in json.loads(RELEASES.read_text(encoding="utf-8"))["releases"]
-	}
-
-	assert quoted["version"] in published, (
-		f"the transcript quotes version {quoted['version']}, which was never released — the "
-		f"version is illustrative but it should still be one somebody could have installed"
+	assert quoted["version"] == "<version>", (
+		f"the transcript quotes version {quoted['version']}, where it says <version>: a number "
+		f"typed here is refused by the published site and goes stale at the next release (SR#3059)"
 	)
 
 
