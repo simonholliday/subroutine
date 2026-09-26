@@ -119,6 +119,22 @@ export function day (value, zone = null, allDay = true) {
 	return at ? `${shown}, ${at}` : shown;
 }
 
+export function span (start, end, zone = null, allDay = true) {
+	/*
+		A start with its end, **naming the day once when both fall on it** (`#3038`): an
+		appointment reads *4 Oct 2027, 14:00 to 15:00*, where it read the day twice and left the
+		eye to compare them. Across midnight the second day is the news, and a span of whole days
+		already reads as two dates, so both keep the long form. The days are compared where the
+		item was stored, as `day` renders them.
+	*/
+	const from = day(start, zone, allDay);
+	const until = allDay || calendarDay(start, zone) !== calendarDay(end, zone)
+		? null
+		: timeFor(end, false, zone);
+
+	return `${from} to ${until || day(end, zone, allDay)}`;
+}
+
 export function overdue (item, now = null) {
 	/* **`now` for the reason `holding`, `moment` and `when` already take one** (`#950`): a mark
 	   read off the clock is only as fresh as the last render, so a test that cannot move the

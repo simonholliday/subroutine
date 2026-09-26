@@ -5632,6 +5632,57 @@ def test_add_confirms_where_a_span_ends (
 	assert span in listed, f"the list row did not say where the span ends:\n{listed}"
 
 
+def test_an_appointment_inside_one_day_names_that_day_once (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3038`: *Mon 4 Oct at 14:00 to Mon 4 Oct at 15:00* named one afternoon's day twice.
+
+	The eye had to compare four words to learn it was one afternoon, and since `SR#675` a captured
+	line writes that shape for every appointment. **The day is derived from a single-date run**,
+	as the test above does, so nothing here depends on the year it is run in.
+	"""
+
+	run("init")
+
+	day = re.search(r"\(starts ([^,)]+)\)", run("add", "Pack on 2027-10-04").output)
+
+	assert day is not None, "a single planned day was not reported"
+
+	once = f"{day.group(1)}, 14:00 to 15:00"
+	added = run("add", "Dentist on 2027-10-04 at 14:00 til 15:00").output
+
+	assert once in added, f"the confirmation named the day twice:\n{added}"
+	assert once in run("list").output, "the list row named the day twice"
+	assert once in run("show", "2").output, "show named the day twice"
+
+
+def test_a_span_across_midnight_names_both_days (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3038`'s other half: across midnight the second day is the news, so both are named.
+
+	No captured line writes a timed span over two days yet, so the rendering is asked directly,
+	against each end rendered alone - which is what the row printed before, and still should. A
+	span of whole days is left as two dates too, even where both are one day.
+	"""
+
+	start = datetime.datetime(2027, 10, 4, 20, 0, tzinfo=datetime.UTC)
+	end = datetime.datetime(2027, 10, 5, 0, 0, tzinfo=datetime.UTC)
+	render = subroutine.cli.personal._render_moment
+
+	assert subroutine.cli.personal._render_span(start, end, "Europe/London", all_day=False) == (
+		f"{render(start, 'Europe/London', all_day=False)} to "
+		f"{render(end, 'Europe/London', all_day=False)}"
+	)
+
+	morning = datetime.datetime(2027, 10, 4, 9, 0, tzinfo=datetime.UTC)
+
+	assert subroutine.cli.personal._render_span(morning, start, "Europe/London", all_day=True) == (
+		f"{render(morning, 'Europe/London', all_day=True)} to "
+		f"{render(start, 'Europe/London', all_day=True)}"
+	)
+
+
 def test_add_confirms_a_planned_day_beside_a_deadline (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

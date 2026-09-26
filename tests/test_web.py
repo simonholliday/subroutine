@@ -1142,6 +1142,45 @@ def test_a_row_says_where_a_span_ends (tmp_path: pathlib.Path) -> None:
 	assert span == f"{first} to {last}", (first, last, span)
 
 
+def test_a_row_names_an_appointments_day_once (tmp_path: pathlib.Path) -> None:
+	"""`SR#3038`: a row said *4 Oct 2027, 14:00 to 4 Oct 2027, 15:00* for one afternoon.
+
+	**Each end's rendering is derived from a row starting at that moment alone**, for
+	`SR#2252`'s reason, and the end's time is the part after its last comma. Across midnight
+	both days stay, because there the second day is the news, and a span of whole days stays
+	two dates even where both are one day.
+	"""
+
+	item = {"ref": 7, "kind": "task", "title": "Dentist", "timezone": "Europe/London"}
+
+	def shown (all_day: bool = False, **dates: str) -> str:
+		"""Return the planned day a row shows for these dates, as the row writes it."""
+
+		row = {**item, "starts_is_all_day": all_day, **dates}
+		html = _rendered(tmp_path, {"Row": {"item": row, "workspace": "projects"}})
+		found = re.search(r"\u2192 ([^<]+)<", html["Row"])
+
+		assert found is not None, f"the row showed no planned day: {html['Row']}"
+
+		return found.group(1).strip()
+
+	two = shown(starts_at="2027-10-04T13:00:00Z")
+	three = shown(starts_at="2027-10-04T14:00:00Z")
+	late = shown(starts_at="2027-10-04T20:00:00Z")
+	small = shown(starts_at="2027-10-05T00:00:00Z")
+	whole = shown(all_day=True, starts_at="2027-10-04")
+
+	assert shown(starts_at="2027-10-04T13:00:00Z", ends_at="2027-10-04T14:00:00Z") == (
+		f"{two} to {three.rsplit(', ', 1)[-1]}"
+	)
+	assert shown(starts_at="2027-10-04T20:00:00Z", ends_at="2027-10-05T00:00:00Z") == (
+		f"{late} to {small}"
+	)
+	assert shown(all_day=True, starts_at="2027-10-04", ends_at="2027-10-04") == (
+		f"{whole} to {whole}"
+	)
+
+
 def test_the_journal_heads_each_day_where_its_reader_is (tmp_path: pathlib.Path) -> None:
 	"""`SR#2885`: a journal's day headings were UTC days above the local clock of each entry.
 

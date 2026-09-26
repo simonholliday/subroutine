@@ -13574,14 +13574,13 @@ def _facts (located: Located) -> list[str]:
 			# **An end shares the start's flag**, because it has none of its own (decision
 			# `#1235` §2) — so a span is timed at both ends or at neither, and one call
 			# answers for both.
-			started = _render_moment(
-				item.starts_at, item.timezone, all_day=item.starts_is_all_day
-			)
 			facts.append(
-				f"starts {started}"
+				"starts "
+				f"{_render_moment(item.starts_at, item.timezone, all_day=item.starts_is_all_day)}"
 				if item.ends_at is None
-				else f"{started} to "
-				f"{_render_moment(item.ends_at, item.timezone, all_day=item.starts_is_all_day)}"
+				else _render_span(
+					item.starts_at, item.ends_at, item.timezone, all_day=item.starts_is_all_day
+				)
 			)
 
 		if item.recurrence_rule is not None:
@@ -13859,16 +13858,17 @@ def _when (item: Item) -> str:
 			# as *(starts Fri 2 Oct)*: "to 12 October" left the title and this line never said
 			# where it went, which is the rule the comment above states, broken on the line it
 			# is about. It also hid `#2884`, a span stored eleven months long. Written as `show`
-			# and the MCP row write it, with the start's flag for both ends, since an end has
-			# none of its own (decision `#1235` §2).
+			# writes it, by :func:`_render_span`, with the start's flag for both ends, since an
+			# end has none of its own (decision `#1235` §2).
 			None
 			if task.starts_at is None
 			else (
 				"starts "
 				f"{_render_moment(task.starts_at, task.timezone, all_day=task.starts_is_all_day)}"
 				if task.ends_at is None
-				else f"{_render_moment(task.starts_at, task.timezone, all_day=task.starts_is_all_day)}"
-				f" to {_render_moment(task.ends_at, task.timezone, all_day=task.starts_is_all_day)}"
+				else _render_span(
+					task.starts_at, task.ends_at, task.timezone, all_day=task.starts_is_all_day
+				)
 			),
 			None
 			if task.due_at is None
@@ -13951,6 +13951,36 @@ def _render_moment (
 	)
 
 	return f"{day} at {local.strftime('%H:%M')}"
+
+
+def _render_span (
+	start: datetime.datetime, end: datetime.datetime, timezone: str | None, *, all_day: bool
+) -> str:
+	"""Render a start with its end, naming the day once when both fall on it (`#3038`).
+
+	*Mon 21 Sep at 14:00 to Mon 21 Sep at 15:00* made the eye compare four words to learn that it
+	was one afternoon, and since `#675` a captured appointment is written that way every time. So
+	one inside a day reads *Mon 21 Sep, 14:00 to 15:00*. **Only there**: across midnight the
+	second day is the news, and a span of whole days already reads as two dates.
+
+	The days are compared in the row's own zone, where every date here is rendered (`#1088`).
+	"""
+
+	started = subroutine.domain.schedule.day_in(start, timezone)
+	ended = subroutine.domain.schedule.day_in(end, timezone)
+
+	if all_day or started != ended:
+		return (
+			f"{_render_moment(start, timezone, all_day=all_day)} to "
+			f"{_render_moment(end, timezone, all_day=all_day)}"
+		)
+
+	zone = subroutine.domain.dates.zone(timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE)
+
+	return (
+		f"{_render_date(start, timezone)}, {start.astimezone(zone).strftime('%H:%M')} to "
+		f"{end.astimezone(zone).strftime('%H:%M')}"
+	)
 
 
 def _when_rendered (task: subroutine.views.Task) -> str:

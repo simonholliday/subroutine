@@ -151,6 +151,10 @@ upgrade involves.
   happen. The plugin passes the field as `SUBROUTINE_TOKEN` as well, so an older program goes on
   reading it.
 
+- **An appointment inside one day names that day once**: *Mon 4 Oct, 14:00 to 15:00*, where the
+  terminal and the browser said *Mon 4 Oct at 14:00 to Mon 4 Oct at 15:00*. A span across
+  midnight still names both days, because there the second day is the news.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

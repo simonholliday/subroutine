@@ -10,7 +10,9 @@
 import * as phosphor from "./phosphor.js";
 import { html } from "./html.js";
 import { encodedPath, projectLabel, withShowing } from "./address.js";
-import { day, deferred, here, holding, named, orderingValue, overdue, rankOf } from "./dates.js";
+import {
+	day, deferred, here, holding, named, orderingValue, overdue, rankOf, span,
+} from "./dates.js";
 import { repeats } from "./requests.js";
 
 /*
@@ -741,9 +743,10 @@ export function when (item, now = null) {
 
 		/* **And where a span ends** (`#2888`), which no row said at all: `ends_at` was on the
 		   wire and nothing here read it. The end takes the start's flag, having none of its
-		   own (decision `#1235` §2), as the terminal and the agent tools write it. */
+		   own (decision `#1235` §2), as the terminal and the agent tools write it - and a day
+		   both ends fall on is named once (`#3038`). */
 		return item.ends_at
-			? `→ ${from} to ${day(item.ends_at, item.timezone, item.starts_is_all_day)}`
+			? `→ ${span(item.starts_at, item.ends_at, item.timezone, item.starts_is_all_day)}`
 			: `→ ${from}`;
 	}
 
