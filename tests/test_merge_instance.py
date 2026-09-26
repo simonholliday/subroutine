@@ -75,21 +75,21 @@ def _add (
 	try:
 		with engine.begin() as connection:
 			tables = subroutine.db.base.Base.metadata.tables
-			workspace = connection.execute(
+			workspace: uuid.UUID = connection.execute(
 				sqlalchemy.select(tables["workspace"].c.id)
 			).scalar_one()
-			user = connection.execute(sqlalchemy.select(tables["user"].c.id)).scalar_one()
-			filed = connection.execute(
+			user: uuid.UUID = connection.execute(sqlalchemy.select(tables["user"].c.id)).scalar_one()
+			filed: uuid.UUID = connection.execute(
 				sqlalchemy.select(tables["project"].c.id).where(
 					tables["project"].c.key == project
 				)
 			).scalar_one()
-			status = connection.execute(
+			status: uuid.UUID = connection.execute(
 				sqlalchemy.select(tables["status"].c.id).where(
 					tables["status"].c.entity_type == "task", tables["status"].c.key == "open"
 				)
 			).scalar_one()
-			kind = connection.execute(
+			kind: uuid.UUID = connection.execute(
 				sqlalchemy.select(tables["item_type"].c.id).where(
 					tables["item_type"].c.entity_type == "task",
 					tables["item_type"].c.key == "task",
@@ -121,7 +121,7 @@ def _project (url: str, key: str) -> None:
 	try:
 		with engine.begin() as connection:
 			tables = subroutine.db.base.Base.metadata.tables
-			workspace = connection.execute(
+			workspace: uuid.UUID = connection.execute(
 				sqlalchemy.select(tables["workspace"].c.id)
 			).scalar_one()
 			status = connection.execute(
@@ -405,7 +405,7 @@ def test_a_word_the_target_has_not_agreed_stops_the_run (tmp_path: pathlib.Path)
 
 	try:
 		with engine.begin() as connection:
-			workspace = connection.execute(
+			workspace: uuid.UUID = connection.execute(
 				sqlalchemy.select(subroutine.db.base.Base.metadata.tables["workspace"].c.id)
 			).scalar_one()
 

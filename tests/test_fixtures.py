@@ -809,7 +809,7 @@ def test_a_commit_inside_a_test_goes_no_further_on_any_backend (
 	session.commit()
 
 	with engine.connect() as outside:
-		seen = outside.execute(
+		seen: int = outside.execute(
 			sqlalchemy.text('SELECT count(*) FROM "user" WHERE username = :name'), {"name": name}
 		).scalar_one()
 

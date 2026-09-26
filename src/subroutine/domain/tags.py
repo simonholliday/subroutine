@@ -412,7 +412,7 @@ def set_on (
 	join = _joined(item)
 	wanted = {tag.id for tag in tags}
 
-	already = set(
+	already: set[uuid.UUID] = set(
 		session.scalars(sqlalchemy.select(join.rows.tag_id).where(join.owner == item.id))
 	)
 
@@ -463,7 +463,7 @@ JOINED_BY: dict[str, tuple[typing.Any, typing.Any]] = {
 
 def carried_by_name (
 	entity_type: str, names: typing.Sequence[str]
-) -> sqlalchemy.Select[tuple[typing.Any]] | None:
+) -> sqlalchemy.Select[typing.Any] | None:
 	"""Return the ids of items carrying every one of these tags, or ``None`` for no question.
 
 	**Matched on the name rather than resolved to a row first, which is the whole difference

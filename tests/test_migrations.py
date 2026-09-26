@@ -765,7 +765,7 @@ def test_the_backfilled_link_category_is_the_one_the_seeder_would_have_written (
 			backfilled: dict[str, str] = dict(
 				connection.execute(
 					sqlalchemy.select(table.c.key, table.c.category)
-				).tuples().all()
+				).all()
 			)
 
 		wanted = {one.key: one.category for one in subroutine.db.seed.SEEDED_LINK_TYPES}
@@ -819,7 +819,7 @@ def test_the_backfilled_type_category_is_the_one_the_seeder_would_have_written (
 			backfilled: dict[str, str] = dict(
 				connection.execute(
 					sqlalchemy.select(table.c.key, table.c.category)
-				).tuples().all()
+				).all()
 			)
 
 		# **The eleven that migration knows about, and it is no longer every type there is**
@@ -893,7 +893,7 @@ def test_an_absorbed_planned_day_is_stored_as_the_application_would_store_it (
 			# one — through the column's own type.
 			written = _a_workspace_with_one_task(connection, table, starts_at=start)
 
-			found = connection.execute(
+			found: typing.Sequence[typing.Any] = connection.execute(
 				sqlalchemy.select(table.c.id).where(
 					table.c.starts_at >= start,
 					table.c.starts_at < start + datetime.timedelta(days=1),
@@ -908,7 +908,7 @@ def test_an_absorbed_planned_day_is_stored_as_the_application_would_store_it (
 					sqlalchemy.select(
 						table.c.id, sqlalchemy.cast(table.c.starts_at, sqlalchemy.String)
 					)
-				).tuples().all()
+				).all()
 			)
 
 		assert absorbed in found, "the absorbed planned day is outside its own day's range"
@@ -1594,7 +1594,7 @@ def test_going_back_leaves_a_workspace_in_the_zone_it_was_inheriting (
 		subroutine.db.migrate.downgrade(migrated_url, "ea3e86ad12c4")
 
 		with engine.begin() as connection:
-			zone = connection.execute(
+			zone: str = connection.execute(
 				sqlalchemy.text("SELECT timezone FROM workspace WHERE slug = 'inheriting'")
 			).scalar_one()
 

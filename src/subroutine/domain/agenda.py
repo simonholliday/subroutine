@@ -640,7 +640,7 @@ def build (
 	# questions — a status category, a status key, a pair of dates — and only the sequencing
 	# is shared.
 	membership: dict[
-		str, sqlalchemy.Select[tuple[subroutine.db.models.work.Task]] | None
+		str, sqlalchemy.Select[subroutine.db.models.work.Task] | None
 	] = {
 		# **Read off the status *category* rather than a key, because a workspace may rename
 		# the row** (`#853`) — `in_progress` is one of the five categories §6.5 fixes, and the
@@ -1120,7 +1120,7 @@ def _deferred (
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	now: datetime.datetime,
 	project: subroutine.db.models.project.Project | None = None,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+) -> sqlalchemy.Select[subroutine.db.models.work.Task]:
 	"""Return the work this day is hiding because somebody deferred it past the end of it.
 
 	**The same scope :func:`_visible` builds, with the defer inverted rather than dropped**
@@ -1159,7 +1159,7 @@ def _scoped (
 	now: datetime.datetime,
 	project: subroutine.db.models.project.Project | None = None,
 	also: sqlalchemy.ColumnElement[bool] | None = None,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+) -> sqlalchemy.Select[subroutine.db.models.work.Task]:
 	"""Return the live, unfinished, visible work this agenda is about, before any of its rules.
 
 	**The place, and nothing about the day.** Everything concerning *who may see what* — the
@@ -1237,10 +1237,10 @@ def _scoped (
 
 
 def _visible (
-	scoped: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
+	scoped: sqlalchemy.Select[subroutine.db.models.work.Task],
 	*,
 	until: datetime.datetime | sqlalchemy.ColumnElement[datetime.datetime],
-) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+) -> sqlalchemy.Select[subroutine.db.models.work.Task]:
 	"""Return the select every bucket narrows: live, unfinished, actionable, visible work.
 
 	Everything about *who may see what* — the workspace scope, project visibility and the
@@ -1288,7 +1288,7 @@ def _visible (
 
 def _run (
 	session: sqlalchemy.orm.Session,
-	statement: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
+	statement: sqlalchemy.Select[subroutine.db.models.work.Task],
 	bucket: str,
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 ) -> tuple[subroutine.db.models.work.Task, ...]:
@@ -1320,7 +1320,7 @@ def _run (
 
 def _other_zones (
 	session: sqlalchemy.orm.Session,
-	base: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
+	base: sqlalchemy.Select[subroutine.db.models.work.Task],
 	timezone: str,
 ) -> tuple[str, ...]:
 	"""Return the zones, other than the reader's, that whole-day rows in scope were dated in.

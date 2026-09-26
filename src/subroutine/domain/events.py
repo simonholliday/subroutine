@@ -402,7 +402,7 @@ def selected (
 	visible: sqlalchemy.ColumnElement[bool] | None = None,
 	actor_token_id: uuid.UUID | None = None,
 	narrowing: typing.Sequence[typing.Any] = (),
-) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
+) -> sqlalchemy.Select[subroutine.db.models.activity.Event]:
 	"""Return the statement both readers of this table are built on (docs/design.md §5.11a).
 
 	**One builder, and the upper bound is a parameter** — that is the whole design, and it is
@@ -530,7 +530,7 @@ def feed (
 	by: uuid.UUID | None = None,
 	newest: bool = False,
 	narrowing: typing.Sequence[typing.Any] = (),
-) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
+) -> sqlalchemy.Select[subroutine.db.models.activity.Event]:
 	"""Return the change feed's statement — ordered, watermarked and narrowed (§5.11a).
 
 	Everything :func:`selected` leaves to the caller, this decides, because for a feed the
@@ -593,7 +593,7 @@ def history (
 	workspace_id: uuid.UUID,
 	entity_type: str,
 	entity_id: uuid.UUID,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
+) -> sqlalchemy.Select[subroutine.db.models.activity.Event]:
 	"""Return what happened to one item, as this principal may be told it — `#2769`.
 
 	**Narrowed exactly as the feed is**, through :func:`subroutine.domain.scoping.visible_events`,

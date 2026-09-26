@@ -1709,7 +1709,7 @@ def test_the_value_a_cursor_carries_is_the_one_the_query_sorted_by (
 		)
 	)
 
-	# `.tuples()` before `dict()`, never `dict(session.execute(...))`: a `Result` has a
+	# `.all()` before `dict()`, never `dict(session.execute(...))`: a `Result` has a
 	# `.keys()` method, so `dict()` treats it as a mapping and raises. Ruff's C416 suggests
 	# exactly that rewrite, and taking it has broken working code here before.
 	from_sql: dict[uuid.UUID, int | None] = dict(
@@ -1718,7 +1718,6 @@ def test_the_value_a_cursor_carries_is_the_one_the_query_sorted_by (
 				subroutine.db.models.work.Task.id, subroutine.domain.ordering.RANKING
 			).where(subroutine.db.models.work.Task.deleted_at.is_(None))
 		)
-		.tuples()
 		.all()
 	)
 

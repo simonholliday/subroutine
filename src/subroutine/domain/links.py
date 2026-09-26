@@ -689,7 +689,7 @@ def _kin (
 			sqlalchemy.select(model.id, model.category).where(
 				model.workspace_id == workspace_id, model.category.in_(categories)
 			)
-		).tuples().all()
+		).all()
 	)
 
 
@@ -860,7 +860,7 @@ def _refs_for (session: sqlalchemy.orm.Session, chain: list[_Node]) -> list[int]
 		found.update(
 			session.execute(
 				sqlalchemy.select(model.id, model.ref).where(model.id.in_(wanted))
-			).tuples().all()
+			).all()
 		)
 
 	return [found[identifier] for _, identifier in chain if identifier in found]

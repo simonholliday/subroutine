@@ -237,7 +237,7 @@ def _named_workspace (connection: sqlalchemy.Connection, slug: str) -> uuid.UUID
 	"""Return the target workspace with this slug."""
 
 	workspace = _table("workspace")
-	found = connection.execute(
+	found: uuid.UUID | None = connection.execute(
 		sqlalchemy.select(workspace.c.id).where(
 			workspace.c.slug == slug, workspace.c.deleted_at.is_(None)
 		)
@@ -246,7 +246,7 @@ def _named_workspace (connection: sqlalchemy.Connection, slug: str) -> uuid.UUID
 	if found is None:
 		raise Refused(f"the target has no workspace called {slug!r}")
 
-	return typing.cast(uuid.UUID, found)
+	return found
 
 
 def _not_already_merged (
@@ -263,7 +263,7 @@ def _not_already_merged (
 
 	for name in ("task", "document"):
 		table = _table(name)
-		ids = list(source.execute(sqlalchemy.select(table.c.id)).scalars())
+		ids: list[uuid.UUID] = list(source.execute(sqlalchemy.select(table.c.id)).scalars())
 
 		if not ids:
 			continue
@@ -405,9 +405,11 @@ def _project_map (
 	task = _table("task")
 	document = _table("document")
 
-	used = set(source.execute(sqlalchemy.select(task.c.project_id).distinct()).scalars())
-	used |= set(source.execute(sqlalchemy.select(document.c.project_id).distinct()).scalars())
-	used.discard(None)
+	filed: set[uuid.UUID | None] = set(
+		source.execute(sqlalchemy.select(task.c.project_id).distinct()).scalars()
+	)
+	filed |= set(source.execute(sqlalchemy.select(document.c.project_id).distinct()).scalars())
+	used = {identifier for identifier in filed if identifier is not None}
 
 	theirs_by_id = {
 		row.id: row.key
@@ -561,7 +563,11 @@ def _ref_map (source: sqlalchemy.Connection, offset: int) -> dict[int, int]:
 	for name, column in REF_COLUMNS.items():
 		table = _table(name)
 
-		for ref in source.execute(sqlalchemy.select(table.c[column])).scalars():
+		numbers: typing.Sequence[int] = (
+			source.execute(sqlalchemy.select(table.c[column])).scalars().all()
+		)
+
+		for ref in numbers:
 			refs[int(ref)] = int(ref) + offset
 
 	return refs
@@ -682,7 +688,7 @@ def _advance_the_counter (
 
 	table = _table("workspace")
 	after = max(refs.values()) + 1 if refs else 0
-	current = writing.execute(
+	current: int = writing.execute(
 		sqlalchemy.select(table.c.next_ref_number).where(table.c.id == workspace)
 	).scalar_one()
 
@@ -724,7 +730,7 @@ def _verify (writing: sqlalchemy.Connection, maps: Maps, report: Report) -> list
 
 	for name, column in REF_COLUMNS.items():
 		table = _table(name)
-		duplicates = writing.execute(
+		duplicates: typing.Sequence[int] = writing.execute(
 			sqlalchemy.select(table.c[column])
 			.where(table.c.workspace_id == maps.workspace)
 			.group_by(table.c[column])
@@ -735,7 +741,7 @@ def _verify (writing: sqlalchemy.Connection, maps: Maps, report: Report) -> list
 			wrong.append(f"{name} has two rows sharing refs {sorted(duplicates)[:10]}")
 
 	both = _table("task"), _table("document")
-	shared = writing.execute(
+	shared: typing.Sequence[int] = writing.execute(
 		sqlalchemy.select(both[0].c.ref)
 		.where(both[0].c.workspace_id == maps.workspace)
 		.intersect(
@@ -848,7 +854,7 @@ def merge (
 
 			_not_already_merged(source, target)
 
-			counter = target.execute(
+			counter: int = target.execute(
 				sqlalchemy.select(_table("workspace").c.next_ref_number).where(
 					_table("workspace").c.id == ours
 				)

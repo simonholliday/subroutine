@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+- **Subroutine now needs SQLAlchemy 2.1.1 or later**, and upgrading brings it. Two things read
+  differently under it. A `database_url` of plain `postgresql://…`, which names no driver, now
+  uses psycopg 3 - the driver `subroutine[postgres]` installs - where it used to look for
+  psycopg2. And in a `database_url`, `%` followed by two hex digits is read as an escape, as in
+  any URL, so a `%` meant as itself is written `%25`; the default database's URL escapes its
+  path already.
 - **A retired document leaves the open list, as finished work does.** `subroutine list`,
   `subroutine search`, the agent tools' `subroutine_list` and `subroutine_search`, and the
   browser's list now leave superseded and archived documents out, so retiring a document

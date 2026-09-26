@@ -503,7 +503,7 @@ def left_behind (connection: sqlalchemy.Connection) -> dict[str, int]:
 		{"prefixes": [THROWAWAY_PREFIX, *RETIRED_PREFIXES]},
 	)
 
-	return dict(rows.tuples().all())
+	return dict(rows.all())
 
 
 def swept (

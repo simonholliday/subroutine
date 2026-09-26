@@ -9,6 +9,7 @@ import annotated_types
 import pydantic
 import pytest
 import sqlalchemy
+import sqlalchemy.engine
 import typer
 
 import subroutine.cli.main
@@ -102,6 +103,37 @@ def test_sqlite_path_is_extracted (tmp_path: pathlib.Path) -> None:
 
 	assert not postgres_settings.is_sqlite
 	assert postgres_settings.sqlite_path is None
+
+
+def test_the_sqlite_path_is_the_file_sqlalchemy_opens (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The path read from a URL, and the default URL built from a path, agree with SQLAlchemy.
+
+	SQLAlchemy 2.1 reads `%` and two hex digits in a URL's database part as an escape, so a URL
+	taken apart by hand named one file while SQLAlchemy opened another, and a path written into
+	one as it stood named a third: a data directory called `100%41` is `100A` to SQLAlchemy
+	(`#3605`). A query string was part of the name too.
+	"""
+
+	for url in (
+		f"sqlite:///{tmp_path}/x.db",
+		f"sqlite:///{tmp_path}/100%41/x.db",
+		f"sqlite:///{tmp_path}/x.db?timeout=30",
+	):
+		opened = sqlalchemy.engine.make_url(url).database
+
+		assert opened is not None
+		assert subroutine.config.load_settings(database_url=url).sqlite_path == pathlib.Path(opened)
+
+	monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "100%41"))
+
+	path = subroutine.config.default_database_path()
+	url = subroutine.config.default_database_url()
+
+	assert "100%41" in str(path)
+	assert sqlalchemy.engine.make_url(url).database == str(path)
+	assert subroutine.config.load_settings(database_url=url).sqlite_path == path
 
 
 def test_sqlite_probe_succeeds_on_local_disk (tmp_path: pathlib.Path) -> None:

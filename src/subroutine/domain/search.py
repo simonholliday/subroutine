@@ -397,7 +397,7 @@ def anywhere (
 
 def in_a_comment (
 	query: str, *, entity_type: str, backend: str = LIKE
-) -> sqlalchemy.Select[tuple[typing.Any]]:
+) -> sqlalchemy.Select[typing.Any]:
 	"""Return the ids of items with a readable comment on them matching this query.
 
 	**Comments are the largest body of prose here after the event feed** — 780 of them against

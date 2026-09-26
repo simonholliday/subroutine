@@ -1323,7 +1323,7 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 	for table in COUNTED:
 		try:
 			with engine.connect() as connection:
-				found = connection.execute(
+				found: int = connection.execute(
 					# `table` is never user input: it comes from `COUNTED`, a literal tuple in
 					# this module, and an interpolation is needed because a table name cannot
 					# be a bound parameter.

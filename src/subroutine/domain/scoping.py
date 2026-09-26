@@ -159,7 +159,7 @@ def readable_projects (
 	include_deleted: bool = False,
 	include_archived: bool = False,
 	enforce_read_scope: bool = True,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.project.Project]]:
+) -> sqlalchemy.Select[subroutine.db.models.project.Project]:
 	"""Return a select over the projects this principal may see, and no others.
 
 	``workspace_ids`` is required and is never allowed to be empty-meaning-all: a listing
@@ -266,7 +266,7 @@ def prioritised_projects (
 
 	chosen = {
 		project_id: workspace_id
-		for workspace_id, project_id in session.execute(pointed_at).tuples().all()
+		for workspace_id, project_id in session.execute(pointed_at).all()
 	}
 
 	if not chosen:
@@ -327,7 +327,7 @@ def readable_documents (
 	include_deleted: bool = False,
 	include_deleted_projects: bool = False,
 	include_archived: bool = False,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Document]]:
+) -> sqlalchemy.Select[subroutine.db.models.work.Document]:
 	"""Return a select over the documents this principal may see, and no others.
 
 	The same narrowing as :func:`readable_tasks`, because a document is a work item under
@@ -380,7 +380,7 @@ def readable_tasks (
 	include_completed: bool = True,
 	include_archived: bool = False,
 	include_templates: bool = False,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+) -> sqlalchemy.Select[subroutine.db.models.work.Task]:
 	"""Return a select over the tasks this principal may see, and no others.
 
 	The join to ``project`` is what makes the visibility rules expressible at all, and is

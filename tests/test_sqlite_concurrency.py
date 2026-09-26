@@ -62,8 +62,8 @@ def test_wal_is_actually_applied (database: str) -> None:
 
 	try:
 		with engine.connect() as connection:
-			mode = connection.execute(sqlalchemy.text("PRAGMA journal_mode")).scalar_one()
-			timeout = connection.execute(sqlalchemy.text("PRAGMA busy_timeout")).scalar_one()
+			mode: str = connection.execute(sqlalchemy.text("PRAGMA journal_mode")).scalar_one()
+			timeout: int = connection.execute(sqlalchemy.text("PRAGMA busy_timeout")).scalar_one()
 
 	finally:
 		engine.dispose()

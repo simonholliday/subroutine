@@ -1075,7 +1075,6 @@ def test_no_seeded_role_tells_the_two_workspace_verbs_apart (
 				subroutine.db.models.identity.Role.permissions,
 			).where(subroutine.db.models.identity.Role.workspace_id == world.id)
 		)
-		.tuples()
 		.all()
 	}
 

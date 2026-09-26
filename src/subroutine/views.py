@@ -7713,7 +7713,6 @@ def settings_in_force (
 				project_model.id, project_model.title, project_model.workspace_id
 			).where(project_model.id.in_(project_ids))
 		)
-		.tuples()
 		.all()
 		if project_ids
 		else []
@@ -7746,7 +7745,6 @@ def settings_in_force (
 					workspace_model.id, workspace_model.slug, workspace_model.title
 				).where(workspace_model.id.in_(workspace_ids))
 			)
-			.tuples()
 			.all()
 			if workspace_ids
 			else []

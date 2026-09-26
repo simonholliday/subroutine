@@ -42,7 +42,7 @@ def downgrade() -> None:
     # did so has two rows the plain constraint below cannot accept — and the downgrade died on
     # an integrity error naming a constraint rather than the data. Refused by name instead,
     # saying which slug and what to do about it.
-    duplicates = op.get_bind().execute(
+    duplicates: typing.Sequence[str] = op.get_bind().execute(
         sqlalchemy.text(
             "SELECT slug FROM workspace GROUP BY slug HAVING COUNT(*) > 1 ORDER BY slug"
         )

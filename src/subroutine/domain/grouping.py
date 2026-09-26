@@ -289,7 +289,7 @@ def narrowings_from_rows (
 
 	assert column is not None, f"{axis} is an axis with no column to group on"
 
-	held = set(
+	held: set[uuid.UUID | None] = set(
 		session.scalars(statement.with_only_columns(column).order_by(None).distinct())
 	)
 	named = _named(session, {one for one in held if one is not None})
@@ -315,7 +315,7 @@ def _named (
 
 	model = subroutine.db.models.identity.User
 
-	# **`.tuples().all()`, and never `dict(session.execute(...))`.** A `Result` has a `.keys()`
+	# **`.all()`, and never `dict(session.execute(...))`.** A `Result` has a `.keys()`
 	# method, so `dict()` treats it as a mapping and raises `TypeError: not subscriptable` -
 	# a trap this project met once by *applying* ruff's C416 to working code. C416 asks for
 	# `dict()` here too; this is the spelling that satisfies it and works.
@@ -323,7 +323,6 @@ def _named (
 		session.execute(
 			sqlalchemy.select(model.id, model.username).where(model.id.in_(set(identifiers)))
 		)
-		.tuples()
 		.all()
 	)
 

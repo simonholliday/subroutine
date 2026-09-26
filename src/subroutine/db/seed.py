@@ -721,4 +721,4 @@ def _highest_positions (
 		.group_by(model.entity_type)
 	)
 
-	return dict(session.execute(statement).tuples().all())
+	return dict(session.execute(statement).all())

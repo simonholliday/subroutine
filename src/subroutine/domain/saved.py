@@ -364,7 +364,7 @@ def readable (
 	principal: subroutine.domain.authentication.Principal,
 	*,
 	workspace_id: uuid.UUID,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.saved.SavedView]]:
+) -> sqlalchemy.Select[subroutine.db.models.saved.SavedView]:
 	"""Permit reading views here, and return the statement selecting the ones this caller sees.
 
 	**Mine, plus everybody's shared ones.** The two halves of `#1402`'s second decision, as one

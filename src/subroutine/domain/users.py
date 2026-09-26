@@ -418,7 +418,7 @@ def readable (
 	*,
 	actor: subroutine.domain.authentication.Principal | None = None,
 	answers_to: str | None = None,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.identity.User]]:
+) -> sqlalchemy.Select[subroutine.db.models.identity.User]:
 	"""Return the statement behind the account directory, narrowed by what was asked.
 
 	**A statement rather than rows, which is what lets both transports page it identically**
@@ -572,7 +572,7 @@ def _member_by_name (
 
 def _members (
 	workspace_id: uuid.UUID,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.identity.User]]:
+) -> sqlalchemy.Select[subroutine.db.models.identity.User]:
 	"""Return a select over the live members of one workspace."""
 
 	model = subroutine.db.models.identity.User

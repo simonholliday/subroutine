@@ -789,7 +789,7 @@ def _holders (
 
 	model = subroutine.db.models.project.Project
 
-	# `.tuples().all()` rather than the `Result` itself: a bare `dict(session.execute(...))`
+	# `.all()` rather than the `Result` itself: a bare `dict(session.execute(...))`
 	# raises, because a `Result` has a `.keys()` method and `dict` therefore treats it as a
 	# mapping. A recorded trap here, met once as a ruff C416 suggestion applied to working code.
 	rows = (
@@ -798,7 +798,6 @@ def _holders (
 				model.id.in_(set(ids))
 			)
 		)
-		.tuples()
 		.all()
 	)
 	ancestry = {
@@ -807,12 +806,11 @@ def _holders (
 		for segment in subroutine.domain.hierarchy.path_segments(path)
 	}
 
-	held = (
+	held: dict[uuid.UUID, dict[str, typing.Any]] = (
 		dict(
 			session.execute(
 				sqlalchemy.select(model.id, model.settings).where(model.id.in_(ancestry))
 			)
-			.tuples()
 			.all()
 		)
 		if ancestry
@@ -821,13 +819,12 @@ def _holders (
 
 	# Every workspace the page touches, in one query for the same reason the ancestors are.
 	space = subroutine.db.models.identity.Workspace
-	spaces = dict(
+	spaces: dict[uuid.UUID, dict[str, typing.Any]] = dict(
 		session.execute(
 			sqlalchemy.select(space.id, space.settings).where(
 				space.id.in_({identity for _row, _path, identity in rows})
 			)
 		)
-		.tuples()
 		.all()
 	)
 

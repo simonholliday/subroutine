@@ -257,6 +257,31 @@ def test_a_deep_clean_reports_a_connection_that_is_not_this_machine (
 	)
 
 
+def test_a_database_somewhere_else_is_named_as_the_file_it_is (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""A SQLite file the configuration puts elsewhere is left, and the line names that file.
+
+	**The file read the way SQLAlchemy reads the URL** (`#3605`). Split off the URL by hand, a
+	path holding `%` and two hex digits was handed over as written, where SQLAlchemy 2.1 opens
+	the decoded one, so the command offered would have removed a file that was not the database.
+	"""
+
+	_installed()
+	subroutine.config.config_file_path().write_text(
+		f"database_url = 'sqlite:///{tmp_path}/100%41/kept.db'\n", encoding="utf-8"
+	)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+
+	printed = capsys.readouterr().out
+	opened = tmp_path / "100A" / "kept.db"
+
+	assert f"rm {shlex.quote(str(opened))}" in printed, (
+		f"the line did not name the file SQLAlchemy opens, {opened}:\n{printed}"
+	)
+
+
 def test_the_clean_names_every_plugin_the_repository_publishes () -> None:
 	"""Discovered from the marketplace manifest, so a third plugin needs no edit here.
 

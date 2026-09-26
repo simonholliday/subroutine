@@ -1455,7 +1455,7 @@ def _resolve (
 def _page (
 	session: sqlalchemy.orm.Session,
 	settings: subroutine.config.Settings,
-	statement: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
+	statement: sqlalchemy.Select[subroutine.db.models.work.Task],
 	*,
 	order: str | None,
 	limit: int | None,

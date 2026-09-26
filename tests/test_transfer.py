@@ -332,7 +332,9 @@ def test_a_child_stored_before_its_parent_still_copies (
 			)
 
 		with engine.connect() as connection:
-			read = connection.execute(sqlalchemy.select(tasks.c.id)).scalars().all()
+			read: typing.Sequence[typing.Any] = (
+				connection.execute(sqlalchemy.select(tasks.c.id)).scalars().all()
+			)
 
 		assert read[0] != parent["id"], "the parent is still read first, so this proves nothing"
 

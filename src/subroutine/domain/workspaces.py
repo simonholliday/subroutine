@@ -786,15 +786,12 @@ def set_member_role (
 	member = subroutine.db.models.identity.WorkspaceMember
 	role = subroutine.db.models.identity.Role
 
-	# ``.tuples()`` rather than a bare ``.execute``: without it the row is a tuple of ``Any``
-	# and mypy stops being able to say anything about either half of it.
 	row = (
 		session.execute(
 			sqlalchemy.select(member, role)
 			.join(role, role.id == member.role_id)
 			.where(member.workspace_id == workspace.id, member.user_id == user.id)
 		)
-		.tuples()
 		.first()
 	)
 
@@ -1270,17 +1267,15 @@ def on_instance (
 	workspace = subroutine.db.models.identity.Workspace
 	member = subroutine.db.models.identity.WorkspaceMember
 
-	# **``.tuples().all()``, and the ``.all()`` is the load-bearing half.** A `Result` has a
-	# `.keys()`, so `dict()` treats it as a mapping and raises `TypeError: 'ChunkedIteratorResult'
-	# object is not subscriptable` — and `.tuples()` does **not** rescue it, because a
-	# `TupleResult` is still a `Result` and still has `.keys()`. This is a recorded trap in this
-	# project, it arrived both times as a ruff C416 suggestion taken on working code, and the
-	# comment written here the first time claimed `.tuples()` alone was enough. It is not.
+	# **``.all()`` is load-bearing.** A `Result` has a `.keys()`, so `dict()` treats it as a
+	# mapping and raises `TypeError: 'ChunkedIteratorResult' object is not subscriptable`. This is
+	# a recorded trap in this project, and it arrived both times as a ruff C416 suggestion taken
+	# on working code.
 	counts = dict(
 		session.execute(
 			sqlalchemy.select(member.workspace_id, sqlalchemy.func.count())
 			.group_by(member.workspace_id)
-		).tuples().all()
+		).all()
 	)
 
 	mine = (

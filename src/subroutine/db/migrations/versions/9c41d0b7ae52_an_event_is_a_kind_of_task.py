@@ -97,17 +97,17 @@ def upgrade () -> None:
     # Where each workspace's task types have got to, so the new one goes after them rather
     # than on top of one. A workspace with no task types at all cannot happen — `init` seeds
     # five — but `or 0` is what stops this being a claim rather than a query.
-    highest = dict(
+    highest: dict[uuid.UUID, int] = dict(
         connection.execute(
             sqlalchemy.select(
                 item_type.c.workspace_id, sqlalchemy.func.max(item_type.c.position)
             )
             .where(item_type.c.entity_type == 'task')
             .group_by(item_type.c.workspace_id)
-        ).tuples().all()
+        ).all()
     )
 
-    already = set(
+    already: set[uuid.UUID] = set(
         connection.scalars(
             sqlalchemy.select(item_type.c.workspace_id).where(
                 item_type.c.entity_type == 'task', item_type.c.key == EVENT['key']
@@ -158,7 +158,7 @@ def downgrade () -> None:
 
     connection = op.get_bind()
 
-    types = list(
+    types: list[uuid.UUID] = list(
         connection.scalars(
             sqlalchemy.select(item_type.c.id).where(
                 item_type.c.entity_type == 'task', item_type.c.key == EVENT['key']

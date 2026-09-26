@@ -332,7 +332,7 @@ def said (
 		sqlalchemy.select(model.id, model.body).where(
 			model.id.in_(wanted_ids), model.deleted_at.is_(None)
 		)
-	).tuples()
+	)
 
 	return {
 		identifier: Said(*subroutine.domain.text.opening(body, OPENING))

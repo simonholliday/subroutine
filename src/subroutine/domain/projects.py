@@ -1008,7 +1008,7 @@ def unreachable (
 			workspace.deleted_at.is_(None),
 		)
 		.order_by(workspace.slug, project.key, project.id)
-	).tuples().all()
+	).all()
 
 	gone = () if leaving is None else (leaving.id,)
 
@@ -1032,7 +1032,7 @@ def unreachable (
 			sqlalchemy.select(membership.project_id, sqlalchemy.func.count())
 			.where(membership.project_id.in_([row.id for row, _place in stranded]))
 			.group_by(membership.project_id)
-		).tuples().all()
+		).all()
 	)
 	addresses = paths_for(session, [row.id for row, _place in stranded])
 
@@ -1620,13 +1620,12 @@ def paths_for (
 
 	model = subroutine.db.models.project.Project
 
-	# `.tuples().all()` rather than the `Result` itself: a bare `dict(session.execute(...))`
+	# `.all()` rather than the `Result` itself: a bare `dict(session.execute(...))`
 	# raises, because a `Result` has a `.keys()` method and `dict` therefore treats it as a
 	# mapping. That is a recorded trap here, met once as a ruff C416 suggestion applied to
 	# working code.
 	paths = dict(
 		session.execute(sqlalchemy.select(model.id, model.path).where(model.id.in_(set(ids))))
-		.tuples()
 		.all()
 	)
 	ancestry = {
@@ -1640,7 +1639,6 @@ def paths_for (
 
 	keys = dict(
 		session.execute(sqlalchemy.select(model.id, model.key).where(model.id.in_(ancestry)))
-		.tuples()
 		.all()
 	)
 	composed: dict[uuid.UUID, str] = {}

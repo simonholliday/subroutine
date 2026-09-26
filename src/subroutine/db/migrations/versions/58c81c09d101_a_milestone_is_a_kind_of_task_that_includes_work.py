@@ -158,17 +158,17 @@ def upgrade () -> None:
     # Where each workspace's task types have got to, so the new one goes after them rather
     # than on top of one. A workspace with no task types at all cannot happen - `init` seeds
     # five - but `or 0` is what stops this being a claim rather than a query.
-    highest = dict(
+    highest: dict[uuid.UUID, int] = dict(
         connection.execute(
             sqlalchemy.select(
                 item_type.c.workspace_id, sqlalchemy.func.max(item_type.c.position)
             )
             .where(item_type.c.entity_type == 'task')
             .group_by(item_type.c.workspace_id)
-        ).tuples().all()
+        ).all()
     )
 
-    typed = set(
+    typed: set[uuid.UUID] = set(
         connection.scalars(
             sqlalchemy.select(item_type.c.workspace_id).where(
                 item_type.c.entity_type == 'task', item_type.c.key == MILESTONE['key']
@@ -197,10 +197,12 @@ def upgrade () -> None:
     # **Every workspace, read from the status table rather than from `workspace`**, as
     # `SR#1688`'s migration did. A link type is not scoped by entity type and carries no
     # position, so there is nothing to order against.
-    everywhere = set(connection.scalars(sqlalchemy.select(status.c.workspace_id).distinct()))
+    everywhere: set[uuid.UUID] = set(
+        connection.scalars(sqlalchemy.select(status.c.workspace_id).distinct())
+    )
 
     for seeded in LINK_TYPES:
-        already = set(
+        already: set[uuid.UUID] = set(
             connection.scalars(
                 sqlalchemy.select(link_type.c.workspace_id).where(
                     link_type.c.key == seeded['key']
@@ -254,7 +256,7 @@ def downgrade () -> None:
     # narrowed over it, and the downgrade failed on the constraint rather than refusing in its own
     # words. The category marks `milestone` and `includes` whatever their keys; a renamed
     # `precedes` is left behind, which is harmless, since `ordering` stays in the column.
-    types = list(
+    types: list[uuid.UUID] = list(
         connection.scalars(
             sqlalchemy.select(item_type.c.id).where(
                 item_type.c.entity_type == 'task',
@@ -264,7 +266,7 @@ def downgrade () -> None:
         )
     )
     keys = [seeded['key'] for seeded in LINK_TYPES]
-    edges = list(
+    edges: list[uuid.UUID] = list(
         connection.scalars(
             sqlalchemy.select(link_type.c.id).where(
                 sqlalchemy.or_(link_type.c.category == LINK_CATEGORY, link_type.c.key.in_(keys)),

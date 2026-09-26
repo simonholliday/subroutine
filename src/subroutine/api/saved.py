@@ -114,7 +114,7 @@ def _named (
 	return dict(
 		session.execute(
 			sqlalchemy.select(model.id, model.username).where(model.id.in_(wanted))
-		).tuples().all()
+		).all()
 	)
 
 

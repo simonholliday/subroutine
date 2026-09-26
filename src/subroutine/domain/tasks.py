@@ -467,7 +467,9 @@ def estimate_beneath (
 			subroutine.domain.hierarchy.subtree(model, row),
 		)
 	).one()
-	tasks, estimated, minutes = int(counted[0]), int(counted[1]), int(counted[2])
+	# `or 0` for the type alone: `coalesce` has made the sum a number already, and SQLAlchemy 2.1
+	# types it as the sum it wraps, which may be NULL.
+	tasks, estimated, minutes = int(counted[0]), int(counted[1]), int(counted[2] or 0)
 
 	if not tasks:
 		return None

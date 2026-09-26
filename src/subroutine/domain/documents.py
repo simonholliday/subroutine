@@ -940,7 +940,7 @@ def _superseded_by (
 				link.deleted_at.is_(None),
 				kind.key == SUPERSEDES,
 			)
-		).tuples().all()
+		).all()
 	)
 
 
@@ -975,7 +975,7 @@ def children_among (
 		sqlalchemy.select(model.parent_id, sqlalchemy.func.count())
 		.where(model.parent_id.in_(wanted), model.deleted_at.is_(None))
 		.group_by(model.parent_id)
-	).tuples().all()
+	).all()
 
 	return {parent: total for parent, total in counted if parent is not None}
 
@@ -1153,7 +1153,7 @@ def _vocabulary (
 	)
 
 	if key is None:
-		found = session.scalars(
+		found: typing.Any = session.scalars(
 			statement.where(model.is_default.is_(True)).order_by(model.position)
 		).first()
 
@@ -1163,7 +1163,7 @@ def _vocabulary (
 	if found is not None:
 		return found
 
-	available = sorted(
+	available: list[str] = sorted(
 		session.scalars(
 			sqlalchemy.select(model.key).where(
 				model.workspace_id == workspace_id, model.entity_type == "document"

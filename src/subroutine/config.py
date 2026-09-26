@@ -27,6 +27,7 @@ import urllib.parse
 import pydantic
 import pydantic.fields
 import pydantic_settings
+import sqlalchemy.engine
 
 APPLICATION_NAME = "subroutine"
 
@@ -385,9 +386,16 @@ def default_database_path () -> pathlib.Path:
 
 
 def default_database_url () -> str:
-	"""Return the default database URL, pointing at local SQLite storage."""
+	"""Return the default database URL, pointing at local SQLite storage.
 
-	return f"sqlite:///{default_database_path()}"
+	**Built, never interpolated** (`#3605`). SQLAlchemy 2.1 reads `%` and two hex digits in a
+	URL's database part as an escape, so a path written in as it stands names another file when
+	it holds them - `100%41` is `100A` - where building the URL escapes them.
+	"""
+
+	return sqlalchemy.engine.URL.create(
+		"sqlite", database=str(default_database_path())
+	).render_as_string(hide_password=False)
 
 
 def system_timezone () -> str:
@@ -988,9 +996,19 @@ class Settings(pydantic_settings.BaseSettings):
 		if not self.is_sqlite:
 			return None
 
-		_, _, remainder = self.database_url.partition("///")
+		# **Read the way SQLAlchemy reads it, so this is the file it opens** (`#3605`). Split by
+		# hand, `%` and two hex digits stayed as written where 2.1 decodes them, and a query string
+		# became part of the name.
+		try:
+			database = sqlalchemy.engine.make_url(self.database_url).database
 
-		return pathlib.Path(remainder) if remainder else None
+		# Broad on purpose, as `db.session` is: `make_url` raises several types for a URL it
+		# cannot parse, and that URL names no file anything will open. What is wrong with it is
+		# `create_engine`'s to say.
+		except Exception:
+			return None
+
+		return pathlib.Path(database) if database else None
 
 	def has_no_instance_yet (self) -> bool:
 		"""Report whether nothing has been set up here at all (`#165`).

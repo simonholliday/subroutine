@@ -46,7 +46,7 @@ def downgrade() -> None:
     # different parents, and the plain workspace-wide index below cannot accept them, so
     # the downgrade would die on an integrity error naming a constraint rather than the
     # data. Refused by name instead, saying which key and what to do about it.
-    duplicates = op.get_bind().execute(
+    duplicates: typing.Sequence[str] = op.get_bind().execute(
         sqlalchemy.text(
             "SELECT key FROM project WHERE deleted_at IS NULL "
             "GROUP BY workspace_id, key HAVING COUNT(*) > 1 ORDER BY key"

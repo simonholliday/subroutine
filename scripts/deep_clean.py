@@ -524,13 +524,13 @@ def _things_nobody_else_may_decide (
 					"drop it yourself if it was only for this install"
 				),
 			))
-		elif url and pathlib.Path(url.split("///")[-1]) != default:
+		elif url and settings.sqlite_path != default:
 			steps.append(Step(
 				"database",
 				url,
 				"SKIPPED",
 				detail="a SQLite file somewhere this tool did not put one",
-				by_hand=f"rm {shlex.quote(url.split('///')[-1])}",
+				by_hand=f"rm {shlex.quote(str(settings.sqlite_path))}",
 			))
 
 		configured = (getattr(settings, "backup_directory", "") or "").strip()

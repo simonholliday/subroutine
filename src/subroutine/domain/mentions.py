@@ -133,7 +133,7 @@ def resolve (
 			sqlalchemy.select(model.ref, model.id).where(
 				model.workspace_id == workspace_id, model.ref.in_(wanted)
 			)
-		).tuples()
+		)
 
 		for ref, identifier in rows:
 			# A ref names exactly one thing (§6.2), but the schema enforces that per table

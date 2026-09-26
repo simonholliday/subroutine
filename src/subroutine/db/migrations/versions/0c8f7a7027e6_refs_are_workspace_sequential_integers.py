@@ -94,7 +94,9 @@ def _renumber(connection: sqlalchemy.Connection) -> None:
     exactly one thing.
     """
 
-    workspaces = connection.execute(sqlalchemy.text('SELECT id FROM workspace')).scalars().all()
+    workspaces: typing.Sequence[typing.Any] = (
+        connection.execute(sqlalchemy.text('SELECT id FROM workspace')).scalars().all()
+    )
 
     union = ' UNION ALL '.join(
         f"SELECT '{table}' AS kind, id, created_at FROM {table} WHERE workspace_id = :workspace"

@@ -111,15 +111,15 @@ def upgrade () -> None:
     # Where each workspace's task statuses have got to, so the new one goes after them rather
     # than on top of one. A workspace with no task statuses cannot happen — `init` seeds six —
     # but `or 0` is what stops this being a claim rather than a query.
-    highest = dict(
+    highest: dict[uuid.UUID, int] = dict(
         connection.execute(
             sqlalchemy.select(status.c.workspace_id, sqlalchemy.func.max(status.c.position))
             .where(status.c.entity_type == 'task')
             .group_by(status.c.workspace_id)
-        ).tuples().all()
+        ).all()
     )
 
-    holding = set(
+    holding: set[uuid.UUID] = set(
         connection.scalars(
             sqlalchemy.select(status.c.workspace_id).where(
                 status.c.entity_type == 'task', status.c.key == STATUS['key']
@@ -147,9 +147,11 @@ def upgrade () -> None:
     # **Every workspace, read from the status table rather than from `workspace`.** A link type
     # is not scoped by entity type, so there is no per-kind maximum to find and nothing to
     # order against — `link_type` carries no position column.
-    everywhere = set(connection.scalars(sqlalchemy.select(status.c.workspace_id).distinct()))
+    everywhere: set[uuid.UUID] = set(
+        connection.scalars(sqlalchemy.select(status.c.workspace_id).distinct())
+    )
 
-    already = set(
+    already: set[uuid.UUID] = set(
         connection.scalars(
             sqlalchemy.select(link_type.c.workspace_id).where(
                 link_type.c.key == LINK_TYPE['key']
@@ -221,12 +223,12 @@ def downgrade () -> None:
 
     connection = op.get_bind()
 
-    types = list(
+    types: list[uuid.UUID] = list(
         connection.scalars(
             sqlalchemy.select(link_type.c.id).where(link_type.c.key == LINK_TYPE['key'])
         )
     )
-    statuses = list(
+    statuses: list[uuid.UUID] = list(
         connection.scalars(
             sqlalchemy.select(status.c.id).where(
                 status.c.entity_type == 'task', status.c.key == STATUS['key']

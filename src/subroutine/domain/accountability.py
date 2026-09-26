@@ -297,7 +297,7 @@ def account_parents_for_many (
 	names = dict(
 		session.execute(
 			sqlalchemy.select(model.id, model.username).where(model.id.in_(set(linked.values())))
-		).tuples().all()
+		).all()
 	)
 
 	return {account: names[parent] for account, parent in linked.items() if parent in names}

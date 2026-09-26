@@ -175,7 +175,7 @@ def progress_among (
 			filed_in.deleted_at.is_(None),
 		)
 		.group_by(link.source_id)
-	).tuples()
+	)
 
 	return {
 		source: Progress(

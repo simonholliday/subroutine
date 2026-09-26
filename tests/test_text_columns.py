@@ -630,9 +630,10 @@ def test_a_control_character_never_reaches_a_column (
 			f"divergence itself — on SQLite it would have been stored: {refused}"
 		)
 
+	stored: typing.Sequence[str | None] = world.session.scalars(sqlalchemy.select(column)).all()
 	carrying = [
 		one
-		for one in world.session.scalars(sqlalchemy.select(column))
+		for one in stored
 		if one and any(character in subroutine.domain.text.CONTROL_CHARACTERS for character in one)
 	]
 

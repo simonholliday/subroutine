@@ -116,7 +116,7 @@ def record (
 
 def against (
 	task: subroutine.db.models.work.Task,
-) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Verification]]:
+) -> sqlalchemy.Select[subroutine.db.models.work.Verification]:
 	"""Return the statement for one task's records, newest first.
 
 	**Newest first, unlike a comment thread.** A record is not read as a story: what a caller

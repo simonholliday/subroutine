@@ -1638,7 +1638,9 @@ def test_an_unsupported_backend_is_named_rather_than_missing_a_driver (
 
 
 def test_a_supported_backend_with_no_driver_names_what_installs_it (
-	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	"""`#927`'s H-20 — the sibling of the test above, and the commoner of the two.
 
@@ -1657,10 +1659,10 @@ def test_a_supported_backend_with_no_driver_names_what_installs_it (
 	in what that raised — it was that nothing between it and the reader turned it into a
 	sentence.
 
-	A bare `postgresql://` names no driver, so SQLAlchemy reaches for `psycopg2`, which this
-	project does not ship under any extra. That is the same failure as a missing `psycopg` and
-	is reachable on a machine that *has* the extra installed, which is what makes it testable
-	here at all.
+	A bare `postgresql://` names no driver, and SQLAlchemy 2.1 reaches for `psycopg`, which is
+	the driver the extra installs, so the advice is right for this URL; 2.0 reached for
+	`psycopg2`, which no extra here ships (`#3605`). Hiding `psycopg` from the import system is
+	what a machine that never took the extra looks like to SQLAlchemy.
 	"""
 
 	run("init", "--workspace", "Real")
@@ -1670,9 +1672,12 @@ def test_a_supported_backend_with_no_driver_names_what_installs_it (
 	with configuration.open("a", encoding="utf-8") as handle:
 		handle.write('\ndatabase_url = "postgresql://user@localhost/thing"\n')
 
+	monkeypatch.setitem(sys.modules, "psycopg", None)
+
 	refused = run("list", expect=1)
 
 	assert "no postgresql driver" in refused.output
+	assert "psycopg is not installed" in refused.output
 	assert "subroutine[postgres]" in refused.output
 
 	# **The half that is the finding.** The message it replaced was the crash report, which
