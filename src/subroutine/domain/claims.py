@@ -153,10 +153,13 @@ def claim (
 			claim_expires_at=moment + datetime.timedelta(
 				minutes=_lease(minutes, settings)
 			),
-			# **The version moves, for `delete`'s reason.** A claim changes what a caller may
-			# safely do next, so a version that stood still across one would let somebody edit
-			# on the strength of a read taken before the work was taken.
-			version=model.version + 1,
+			# **The version stays where it was** (decision `#3742`, reversing `4f14ab1`). It moved
+			# here once, so that nobody could edit on the strength of a read taken before the work
+			# was taken; but writing to an item somebody holds is allowed anyway (`release` says
+			# why), and the version exists to stop one writer saving over another's edit, which a
+			# lease is not. Moving it refused the skill's own sequence - read, claim, then write
+			# with the version read - every time, and a person's open form whenever anybody
+			# claimed the item under it (`#3672`).
 		)
 	)
 
@@ -232,7 +235,8 @@ def release (
 	task.claimed_by_id = None
 	task.claimed_at = None
 	task.claim_expires_at = None
-	task.version += 1
+	# **And the version stays, as it does for a claim** (decision `#3742`): giving a lease back
+	# changes nothing the item says.
 	session.flush()
 
 	subroutine.domain.events.record(

@@ -740,6 +740,43 @@ def test_an_update_that_was_half_saved_says_which_half (
 	assert "in_progress" in shown, shown
 
 
+def test_the_skills_own_sequence_writes_with_the_version_it_read (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#3672`, decision `#3742`: read, claim, then write with the version that was read.
+
+	That is what the skill teaches, and it was refused every time, because the claim had moved the
+	version, and renewing the claim mid-work moved it again. A lease is not an edit, so it leaves
+	the version alone. **And each reply says the version it left**, so an agent can send it with
+	its next write without reading the item again.
+	"""
+
+	ref = _added(bound, "Rewire the parser")
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, shown
+
+	found = re.search(r"^version (\d+)$", shown, re.MULTILINE)
+
+	assert found is not None, f"show gave no version to send back:\n{shown}"
+
+	read = int(found.group(1))
+	taken, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, taken
+	assert f"still at version {read}" in taken, f"the claim did not say the version: {taken!r}"
+
+	_called(bound, "subroutine_claim", ref=ref)
+	changed, failed = _called(
+		bound, "subroutine_update", ref=ref, status="in_progress", expected_version=read
+	)
+
+	assert not failed, f"the write the skill describes was refused after a claim: {changed!r}"
+	assert f"Now at version {read + 1}." in changed, (
+		f"the update did not say the version it left: {changed!r}"
+	)
+
+
 def _called (
 	server: subroutine.mcp.protocol.Server, name: str, **arguments: typing.Any
 ) -> tuple[str, bool]:
@@ -9616,8 +9653,11 @@ def test_changing_a_task_says_what_changed_not_only_what_it_now_is (
 	shown, failed = _called(bound, "subroutine_show", ref=ref)
 	assert not failed, shown
 
+	# **The first line**, which is where the echo ends: the version the write left the item at
+	# is on a line of its own beneath it (decision `SR#3742`).
+	echo = answer.split("\n")[0]
 	deferred = next(
-		(part for part in answer.split("(set ")[1].rstrip(")").split(", ") if part.startswith("defer ")),
+		(part for part in echo.split("(set ")[1].rstrip(")").split(", ") if part.startswith("defer ")),
 		None,
 	)
 

@@ -101,6 +101,12 @@ upgrade involves.
   on its own, or when a server that has just restarted answers slowly - the agenda was drawn
   under the other view's tab, one column wide, until you reloaded the page. A late answer is now
   set aside, and the board or list you chose shows its own rows.
+- **Claiming an item no longer changes its version.** Taking a claim, renewing it or giving it
+  back moved the version, so an agent that read an item, claimed it and then saved with the
+  version it had read was refused every time, and a form open in the browser was refused
+  whenever somebody claimed the item under it. The version now moves only when what the item
+  says changes. The agent tools' replies to a claim and to an update also say the version they
+  leave the item at, so the next save needs no read first.
 
 ## 0.9.10 — 2026-09-26
 

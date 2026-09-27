@@ -232,6 +232,39 @@ def test_releasing_what_nobody_holds_records_nothing (
 	]
 
 
+def test_a_claim_leaves_the_version_where_it_was (session: sqlalchemy.orm.Session) -> None:
+	"""`#3672`, decision `#3742`: a lease is not an edit, so taking one does not move the version.
+
+	The skill has an agent read an item, claim it, and write with the version it read, and the
+	browser sends the version with every save. A claim that moved it refused both, every time,
+	though nothing the item says had changed. So taking, renewing and giving back are each asked,
+	and then the write the skill describes, which is what moves it.
+	"""
+
+	_workspace, project, owner = _place(session)
+	task = _task(session, project)
+	read = task.version
+
+	subroutine.domain.claims.claim(session, task, actor=owner)
+
+	assert task.version == read, "taking a claim moved the version"
+
+	subroutine.domain.claims.claim(session, task, actor=owner)
+
+	assert task.version == read, "renewing a claim moved the version"
+
+	subroutine.domain.claims.release(session, task, actor=owner)
+
+	assert task.version == read, "giving a claim back moved the version"
+
+	subroutine.domain.claims.claim(session, task, actor=owner)
+	subroutine.domain.tasks.update(
+		session, task, title="Taken, then changed", expected_version=read, actor=owner
+	)
+
+	assert task.version == read + 1, "the edit is what moves the version, once"
+
+
 def test_anybody_who_may_change_it_may_release_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:

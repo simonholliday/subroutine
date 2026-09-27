@@ -1686,7 +1686,10 @@ def _claimed (
 		zone = subroutine.domain.dates.zone(_account_zone(client, workspace))
 		until = f", until {held.claim_expires_at.astimezone(zone):%d %b %H:%M}"
 
-	said = f"Claimed #{held.ref}  {held.title}{until}"
+	# **And the version, which the claim left where it was** (decision `#3742`): the version an
+	# agent read before claiming is still the one to send with its next write, and saying so
+	# spares it a read to find out.
+	said = f"Claimed #{held.ref}  {held.title}{until}, still at version {held.version}"
 
 	# **A claim does not say work has begun, so the next call is named here** (`#2486`).
 	# Measured over a fortnight, agents that claimed an item and later finished it had left it
@@ -5040,4 +5043,10 @@ def _updated (
 			"of you."
 		)
 
-	return "Changed " + _line(changed, now=subroutine.db.types.utcnow()) + said
+	# **And the version the write left it at, on a line of its own** (decision `#3742`), so an
+	# agent writing again can send it as `expected_version` without reading the item first. Below
+	# the first line rather than on it, so what was set still ends that line, as `add`'s echo does.
+	return (
+		"Changed " + _line(changed, now=subroutine.db.types.utcnow()) + said
+		+ f"\nNow at version {changed.version}."
+	)
