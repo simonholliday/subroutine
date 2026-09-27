@@ -133,6 +133,11 @@ Three things, and the third is often forgotten:
 Nothing else. There is no account to create on your side, no key to exchange, and no
 configuration file you have to write by hand.
 
+**What you file there is seen by whoever can see its project** - in their lists, their searches
+and their calendars. Privacy belongs to a place rather than to an item, so something only you
+should see goes in a private project or in a workspace of your own, and `+key` on a captured
+line files it there as you write it.
+
 ## Where your token is kept, and what removes it
 
 **A token can be kept in seven places, and they differ in what reads it and in what can take it
@@ -805,6 +810,11 @@ work would erase a meeting from your calendar's history the moment you ticked it
 
 **It shows what you can see, asked afresh every time.** Losing access to a project takes it out
 of the feed the same day. There is no way to make a feed of somebody else's work.
+
+**And everybody else's shows what they can see**, so an item in a project other people can see
+is on any of their calendars whose feed covers that project. Something only you should see
+belongs in a private project, or in a workspace of your own - `+key` on a captured line files
+it there as you write it.
 
 **If `subroutine calendar create` says it has no address to give you**, the instance has not
 been told its own - ask whoever runs it to set `public_url`, then reset the feed. It is not

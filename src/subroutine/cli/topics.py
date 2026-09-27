@@ -490,6 +490,11 @@ Reading always spans everything you can reach, so nothing is hidden by
 being in the wrong place. Only writing picks one, and 'subroutine use
 work' is how you move it.
 
+On a server other people use, whoever can see a project sees what is
+in it - in their lists, their searches and their calendars. Something
+only you should see goes in a private project or a workspace of your
+own, and '+key' on a captured line files it there as you write it.
+
 An agent reaches an instance a different way - through a plugin rather
 than through this program, and if the work is on somebody else's
 server it needs nothing installed at all. That is a longer story than
