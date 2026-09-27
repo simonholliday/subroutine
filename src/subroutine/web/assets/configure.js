@@ -147,7 +147,7 @@ export function zoneSaid (stored, reading) {
 	*/
 	if (stored) return `Every date is worked out in ${stored}, in every workspace.`;
 
-	const installation = reading ? ` — ${reading} —` : "";
+	const installation = reading ? ` - ${reading} -` : "";
 
 	return "Not set, so each workspace's own timezone is used inside it, and this installation's"
 		+ `${installation} everywhere else.`;
@@ -554,7 +554,7 @@ function ProjectPages ({ slug, projects = [], more = false }) {
 		<div class="setting-row setting-projects">
 			<h4>Projects</h4>
 			<p class="hint">Each project can set these for itself. What one does not set, it
-				inherits — from the project above it, and then from here.</p>
+				inherits - from the project above it, and then from here.</p>
 			<ul>
 				${titled.map(([path, title]) => html`
 					<li key=${path}>
@@ -634,7 +634,7 @@ export function ProjectSettings ({
 		<section class="setting-page">
 			<h3>${title || project}</h3>
 			<p class="hint">${project}, in <a href=${settingsAddress(space)}>${workspace.title || workspace.slug}</a>.
-				What this project does not set, it inherits — from the nearest project above it that
+				What this project does not set, it inherits - from the nearest project above it that
 				does, and then from the workspace.</p>
 			${settingRows({
 				scope: "project", slug: workspace.slug, registry, sections, statuses, inForce, may,
@@ -736,8 +736,8 @@ export function InstanceSettings ({
 							<button type="submit" class="primary" disabled=${busy}>Save</button>
 						</div>
 					</form>`}
-			<p class="hint">Everything else about this installation — where its database is, where
-				its backups go, the addresses it answers on and trusts — is set in its configuration
+			<p class="hint">Everything else about this installation - where its database is, where
+				its backups go, the addresses it answers on and trusts - is set in its configuration
 				file on the server, by whoever runs it. <code>subroutine config show</code> there prints
 				all of it, with where each value came from.</p>
 		</section>

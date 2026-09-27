@@ -77,6 +77,9 @@ upgrade involves.
   against what the credential may do wherever it lands.
 - **The agenda's footer reads as a sentence.** It ran its first count into a colon, as in
   *11 not shown here:4 dated further out*, and a page holding one item said *1 items*.
+- **The browser uses a spaced hyphen where it used an em dash**, as everything the program
+  prints already did: in the priority labels, the add box's example and the settings pages'
+  notes. An empty cell is a bare hyphen.
 
 ## 0.9.10 — 2026-09-26
 

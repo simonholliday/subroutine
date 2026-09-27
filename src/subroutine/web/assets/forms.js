@@ -35,11 +35,11 @@ import { Row } from "./rows.js";
 	direction without moving anything.
 */
 export const PRIORITIES = [
-	{ value: 1, label: "1 — Very low" },
-	{ value: 2, label: "2 — Low" },
-	{ value: 3, label: "3 — Medium" },
-	{ value: 4, label: "4 — High" },
-	{ value: 5, label: "5 — Very high" },
+	{ value: 1, label: "1 - Very low" },
+	{ value: 2, label: "2 - Low" },
+	{ value: 3, label: "3 - Medium" },
+	{ value: 4, label: "4 - High" },
+	{ value: 5, label: "5 - Very high" },
 ];
 
 /*
@@ -146,7 +146,7 @@ export function Fields ({
 	const rank = (name, label) => html`
 		<label><span>${label}</span>
 			<select class="field" name=${name} disabled=${busy}>
-				<option value="" selected=${!held[name]}>—</option>
+				<option value="" selected=${!held[name]}>-</option>
 				${PRIORITIES.map((one) => html`
 					<option key=${one.value} value=${one.value}
 						selected=${String(held[name]) === String(one.value)}>${one.label}</option>
@@ -406,7 +406,7 @@ export function Reading ({ reading }) {
 //: same shape — *"a project is named like `+web`"* — as do the agent tool, `/v1/meta`'s
 //: examples and the README. And a `+a/b` here would teach addressing inside the one box whose
 //: workspace is chosen silently, which is `SR#1544`.
-export const CAPTURE_HINT = "Add something — try: Book a dentist appointment tomorrow +inbox !4/3";
+export const CAPTURE_HINT = "Add something - try: Book a dentist appointment tomorrow +inbox !4/3";
 
 //: What the same box asks for when a document is being written. A title, not a captured line:
 //: the grammar is deliberately not applied to it (`#761`).
@@ -877,7 +877,7 @@ export function Narrowed ({
 			     Every other line above narrows *to* something; this one takes rows away, and a
 			     reader looking for a sub-task they know exists needs the sentence to say that
 			     is why it is not there. */ null}
-			${topOnly && html`<span>Showing <strong>top-level</strong> items only —
+			${topOnly && html`<span>Showing <strong>top-level</strong> items only -
 				anything filed under another is hidden.</span>`}
 			${/* **Named by what it selects, not by the key** — §13.5b's rule that a surface says
 			     the outcome in the reader's terms. And it says the documents are gone, because
@@ -906,7 +906,7 @@ export function Narrowed ({
 					title=${raised
 						? "Stop raising this project's work"
 						: displaces
-							? `Raise this project's work — ${displaces} stops being the priority`
+							? `Raise this project's work - ${displaces} stops being the priority`
 							: "Raise this project's work above the rest"}
 					>${raised ? "Stop prioritising" : "Prioritise"}</button>
 			`}

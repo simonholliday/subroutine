@@ -20,11 +20,12 @@ import { day, here, named } from "./dates.js";
 /*
 	**What a person is told when they hold no role anywhere.**
 
-	An em dash rather than an empty cell, because a blank reads as *not loaded* on a page that
+	A hyphen rather than an empty cell, because a blank reads as *not loaded* on a page that
 	fetches its roles a workspace at a time — and this is the one row where the answer genuinely
-	is *nothing*, which somebody looking at a fleet needs to be able to see rather than infer.
+	is *nothing*, which somebody looking at a fleet needs to be able to see rather than infer. A
+	bare hyphen, as every empty cell is since Simon's answer of 2026-09-24 (`SR#3727`).
 */
-const NO_ROLES = "—";
+const NO_ROLES = "-";
 
 export function rolesByUsername (rosters) {
 	/*

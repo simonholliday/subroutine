@@ -478,7 +478,7 @@ export function Detail ({
 				     and it names the surface that can show the rest rather than merely
 				     apologising. */ null}
 				${parts.has_more && html`
-					<p class="note">Showing the first ${MAX_PARTS}. There are more —
+					<p class="note">Showing the first ${MAX_PARTS}. There are more -
 						<code>subroutine show #${item.ref}</code> lists them all.</p>`}
 			`}
 
@@ -702,7 +702,7 @@ export function Detail ({
 							     which a scan of every literal class name says there is not. */""}
 							<span class="label">${record.tree_hash
 								? `tree ${record.tree_hash.slice(0, 7)}`
-								: "no tree — this cannot go out of date"}</span>
+								: "no tree - this cannot go out of date"}</span>
 						</li>`)}
 				</ul>`}
 
@@ -977,7 +977,7 @@ export function Failed ({ error, onRetry }) {
 			<div class="failed">
 				<p>You are not signed in.</p>
 				<p class="why">Whoever runs this instance can send you a link that signs you
-				in — they make one with <code>subroutine login link</code>. It works once and
+				in - they make one with <code>subroutine login link</code>. It works once and
 				lasts half an hour.</p>
 			</div>
 		`;

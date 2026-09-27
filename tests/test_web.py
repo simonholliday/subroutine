@@ -4068,7 +4068,7 @@ def _without_comments (source: str) -> str:
 	return re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", source, flags=re.S))
 
 
-def _without_prose (source: str) -> str:
+def _without_prose (source: str, *, keep_strings: bool = False) -> str:
 	"""Return some JavaScript with its comments *and the text of its strings* removed.
 
 	`_without_comments` is the blunt version and stays that way, because its callers count
@@ -4091,6 +4091,11 @@ def _without_prose (source: str) -> str:
 	to say *where* needs an offset that still means something, and one walker answering both is
 	better than a second copy of a walker this subtle. Blanking cannot create a match — a run
 	of spaces spells nothing — so no existing count moves.
+
+	**`keep_strings` blanks the comments alone** (`SR#3727`), for a scan asking what a reader can
+	be shown: every string and template is, and a comment is not. The regex in
+	`_without_comments` would do for most lines and not for one holding a link, whose `//` takes
+	the rest of the line with it.
 	"""
 
 	kept: list[str] = []
@@ -4121,7 +4126,7 @@ def _without_prose (source: str) -> str:
 				continue
 
 			if char in "\"'`":
-				quote, kept = char, [*kept, " "]
+				quote, kept = char, [*kept, char if keep_strings else " "]
 				index += 1
 
 				continue
@@ -4141,13 +4146,15 @@ def _without_prose (source: str) -> str:
 			continue
 
 		if char == "\\":
-			kept.append(_blanked(source[index:index + 2]))
+			kept.append(
+				source[index:index + 2] if keep_strings else _blanked(source[index:index + 2])
+			)
 			index += 2
 
 			continue
 
 		if char == quote:
-			quote, kept = None, [*kept, " "]
+			quote, kept = None, [*kept, char if keep_strings else " "]
 			index += 1
 
 			continue
@@ -4160,11 +4167,11 @@ def _without_prose (source: str) -> str:
 			# template contributing one unmatched brace — and a caller walking them to find an
 			# enclosing block then reads spans that belong to nothing. Measured: 51 live names
 			# reported as dead. Two characters either way, so no offset moves.
-			kept.append(" {")
+			kept.append("${" if keep_strings else " {")
 
 			continue
 
-		kept.append(_blanked(char))
+		kept.append(char if keep_strings else _blanked(char))
 		index += 1
 
 	return "".join(kept)
@@ -4174,6 +4181,70 @@ def _blanked (text: str) -> str:
 	"""Return the same length of nothing, with the line breaks left where they were."""
 
 	return "".join("\n" if char == "\n" else " " for char in text)
+
+
+def _dashes_the_browser_draws (modules: dict[str, str]) -> tuple[list[str], int]:
+	"""Return where these modules put an em dash outside a comment, and how many lines were read.
+
+	`SR#3727`: `#2819`'s rule is *everything a reader is shown*, and its guards read the Python
+	program alone, so the browser's own words kept the dash. A comment is exempt here as it is
+	there, so each module is walked with its comments blanked and its strings kept, and a dash
+	left over is in a string or a template - text the browser can draw.
+	"""
+
+	offenders: list[str] = []
+	read = 0
+
+	for name, source in modules.items():
+		lines = _without_prose(source, keep_strings=True).splitlines()
+		read += len(lines)
+		offenders.extend(
+			f"{name}:{number}" for number, line in enumerate(lines, 1) if "\u2014" in line
+		)
+
+	return offenders, read
+
+
+def test_what_the_browser_draws_carries_no_em_dash () -> None:
+	"""`SR#3727`. The browser's words use the house dash, as everything the program prints does.
+
+	Simon's decision of 2026-09-20 was that everything a reader is shown loses the em dash. The
+	priority labels, the add box's example and the settings pages' notes kept it, because the
+	sweep read Python. An empty cell is a bare hyphen here too (Simon, 2026-09-24).
+	"""
+
+	served = _served_modules()
+	offenders, read = _dashes_the_browser_draws({name: served[name] for name in APP_MODULES})
+
+	assert read > 10000, (
+		f"the scan read {read} lines, which is too few to be the app - so it is not reading where "
+		f"the app is, and a clean result would mean nothing"
+	)
+	assert not offenders, (
+		"the browser shows an em dash, and the house dash is a spaced hyphen: " + ", ".join(offenders)
+	)
+
+
+def test_the_scan_of_what_the_browser_draws_can_fire () -> None:
+	"""`#405`: the scan above is fed each shape it has to tell apart, through its own entry point.
+
+	A string, a template, and a string holding a link - which a scan stripping `//` by pattern
+	would cut short - are drawn; a block comment and a line comment are not.
+	"""
+
+	dash = "\u2014"
+	source = (
+		f'const said = "one {dash} two";\n'
+		f"const shown = html`<p>one {dash} ${{said}}</p>`;\n"
+		f"/* a comment with one {dash} in it is not drawn */\n"
+		f"// and neither is this one {dash}\n"
+		f'const link = "https://example.com/ {dash} a link";\n'
+	)
+
+	offenders, read = _dashes_the_browser_draws({"loud.js": source})
+
+	assert offenders == ["loud.js:1", "loud.js:2", "loud.js:5"], offenders
+	assert read == 5, read
 
 
 def _declared_and_never_read (source: str) -> list[tuple[int, str]]:
