@@ -88,8 +88,8 @@ upgrade involves.
   settings.** A project's heading now carries *Prioritise*, and its settings button says
   *Project settings* - *Workspace settings* on a workspace - while the menu under your name
   keeps *Settings*. The saved views are a drop-down that shows the view you are on, or
-  *Choose*; *Save this view* opens its form in a panel under the button, and *Forget* appears
-  while a view you may forget is showing. The heading's controls sit beside the place's name
+  *Choose*, and *None* leaves the one you are on; *Save this view* opens its form in a panel
+  under the button, and *Forget* appears while a view you may forget is showing. The heading's controls sit beside the place's name
   when they fit and below it when the name is long. The bar above the rows appears only when a
   tag, a person, a priority or the top-level collapse narrows them, and its *Show everything*
   keeps you in the place. The *Whose work* selector and the masthead's place selector are

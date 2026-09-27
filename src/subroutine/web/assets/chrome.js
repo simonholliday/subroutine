@@ -10,7 +10,8 @@
 import * as markdown from "./markdown.js";
 import { html } from "./html.js";
 import {
-	PRODUCT, addressOf, encodedPath, parseAddress, shortVersion, withShowing,
+	AGENDA_VIEW, PRODUCT, addressOf, encodedPath, parseAddress, placeAlone, shortVersion,
+	withShowing,
 } from "./address.js";
 import { unrenderable } from "./answers.js";
 import { day, here, rankOf, span } from "./dates.js";
@@ -367,6 +368,10 @@ export function SavedViews ({
 	onApply = null, onSave = null, onStartSaving = null, onStopSaving = null,
 	onStartForgetting = null, onForget = null, mine = null, mayShare = false,
 	mayForgetShared = false,
+	/* **The page's project, and the way back to no view** - `#3739` and `#3738`. Which view is
+	   showing depends on the place as well as the search line, and *None* leaves the one that
+	   is. */
+	project = null, onClear = null,
 }) {
 	/*
 		The views somebody saved, as a drop-down in the place's heading beside its settings -
@@ -393,6 +398,18 @@ export function SavedViews ({
 		opaque `?view=my-bugs`: what the reader sends a colleague stays the thing they are
 		looking at.
 
+		**A view that is showing is left from the same control** (`#3738`, found by Simon): the
+		select's first option is then *None*, which returns to the workspace's own page in the same
+		arrangement with nothing narrowed. That is the level a view is applied at (`#3144`), so it
+		is the page as it would be with no view. While no view is showing the option is *Choose*,
+		and disabled, because choosing it would do nothing.
+
+		**Which view is showing is a question about the place as well as the search** (`#3739`). A
+		view is applied at its workspace's own level, so it is showing only there; an agenda saved on
+		a project is applied on that project with no search line (`#3588`), so it is showing on that
+		project's agenda. Asked of the search line alone, the second was never showing, and the
+		first was showing on every project whose page happened to carry the same search.
+
 		**Forgetting acts on the view that is showing** (`#3734`): a select cannot carry a control
 		on each option, so a view is opened to be forgotten, and the question names it.
 
@@ -403,10 +420,15 @@ export function SavedViews ({
 	*/
 	if (!views.length && !onStartSaving) return null;
 
-	const chosen = (view) => showing
-		&& showing.selection
-		&& (showing.selection.q || null) === (view.q || null)
-		&& showing.view === view.arrangement;
+	const chosen = (view) => {
+		if (!showing || !showing.selection || showing.view !== view.arrangement) return false;
+
+		const place = view.arrangement === AGENDA_VIEW ? placeAlone(view.q) : null;
+
+		if (place) return !showing.selection.q && project === place;
+
+		return !project && (showing.selection.q || null) === (view.q || null);
+	};
 
 	/* **The view this page is showing, if it is one**, and whether this reader may forget it. */
 	const current = views.find(chosen) || null;
@@ -419,13 +441,24 @@ export function SavedViews ({
 				<label class="saved-views-pick">
 					<span class="saved-views-label">Views</span>
 					<select disabled=${busy} onChange=${(event) => {
-						const view = views.find((one) => one.key === event.currentTarget.value);
+						const value = event.currentTarget.value;
+
+						if (!value) {
+							if (onClear) onClear();
+
+							return;
+						}
+
+						const view = views.find((one) => one.key === value);
 
 						if (view && onApply) onApply(view);
 					}}>
-						${/* **Disabled, because choosing it would do nothing**: it says the page is not a
-						     saved view, and it is offered only while that is true. */ null}
-						${current ? null : html`<option value="" selected disabled>Choose</option>`}
+						${/* ***Choose* while no view is showing, and *None* while one is** (`#3738`). The
+						     first is disabled, because choosing it would do nothing; the second is the way
+						     back to the page with no view. */ null}
+						${current
+							? html`<option value="">None</option>`
+							: html`<option value="" selected disabled>Choose</option>`}
 						${/* **The word, never a colour alone** - decision `#102`. A shared view is
 						     somebody's statement about how the team's queue is read, and which ones those are
 						     is information a reader acts on. */ null}

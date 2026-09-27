@@ -6285,6 +6285,16 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	# about: the address says what is showing, not which saved thing it came from.
 	assert "my-bugs" not in where, f"the address names the view rather than what it shows: {where}"
 
+	# **And left from the same control** (`SR#3738`, Simon's report): *None* returns to the
+	# workspace's own board with nothing narrowed, which is where the view had put the reader.
+	page.select_option(".saved-views select", "")
+	_until(page, lambda: "q=" not in page.url)
+
+	assert "view=board" in page.url and "q=" not in page.url, (
+		f"None did not leave the view for the plain board: {page.url}"
+	)
+	assert page.input_value(".saved-views select") == "", "the select still names a view"
+
 	# **An agenda saved on a project opens that project's agenda.** Applied at the workspace's
 	# own level, as every other view is (`SR#3144`), its line would narrow the workspace's agenda,
 	# which an agenda cannot be - so the place it names is where it goes, with no search line.
@@ -6292,6 +6302,21 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	page.wait_for_url("**/projects/websites*", timeout=10_000)
 
 	assert "q=" not in page.url, f"the place went into the address as a search: {page.url}"
+
+	# **And the select says so** (`SR#3739`): an agenda saved on a project is showing on that
+	# project's agenda, which the page's search line cannot say.
+	_until(page, lambda: page.input_value(".saved-views select") == "websites-day")
+
+	assert page.input_value(".saved-views select") == "websites-day", (
+		"the select went back to Choose on the view it had just applied"
+	)
+
+	# **Left, it goes back to the workspace's agenda**: the level a view is applied at, where the
+	# page is as it would be with no view (`SR#3738`).
+	page.select_option(".saved-views select", "")
+	_until(page, lambda: "/projects/websites" not in page.url)
+
+	assert "/projects/websites" not in page.url, f"None stayed on the project: {page.url}"
 
 
 def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:

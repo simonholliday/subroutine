@@ -3190,6 +3190,27 @@ export function App () {
 		return chooseView(asShowing(view), appliedAt(view, workspace));
 	}, [chooseView, workspace]);
 
+	const clearView = useCallback(() => {
+		/*
+			Leave the view that is showing - `#3738`, Simon's report: *None* in the drop-down.
+
+			**The workspace's own page, in the same arrangement, with nothing narrowed**: the level a
+			view is applied at (`#3144`), so this is the page as it would be with no view. An agenda
+			saved on a project is left for the workspace's agenda by the same rule. **What *nothing
+			narrowed* means for each arrangement is the tab's own showing**, from `chips`, so a board
+			keeps the columns its tab asks for rather than a second spelling of them.
+		*/
+		setForgettingView(null);
+
+		const plain = chips(listingAddress({ workspace }), showing)
+			.find((chip) => chip.name === showing.view);
+
+		return chooseView(
+			plain ? plain.showing : { view: showing.view, selection: {} },
+			{ agenda: false, workspace, project: null },
+		);
+	}, [chooseView, project, showing, workspace]);
+
 	const saveView = useCallback(async (title, shared) => {
 		/*
 			Save what is showing, under a name — `#3096`.
@@ -3355,7 +3376,7 @@ export function App () {
 			mine=${me ? me.user.username : null}
 			mayShare=${allowed.has("project:write")}
 			mayForgetShared=${allowed.has("workspace:admin")}
-			onApply=${applyView}
+			onApply=${applyView} onClear=${clearView} project=${project}
 			onStartSaving=${() => setSavingView(true)}
 			onStopSaving=${() => setSavingView(false)}
 			onSave=${saveView}

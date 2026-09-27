@@ -21377,6 +21377,11 @@ def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
 	(`SR#102`). **With nothing saved there is no select at all**: the control is the label and
 	*Save this view*, the one action (`SR#3096`).
 
+	**And it can be left, and it knows its place.** While a view is showing, the first option is
+	*None*, the way back (`SR#3738`, Simon's report). Which view is showing is asked of the place as
+	well as the search line (`SR#3739`): an agenda saved on a project is showing on that project's
+	agenda, and a view applied at the workspace is showing only there.
+
 	Real markup rather than the text harness, because which option is selected is an attribute.
 	"""
 
@@ -21396,11 +21401,38 @@ def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
 	assert ">Choose<" not in drawn, f"a page on a saved view offered to choose one: {drawn}"
 	assert selected(elsewhere) == ["Choose"], elsewhere
 
+	# **An option that can be chosen**: the renderer writes an empty value as a bare attribute.
+	none = re.search(r"<option([^>]*)>None</option>", drawn)
+
+	assert none is not None and "disabled" not in none.group(1), (
+		f"a view that is showing cannot be left: {drawn}"
+	)
+	assert ">None<" not in elsewhere, f"None was offered with no view to leave: {elsewhere}"
+
 	assert "Team queue (shared)" in drawn, drawn
 	assert "My bugs (shared" not in drawn, f"the shared mark was drawn on every view: {drawn}"
 
 	assert "<select" not in empty, f"a select was drawn with nothing to choose: {empty}"
 	assert "Save this view" in empty, empty
+
+	websites = {
+		"key": "websites-day", "title": "Websites day", "q": "project:websites",
+		"arrangement": "agenda", "order": None, "group_by": None, "owner": "morpheus",
+		"shared": False,
+	}
+	placed = {
+		**sample, "views": [*sample["views"], websites],
+		"showing": {"view": "agenda", "selection": {}},
+	}
+	on_project = _markup(tmp_path, {"SavedViews": {**placed, "project": "websites"}})["SavedViews"]
+	at_workspace = _markup(tmp_path, {"SavedViews": placed})["SavedViews"]
+
+	assert selected(on_project) == ["Websites day"], (
+		f"an agenda saved on a project is not showing on that project's agenda: {on_project}"
+	)
+	assert selected(at_workspace) == ["Everything (shared)"], (
+		f"the workspace's own agenda did not name the view saved as it: {at_workspace}"
+	)
 
 
 def test_a_board_saved_with_no_axis_is_applied_with_the_one_an_address_gives_it (
