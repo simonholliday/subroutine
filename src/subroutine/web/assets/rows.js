@@ -559,10 +559,14 @@ export function Agenda ({
 		exists to prevent — a reader checking whether there is work concludes there is none.
 		Written as one expression because the branch below returns early and a footer built twice
 		is two that can disagree.
+
+		**The space after the colon is written out** (`SR#3726`). The template drops whitespace that
+		holds a line break, so the break after the colon separated nothing and the first cause ran
+		into it: *not shown here:4*.
 	*/
 	const accounting = held.length > 0 && html`
 		<p class="cut">
-			${held.length > 0 && held.reduce((sum, one) => sum + one.count, 0)} not shown here:
+			${held.length > 0 && held.reduce((sum, one) => sum + one.count, 0)} not shown here:${" "}
 			${held.map((one, at) => html`${at > 0 ? " · " : ""}${one.said}`)}
 		</p>
 	`;

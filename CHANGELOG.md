@@ -75,6 +75,8 @@ upgrade involves.
   default project in the address, as `?project=`, beside `?workspace=`. A project named in the
   write still wins, the Inbox is still the answer when nothing says, and the write is checked
   against what the credential may do wherever it lands.
+- **The agenda's footer reads as a sentence.** It ran its first count into a colon, as in
+  *11 not shown here:4 dated further out*, and a page holding one item said *1 items*.
 
 ## 0.9.10 — 2026-09-26
 

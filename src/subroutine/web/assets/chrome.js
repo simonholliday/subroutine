@@ -459,7 +459,7 @@ export function Foot ({ count }) {
 	return html`
 		<footer class="foot">
 			${/* **Counts what is on screen, not what was last fetched** (`#652`). */ null}
-			<span>${count} items</span>
+			<span>${count} ${count === 1 ? "item" : "items"}</span>
 			<a href="/v1/docs/agent">API</a>
 			<a href="https://github.com/simonholliday/subroutine">Source</a>
 		</footer>

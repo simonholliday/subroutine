@@ -2792,6 +2792,9 @@ def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path)
 	assert "30 not shown here" in shown, (
 		f"the day does not account for what it left behind: {shown}"
 	)
+	# **With a space after the colon** (`SR#3726`): the text ended at a line break there, which
+	# the template drops, so the first cause ran into it - *not shown here:4*.
+	assert "30 not shown here: " in shown, shown
 	# **The second capped bucket, counted like the first** (`SR#1285`). It is the one cause
 	# here that the page itself chose to hide rather than the day holding back, which is why
 	# it reads *more* like `unscheduled` does.
@@ -14625,6 +14628,17 @@ def test_the_footer_no_longer_carries_the_version (tmp_path: pathlib.Path) -> No
 	assert "0.6.7" not in rendered, (
 		"the version is in the masthead and the footer, so two places can disagree about it"
 	)
+
+
+def test_the_footer_counts_one_item_as_one (tmp_path: pathlib.Path) -> None:
+	"""`SR#3726`: a page holding one row said *1 items*, under the agenda a person lands on.
+
+	Every test before this one rendered seven, which reads the same under either rule.
+	"""
+
+	one = _rendered(tmp_path, {"Foot": {"count": 1}})["Foot"]
+
+	assert "1 item" in one and "1 items" not in one, one
 
 
 def test_a_fact_sheet_shows_the_time_an_item_starts (tmp_path: pathlib.Path) -> None:
