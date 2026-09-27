@@ -209,6 +209,13 @@ BOOKKEEPING_FIELDS: dict[str, frozenset[str]] = {
 			# span is *when* something happens, which §6.1 puts here, where a deadline is a
 			# promise about finishing. Moving a booked holiday is rearranging your own
 			# diary; moving a deadline is changing what was undertaken.
+			#
+			# **Settled by Simon on 2026-09-27, for work as well as events** (`#1314`): when
+			# something happens is not what it is, so a verification does not go stale because
+			# its slot moved, and rescheduling does not reset how long an item has sat untouched.
+			# Weighed and refused: content for work alone, which would make a field mean one
+			# thing or the other by the item's type; and content always, which would stale every
+			# verification on a holiday somebody moved.
 			"ends_at",
 			"snoozed_until",
 			"snoozed_is_all_day",
