@@ -67,6 +67,14 @@ upgrade involves.
   you without asking. `defer --from-now-on` and `--just-this-one` are still accepted, and say
   they made no difference; `applies_to` sent with a deferral alone is reported the same way
   rather than refused.
+- **An agent's write to a served instance is filed where its checkout says.** The agents'
+  tools run on the instance, so they read the server's own directory for a `.subroutine` file
+  and never found the caller's: a task or document written without naming a project landed in
+  the workspace's Inbox. The `subroutine` plugin now sends its checkout's project with every
+  request, and the instance files by it. `subroutine-remote` and any other client can name a
+  default project in the address, as `?project=`, beside `?workspace=`. A project named in the
+  write still wins, the Inbox is still the answer when nothing says, and the write is checked
+  against what the credential may do wherever it lands.
 
 ## 0.9.10 — 2026-09-26
 

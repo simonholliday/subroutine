@@ -30,6 +30,7 @@ def over (
 	workspace: str | None = None,
 	elsewhere: typing.Sequence[str] = (),
 	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
+	standing: subroutine.mcp.tools.Standing = subroutine.mcp.tools.NOWHERE,
 ) -> subroutine.mcp.protocol.Server:
 	"""Return a server over a client somebody else opened.
 
@@ -51,11 +52,15 @@ def over (
 	"""
 
 	return subroutine.mcp.protocol.Server(
-		subroutine.mcp.tools.catalogue(client, workspace=workspace, caller=caller),
+		subroutine.mcp.tools.catalogue(
+			client, workspace=workspace, caller=caller, standing=standing
+		),
 		name="subroutine",
 		version=subroutine.__version__,
 		instructions=_instructions(label, elsewhere, workspace),
-		resources=subroutine.mcp.tools.references(client, workspace=workspace),
+		resources=subroutine.mcp.tools.references(
+			client, workspace=workspace, standing=standing
+		),
 	)
 
 

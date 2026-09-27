@@ -674,6 +674,19 @@ recover by naming one on every call, but it will do that for the whole session a
 session will start over. One word in the address settles it permanently. **Ask which workspace
 your work belongs in at the same time as you ask for the token.**
 
+**And a project, if what the agent files should not land in the Inbox.** Nothing of ours runs
+on your machine with this plugin, so it cannot read the `.subroutine` file a checkout carries,
+and a task or document filed without a project goes to the workspace's Inbox - the agent's
+answer says so. Put the project on the end as well and it becomes where things go when nothing
+else says:
+
+```
+https://subroutine.example.com/mcp?workspace=acme&project=web
+```
+
+A project named in the line itself, as `+web`, still wins, and so does a checkout's own file
+where the `subroutine` plugin reads one: that plugin sends it along with every request.
+
 **You know it worked** when the agent can answer "who am I on this instance?" - it has a
 `subroutine_whoami` tool for exactly that, and the answer names the account the token belongs to
 and the workspaces it reaches.

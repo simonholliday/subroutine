@@ -20,6 +20,7 @@ wrong implementation of this endpoint:
 
 import datetime
 import json
+import os
 import pathlib
 import typing
 
@@ -38,6 +39,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.db.base
 import subroutine.db.types
+import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.sessions
@@ -1437,3 +1439,167 @@ def test_a_remote_session_reaches_the_endpoint_and_speaks_the_transport (
 	assert subroutine.installations.PLUGIN_HEADER not in sent[0], (
 		"a plugin version was announced by a session no plugin started"
 	)
+
+
+def _a_project (world: test_api_tasks.World, key: str) -> str:
+	"""Make a project on the test's instance and return its id."""
+
+	made = world.call("POST", "/v1/projects", json={"key": key, "title": key.title()})
+
+	assert made.status_code == 201, made.text
+
+	return str(made.json()["id"])
+
+
+def _filed_under (world: test_api_tasks.World, said: str) -> str:
+	"""Return the project the task an answer named was filed in, read back from the instance."""
+
+	ref = said.split("#", 1)[1].split()[0]
+	shown = world.call("GET", f"/v1/tasks/{ref}")
+
+	assert shown.status_code == 200, shown.text
+
+	return str(shown.json()["project_key"])
+
+
+def _adding (text: str) -> str:
+	"""Return a JSON-RPC message capturing one line."""
+
+	return json.dumps(
+		{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "tools/call",
+			"params": {"name": "subroutine_add", "arguments": {"text": text}},
+		}
+	)
+
+
+def test_a_remote_session_files_where_the_callers_checkout_says (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1438`: the tools run where the instance does, so they never saw the caller's checkout.
+
+	A write from a marked repository to a served instance landed in the workspace's Inbox,
+	because the server looked for a ``.subroutine`` in its own directory. The relay now sends
+	the marker (Simon's decision of 2026-09-27) and the instance files by it.
+
+	**The server is made to stand somewhere else while it answers**, as a served instance stands
+	in ``/``. In one process the two would otherwise share a directory, and this would pass with
+	no header at all - which is how the defect stayed invisible to every test in this file.
+	"""
+
+	web = _a_project(world, "web")
+	checkout = tmp_path / "checkout"
+	server = tmp_path / "server"
+	checkout.mkdir()
+	server.mkdir()
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		f'project = "web"\nproject_id = "{web}"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	sent: list[httpx.Headers] = []
+
+	class Elsewhere(httpx.BaseTransport):
+		"""The application, answering from a directory the caller's checkout is not in."""
+
+		def __init__ (self) -> None:
+			"""Wrap the transport the rest of the suite drives applications through."""
+
+			self._inner = api_support.SyncTransport(world.application)
+
+		def handle_request (self, request: httpx.Request) -> httpx.Response:
+			"""Record what was sent, and answer from the server's own directory."""
+
+			sent.append(request.headers)
+			here = os.getcwd()
+			os.chdir(server)
+
+			try:
+				return self._inner.handle_request(request)
+
+			finally:
+				os.chdir(here)
+
+	built = httpx.Client
+	monkeypatch.setattr(
+		httpx, "Client", lambda **kwargs: built(**{**kwargs, "transport": Elsewhere()})
+	)
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", world.secret)
+
+	connection = subroutine.connections.Connection(name="work", url=api_support.BASE_URL)
+	answered = subroutine.mcp.relay.answering(
+		connection,
+		subroutine.connections.Roster(connections=(connection,), default="work"),
+		subroutine.config.Settings(dev_mode=True),
+		workspace=None,
+	)(_adding("Fix the header"))
+
+	assert answered is not None
+	said = str(answered["result"]["content"][0]["text"])
+
+	assert subroutine.directory.HEADER in sent[-1], "the relay never said where it was standing"
+	assert f"in web, from {subroutine.directory.FILE_NAME}" in said, said
+	assert _filed_under(world, said) == "web", "filed somewhere other than the checkout said"
+
+
+def test_the_address_names_where_a_write_goes_when_nothing_else_does (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1438`: ``?project=`` in the address, beside ``?workspace=``, for a client with no relay.
+
+	``subroutine-remote`` runs nothing on the caller's machine, and a repository's committed
+	``.mcp.json`` is what a cloud session reads, so the address is the one place either can say
+	where work belongs. **In the order Simon decided**: a project the line names, then the
+	caller's checkout, then the address, then the Inbox.
+	"""
+
+	web = _a_project(world, "web")
+	_a_project(world, "ops")
+
+	def added (text: str, **options: typing.Any) -> str:
+		"""Capture one line through the endpoint and return what the tool said."""
+
+		answered = _message(world, json.loads(_adding(text)), **options)
+
+		assert answered.status_code == 200, answered.text
+
+		return str(answered.json()["result"]["content"][0]["text"])
+
+	by_address = added("Fix the footer", params={"project": "ops"})
+	by_line = added("Fix the logo +web", params={"project": "ops"})
+	by_checkout = added(
+		"Fix the menu",
+		params={"project": "ops"},
+		headers={subroutine.directory.HEADER: f"project_id={web}; project=web"},
+	)
+	nowhere = added("Fix the favicon", params={"project": "nosuch"})
+
+	assert "in ops, from the address" in by_address, by_address
+	assert _filed_under(world, by_address) == "ops"
+	assert _filed_under(world, by_line) == "web", "the address outranked the line"
+	assert _filed_under(world, by_checkout) == "web", "the address outranked the checkout"
+	assert _filed_under(world, nowhere) == "inbox"
+	assert "The address names 'nosuch', which is not on this instance. Ignoring it." in nowhere
+
+
+def test_a_checkout_sent_for_somewhere_the_caller_cannot_see_files_nowhere_new (
+	world: test_api_tasks.World,
+) -> None:
+	"""The header is a claim, and it grants nothing a ``+key`` could not.
+
+	It chooses among the projects the credential can already see, so one it cannot - or one that
+	is not on this instance at all - is ignored and said to be, and the write lands in the Inbox.
+	"""
+
+	said = str(
+		_message(
+			world,
+			json.loads(_adding("Fix the header")),
+			headers={subroutine.directory.HEADER: "project_id=01a0e2ce-0000-7000-8000-000000009999"},
+		).json()["result"]["content"][0]["text"]
+	)
+
+	assert _filed_under(world, said) == "inbox", said
+	assert "which is not on this instance. Ignoring it." in said, said

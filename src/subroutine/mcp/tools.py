@@ -25,6 +25,7 @@ nobody asked for.
 import dataclasses
 import datetime
 import json
+import pathlib
 import posixpath
 import typing
 import urllib.parse
@@ -325,8 +326,33 @@ CARRIES_A_SECRET = (subroutine.views.IssuedToken, subroutine.views.SignInLink)
 MAX_ANSWER = 64 * 1024
 
 
+class Standing(typing.NamedTuple):
+	"""Where a request says its caller is standing - `#1438`, Simon's decision of 2026-09-27.
+
+	**Two answers to *where does this belong* that only the caller has.** The tools run where the
+	instance runs (`#539`), so a served instance reads its own working directory for a checkout
+	and finds nothing: every write that named no project landed in the Inbox. The caller's relay
+	sends its checkout's marker instead, and any client can name a default project in the
+	address, the way ``?workspace=`` already works.
+	"""
+
+	#: The caller's own ``.subroutine``, as its relay read it on the caller's machine.
+	checkout: subroutine.directory.Marker | None = None
+
+	#: The project the address names, for a write nothing else places.
+	project: str | None = None
+
+
+#: A request that said nothing about where it stands - every stdio session, where the tools run
+#: beside the checkout and read it themselves, and every caller before `#1438`.
+NOWHERE = Standing()
+
+
 def references (
-	client: subroutine.clients.base.Client, *, workspace: str | None = None,
+	client: subroutine.clients.base.Client,
+	*,
+	workspace: str | None = None,
+	standing: Standing = NOWHERE,
 ) -> list[subroutine.mcp.protocol.Resource]:
 	"""Return the documents an agent may read when it wants them — `#483`.
 
@@ -395,7 +421,7 @@ def references (
 				"workspace, and binding on the next one. Read it before your first write."
 			),
 			mime_type="text/markdown",
-			read=lambda: _conventions(client, workspace),
+			read=lambda: _conventions(client, workspace, standing),
 			# **Wider than the filters it stands in for, and deliberately.** A client without
 			# resources cannot be handed one URL per governing type without being handed the
 			# type list too, which is the thing this resource exists to derive. One request
@@ -494,7 +520,9 @@ def _vocabulary (client: subroutine.clients.base.Client, workspace: str | None) 
 	return json.dumps(published, indent=1)
 
 
-def _conventions (client: subroutine.clients.base.Client, workspace: str | None) -> str:
+def _conventions (
+	client: subroutine.clients.base.Client, workspace: str | None, standing: Standing = NOWHERE
+) -> str:
 	"""Return what is in force in this workspace, as a readable index — `#506`, `#1036`.
 
 	**The problem it closes, measured on this project's own instance**: 57 governing documents
@@ -572,7 +600,7 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 	# **`overridden=False` because a resource has no caller to override it.** A tool takes a
 	# `project` argument or a `+key`; this is read by URI and carries nothing, so the marker is
 	# the only thing that can speak.
-	chosen = _checkout(client, workspace=workspace, overridden=False)
+	chosen = _checkout(client, workspace=workspace, overridden=False, standing=standing)
 
 	lines = [
 		CONVENTIONS_HEADING,
@@ -838,6 +866,7 @@ def catalogue (
 	*,
 	workspace: str | None = None,
 	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
+	standing: Standing = NOWHERE,
 ) -> list[subroutine.mcp.protocol.Tool]:
 	"""Return the tools, bound to one connection and — optionally — to one workspace.
 
@@ -853,7 +882,7 @@ def catalogue (
 	started. A setting somebody wrote down is a decision they can see.
 	"""
 
-	return _within(workspace, _tools(client, caller=caller))
+	return _within(workspace, _tools(client, caller=caller, standing=standing))
 
 
 def _within (
@@ -902,6 +931,7 @@ def _tools (
 	client: subroutine.clients.base.Client,
 	*,
 	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
+	standing: Standing = NOWHERE,
 ) -> list[subroutine.mcp.protocol.Tool]:
 	"""Return the tools themselves, bound to one connection."""
 
@@ -1061,7 +1091,7 @@ def _tools (
 				},
 				"required": ["text"],
 			},
-			call=lambda arguments: _added(client, arguments),
+			call=lambda arguments: _added(client, arguments, standing),
 			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
@@ -1134,7 +1164,7 @@ def _tools (
 					"workspace": WORKSPACE,
 				},
 			},
-			call=lambda arguments: _wrote(client, arguments),
+			call=lambda arguments: _wrote(client, arguments, standing),
 			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
@@ -3640,7 +3670,11 @@ class _Checkout(typing.NamedTuple):
 
 
 def _checkout (
-	client: subroutine.clients.base.Client, *, workspace: str | None, overridden: bool
+	client: subroutine.clients.base.Client,
+	*,
+	workspace: str | None,
+	overridden: bool,
+	standing: Standing = NOWHERE,
 ) -> _Checkout:
 	"""Return the project a ``.subroutine`` marker here files into, and the line that says so.
 
@@ -3656,9 +3690,21 @@ def _checkout (
 	**Looked for on every call rather than at startup** (§13.7a, `#159`). A stdio server outlives
 	the moment it was launched, and a repository adopted mid-session should not need it
 	restarted — which is the one thing an agent cannot do to itself.
+
+	**The caller's checkout first, then the address, then the Inbox** (`#1438`, Simon's decision
+	of 2026-09-27). On a served instance these run where the instance does, so the marker below
+	is the one the caller's relay sent (``standing.checkout``) and the server's own directory is
+	never it; what the address names comes after what is *here*, because a checkout says what
+	this work is and a session default only what the connection is usually for.
 	"""
 
-	marker = subroutine.directory.find()
+	if overridden:
+		return _Checkout(None, None)
+
+	projects: list[typing.Any] | None = None
+	ignored: list[str] = []
+
+	marker = standing.checkout or subroutine.directory.find()
 
 	consulted = (
 		marker is not None
@@ -3666,37 +3712,52 @@ def _checkout (
 		# A marker names one instance; its project is a fact about that instance and nothing
 		# else. Without this, `directory.resolve`'s match-by-key fallback — which exists for
 		# markers written before `#177` gave them ids — filed work into a same-named project on
-		# whichever instance happened to answer.
+		# whichever instance happened to answer. A marker the relay sent names no connection,
+		# because the relay asked this question on the caller's side before sending it.
 		and marker.speaks_for(client.connection.name)
 		and (marker.project is not None or marker.project_id is not None)
-		and not overridden
 	)
 
-	if not consulted or marker is None:
-		return _Checkout(None, None)
+	if consulted and marker is not None:
+		# **Resolved against this instance, never passed through** (`#232`). The marker's key went
+		# straight to the server until 0.1.0, so a checkout marked for somebody else's instance —
+		# which is what committing this file is *for* — refused every write with "there is no
+		# project 'SR' here". `#166` settled that the marker is advisory, and resolving also buys
+		# `#177`: a renamed project is followed by id.
+		projects = list(client.projects(workspace=workspace))
+		filed = subroutine.directory.resolve(marker, projects)
 
-	# **Resolved against this instance, never passed through** (`#232`). The marker's key went
-	# straight to the server until 0.1.0, so a checkout marked for somebody else's instance —
-	# which is what committing this file is *for* — refused every write with "there is no
-	# project 'SR' here", while the CLI beside it filed the task and said it had ignored the
-	# marker. `#166` settled that the marker is advisory; only one surface implemented it.
-	# Resolving also buys `#177`: a renamed project is followed by id, which this never did.
-	filed = subroutine.directory.resolve(marker, client.projects(workspace=workspace))
+		if filed is not None:
+			return _Checkout(filed, f"in {filed}, from {subroutine.directory.FILE_NAME}")
 
-	if filed is not None:
-		return _Checkout(filed, f"in {filed}, from {subroutine.directory.FILE_NAME}")
+		ignored.append(
+			f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}, "
+			"which is not on this instance. Ignoring it."
+		)
 
-	shown = marker.project or marker.project_id
+	if standing.project is not None:
+		if projects is None:
+			projects = list(client.projects(workspace=workspace))
 
-	return _Checkout(
-		None,
-		f"{subroutine.directory.FILE_NAME} here names {shown!r}, which is not on this "
-		f"instance. Ignoring it.",
-	)
+		named = subroutine.directory.Marker(
+			path=pathlib.Path(subroutine.directory.FILE_NAME), project=standing.project
+		)
+		filed = subroutine.directory.resolve(named, projects)
+
+		if filed is not None:
+			return _Checkout(filed, " ".join([f"in {filed}, from the address", *ignored]))
+
+		ignored.append(
+			f"The address names {standing.project!r}, which is not on this instance. Ignoring it."
+		)
+
+	return _Checkout(None, " ".join(ignored) or None)
 
 
 def _added (
-	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+	client: subroutine.clients.base.Client,
+	arguments: dict[str, typing.Any],
+	standing: Standing = NOWHERE,
 ) -> str:
 	"""Capture one line as a task, and say what was understood — **and what was not**.
 
@@ -3721,6 +3782,7 @@ def _added (
 		client,
 		workspace=workspace,
 		overridden=subroutine.domain.capture.names_a_project(line),
+		standing=standing,
 	)
 
 	captured = client.capture(
@@ -3815,7 +3877,9 @@ def _settled (name: str, value: typing.Any) -> str:
 
 
 def _wrote (
-	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+	client: subroutine.clients.base.Client,
+	arguments: dict[str, typing.Any],
+	standing: Standing = NOWHERE,
 ) -> str:
 	"""Write a document, or revise the one a ref names.
 
@@ -3862,6 +3926,7 @@ def _wrote (
 			client,
 			workspace=workspace,
 			overridden=_text(arguments, "project") is not None,
+			standing=standing,
 		)
 
 		document = client.create_document(

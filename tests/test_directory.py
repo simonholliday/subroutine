@@ -491,3 +491,51 @@ def test_composing_an_address_terminates_when_a_parent_is_absent (
 	rows = [_Row(child, "dist", missing)]
 
 	assert subroutine.directory.address(rows[0], rows) == "dist"
+
+
+def test_a_marker_travels_in_a_header_without_its_path_or_its_connection () -> None:
+	"""`SR#1438`: what the relay sends is the marker's ids and keys, and nothing of the machine.
+
+	The path is the caller's filesystem, and the connection is the caller's private name for the
+	instance - which the relay has already checked the marker speaks for - so neither travels.
+	"""
+
+	marker = subroutine.directory.Marker(
+		path=pathlib.Path("/home/you/web/.subroutine"),
+		connection="my-own-alias",
+		workspace="acme",
+		workspace_id="01a0e2ce-0000-7000-8000-000000000001",
+		project="web",
+		project_id="01a0e2ce-0000-7000-8000-000000000002",
+	)
+
+	said = subroutine.directory.as_header(marker)
+
+	assert said is not None
+	assert "/home/you" not in said and "my-own-alias" not in said
+
+	back = subroutine.directory.from_header(said)
+
+	assert back is not None
+	assert (back.workspace, back.workspace_id, back.project, back.project_id) == (
+		"acme", marker.workspace_id, "web", marker.project_id
+	)
+	assert back.connection is None, "a marker the relay sent speaks for whoever it reached"
+
+
+@pytest.mark.parametrize(
+	"said",
+	[None, "", "workspace=acme", "project", "nonsense=1; =2", "path=/etc; connection=x"],
+)
+def test_a_header_naming_no_project_is_no_checkout (said: str | None) -> None:
+	"""Anything that does not name a project is read as nothing said, never refused."""
+
+	assert subroutine.directory.from_header(said) is None
+
+
+def test_a_marker_naming_no_project_sends_nothing () -> None:
+	"""A marker that only names a workspace says nothing about where work is filed."""
+
+	marker = subroutine.directory.Marker(path=pathlib.Path(".subroutine"), workspace="acme")
+
+	assert subroutine.directory.as_header(marker) is None

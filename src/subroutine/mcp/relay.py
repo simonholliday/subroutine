@@ -47,6 +47,7 @@ import subroutine.auth
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.errors
 import subroutine.installations
@@ -270,7 +271,10 @@ def _over_http (
 
 		try:
 			answered = client.post(
-				PATH, params=_asking_for(workspace), content=raw.encode("utf-8")
+				PATH,
+				params=_asking_for(workspace),
+				content=raw.encode("utf-8"),
+				headers=_standing(connection),
 			)
 
 		except httpx.LocalProtocolError:
@@ -614,6 +618,28 @@ def _keep (held: dict[str, str]) -> None:
 	with contextlib.suppress(OSError):
 		path.parent.mkdir(parents=True, exist_ok=True)
 		subroutine.config.write_private(path, json.dumps(held, indent=2, sort_keys=True) + "\n")
+
+
+def _standing (connection: subroutine.connections.Connection) -> dict[str, str]:
+	"""Return the header saying which checkout this session is in, where it speaks here - `#1438`.
+
+	**Read for every message rather than at startup** (§13.7a, `#159`), as the tools read it: a
+	session outlives the moment it began, and a repository adopted mid-session should be honoured
+	without a restart, which an agent cannot do to itself.
+
+	**Only a marker that speaks for this connection** (`#414`): a marker names one instance, and
+	its project is a fact about that one. Asked here because only this side knows what the caller
+	calls the connection; the instance has never heard the name.
+	"""
+
+	marker = subroutine.directory.find()
+
+	if marker is None or not marker.speaks_for(connection.name):
+		return {}
+
+	said = subroutine.directory.as_header(marker)
+
+	return {} if said is None else {subroutine.directory.HEADER: said}
 
 
 def _asking_for (workspace: str | None) -> dict[str, str] | None:

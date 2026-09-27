@@ -64,6 +64,61 @@ FILE_NAME = ".subroutine"
 KEYS = ("connection", "workspace", "workspace_id", "project", "project_id")
 
 
+#: The header a relay carries its caller's checkout in (`#1438`, Simon's decision of 2026-09-27).
+#:
+#: **The tools run where the instance runs** (`#539`), so on a served instance
+#: :func:`find` reads the server's working directory - ``/`` - and never the caller's. The one
+#: process of ours on the caller's machine is the relay, and this is how it says where it is
+#: standing, beside the version it already sends (`#839`).
+HEADER = "Subroutine-Checkout"
+
+#: What of a marker travels in :data:`HEADER`: its ids, and its keys for a marker written before
+#: it had ids. **Never its path or its connection** - the path is the caller's filesystem, and
+#: the relay has already asked whether the marker speaks for the connection it forwards to.
+CARRIED = ("workspace_id", "workspace", "project_id", "project")
+
+
+def as_header (marker: "Marker") -> str | None:
+	"""Return a marker as :data:`HEADER`'s value, or ``None`` where it names no project."""
+
+	if marker.project is None and marker.project_id is None:
+		return None
+
+	return "; ".join(
+		f"{key}={value}" for key in CARRIED if (value := getattr(marker, key)) is not None
+	)
+
+
+def from_header (value: str | None) -> "Marker | None":
+	"""Read a caller's checkout back out of :data:`HEADER`, or ``None`` where it says nothing.
+
+	**A claim about where the caller is standing, and it grants nothing** (`#1438`). It chooses
+	the project a write lands in when the write names none, and the write then meets the same
+	permission check a ``+key`` meets - a caller may already name any project it may write in.
+	So a forged value can file somewhere the caller could have filed anyway, and nowhere else.
+
+	Anything this does not recognise is dropped rather than refused, because the header is
+	advisory the way the file is: a marker naming nothing here is ignored and said so, where the
+	write is answered.
+	"""
+
+	if not value:
+		return None
+
+	held: dict[str, str] = {}
+
+	for part in value.split(";"):
+		key, equals, said = part.partition("=")
+
+		if equals and key.strip() in CARRIED and said.strip():
+			held[key.strip()] = said.strip()
+
+	if "project" not in held and "project_id" not in held:
+		return None
+
+	return Marker(path=pathlib.Path(FILE_NAME), **held)
+
+
 class Marker(typing.NamedTuple):
 	"""What a directory says it belongs to, and where that was written down."""
 

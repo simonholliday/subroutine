@@ -53,12 +53,14 @@ import subroutine.api.security
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.instances
 import subroutine.errors
 import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.session
+import subroutine.mcp.tools
 
 #: Where this server answers. **At the root rather than under ``/v1``**, and that is a decision:
 #: the MCP protocol version is negotiated in band, and ``/v1`` is the *HTTP API's* contract
@@ -158,6 +160,7 @@ def call (
 	settings: subroutine.api.dependencies.SettingsDep,
 	body: RawBodyDep,
 	workspace: str | None = None,
+	project: str | None = None,
 ) -> fastapi.Response:
 	"""Answer one MCP message.
 
@@ -169,6 +172,11 @@ def call (
 
 	Left unset on a multi-workspace instance, every read is refused as ambiguous - which is
 	deliberate, and the refusal names the workspaces rather than merely complaining.
+
+	``project`` is where a task or a document is filed when the write names no project and no
+	checkout says, which is the same place in the URL for the same reason. A project named in
+	the write still wins, and the write is checked against what the credential may do wherever
+	it lands.
 	"""
 
 	_refuse_a_foreign_origin(request, settings)
@@ -208,6 +216,13 @@ def call (
 		# nothing yields an empty `Caller`, which is what every caller did before this shipped
 		# and what `#564`'s refusal goes on saying.
 		caller=subroutine.installations.said_by(request.headers),
+		# **Where the caller is standing** (`#1438`, Simon's decision of 2026-09-27): the checkout
+		# its relay read on its own machine, which nothing on this side can see, and the address's
+		# default for when nothing else says. Neither grants anything; see `directory.from_header`.
+		standing=subroutine.mcp.tools.Standing(
+			checkout=subroutine.directory.from_header(request.headers.get(subroutine.directory.HEADER)),
+			project=(project or "").strip() or None,
+		),
 	)
 
 	answer = subroutine.mcp.protocol.answer(server, body)
