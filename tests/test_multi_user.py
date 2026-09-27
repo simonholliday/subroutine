@@ -192,6 +192,34 @@ def test_somebody_added_by_mistake_can_be_removed (
 	assert "thomas" in run("user", "list").output
 
 
+@pytest.mark.parametrize(
+	"command",
+	[("add", "Order a new phone for reception"), ("user", "role", "keanu", "member")],
+	ids=["add", "user role"],
+)
+def test_an_account_in_no_workspace_is_told_so_rather_than_handed_a_crash_report (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path, command: tuple[str, ...]
+) -> None:
+	"""`SR#2953`: the refusal that was to say *no workspace* indexed an empty list and crashed.
+
+	Two ordinary routes lead here - taking a server's own account out of the team's workspace once
+	somebody else administers it, and removing yourself - and both ended in *Something went wrong
+	that should not have*, with a crash file to attach. **A crash exits 1 as well**, so what is
+	held is the sentence, and that no crash file was written.
+	"""
+
+	run("init", "--workspace", "Metacortex", "--username", "laurence")
+	run("user", "create", "keanu", "--role", "admin")
+	run("user", "remove", "laurence")
+
+	refused = run(*command, expect=1)
+
+	assert "You are not a member of any workspace." in refused.output, refused.output
+	assert "subroutine user add" in refused.output, "and says how to be added to one"
+	assert "Something went wrong" not in refused.output, refused.output
+	assert not list(home.rglob("crash-*.txt")), "a crash report was written"
+
+
 def test_the_last_administrator_cannot_be_removed (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

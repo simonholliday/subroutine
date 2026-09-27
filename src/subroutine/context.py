@@ -371,6 +371,20 @@ def refuse (
 	one workspace.
 	"""
 
+	# **No workspace at all is an answer of its own** (`#2953`). The example below is the first
+	# candidate, so an account in no workspace - a service account taken out of the team's, or
+	# somebody who removed themselves - raised `IndexError` here and was handed a crash report
+	# where this refusal was meant to be. The sentence is the one the domain gives that state.
+	if not candidates:
+		on = f" on {current.connection}" if roster.qualifies else ""
+
+		raise subroutine.errors.NotFound(
+			f"You are not a member of any workspace{on}.",
+			hint="Ask an administrator to add you to one - 'subroutine user add <username> "
+			"--workspace <workspace> --role <role>' - or make one with 'subroutine workspace create' "
+			"if you may.",
+		)
+
 	listed = ", ".join(candidates)
 	where = current.connection if roster.qualifies else ""
 	example = f"{where}/{candidates[0]}" if where else candidates[0]

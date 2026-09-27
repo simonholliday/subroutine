@@ -49,6 +49,11 @@ upgrade involves.
   clock of the zone it was set in, with that zone's clock changes described beside it, so it
   stays at 09:00 all year. Events that happen once, all-day ones, and repeats in a zone without
   summer time were already right and read as before.
+- **An account that belongs to no workspace is told so.** `subroutine add`, `user role` and
+  `user remove` crashed, asking for the report to be sent in, when the account they ran as was
+  a member of no workspace - a server's own account taken out of the team's workspace, or
+  somebody who had removed themselves. They now say *You are not a member of any workspace.*
+  and how to be added to one.
 
 ## 0.9.10 — 2026-09-26
 
