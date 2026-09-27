@@ -1537,6 +1537,13 @@ read it back** - `.dump` for a PostgreSQL archive, which `pg_restore` loads, and
 SQLite copy, which is a database. They are not interchangeable in either direction, and a
 restore refuses the wrong one rather than discovering it partway through.
 
+**Each backup has a second file beside it**: its name with `.counts.json` added, private like the
+backup, holding the counts `db backups` shows and what the copy was taken for. Pruning removes
+the two together. So a listing of the directory shows two files for every backup, and a script
+picking one out should ask for the archive by its suffix. Anything copying backups elsewhere
+should take both: without it the counts show as not recorded, and a copy the program took for
+itself is kept as though you had asked for it.
+
 **Match on `subroutine-*` in a retention script, never on one suffix.** A glob written against
 `*.sql` matches nothing on SQLite, nothing on a current PostgreSQL instance, and *only* the
 backups an earlier version wrote - which is the worst of the three, because it looks like it
