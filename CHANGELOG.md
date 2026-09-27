@@ -80,6 +80,10 @@ upgrade involves.
 - **The browser uses a spaced hyphen where it used an em dash**, as everything the program
   prints already did: in the priority labels, the add box's example and the settings pages'
   notes. An empty cell is a bare hyphen.
+- **Agents are told that a decision is always a document.** The instructions an instance gives
+  every connected agent now end: *a decision is always a document, in the project it governs,
+  however it came up*. A decision written only as a comment on the task at hand never reaches
+  the list of what is in force, which is what the next session reads.
 
 ## 0.9.10 — 2026-09-26
 

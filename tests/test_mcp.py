@@ -6164,6 +6164,26 @@ def test_the_instructions_send_a_session_to_the_skill_before_its_first_call (
 	)
 
 
+def test_the_instructions_say_a_decision_is_always_a_document () -> None:
+	"""`SR#3733`: a decision taken in passing was written as a comment, where nothing reads it.
+
+	The example convention was decided in the middle of other work and recorded in comments on
+	the tasks at hand, two of them in another project, so the conventions list never carried it
+	and a later session invented names (`#3728`). These instructions reach every connected agent,
+	whatever plugin it came through or none, so they carry the rule in one clause, in the words
+	Simon approved (`#3731`).
+	"""
+
+	roster = subroutine.connections.Roster(
+		(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	instructions = _standing_up(roster)
+
+	assert "a decision is always a document, in the project it governs" in instructions, (
+		instructions
+	)
+
+
 def test_an_argument_a_tool_does_not_declare_is_refused (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

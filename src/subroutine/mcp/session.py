@@ -138,6 +138,11 @@ def _instructions (
 	# session carries, so a tool is expensive in a way a command is not — is in the skill, where
 	# it costs nothing per session. Conditional for the same reason as the line above it, and a
 	# different one: a client reaching this over HTTP may have no shell at all.
+	#
+	# **A decision is always a document** (`#3731`, Simon's of 2026-09-27). One taken in passing
+	# was written as a comment on the task at hand, in another project, and never reached the
+	# conventions list, so a later session invented what had been decided (`#3728`). This text
+	# reaches every connected agent, so it carries the rule in a clause and the skill teaches it.
 	return (
 		f"Shared project management for people and agents, on connection "
 		f"'{label}'. You are a principal here rather than a tool being driven: what "
@@ -156,6 +161,6 @@ def _instructions (
 		f"commands, 'subroutine --help' is the complete surface. "
 		f"Items are addressed by a number written #42, unique per "
 		f"workspace and never reused, shared between tasks and documents. "
-		f"A comment is what happened; a document is what you concluded - if the next "
-		f"session would need to read it, it is a document."
+		f"A comment is what happened; a document is what you concluded, and a decision is "
+		f"always a document, in the project it governs, however it came up."
 	)
