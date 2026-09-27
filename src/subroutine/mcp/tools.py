@@ -4966,4 +4966,13 @@ def _updated (
 
 	said = f"  (set {', '.join(settled)})" if settled else ""
 
+	# **An answer that could change nothing is said to have** (`#3705`, Simon's decision on
+	# `#1308`): a deferral is only ever for the occurrence in front of you, so ``applies_to`` sent
+	# with nothing else to decide is accepted and reported rather than refused.
+	if applies_to and set(days) == {"defer"} and not changes:
+		said += (
+			" - applies_to changed nothing: a deferral is only ever for the occurrence in front "
+			"of you."
+		)
+
 	return "Changed " + _line(changed, now=subroutine.db.types.utcnow()) + said

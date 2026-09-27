@@ -11251,6 +11251,36 @@ def test_editing_a_repeat_from_a_script_is_refused_by_name (
 	assert "Morning stand-up" not in run("show", "2").output
 
 
+def test_a_deferral_is_never_asked_which_occurrences_it_is_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3705`, Simon's decision on `SR#1308`: a deferral is about the one in front of you.
+
+	`defer` asked, and *every one from now on* wrote the date to the series, which clears it on
+	each new occurrence - the answer meant *just this one* while saying otherwise. So it is not
+	asked, not even of a script, and an answer given anyway is said to have changed nothing.
+	"""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	# **Today**, because the occurrence is due on Tuesday and a deferral past a deadline is refused.
+	deferred = run("defer", "2", "today")
+
+	assert "Deferred until" in deferred.output, deferred.output
+	assert json.loads(run("show", "1", "--json").output)["item"]["snoozed_until"] is None, (
+		"the deferral reached the series"
+	)
+
+	flagged = " ".join(run("defer", "2", "today", "--from-now-on").output.split())
+
+	assert (
+		"A deferral is only ever for the one in front of you, so --from-now-on made no "
+		"difference." in flagged
+	), flagged
+	assert "--from-now-on" not in run("defer", "--help").output, "offered as though it chose"
+
+
 def test_a_flag_settles_which_occurrences_an_edit_is_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

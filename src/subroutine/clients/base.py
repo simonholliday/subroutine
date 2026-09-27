@@ -274,9 +274,18 @@ class Answered:
 #:
 #: A status has no second answer, the three repeat arguments live on the series and nowhere
 #: else, and a timezone is not a patchable field at all — the service reads it beside a date
-#: rather than storing what was sent.
+#: rather than storing what was sent. A deferral is about the occurrence in front of you
+#: (`#3705`), so it has one answer as well.
 NEVER_ASKS = frozenset(
-	{"status", "recurrence", "recurrence_anchor", "recurrence_trigger", "timezone"}
+	{
+		"status",
+		"recurrence",
+		"recurrence_anchor",
+		"recurrence_trigger",
+		"timezone",
+		"snooze",
+		"snoozed_is_all_day",
+	}
 )
 
 

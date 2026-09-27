@@ -60,6 +60,13 @@ upgrade involves.
   directory and the two ways out - a checkout on a local disk, or `--store` where one agent is
   enough for the machine. Where the permissions hold, it says the file is readable only by
   your account on this machine, since a folder that syncs elsewhere copies it regardless.
+- **A deferral on a repeating item is never asked which occurrences it is for.** It was, and
+  answering *every one from now on* wrote the date to the series, which clears it on each new
+  occurrence - so the answer meant *just this one* while saying otherwise. `subroutine defer`,
+  the agents' `subroutine_update` and the browser's edit form now defer the one in front of
+  you without asking. `defer --from-now-on` and `--just-this-one` are still accepted, and say
+  they made no difference; `applies_to` sent with a deferral alone is reported the same way
+  rather than refused.
 
 ## 0.9.10 — 2026-09-26
 

@@ -578,6 +578,22 @@ export function Adding ({
 	`;
 }
 
+/*
+	**What each edit form held when it opened** (`#3705`), keyed by the form element and read
+	once, when it is attached. Read off the controls rather than off the item, because a select
+	falls back to its first option where the item names nothing it offers - so the item is not
+	what the form started from. A save changing only the deferral is told from any other by
+	comparing the two, and a deferral is never asked which occurrences it is for.
+
+	**A ref rather than a hook**, because the text harness renders a form by calling it as a
+	function, where there is no component for a hook to belong to.
+*/
+const OPENED = new WeakMap();
+
+const opening = (form) => {
+	if (form && !OPENED.has(form)) OPENED.set(form, readForm(form));
+};
+
 export function Editing ({
 	item, busy, onSave, onCancel, vocabulary, projects, members, conflict, reading, onReading,
 	prioritised = null, previewing = null, onPreviewing = null, where = null,
@@ -601,11 +617,11 @@ export function Editing ({
 
 		if (form.elements.title.value.trim() === "" || busy) return;
 
-		onSave(readForm(form));
+		onSave(readForm(form), OPENED.get(form) || null);
 	};
 
 	return html`
-		<form class="adding editing" onSubmit=${submit}>
+		<form class="adding editing" ref=${opening} onSubmit=${submit}>
 			<div class="line">
 				<input class="field" name="title" required disabled=${busy} aria-label="Title"
 					defaultValue=${item.title} />

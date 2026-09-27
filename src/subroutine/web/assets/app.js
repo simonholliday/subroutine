@@ -71,7 +71,8 @@ import {
 	DOCUMENT_SAID, NEVER_CLEARED, PARENT_NEEDS_A_NUMBER, RELEASE_CHECK_POLLS, REPEATED,
 	SAID_AS_NUMBERS, SAID_AS_WRITTEN,
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
-	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
+	completeRequest, conflictIn, dateFor, deferralOnly, documentRequest, edited, filed, freshly,
+	fromItem,
 	moveRequest, movingTo, unreadableParent,
 	headRequest, identityRequest, instanceBehind, itemJournalRequest, itemRequests,
 	journalItemsRequests,
@@ -2148,7 +2149,7 @@ export function App () {
 		}
 	}, [agenda, everywhere, load, me, project, readAgenda, show, workspace]);
 
-	const saving = useCallback(async (values, appliesTo) => {
+	const saving = useCallback(async (values, appliesTo, opened = null) => {
 		/*
 			**A 409 is an ordinary answer here, not a failure** (§8.9, `#757`). Somebody else
 			saved while this form was open; nothing was written, and the reader's typing is
@@ -2208,7 +2209,7 @@ export function App () {
 
 			const saved = await sent(open.item.kind === "document"
 				? documentRequest(values, base, openIn)
-				: updateRequest(values, base, openIn, appliesTo));
+				: updateRequest(values, base, openIn, appliesTo, opened));
 
 			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
 			setEditing(false);
@@ -2241,8 +2242,12 @@ export function App () {
 		A document never reaches it, because a document does not repeat and `repeats` reads the
 		two fields only a task carries.
 	*/
-	const save = useCallback((values) => {
+	const save = useCallback((values, opened = null) => {
 		if (!open || !repeats(open.item)) return saving(values, null);
+
+		/* **A deferral alone is never asked about** (`#3705`, Simon's decision on `#1308`): it is
+		   about the occurrence in front of you whatever the answer, and `edited` sends it alone. */
+		if (deferralOnly(values, opened)) return saving(values, null, opened);
 
 		setAsking({ what: "this change", run: (appliesTo) => saving(values, appliesTo) });
 
@@ -4204,6 +4209,7 @@ export {
 	conflictIn,
 	credentialsRequest,
 	dateFor,
+	deferralOnly,
 	documentRequest,
 	moveRequest,
 	movingTo,

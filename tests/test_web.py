@@ -4980,6 +4980,45 @@ def test_a_line_and_a_form_are_one_submission (tmp_path: pathlib.Path) -> None:
 	assert body["tags"] == ["health", "admin"], f"tags parsed as {body['tags']}"
 
 
+def test_a_deferral_alone_on_a_repeating_item_is_sent_alone (tmp_path: pathlib.Path) -> None:
+	"""`SR#3705`: a save changing only the deferral carries nothing a series would be asked about.
+
+	The form sends every control, and on a repeating item any named field with two answers
+	needs ``applies_to`` - which a deferral is never asked for (Simon's decision on `SR#1308`).
+	So a deferral alone goes by itself, decided by comparing the form with its own starting
+	values; anything more goes as before, and so does every save on an item that does not repeat.
+	"""
+
+	repeating = {
+		"ref": 42, "version": 7, "title": "Stand-up", "timezone": "Etc/UTC", "status": "open",
+		"type": "task", "project_path": "inbox", "recurrence_template_ref": 41,
+	}
+	once = {key: value for key, value in repeating.items() if key != "recurrence_template_ref"}
+
+	# **What a form held when it opened**, which is not always the item - a select with nothing
+	# offered for the item's value shows its first option, and the comparison is form to form.
+	[opened] = _views(tmp_path, [("fromItem", {"item": repeating})])
+	opened = {**opened, "title": "Stand-up", "status": "doing"}
+	moved = {**opened, "snooze": "2026-10-02"}
+	renamed = {**moved, "title": "Morning stand-up"}
+
+	alone, sent, whole, both, untouched, forgot = _views(tmp_path, [
+		("deferralOnly", {"values": moved, "opened": opened}),
+		("edited", {"item": repeating, "values": moved, "opened": opened}),
+		("edited", {"item": once, "values": moved, "opened": opened}),
+		("deferralOnly", {"values": renamed, "opened": opened}),
+		("deferralOnly", {"values": opened, "opened": opened}),
+		("deferralOnly", {"values": moved}),
+	])
+
+	assert alone is True
+	assert sent == {"expected_version": 7, "snooze": "2026-10-02"}, sent
+	assert "title" in whole, "an item that does not repeat is never asked, so its save is unchanged"
+	assert both is False, "a title changed beside it, which a series is asked about"
+	assert untouched is False, "nothing moved, so there is no deferral to send"
+	assert forgot is False, "without what the form opened with, nothing can be told apart"
+
+
 def test_an_edit_clears_what_a_creation_would_omit (tmp_path: pathlib.Path) -> None:
 	"""`SR#757`, and it is the **opposite** rule from `SR#756`'s.
 
@@ -11257,7 +11296,9 @@ def _views (
 			: name === "refAsked" ? app.refAsked(argument)
 			: name === "placesToGo"
 				? app.placesToGo(argument.workspaces, argument.projects, argument.showing)
-			: name === "edited" ? app.edited(argument.values, argument.item)
+			: name === "edited"
+				? app.edited(argument.values, argument.item, null, argument.opened || null)
+			: name === "deferralOnly" ? app.deferralOnly(argument.values, argument.opened)
 			: name === "fromItem" ? app.fromItem(argument.item)
 			: name === "withTime" ? app.withTime(argument.day, argument.time)
 			: name === "TIMED" ? app.TIMED

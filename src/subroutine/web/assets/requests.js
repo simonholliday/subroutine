@@ -1716,7 +1716,31 @@ export function repeats (item) {
 	return Boolean(item && (item.is_template || item.recurrence_template_ref));
 }
 
-export function edited (values, item, appliesTo = null) {
+export function deferralOnly (values, opened) {
+	/*
+		Whether a save changes nothing but when the item is deferred until - `#3705`.
+
+		**A deferral is never asked about** (Simon's decision on `#1308`): it is about the
+		occurrence in front of you, whatever the answer. Compared with `opened`, what the form's
+		controls held when it opened, so both sides are what a control holds: nothing here
+		re-derives how the server stores a date, which is `edited`'s reason for sending
+		everything, and nothing assumes the form started from the item - a select falls back to
+		its first option where the item names nothing it offers.
+	*/
+	if (!opened) return false;
+
+	const after = values || {};
+	const held = (value) => String(value === null || value === undefined ? "" : value).trim();
+	const moved = [...new Set([...Object.keys(opened), ...Object.keys(after)])]
+		.filter((name) => held(opened[name]) !== held(after[name]));
+
+	return moved.length > 0 && moved.every((name) => DEFERRAL.includes(name));
+}
+
+/* The controls a deferral is made of: the day, and the time on it. */
+const DEFERRAL = ["snooze", "snooze_time"];
+
+export function edited (values, item, appliesTo = null, opened = null) {
 	/*
 		What an edit becomes on the wire — pure, and **the opposite rule from `filed`**.
 
@@ -1730,6 +1754,11 @@ export function edited (values, item, appliesTo = null) {
 		sending only what moved — needs the form to compare `2026-09-01` against
 		`2026-09-01T23:59:59.999999Z`, which means re-deriving the server's own normalisation on
 		this side. That is a second copy of a rule, and this is not a place to keep one.
+
+		**Except a deferral alone on a repeating item** (`#3705`), which is sent by itself. Every
+		field the form shows would otherwise be named, and on a series a named field with two
+		answers needs `applies_to`, which a deferral is never asked for. `deferralOnly` decides it
+		against `opened`, what the form held when it opened, and never against the server's values.
 
 		**`title`, `status`, `type` and `project` are never nulled.** A task must have all four,
 		the controls always hold one, and `null` would mean *clear it* to a route that cannot.
@@ -1745,6 +1774,10 @@ export function edited (values, item, appliesTo = null) {
 
 		return typeof value === "string" ? value.trim() : value;
 	};
+
+	if (!appliesTo && repeats(item) && deferralOnly(values, opened)) {
+		return { expected_version: (item || {}).version, snooze: dateSaid(said, "snooze") || null };
+	}
 
 	const body = { expected_version: (item || {}).version };
 
@@ -1856,13 +1889,13 @@ export function conflictIn (failure) {
 	return (failure.body && failure.body.current) || null;
 }
 
-export function updateRequest (values, item, slug, appliesTo = null) {
+export function updateRequest (values, item, slug, appliesTo = null, opened = null) {
 	/* Save an edit. `edited` builds the body here for the reason `addRequest` calls `filed`:
 	   it is the guard that drives every builder against a real instance which then drives the
 	   body-building too. */
 	return {
 		path: scoped(`/tasks/${item.ref}`, slug),
 		method: "PATCH",
-		body: edited(values, item, appliesTo),
+		body: edited(values, item, appliesTo, opened),
 	};
 }

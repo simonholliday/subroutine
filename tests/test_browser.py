@@ -3075,6 +3075,24 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 		# with the write, and *which item* is asked properly two tests down.
 		assert where == "v1/tasks/42", f"the write went somewhere unexpected: {where}"
 
+		# **And the one save on a repeating item that is never asked about** (`SR#3705`): a
+		# deferral alone, which is for the occurrence in front of you whatever the answer (Simon's
+		# decision on `SR#1308`). So `App` skips the question and the deferral goes by itself.
+		page.click(".detail button.edit")
+		page.wait_for_selector(".detail form.editing input[name=snooze]", timeout=10_000)
+		written.clear()
+
+		page.fill(".detail form.editing input[name=snooze]", "2026-10-02")
+		page.click(".detail form.editing button[type='submit']")
+		page.wait_for_timeout(300)
+
+		deferred = [json.loads(one[2] or "{}") for one in written if one[0] == "PATCH"]
+
+		assert page.locator(".asking").count() == 0, "a deferral was asked which occurrences"
+		assert deferred, f"the deferral was not saved: {written}"
+		# **The version rides along where the item has one**, and this harness's card has none.
+		assert set(deferred[0]) - {"expected_version"} == {"snooze"}, deferred
+
 	finally:
 		repeating[0] = False
 

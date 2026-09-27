@@ -2173,8 +2173,19 @@ ANSWERS = (THIS_ONE, FROM_NOW_ON)
 #: **How a row repeats is read off the series rather than held by the row** (`#2825`), so
 #: there is nothing to carry: the series already holds the answer, and copying it onto the other
 #: row would set a name no column has.
+#:
+#: **Nor a deferral** (`#3705`, Simon's decision on `#1308`): it is about the occurrence in front
+#: of you. Carried to the series it was cleared on each new occurrence by :func:`materialise`, so
+#: *every one from now on* said one thing and did another.
 NEVER_CARRIED = frozenset(
-	{"status_id", "completed_at", "recurrence_template_id", "recurrence"}
+	{
+		"status_id",
+		"completed_at",
+		"recurrence_template_id",
+		"recurrence",
+		"snoozed_until",
+		"snoozed_is_all_day",
+	}
 )
 
 #: The columns that move by the same amount rather than to the same value.
@@ -2757,7 +2768,7 @@ PATCHABLE = frozenset(
 #: The patchable fields with only one answer on a repeating item — decision `#1249` §1.
 #:
 #: **Nobody is ever shown a prompt where one of the two answers would be meaningless**, which
-#: is what stops this being a rule a person has to learn. Two reasons, and the second is
+#: is what stops this being a rule a person has to learn. Three reasons, and the last two are
 #: measured rather than argued:
 #:
 #: - a status is `#1249` §1's first row — completing every future occurrence would end the
@@ -2765,7 +2776,11 @@ PATCHABLE = frozenset(
 #:   them means nothing;
 #: - the three repeat arguments edit **how this repeats**, which lives on the series and
 #:   nowhere else. ``_repeat_changed`` already routes them there whichever row was addressed,
-#:   so there is no second row for an answer to choose between.
+#:   so there is no second row for an answer to choose between;
+#: - a deferral is about the occurrence in front of you (`#3705`, Simon's decision on `#1308`).
+#:   *Every one from now on* wrote the date to the series, which :func:`materialise` clears on
+#:   each new occurrence, so the answer meant *just this one* while saying otherwise.
+#:   :data:`NEVER_CARRIED` holds the other half, so an answer sent anyway changes nothing.
 #:
 #: The claim, comments and links are `#1249` §1's other three rows and are not here because
 #: they are not fields of an update at all.
@@ -2773,7 +2788,14 @@ PATCHABLE = frozenset(
 #: **Everything else asks, by subtraction rather than by enrolment**, so a field added to
 #: :func:`update` asks until somebody writes down why it should not.
 NEVER_ASKS = frozenset(
-	{"status_key", "recurrence", "recurrence_anchor", "recurrence_trigger"}
+	{
+		"status_key",
+		"recurrence",
+		"recurrence_anchor",
+		"recurrence_trigger",
+		"snooze",
+		"snoozed_is_all_day",
+	}
 )
 
 ASKS_WHICH_OCCURRENCES = PATCHABLE - NEVER_ASKS

@@ -2935,13 +2935,13 @@ def _hidden (
 		)
 		client = _require_connection(program, world, located.connection)
 
+		# **Never asked** (`#3705`, Simon's decision on `#1308`): a deferral is about the occurrence
+		# in front of you. *Every one from now on* wrote the date to the series, which clears it on
+		# each new occurrence, so the answer meant *just this one* while saying otherwise.
 		changed = client.schedule(
 			ref=task.ref,
 			workspace=located.workspace,
 			snooze=_moment(world, _asked(when, "Defer it until when?"), at=located),
-			applies_to=_which_occurrences(
-				program, task, just_this_one=just_this_one, from_now_on=from_now_on
-			),
 		)
 
 		deferred = f"Deferred until {_when_rendered(changed)}"
@@ -2949,6 +2949,21 @@ def _hidden (
 		_because(world, client, located, because, what=deferred)
 
 		program.say(_acted(world, dataclasses.replace(located, item=changed), deferred))
+
+		# **An answer given anyway is said to have changed nothing, and is not refused**, so a script
+		# written against the flags goes on working. They are hidden from the help for the same
+		# reason they are accepted: there is nothing left for them to choose.
+		if just_this_one or from_now_on:
+			named = FROM_NOW_ON if from_now_on else JUST_THIS_ONE
+
+			program.console.print(
+				rich.text.Text(
+					f"      A deferral is only ever for the one in front of you, so {named} made "
+					"no difference.",
+					style=DETAIL,
+				)
+			)
+
 		_suggest(program.console, "subroutine agenda")
 
 
@@ -10266,8 +10281,8 @@ def register (
 	def defer (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		when: str = typer.Argument("", help="A day to hide it until, or a day and a time."),
-		just_this_one: bool = JUST_THIS_ONE_OPTION,
-		from_now_on: bool = FROM_NOW_ON_OPTION,
+		just_this_one: bool = UNASKED_JUST_THIS_ONE_OPTION,
+		from_now_on: bool = UNASKED_FROM_NOW_ON_OPTION,
 		because: str = typer.Option(
 			"", "--because", help="What you are waiting for, recorded against it."
 		),
@@ -11380,6 +11395,16 @@ JUST_THIS_ONE_OPTION = typer.Option(
 )
 FROM_NOW_ON_OPTION = typer.Option(
 	False, FROM_NOW_ON, help="If it repeats: change this one and every one after it."
+)
+
+#: **The same two flags on `defer`, accepted and hidden** (`#3705`): a deferral is never asked
+#: which occurrences it is for, so there is nothing left for either to choose - and a script
+#: written against them goes on working, told the flag made no difference.
+UNASKED_JUST_THIS_ONE_OPTION = typer.Option(
+	False, JUST_THIS_ONE, hidden=True, help="Makes no difference to a deferral."
+)
+UNASKED_FROM_NOW_ON_OPTION = typer.Option(
+	False, FROM_NOW_ON, hidden=True, help="Makes no difference to a deferral."
 )
 
 #: What to say when there is nobody to ask, in one place because three commands say it.

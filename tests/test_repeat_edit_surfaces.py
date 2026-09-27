@@ -68,8 +68,6 @@ ASKING: dict[str, typing.Any] = {
 	"starts": "2026-09-04",
 	"starts_is_all_day": True,
 	"ends": "2026-09-05",
-	"snooze": "2026-09-02",
-	"snoozed_is_all_day": True,
 	"project": "inbox",
 }
 
@@ -83,6 +81,18 @@ NOT_ASKED: dict[str, typing.Any] = {
 	# one is asked about.
 	"recurrence_trigger": "completion",
 	"timezone": "Etc/UTC",
+	# **A deferral is about the occurrence in front of you** (`SR#3705`, Simon on `SR#1308`).
+	"snooze": "2026-09-02",
+	"snoozed_is_all_day": True,
+}
+
+
+#: What a field with one answer needs beside it to be an edit at all (`SR#3705`). **Never a
+#: field that asks**, so a companion cannot carry a request past the question for the field
+#: being driven, which is what keeping each alone is for.
+BESIDE: dict[str, dict[str, typing.Any]] = {
+	# A deferral's clock describes a deferral, and the fixture has none to describe.
+	"snoozed_is_all_day": {"snooze": "2026-09-02"},
 }
 
 
@@ -211,7 +221,66 @@ def test_a_field_with_one_answer_is_not_asked_about (
 	passes just as well against a build that refuses all of them.
 	"""
 
-	instance.client.update(ref=instance.repeating, **{field: NOT_ASKED[field]})
+	companion = BESIDE.get(field, {})
+
+	assert not companion.keys() & ASKING.keys(), "a companion that asks would carry the request"
+
+	instance.client.update(ref=instance.repeating, **{field: NOT_ASKED[field]}, **companion)
+
+
+def test_a_deferral_answered_from_now_on_stays_with_the_occurrence (
+	instance: Instance,
+) -> None:
+	"""`SR#3705`, Simon's decision on `SR#1308`: a deferral is about the occurrence in front of you.
+
+	*Every one from now on* wrote the date to the series, and ``materialise`` clears it on each
+	new occurrence - so the answer meant *just this one* while saying otherwise. It is still
+	accepted, and it no longer reaches the series at all.
+	"""
+
+	changed = instance.client.update(
+		ref=instance.repeating,
+		snooze="2026-09-02",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+	)
+
+	assert changed.snoozed_until is not None, "the occurrence in front of you was not deferred"
+	assert changed.recurrence_template_ref is not None
+
+	series = instance.client.task(ref=changed.recurrence_template_ref)
+
+	assert series is not None
+	assert series.snoozed_until is None, "the deferral reached the series"
+
+
+def test_the_agents_tool_says_an_answer_about_a_deferral_changed_nothing (
+	instance: Instance,
+) -> None:
+	"""`SR#3705`: sent with nothing else to decide, ``applies_to`` is reported, not refused.
+
+	And left out, a deferral on a repeating item goes through, where it used to be refused for
+	not saying which occurrences it was for.
+	"""
+
+	catalogue = {
+		tool.name: tool
+		for tool in subroutine.mcp.tools.catalogue(client=instance.client)
+	}
+	update = catalogue["subroutine_update"]
+
+	plain = update.call({"ref": instance.repeating, "defer": "2026-09-02"})
+	answered = update.call(
+		{
+			"ref": instance.repeating,
+			"defer": "2026-09-03",
+			"applies_to": subroutine.domain.tasks.FROM_NOW_ON,
+		}
+	)
+
+	assert "applies_to changed nothing" not in plain, plain
+	assert "applies_to changed nothing: a deferral is only ever for the occurrence" in answered, (
+		answered
+	)
 
 
 def test_an_answer_about_something_that_does_not_repeat_is_refused (
