@@ -467,6 +467,20 @@ export function App () {
 		turned();
 	}, [showing, turned]);
 
+	/*
+		**Which agenda read is the latest** - `#3740`, Simon's report: *board* sometimes showed a
+		single column at full width, and a reload put it right.
+
+		The page draws the agenda whenever it holds one, before it asks which view is chosen, and
+		an answer was written whenever it arrived. So a read still in flight when the reader chose
+		the board - the poll's, a write's refresh, or *agenda* then *board* in quick succession -
+		landed after the page had moved on and drew the agenda under an address saying
+		`?view=board`, and the poll went on reading it, since it asks whether the page holds one. A
+		server that has just started answers the agenda slowest, which is why it showed most after a
+		restart. A ref rather than state, for `latestRepeat`'s reason.
+	*/
+	const agendaAsked = useRef(0);
+
 	const readAgenda = useCallback(async (slug = null, key = null) => {
 		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
 		   `agendaBuckets`). What is left here is holding the answer.
@@ -475,7 +489,18 @@ export function App () {
 		   gives about `slug` three call sites away: `setWorkspace` and `setProject` have not
 		   landed in the render that calls this, so a read of either would ask about the place
 		   the reader just left. */
+		agendaAsked.current += 1;
+
+		const ticket = agendaAsked.current;
 		const answered = await sent(agendaRequest(slug, key));
+
+		/* **Drawn only while it is still wanted** (`#3740`): the answer to the latest read, on a
+		   page still arranged as an agenda. `shown` rather than `showing`, because this runs long
+		   after the render that asked, and a blank arrangement is the agenda. */
+		const wanted = ticket === agendaAsked.current
+			&& (shown.current.view || DEFAULT_VIEW) === AGENDA_VIEW;
+
+		if (!wanted) return;
 
 		setAgenda(agendaBuckets(answered));
 		setUnscheduled(
@@ -1598,6 +1623,10 @@ export function App () {
 				be put at all.
 			*/
 			const changed = reloads(shown.current, back);
+			/* **And whether it is leaving an agenda, asked of the arrangement** (`#3740`), for
+			   `chooseView`'s reason: an agenda read still in flight has no buckets to clear, and the
+			   rows in hand are another page's. */
+			const fromAgenda = (shown.current.view || DEFAULT_VIEW) === AGENDA_VIEW;
 
 			nowShowing({ view: back.view, selection: back.selection });
 
@@ -1633,7 +1662,7 @@ export function App () {
 				   things depending on how the reader arrived. */
 				setProject(narrowed);
 				readAgenda(asked === null ? null : slug, narrowed);
-			} else if (agenda !== null || narrowed !== project || changed) {
+			} else if (agenda !== null || fromAgenda || narrowed !== project || changed) {
 				/* Leaving the agenda for a listing, or moving between listings. The filter is
 				   part of the address too (`#647`), so stepping back out of a project restores
 				   the whole workspace rather than leaving the list narrowed to something the
@@ -3113,8 +3142,13 @@ export function App () {
 		   The two arrangements read different endpoints, so there are no rows in hand to
 		   rearrange — a version that trusted `again` here would leave the agenda's buckets on
 		   screen under an address saying `?view=list`. **And so does arriving somewhere else**
-		   (`SR#2607`), whose rows nobody has read. */
-		const leaving = agenda !== null;
+		   (`SR#2607`), whose rows nobody has read.
+
+		   **Asked of the arrangement being left, not of whether its answer has come** (`#3740`).
+		   While an agenda read is in flight there are no buckets to clear, and the rows in hand
+		   are whichever listing came before it: choosing the list then drew a board's rows,
+		   finished work included. */
+		const leaving = agenda !== null || (showing.view || DEFAULT_VIEW) === AGENDA_VIEW;
 
 		if (leaving) setAgenda(null);
 

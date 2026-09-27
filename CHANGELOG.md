@@ -96,6 +96,11 @@ upgrade involves.
   capped, so a long name no longer pushes the filters or the tabs onto another line.
 - **Show everything drops a priority filter too.** The bar named it as a narrowing and the link
   kept it, so opening *Show everything* in a new tab still showed only the work it had ranked.
+- **Choosing the board while the agenda is loading shows the board.** When the agenda's answer
+  arrived after you had chosen *board* or *list* - as it can when the page refreshes the agenda
+  on its own, or when a server that has just restarted answers slowly - the agenda was drawn
+  under the other view's tab, one column wide, until you reloaded the page. A late answer is now
+  set aside, and the board or list you chose shows its own rows.
 
 ## 0.9.10 — 2026-09-26
 

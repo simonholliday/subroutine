@@ -5258,6 +5258,15 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	**Asserted on the request**, which is this fixture's own rule: it answers every listing with
 	the same rows, so the page looks identical either way and only what it asked for says which
 	workspace the rows are from.
+
+	**And from the question the page is asking now, not one it asked before** - `SR#3740`,
+	Simon's report: *board* sometimes drew one column at full width until a reload. It was the
+	agenda, from an answer that arrived after the reader had moved on: the page draws the agenda
+	whenever it holds one, and an answer was written whenever it came. Held here until the page
+	has moved, which is the order a slow server gives. Four ways in: the board, which is the
+	report; the list, which drew the board's rows, because leaving an agenda still loading was
+	not counted as leaving; Back, which asked that the same way; and a newer read overtaken by an
+	older one, which drew the workspace's agenda under a project's address.
 	"""
 
 	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
@@ -5400,6 +5409,116 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	assert arranged and all(
 		"workspace_id=personal" in one and "project=subroutine%2Fui" in one for one in arranged
 	), f"the item's list view asked for {arranged}, which is not the item's place: {reads}"
+
+	# **And from the question the page is asking now** - `SR#3740`. Every agenda answer is held
+	# until the test lets it through, so it lands after the page has moved on.
+	held: list[typing.Any] = []
+
+	def holding (route: typing.Any) -> None:
+		"""Keep an agenda answer back until the test lets it through."""
+
+		held.append(route)
+
+	def asked (count: int) -> None:
+		"""Wait until the page has asked for the agenda ``count`` times, each answer held."""
+
+		_until(page, lambda: len(held) == count)
+
+		assert len(held) == count, f"the agenda was asked for {len(held)} times, not {count}"
+
+	def through (body: typing.Any = None) -> None:
+		"""Let the last agenda read held through, with the instance's answer or with ``body``."""
+
+		route = held.pop()
+
+		if body is None:
+			route.fallback()
+		else:
+			route.fulfill(status=200, body=json.dumps(body), content_type="application/json")
+
+	def lands (drawn: typing.Callable[[], bool]) -> bool:
+		"""Give a late answer a second to be drawn, and say whether ``drawn`` then holds.
+
+		Short, because it waits for what must not happen: unfixed, the page draws the agenda
+		within milliseconds of its answer.
+		"""
+
+		_until(page, drawn, 1.0)
+
+		return drawn()
+
+	def listings () -> list[str]:
+		"""What the page has asked of the task listing since ``reads`` was last cleared."""
+
+		return [one for one in reads if one.split("?")[0] == "v1/tasks"]
+
+	def an_agenda () -> bool:
+		"""Whether an agenda is drawn."""
+
+		return bool(page.locator(".listing.agenda").count() > 0)
+
+	page = opened("/projects?view=board")
+	page.wait_for_selector(".listing.board", timeout=10_000)
+	page.route(lambda url: url.split("?")[0].endswith("/v1/agenda"), holding)
+	views = page.locator("header .views a")
+
+	# The list, chosen while the agenda is loading, asks for its own rows: the rows in hand are
+	# the board's, finished work included.
+	views.filter(has_text="agenda").click()
+	asked(1)
+	reads.clear()
+	views.filter(has_text="list").click()
+	_until(page, lambda: bool(listings()))
+
+	assert listings() and "include_completed" not in listings()[-1], (
+		f"the list chosen while the agenda loaded drew the rows it held, the board's: {reads}"
+	)
+
+	through()
+
+	assert not lands(an_agenda), f"the agenda answered late and was drawn at {page.url}"
+
+	# The board, which is Simon's report.
+	views.filter(has_text="agenda").click()
+	asked(1)
+	views.filter(has_text="board").click()
+	page.wait_for_selector(".listing.board", timeout=10_000)
+	through()
+
+	assert not lands(an_agenda), f"the agenda answered late and replaced the board at {page.url}"
+
+	# Back through an agenda still loading, onto the list: the rows in hand are the board's again.
+	page.go_back()
+	asked(1)
+	reads.clear()
+	page.go_back()
+	page.wait_for_url(re.compile(r".*/projects\?view=list$"), timeout=10_000)
+	_until(page, lambda: bool(listings()))
+
+	assert listings() and "include_completed" not in listings()[-1], (
+		f"Back onto the list past an agenda still loading drew the board's rows: {reads}"
+	)
+
+	through()
+
+	assert not lands(an_agenda), f"the agenda answered late and was drawn at {page.url}"
+
+	# And a newer read wins: the workspace's agenda, overtaken by a project's, is not drawn under
+	# the project's address when it lands last.
+	views.filter(has_text="agenda").click()
+	asked(1)
+	page.wait_for_selector(
+		"header .where select option[value='/projects/websites']", state="attached", timeout=10_000
+	)
+	page.locator("header .where select").select_option("/projects/websites")
+	asked(2)
+	through()
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	through(dict(AGENDA, today=[_row("w1", ref=96, title="Overtaken in flight")]))
+
+	assert not lands(lambda: "Overtaken in flight" in page.inner_text(".listing.agenda")), (
+		f"the workspace's agenda answered after the project's and was drawn at {page.url}"
+	)
 
 	page.close()
 
