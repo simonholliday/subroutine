@@ -2585,15 +2585,28 @@ def agent_create (
 	_say("")
 
 	if placed is not None:
-		_say(
-			f"Written to {placed.path} as {variable}, "
-			+ (
-				"readable only by you."
-				if placed.private
-				else "though this drive does not keep file permissions, so anybody who can "
-				"read the directory can read it."
+		if placed.private:
+			# **Of this machine and no further** (`#3701`): a folder that syncs its files elsewhere
+			# copies this one with the rest, and the mode it has here cannot see that happen.
+			_say(
+				f"Written to {placed.path} as {variable}, readable only by your account on this "
+				"machine."
 			)
-		)
+
+		else:
+			# **With what to do instead** (`#3701`, Simon's decision of 2026-09-27: warn, and
+			# redesign nothing). A drive that does not keep file permissions - a network share
+			# mounted with fixed modes - leaves the token readable by anybody who can read the
+			# directory, and nothing here can put that right. A checkout on a local disk can, and
+			# so can one agent for the whole machine.
+			_say(
+				f"Written to {placed.path} as {variable}, but this drive does not keep file "
+				f"permissions, so anybody who can read {placed.path.parent.parent} can read the token."
+			)
+			_say(
+				"To keep it to your account, run this in a checkout on a local disk, or use --store "
+				"instead of --here if one agent is enough for this machine."
+			)
 
 		if placed.replaced is not None:
 			_say(

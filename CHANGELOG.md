@@ -54,6 +54,12 @@ upgrade involves.
   a member of no workspace - a server's own account taken out of the team's workspace, or
   somebody who had removed themselves. They now say *You are not a member of any workspace.*
   and how to be added to one.
+- **`agent create --here` says what to do when a token cannot be kept private.** On a drive
+  that does not keep file permissions, such as a network share mounted with fixed modes, it
+  said that anybody who could read the directory could read the token; it now names the
+  directory and the two ways out - a checkout on a local disk, or `--store` where one agent is
+  enough for the machine. Where the permissions hold, it says the file is readable only by
+  your account on this machine, since a folder that syncs elsewhere copies it regardless.
 
 ## 0.9.10 — 2026-09-26
 

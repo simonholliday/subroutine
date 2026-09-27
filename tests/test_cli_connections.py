@@ -3347,7 +3347,10 @@ def test_here_gives_the_directory_its_agent_without_printing_the_credential (
 
 	assert secret not in made, "written, never printed"
 	assert "sr_" not in made
-	assert f"Written to {settings} as SUBROUTINE_TOKEN_LOCAL, readable only by you." in made
+	assert (
+		f"Written to {settings} as SUBROUTINE_TOKEN_LOCAL, readable only by your account on this "
+		"machine." in made
+	)
 	assert "Checked, by presenting it: web (agent)" in made
 	assert "before anything else" in made, (
 		"a session already open is split until it reloads, so the reload comes first (#3310)"
@@ -3371,6 +3374,44 @@ def test_here_gives_the_directory_its_agent_without_printing_the_credential (
 	assert "web (agent), via token 'web agent'" in run("whoami").output, (
 		"and the instance answers as it"
 	)
+
+
+@requires_git
+def test_here_says_what_to_do_where_the_drive_cannot_keep_the_token_private (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3701`: on a share that ignores file modes the token is readable by anybody there.
+
+	Measured on this project's own CIFS share, where the file came out ``-rw-rw-rw-``. Simon's
+	decision of 2026-09-27 is to warn and redesign nothing, so what is held is the warning: the
+	directory, and the two ways to keep a token to one account. **Fed through the writer's own
+	path**, by making the one file it opens come out as such a share leaves it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	opened = os.open
+
+	def as_a_share_leaves_it (path: typing.Any, flags: int, mode: int = 0o777, *more: typing.Any) -> int:
+		"""Open as asked, then give the settings file the mode a share mounted 0666 shows."""
+
+		descriptor = opened(path, flags, mode, *more)
+
+		if str(path).endswith("settings.local.json"):
+			os.fchmod(descriptor, 0o666)
+
+		return descriptor
+
+	monkeypatch.setattr(os, "open", as_a_share_leaves_it)
+
+	made = " ".join(run("agent", "create", "web", "--here").output.split())
+
+	assert "this drive does not keep file permissions" in made, made
+	assert f"anybody who can read {checkout} can read the token" in made, made
+	assert "a checkout on a local disk" in made and "--store instead of --here" in made, made
+	assert "readable only by" not in made, "a loose file was called private"
 
 
 @requires_git

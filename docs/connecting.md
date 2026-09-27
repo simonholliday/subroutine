@@ -397,7 +397,7 @@ Created service account web, with the contributor role.
 Checked, by presenting it: web (agent), in acme (comment:read, comment:write, project:read, task:read, task:write, workspace:read)
 Account parent: jo.
 
-Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by you.
+Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by your account on this machine.
 Reload the window, or start a new Claude Code session there, before anything else:
 one already open may act as web in its shell and as before in its tools.
 Then 'subroutine whoami' names web, and 'subroutine_whoami' does too
