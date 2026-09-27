@@ -442,6 +442,8 @@ export function Agenda ({
 	   than one that does nothing. `App` asks `stoppableHere`, because the agenda spans
 	   workspaces and the write reaches one. */
 	onStop = null,
+	/* **The saved views, drawn by `App`** — `#3734`. */
+	saved = null,
 	/*
 		**What the address already said** — decision `#957` §4, and the prop this drew without
 		until `#1215`.
@@ -604,6 +606,14 @@ export function Agenda ({
 	`;
 
 	/*
+		**The saved views, in a filter row of the agenda's own** — `#3734`. An agenda has no
+		filters, so the row holds the views alone, where the list and the board end theirs. It
+		keeps them on the page a place opens on (`#1215`), where an agenda saved on a project is
+		applied (`#3588`).
+	*/
+	const views = saved && html`<div class="controls">${saved}</div>`;
+
+	/*
 		**Whether a rank earns its place, asked of the whole agenda** — `SR#2269`, §12.2a.
 
 		**Across every bucket rather than within each**, which is the same choice `#1244` made
@@ -617,6 +627,7 @@ export function Agenda ({
 		return html`
 			<div class="listing agenda">
 				${box}
+				${views}
 				${/* Said on the quiet day too: *nothing is due* is an answer about this workspace's
 				     focus as much as about a busy one, and a fact that disappears when the page
 				     empties is one a reader will think they imagined.
@@ -634,6 +645,7 @@ export function Agenda ({
 	return html`
 		<div class="listing agenda">
 			${box}
+			${views}
 
 			${/*
 				**About the page rather than about a row** (`#986`, decision `#982`). `Next` is the
@@ -729,8 +741,8 @@ export function Board ({
 	ordering = null, order = null, onOrder = null,
 	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
 	over = null, onOver = null,
-	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
-	prioritised = [], onPrioritise = null,
+	/* **The saved views, drawn by `App`** — `#3734`, at the end of the filter row. */
+	saved = null,
 	/* **How a task is ranked, as a control** — `SR#2270`, withheld the way `onWhose` is. */
 	onPriority = null,
 	/* Whose work to show, and who there is to choose from — `#1284`. */
@@ -941,6 +953,9 @@ export function Board ({
 				<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
 
 				<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+
+				${/* **And the saved views end it, as on the list** — `#3734`. */ null}
+				${saved}
 			</div>
 
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
@@ -950,9 +965,7 @@ export function Board ({
 			     `Listing` alone. On a board with no project in the address the component then
 			     decided it had nothing to say and returned null, taking *Show everything* with
 			     it — so a reader who clicked a tag chip on a board had no way back out. */ null}
-			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}
-				selection=${selection}
-				prioritised=${prioritised} onPrioritise=${onPrioritise} busy=${busy} />
+			<${Narrowed} onWiden=${onWiden} widenTo=${widenTo} selection=${selection} />
 
 			<div class="columns">
 				${arranged.map((column) => html`

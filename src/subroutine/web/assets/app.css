@@ -621,7 +621,7 @@ button { cursor: pointer; }
    is, and the two are orthogonal. */
 .rows .action, .rows .quiet, .card .action, .card .quiet,
 .meta .action, .meta .quiet, .note .action, .note .quiet,
-.narrowed .action, .cut .action, .linked .action {
+.narrowed .action, .cut .action, .linked .action, .place .action {
 	padding: var(--control-tight);
 	font-size: var(--text-small);
 }
@@ -706,7 +706,16 @@ fieldset {
 	min-width: 0;
 }
 
-.where select { font-size: var(--text-small); }
+/* **Capped, so the search and the tabs keep the first row** - `#3734`. A select is as wide as
+   its longest option, and a place's is a project title indented under its parent. With this
+   instance's names and a development build in the wordmark, a workspace's tabs took a second
+   row below 1350 pixels; with this cap and the search box free to shrink (`.seeking`), one row
+   holds down to about 1150. The closed control shows the place, which the heading under the
+   masthead names in full, and the open list shows every option whole. */
+.where select {
+	max-width: 16em;
+	font-size: var(--text-small);
+}
 
 /* What only a place has: its search and its views. Absent at `/`, which is nowhere in
    particular, and its track stays empty rather than letting the menu slide left. */
@@ -956,24 +965,30 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 .place-settings:hover { color: var(--ink); border-color: var(--ink-soft); }
 .place-settings:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
+/* **What a project's page includes, said quietly under its name** - `#3708`. It was the first
+   sentence of the narrowed bar, a few lines below a heading naming the same project. A line of
+   its own, so a long trail and the controls beside it never push it along. */
+.place .underneath {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}
+
 /*
-	**The views saved here, under the place they belong to** - `#3096`, Simon's choice of where.
+	**The views saved here, at the end of the filter row** - `#3096`, placed there by `#3734`.
 
-	A row of its own rather than a cell in `.place`, because it wraps independently: a workspace
-	with eight saved views must not push the settings link off the end of the trail's line.
-
-	**Its spacing is `.place`'s own step, not a calculated fraction of one.** The first version
-	pulled this row up with a `calc()` so it sat closer to the trail than the page's content
-	does, and `test_every_size_in_the_stylesheet_comes_from_a_named_step` refused it - rightly:
-	`#906` decides the scale, and a size arrived at by arithmetic here is a step nobody named.
-	So the trail, this row and the content are one rhythm apart.
+	**One item in `.controls`, wrapping inside itself**, so a workspace with eight saved views
+	takes lines of its own under the filters rather than scattering its buttons between them.
+	The row's gap spaces it from the filters, so it carries no margin: the one it had was the
+	step between the page's rows when it had a row to itself.
 */
 .saved-views {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: baseline;
 	gap: var(--space-3) var(--space-4);
-	margin: 0 0 var(--space-7) 0;
+	margin: 0;
 	font-size: var(--text-small);
 }
 
@@ -1285,6 +1300,11 @@ textarea.field { resize: vertical; }
 	display: flex;
 	gap: var(--space-4);
 	flex: 1 1 220px;
+	/* **Free to come down to its own basis** - `#3735`. A flex item is never narrower than its
+	   content unless it is told it may be, and this one's content is an input and a button about
+	   330 pixels wide together: so in the masthead's wrapping row the box never came down to the
+	   220 above, and the tabs beside it took a second row first. */
+	min-width: 0;
 	max-width: 420px;
 }
 
@@ -2261,6 +2281,13 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 .ordered select:disabled,
 .judged select:disabled,
 .whose select:disabled { opacity: 0.5; }
+
+/* **Whose work is capped, so the filters keep one line** - `#3734`. A select is as wide as its
+   longest option, and with agents that is a name, whom it answers to *and their agents*: about
+   400 pixels with this instance's names, which put *Top level only* on a line of its own at
+   every width, since a list is a reading measure wide. The closed control shows the choice, and
+   the open list shows every name whole. */
+.whose select { max-width: 16em; }
 
 /* What choosing an order does to the page, beside the control that chose it (`SR#2698`) —
    which for a ranked page is that it holds no documents. The choice itself is the select's to

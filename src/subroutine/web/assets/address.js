@@ -703,12 +703,19 @@ export function narrowingTo (address, showing) {
 	loud and *Show everything* is what drops them, so both need the same list and neither should
 	carry its own copy.
 
-	`project` is not here because it is on the *path* (`#649`) — widening drops it by addressing
-	the workspace instead, which is what `listingAddress` already does. `q` is not here either:
-	the search box shows the term and clears it, so it has a way back of its own and a second
-	one would be two controls for one state.
+	**The three a rank writes are here since `SR#3736`.** `Narrowed` has said them since
+	`SR#2270` and this list did not, so the link kept a rank narrowing; a plain click hid it by
+	going to the bare workspace.
+
+	`project` is not here because it is on the *path* (`#649`), and the heading owns the path
+	since `#3708`: *Show everything* drops what narrows the rows and keeps the place. `q` is not
+	here either: the search box shows the term and clears it, so it has a way back of its own
+	and a second one would be two controls for one state.
 */
-export const NARROWINGS = ["tag", "assignee", "answers_to", "assignee.is", "parent.is"];
+export const NARROWINGS = [
+	"tag", "assignee", "answers_to", "assignee.is", "parent.is",
+	"importance.gte", "urgency.gte", "importance.is",
+];
 
 export function widened (showing) {
 	/* The same showing with every narrowing dropped — what *Show everything* goes to. */

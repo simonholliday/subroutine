@@ -247,6 +247,13 @@ export function You ({
 
 export function Place ({
 	trail = [], settings = null, atSettings = false, showing = null, onGo = null,
+	/* **The project this place is**, or null on a workspace (`#3734`, `#3708`): it names the
+	   settings button's scope, it is what *Prioritise* raises, and a project's heading says its
+	   page includes what is filed under it. */
+	project = null,
+	/* Which projects are prioritised here, and how to change it - `#986`, in the heading since
+	   `#3708`. */
+	prioritised = [], onPrioritise = null, busy = false,
 }) {
 	/*
 		Where a page is, named above its content, and the way to that place's settings - `#2599`.
@@ -259,6 +266,24 @@ export function Place ({
 		**The settings link is drawn only where there is one to follow**: `settings` is
 		`settingsHere`'s answer, null for a reader who may change nothing here. **A word beside the
 		gear**, never the gear alone (`#102`, `#906` §5).
+
+		**And the word says whose settings they are** (`#3734`, Simon's): *Workspace settings* on a
+		workspace and *Project settings* on a project, in sentence case like every other label here
+		and in the command line's words. A bare *Settings* beside a workspace called *Projects* read
+		as settings for projects. The menu under the reader's name keeps *Settings*, because where it
+		sits already says whose they are.
+
+		**A place's own controls sit with its name** (`#3708`, Simon's answer on `#2604`).
+		*Prioritise* is here because `#982` put it where the page is about the project, and since
+		`#2599` that is the heading; *and anything under it* is said quietly beneath the trail,
+		because it describes the place. Both were in the narrowed bar a few lines lower, which named
+		the project a second time and mixed a control about the place with filters on its rows. That
+		bar now says only what narrows the rows, which is `#649`'s line between the path and the
+		query.
+
+		**It says what it will displace before it does it**, which is `#986`'s anti-spiral argument
+		made visible: choosing this project is also the other one stopping, and a reader who is not
+		shown the trade is the reader who sets a fifth one.
 
 		**A workspace's journal is not a button here any more** (`#3573`). It is a tab beside
 		*agenda*, *list* and *board*, where it reads as one more way of looking at the workspace,
@@ -275,6 +300,10 @@ export function Place ({
 	if (!trail || trail.length === 0) return null;
 
 	const last = trail.length - 1;
+
+	/* **Whether this project is the one raised**, and which one choosing it would displace. */
+	const raised = Boolean(project) && prioritised.includes(project);
+	const displaces = prioritised.find((one) => one !== project) || null;
 
 	return html`
 		<div class="place">
@@ -293,9 +322,22 @@ export function Place ({
 					<span aria-current="page">Settings</span>
 				` : null}
 			</h2>
-			${settings && !atSettings ? html`
-				<a class="place-settings" href=${settings}><${Icon} name="gear" />Settings</a>
+			${project && onPrioritise && !atSettings ? html`
+				<button type="button" class="prioritise action" disabled=${busy}
+					onClick=${() => onPrioritise(raised ? null : project)}
+					title=${raised
+						? "Stop raising this project's work"
+						: displaces
+							? `Raise this project's work - ${displaces} stops being the priority`
+							: "Raise this project's work above the rest"}
+					>${raised ? "Stop prioritising" : "Prioritise"}</button>
 			` : null}
+			${settings && !atSettings ? html`
+				<a class="place-settings" href=${settings}><${Icon} name="gear" />${
+					project ? "Project settings" : "Workspace settings"
+				}</a>
+			` : null}
+			${project && !atSettings ? html`<p class="underneath">and anything under it</p>` : null}
 		</div>
 	`;
 }
@@ -307,14 +349,16 @@ export function SavedViews ({
 	mayForgetShared = false,
 }) {
 	/*
-		The views somebody saved, under the place they belong to - `#3096`, and Simon's choice of
-		where on 2026-09-21.
+		The views somebody saved, at the end of the filter row - `#3096`, placed there by `#3734`
+		(Simon, 2026-09-27) after the controls whose settings a view saves, so *Save this view* sits
+		beside what it saves. They had a row of their own under the place name, Simon's placement of
+		2026-09-21, and it cost a row on every page.
 
-		**Under the place name rather than beside the arrangement chips**, which is not only a
+		**Beside the filters rather than beside the arrangement chips**, which is not only a
 		taste: `VIEWS` is three arrangements of *work* and `viewOf` refuses a word that is not
 		one of them, so a saved view drawn as a fourth chip would be a page the address grammar
 		cannot express. A view *selects*; an arrangement *draws*. They sit apart because they are
-		not the same kind of thing.
+		not the same kind of thing, and the filter row is where selecting happens.
 
 		**Drawn even when there is nothing saved**, which is Simon's other answer and against
 		this app's usual instinct: `use` and `connections` are hidden until there is something to
@@ -341,7 +385,7 @@ export function SavedViews ({
 			${/* **Nothing is said about there being nothing** - Simon, 2026-09-21: an empty
 			     control names the one action and nothing else. A sentence here would be a row
 			     of furniture explaining that it is empty, which the button beside it already
-			     says by being the only thing in the row. */ null}
+			     says by being the only thing after the label. */ null}
 			${views.map((view) => html`
 					<span key=${view.key} class="saved-view">
 						<button type="button" class=${chosen(view) ? "inline chosen" : "inline"}

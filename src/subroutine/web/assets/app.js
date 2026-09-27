@@ -2525,27 +2525,6 @@ export function App () {
 		}
 	}, [cut, load, more, project, workspace]);
 
-	const widen = useCallback(async () => {
-		/*
-			**Out of a project, back to the workspace.** A narrowed list that cannot say what
-			narrowed it, or undo it, is an empty backlog with an explanation nobody can reach —
-			and the filter arrived in the address rather than from a control the reader touched,
-			so there is nothing for them to un-touch.
-		*/
-		setProject(null);
-		go(`/${encodeURIComponent(workspace)}`);
-
-		try {
-			await load(workspace, null);
-		} catch (failure) {
-			/* A note, not the failure page: there is a readable list on screen and losing it
-			   because a re-fetch did not land would cost the reader their place. The guard in
-			   `tests/test_web.py` counts the places that blank the page, and it caught this
-			   one being written the other way. */
-			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
-		}
-	}, [go, load, workspace]);
-
 	const prioritise = useCallback(async (chosen) => {
 		/*
 			**Raise one project's work here, or stop** — `#986`, decision `#982`.
@@ -2645,10 +2624,9 @@ export function App () {
 		/*
 			**Into a project, from a label on a row** — `#959`, decision `#957` §4.
 
-			`widen` above is this in the other direction and was the whole of it: a narrowed
-			list could be left and never entered, so the only way into a project was to type its
-			address. A label that says where a row lives is the obvious control for going there,
-			and it is the same three steps.
+			Leaving a project was the whole of it before this: a narrowed list could be left and
+			never entered, so the only way into a project was to type its address. A label that
+			says where a row lives is the obvious control for going there.
 
 			**Three steps, and pushing the address is only one of them.** `go` writes the bar
 			and nothing else — no `popstate` fires for a `pushState` we made ourselves — so a
@@ -2705,9 +2683,8 @@ export function App () {
 			setAgenda(null);
 			await load(where, wanted);
 		} catch (failure) {
-			/* A note rather than the failure page, for `widen`'s reason: there is a readable
-			   list on screen and losing it because a re-fetch did not land costs the reader
-			   their place. */
+			/* A note rather than the failure page: there is a readable list on screen, and
+			   losing it because a re-fetch did not land costs the reader their place. */
 			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
 		}
 	}, [enter, go, load, me, nowShowing, readAgenda, showing, workspace]);
@@ -3145,6 +3122,22 @@ export function App () {
 	}, [agenda, enter, everywhere, go, load, me, nowOpen, nowShowing, project, readAgenda,
 		showing, workspace]);
 
+	const widen = useCallback(() => {
+		/*
+			**Everything in this place, rather than everything** - `#3708`. *Show everything* drops
+			what narrows the rows and keeps the path, because the bar it sits in says only what
+			narrows the rows now that the heading names the place: `#649`'s line between the path
+			and the query. It used to leave the project for the workspace as well, which the
+			trail's first step does, and a bar that no longer names the project would have moved
+			the reader somewhere it never mentioned.
+
+			**Through `chooseView`**, because a narrowing is a selection and that is the one way a
+			selection changes: the address first, then the reload. `widened` says what goes, and
+			the link beside the button is built from the same answer.
+		*/
+		return chooseView(widened(showing));
+	}, [chooseView, showing]);
+
 	const readSavedViews = useCallback(async (slug) => {
 		/*
 			What this workspace has saved — `#3096`.
@@ -3332,6 +3325,38 @@ export function App () {
 		previewing, onPreviewing: setPreviewing, where: mentionHref(workspace),
 	};
 
+	/*
+		**The views saved here, drawn at the end of the filter row** - `#3096`, placed there by
+		`#3734` (Simon, 2026-09-27): after the controls whose settings a view saves, so *Save this
+		view* sits beside what it saves. They had a row of their own under the place name, which
+		cost a row on every page.
+
+		**Built here and drawn by the arrangement**, `adding`'s argument one control along: the
+		list, the board and the agenda each own their filter row, and none of them has any business
+		knowing what a saved view is made of. **Not on the merged agenda**, which spans every
+		workspace and so has no single one to save a view into; `Place` is drawn on the same
+		condition.
+
+		**`unkept` is computed here rather than in the component**, because what a view cannot
+		carry is a fact about the grammar rather than about the control: the component is handed
+		sentences and draws them.
+	*/
+	const saved = everywhere ? null : html`
+		<${SavedViews}
+			views=${savedViews} showing=${showing}
+			unkept=${asSavedView(showing).unkept.map((name) => CANNOT_BE_SAVED[name])}
+			saving=${savingView} forgetting=${forgettingView} busy=${busy}
+			mine=${me ? me.user.username : null}
+			mayShare=${allowed.has("project:write")}
+			mayForgetShared=${allowed.has("workspace:admin")}
+			onApply=${applyView}
+			onStartSaving=${() => setSavingView(true)}
+			onStopSaving=${() => setSavingView(false)}
+			onSave=${saveView}
+			onStartForgetting=${setForgettingView}
+			onForget=${forgetView} />
+	`;
+
 	if (error) {
 		return html`
 			<div class="app">
@@ -3506,8 +3531,10 @@ export function App () {
 		<div class=${frame(showing, open)}>
 			${/*
 				**The place names itself above everything it holds** (`#2599`), with its settings at
-				the end for a reader who may change them. On its agenda, list and board, and not on an
-				open item, which has a title of its own and names its project in its fact sheet.
+				the end for a reader who may change them, and since `#3708` a project's own controls:
+				*Prioritise*, and the note that the page includes what is filed under it. On its agenda,
+				list and board, and not on an open item, which has a title of its own and names its
+				project in its fact sheet.
 
 				**The trail is `placeTrail`'s, which the tab's title reads too**, and the link is
 				`settingsHere`'s: the registry this page already holds for the capture form, and what
@@ -3522,35 +3549,10 @@ export function App () {
 					showing=${showing} onGo=${goTo}
 					settings=${settingsHere(
 						me, vocabulary && vocabulary.settings, { workspace, project },
-					)} />
-			`}
-
-			${/*
-				**The views saved here, under the place they belong to** — `#3096`, and Simon's
-				choice of where on 2026-09-21.
-
-				**Drawn exactly where `Place` is drawn**, and on the same condition: not over an
-				open item, not in the administrative area, and **not on the merged agenda**,
-				which spans every workspace and so has no single one to save a view into.
-
-				**`unkept` is computed here rather than in the component**, because what a view
-				cannot carry is a fact about the grammar rather than about the control: the
-				component is handed sentences and draws them.
-			*/ null}
-			${area === null && !open && !everywhere && html`
-				<${SavedViews}
-					views=${savedViews} showing=${showing}
-					unkept=${asSavedView(showing).unkept.map((name) => CANNOT_BE_SAVED[name])}
-					saving=${savingView} forgetting=${forgettingView} busy=${busy}
-					mine=${me ? me.user.username : null}
-					mayShare=${allowed.has("project:write")}
-					mayForgetShared=${allowed.has("workspace:admin")}
-					onApply=${applyView}
-					onStartSaving=${() => setSavingView(true)}
-					onStopSaving=${() => setSavingView(false)}
-					onSave=${saveView}
-					onStartForgetting=${setForgettingView}
-					onForget=${forgetView} />
+					)}
+					project=${project}
+					prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
+					onPrioritise=${mayWrite ? prioritise : null} busy=${busy} />
 			`}
 
 			${released && html`
@@ -3743,15 +3745,24 @@ export function App () {
 						     instance with two prioritised workspaces keeps the sentence and no
 						     button, which is the honest answer rather than a write that clears
 						     one of the two silently. */ null}
-						onStop=${mayWrite && stoppableHere(
-							me ? me.workspaces : [],
-							workspace,
-							prioritisedHere(
-								me ? me.workspaces : [], everywhere ? undefined : workspace,
-							),
-						)
+						${/* **Unless the heading already offers it** (`#3708`): on the raised
+						     project's own agenda the heading's toggle says *Stop prioritising*, and
+						     two identical buttons read as two different settings - the listing's
+						     rule, one arrangement along. */ null}
+						onStop=${mayWrite
+							&& !(project && prioritisedHere(
+								me ? me.workspaces : [], workspace,
+							).includes(project))
+							&& stoppableHere(
+								me ? me.workspaces : [],
+								workspace,
+								prioritisedHere(
+									me ? me.workspaces : [], everywhere ? undefined : workspace,
+								),
+							)
 							? () => prioritise(null)
 							: null}
+						saved=${saved}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -3768,10 +3779,7 @@ export function App () {
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} onGo=${narrow}
 							project=${project} workspace=${workspace} onWiden=${widen}
-							${/* The board's narrowed bar is the listing's, so it carries the same
-							     control — one component, one answer (`#986`). */ null}
-							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
-							onPrioritise=${mayWrite ? prioritise : null}
+							saved=${saved}
 							selection=${showing.selection}
 							${/*
 							     **Gated like every other control on this call** — `#1781`, and
@@ -3832,7 +3840,7 @@ export function App () {
 							finishedTo=${showing.selection.status_category === undefined
 								? withShowing(behind, { view: "board", selection: BOARD })
 								: null}
-							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))} />`
+							widenTo=${withShowing(listingAddress({ workspace, project }), widened(showing))} />`
 						/*
 							**No capture box while only finished work is showing** (`#706`).
 							Adding from here would report success over a page the new item cannot
@@ -3871,8 +3879,8 @@ export function App () {
 							onWhose=${chooseWhose} onPriority=${choosePriority}
 							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
 							onTopLevel=${chooseTopLevel}
-							onWiden=${widen}
-							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))}
+							onWiden=${widen} saved=${saved}
+							widenTo=${withShowing(listingAddress({ workspace, project }), widened(showing))}
 							selection=${showing.selection}
 							empty=${finishedOnly
 								? "Nothing has been finished here yet."
@@ -3984,6 +3992,7 @@ export {
 	showsWork,
 	titlesByPath,
 	viewOf,
+	widened,
 	withShowing,
 } from "./address.js";
 

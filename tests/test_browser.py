@@ -3229,11 +3229,61 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	above the work. The cause was a margin under each control, which is correct CSS doing what it
 	says, so it is measured here as the rows a reader sees, in the test that already opens each
 	view wide.
+
+	**And at 1280 pixels, with names as long as a real instance's, the masthead and the filters
+	each keep one line** — `SR#3735`. A select is as wide as its longest option: an agent's name
+	*and their agents* put *Top level only* on a line of its own on every list, since a list is a
+	reading measure wide, and on a workspace's pages the masthead's tabs took a second row below
+	1350 pixels. Both selects are capped now and the search box may come down to its own basis,
+	which holds the masthead to one row down to about 1150. **The saved views are asked only to
+	be in the filter row** (`SR#3734`): on a list they take a line of their own, as the filters
+	leave too little room beside them.
 	"""
 
-	opened, _written, _refusing, *_ = running
+	opened, _written, _refusing, roster, *_ = running
 	measured = {}
 	rows = {}
+	narrow = {}
+
+	# **This instance's longest names, and a development build in the wordmark** — `SR#3735`.
+	# Served to each page rather than written into the fixture, so the tests that read the
+	# fixture's roster and projects are not moved by names chosen for their width.
+	roster[0] = {**IDENTITY, "instance_version": "0.9.11.dev5+g5f5410bc8"}
+	crowded = {
+		"v1/workspaces/projects/members": {**MEMBERS, "items": [*MEMBERS["items"], {
+			"user": {
+				"id": "u9", "username": "subroutine-service", "is_service_account": True,
+				"answers_to": "si",
+			},
+			"role": "contributor",
+		}]},
+		"v1/projects": {**PROJECTS, "items": [*PROJECTS["items"], {
+			"key": "sampler-link", "title": "Sampler link — timing and resolution", "depth": 1,
+		}]},
+	}
+
+	def crowd (page: typing.Any) -> None:
+		"""Answer this page's roster and projects with the long names, and draw it again."""
+
+		def answering (path: str, body: typing.Any) -> None:
+			"""Serve ``body`` for this page's requests whose path ends in ``path``.
+
+			**A handler of one argument**: Playwright hands a second one the request, so a default
+			argument binding the body would be given the request instead.
+			"""
+
+			page.route(
+				lambda url: url.split("?")[0].endswith(path) and "workspace_id=personal" not in url,
+				lambda route: route.fulfill(
+					status=200, body=json.dumps(body), content_type="application/json",
+				),
+			)
+
+		for path, body in crowded.items():
+			answering(path, body)
+
+		page.reload()
+		page.wait_for_selector(".app", timeout=10_000)
 
 	# **`/projects` opens the agenda**, which this loop called the list until `SR#2698` needed
 	# the list itself. All three share the form, so all three are compared now.
@@ -3241,6 +3291,7 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 		("agenda", "/projects"), ("list", "/projects?view=list"), ("board", "/projects?view=board"),
 	):
 		page = opened(address)
+		crowd(page)
 
 		# Wide on purpose: at a narrow viewport both views collapse to one column and agree for
 		# a reason that has nothing to do with the fix.
@@ -3297,6 +3348,39 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 			}""",
 		)
 
+		# **At 1280 pixels, with about 130 to spare as built**, so a machine's fonts do not decide
+		# it — `SR#3735`. Lines are counted by vertical overlap, as above, over the masthead's pieces
+		# and over the filters.
+		page.set_viewport_size({"width": 1280, "height": 900})
+		narrow[view] = page.evaluate(
+			"""() => {
+				const lines = (selector) => {
+					const boxes = [...document.querySelectorAll(selector)]
+						.map(one => one.getBoundingClientRect())
+						.filter(box => box.height > 0)
+						.sort((one, other) => one.top - other.top);
+					let count = 0;
+					let bottom = -Infinity;
+					for (const box of boxes) {
+						if (box.top >= bottom) {
+							count += 1;
+							bottom = box.bottom;
+						} else {
+							bottom = Math.max(bottom, box.bottom);
+						}
+					}
+					return count;
+				};
+				const filters = [".ordered", ".whose", ".judged", ".narrowing"]
+					.map(one => ".listing " + one).join(", ");
+				return {
+					masthead: lines(".where > *, .within > *, .you"),
+					filters: lines(filters),
+					views: document.querySelectorAll(".listing .controls .saved-views").length,
+				};
+			}""",
+		)
+
 		page.close()
 
 	assert measured["agenda"] == measured["list"] == measured["board"], (
@@ -3319,6 +3403,16 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 		f"the controls above the work take a row each instead of sharing one: {rows}. A board "
 		f"has room for all four on one line; the list's narrower frame may wrap them, but not "
 		f"into a row apiece."
+	)
+
+	assert all(seen["masthead"] == 1 for seen in narrow.values()), (
+		f"at 1280 pixels a long place name took the masthead's tabs onto a second row: {narrow}"
+	)
+	assert narrow["list"]["filters"] == 1 and narrow["board"]["filters"] == 1, (
+		f"at 1280 pixels a long name put the filters on more than one line: {narrow}"
+	)
+	assert all(seen["views"] == 1 for seen in narrow.values()), (
+		f"the saved views are not at the end of the filter row on every arrangement: {narrow}"
 	)
 
 
@@ -4716,9 +4810,11 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 	opened, written, _refusing, roster, _missing, reads, *_ = running
 	before = roster[0]
 	page = opened("/projects/subroutine?view=list")
-	page.wait_for_selector(".narrowed", timeout=10_000)
 
-	control = page.locator(".narrowed button.prioritise")
+	# **Found by its label and not by where it sits** (`SR#3708`): it moved from the narrowed bar
+	# to the heading, and a reader finds it by what it says.
+	control = page.get_by_role("button", name="Prioritise", exact=True)
+	control.wait_for(timeout=10_000)
 
 	assert control.inner_text().strip() == "Prioritise", (
 		"the fixture's workspace has no focus, so the control offers to give it one"
@@ -4731,14 +4827,13 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 	# *Stop prioritising* can only be drawn after the identity came back and every label
 	# recomputed from it, so this is the refetch observed rather than assumed.
 	#
-	# **Not `.narrowed`, which never left** — `SR#998`'s trap, where a wait already satisfied
+	# **Not the heading, which never left** — `SR#998`'s trap, where a wait already satisfied
 	# lets the assertion run a tick early and blame the product. And **not `_until`**, which
 	# cannot work here: Playwright's synchronous API dispatches route handlers only while the
 	# caller is inside one of its own calls, so a Python spin-loop waiting on what a handler
 	# records waits for something that cannot happen until it stops waiting. Measured — the
 	# three requests below all arrive, and none of them had while this waited five seconds.
-	page.wait_for_selector(".narrowed button.prioritise:text('Stop prioritising')",
-		timeout=10_000)
+	page.get_by_role("button", name="Stop prioritising", exact=True).wait_for(timeout=10_000)
 
 	# **Selected rather than taken as the first**, because `running` is module-scoped: `written`
 	# holds every write this whole file has made, and reading position 0 is reading somebody

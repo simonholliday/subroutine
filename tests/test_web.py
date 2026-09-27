@@ -223,8 +223,10 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"members": [{"id": "u1", "username": "si", "label": "si"}],
 	},
 	# The bar the list and the board share — one component since `SR#986`, because they held it
-	# byte for byte and a second control in it would have been the moment they drifted.
-	"Narrowed": {"project": "web", "prioritised": ["web"]},
+	# byte for byte and a second control in it would have been the moment they drifted. **A tag,
+	# since `SR#3708`**: the bar says only what narrows the rows, so a project alone draws nothing.
+	# No `widenTo`, so *Show everything* is the button a caller without an address gets.
+	"Narrowed": {"selection": {"tag": "ops"}},
 	# How a task is prioritised, as a control — `SR#2270`. The sample carries a *chosen* narrowing
 	# rather than the empty one, so the selected-option branch renders: a control drawn with
 	# nothing picked reads exactly like one whose value never round-trips.
@@ -447,6 +449,11 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"label": "Web UI", "address": "/projects/subroutine/ui"},
 		],
 		"settings": "/settings/project/projects/subroutine/ui",
+		# **A project, and not the raised one** (`SR#3708`), so the heading draws its toggle as
+		# *Prioritise*, with the trade it would make, and the note that the page includes what is
+		# filed under it. A workspace's heading draws neither, which the tests below ask for.
+		"project": "subroutine/ui",
+		"prioritised": ["subroutine"],
 	},
 	# **The saved views, with the form open** - `#3096`. Open because the form is the riskier
 	# markup and the one a fallback would swallow: a name box, a shared checkbox and the
@@ -8946,33 +8953,47 @@ def test_the_page_size_is_a_page_and_not_a_ceiling (tmp_path: pathlib.Path) -> N
 
 
 def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathlib.Path) -> None:
-	"""**A filter the reader did not apply has to announce itself.**
+	"""**A filter the reader did not apply has to announce itself** - and the heading says it now.
 
 	`SR#647`: `/projects/subroutine` shows that project. Nothing on the page put it there — it
 	arrived in a link somebody was sent — so a short list with no explanation is indistinguishable
 	from an empty backlog, and there is no control for the reader to un-touch. It says what it is
 	showing, and offers the whole workspace.
 
+	**The heading says it since `SR#3708`**, and the narrowed bar no longer does: the trail names
+	the project, the note under it says the page includes what is filed under it, and the trail's
+	first step is the way back to the workspace. The bar said the same a few lines lower, and now
+	says only what narrows the rows, which is `SR#649`'s line between the path and the query.
+
 	This is `SR#251`/`SR#303`'s shape read forwards: a filter nobody can see is a control that
 	does nothing, from the reader's side.
 	"""
 
 	rows = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
+	trail = [
+		{"label": "Projects", "address": "/projects"},
+		{"label": "Web UI", "address": "/projects/ui"},
+	]
 
-	whole = _rendered(tmp_path, {"Listing": {"items": rows, "project": None}})
-	narrow = _rendered(tmp_path, {
+	drawn = _rendered(tmp_path, {
+		"Place": {"trail": trail, "project": "ui"},
 		"Listing": {"items": rows, "project": "ui", "widenTo": "/projects"},
 	})
 
-	assert "Showing" not in whole["Listing"], "an unfiltered list claimed to be filtered"
-	assert "ui" in narrow["Listing"], "the list did not say what it was narrowed to"
-	assert "Show everything" in narrow["Listing"], "there was no way back to the workspace"
+	assert "Web UI" in drawn["Place"], f"the heading did not name the project: {drawn['Place']}"
+	assert "and anything under it" in drawn["Place"], (
+		f"the heading did not say the page includes what is filed under it: {drawn['Place']}"
+	)
 
 	# **It leaves a project for its workspace, so it is an address and so it is a link**
-	# (`SR#722`). Found by auditing every remaining `onClick=` rather than from the report,
-	# which named the rows, the switcher and the detail page and not this.
-	assert 'href="/projects"' in narrow["Listing"], (
-		f"the way back to the workspace cannot be opened in a tab: {narrow['Listing']}"
+	# (`SR#722`), and since `SR#3708` that link is the trail's first step.
+	assert 'href="/projects"' in drawn["Place"], (
+		f"the way back to the workspace cannot be opened in a tab: {drawn['Place']}"
+	)
+
+	assert "Showing" not in drawn["Listing"], (
+		f"a project alone drew the narrowed bar, which says what the heading says: "
+		f"{drawn['Listing']}"
 	)
 
 
@@ -11340,6 +11361,7 @@ def _views (
 			: name === "placeAlone" ? app.placeAlone(argument)
 			: name === "appliedAt" ? app.appliedAt(argument.view, argument.workspace)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
+			: name === "widened" ? app.widened(argument)
 			: name === "moment" ? app.moment(argument.value, argument.now)
 			: name === "releaseMoved"
 				? app.releaseMoved(argument.served, argument.reported)
@@ -16935,36 +16957,153 @@ def test_a_listing_narrowed_to_the_raised_project_offers_one_way_to_stop_and_not
 ) -> None:
 	"""`SR#2265`. Two sentences on one page could each carry the control, so one of them must not.
 
-	`Narrowed` names *this page's* project and toggles it; the focus line names *the raised*
-	project and can only stop it. On a listing narrowed to the project that is raised they are
-	the same project, and two identical buttons a line apart read as two different settings.
+	The heading names *this page's* project and toggles it — in the narrowed bar until `SR#3708` —
+	and the focus line names *the raised* project and can only stop it. On the raised project's
+	own listing they are the same project, and two identical buttons read as two settings.
 
 	**The one naming this page's project wins**, because that is the one that can also *start* —
-	so dropping its control would cost an act, where dropping the other's costs nothing.
+	so dropping its control would cost an act, where dropping the other's costs nothing. **The
+	page is the heading and the listing together**, which is how a reader meets them.
 	"""
 
 	items = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
 
-	same = _rendered(tmp_path, {"Listing": {
-		"items": items, "project": "subroutine", "prioritised": ["subroutine"],
-		"order": "-priority_score",
-	}})["Listing"]
+	def page (project: str) -> tuple[str, str]:
+		"""Draw one project's heading and its listing, with `subroutine` raised."""
 
-	other = _rendered(tmp_path, {"Listing": {
-		"items": items, "project": "web", "prioritised": ["subroutine"],
-		"order": "-priority_score",
-	}})["Listing"]
+		drawn = _rendered(tmp_path, {
+			"Place": {
+				"trail": [
+					{"label": "Projects", "address": "/projects"},
+					{"label": project, "address": f"/projects/{project}"},
+				],
+				"project": project, "prioritised": ["subroutine"],
+			},
+			"Listing": {
+				"items": items, "project": project, "prioritised": ["subroutine"],
+				"order": "-priority_score",
+			},
+		})
 
-	assert same.count("Stop prioritising") == 1, (
-		f"the page offers the same act twice, which reads as two settings: {same}"
+		return drawn["Place"], drawn["Listing"]
+
+	heading, listing = page("subroutine")
+
+	assert (heading + listing).count("Stop prioritising") == 1, (
+		f"the page offers the same act twice, which reads as two settings: {heading} {listing}"
+	)
+	assert "Stop prioritising" in heading, f"the heading lost the page's own toggle: {heading}"
+
+	heading, listing = page("web")
+
+	assert listing.count("Stop prioritising") == 1, (
+		f"a listing of another project names the raised one and must still be able to stop it: "
+		f"{listing}"
+	)
+	assert ">Prioritise" in heading, (
+		f"the heading lost its own control, which is the one that can start: {heading}"
+	)
+
+
+def test_the_raised_project_s_own_agenda_offers_to_stop_it_once (tmp_path: pathlib.Path) -> None:
+	"""`SR#3708`, and it is the wire that is driven here: `App` decides it and nothing else sees it.
+
+	The heading carries a project's toggle on its agenda as on its list and board, and the
+	agenda's focus line carries the way to stop the raised project (`SR#2265`). On that project's
+	own agenda both would say *Stop prioritising*, and two identical buttons read as two settings,
+	so the focus line leaves it to the heading there, and keeps it on any other project's agenda.
+	"""
+
+	reader = {
+		"user": {"username": "si", "is_service_account": False},
+		"workspaces": [{
+			"slug": "projects", "id": "w1", "title": "Projects", "role": "owner",
+			"permissions": ["task:write", "comment:write", "task:delete"],
+			"prioritised_project": "subroutine",
+		}],
+		"instance_permissions": [],
+		"credential": None,
+	}
+
+	def said (pathname: str) -> str:
+		"""The agenda at one place, as flat text."""
+
+		page = _driven(tmp_path, pathname=pathname, answers={"/v1/me": reader})
+
+		return " ".join(page["said"].split())
+
+	own = said("/projects/subroutine")
+	other = said("/projects/web")
+
+	assert "and anything under it" in own, f"the heading is not drawn over the agenda: {own!r}"
+	assert "subroutine is prioritised" in own, f"the agenda stopped saying so: {own!r}"
+	assert own.count("Stop prioritising") == 1, (
+		f"the raised project's own agenda offers the same act twice: {own!r}"
 	)
 
 	assert other.count("Stop prioritising") == 1, (
-		f"a listing narrowed to another project names the raised one and must still be able "
-		f"to stop it: {other}"
+		f"another project's agenda lost the way to stop the raised one: {other!r}"
 	)
-	assert "Prioritise<" in other or ">Prioritise" in other, (
-		f"the narrowed bar lost its own control, which is the one that can start: {other}"
+	assert "Prioritise" in other, f"another project's heading cannot raise it: {other!r}"
+
+
+def test_a_place_s_settings_button_says_whose_settings_they_are (tmp_path: pathlib.Path) -> None:
+	"""`SR#3735`, decision `SR#3734`: *Workspace settings* on a workspace and *Project settings* on
+	a project, while the menu under the reader's name keeps *Settings*.
+
+	A bare *Settings* beside a workspace called *Projects* read as settings for projects. The
+	menu's word stays, because where it sits already says whose they are. **And a workspace's
+	heading draws no toggle and no note**: prioritising is a project's, and a workspace is not
+	filed under anything.
+	"""
+
+	drawn = _rendered(tmp_path, {
+		"Place": {
+			"trail": [{"label": "Projects", "address": "/projects"}],
+			"settings": "/settings/workspace/projects",
+		},
+		"You": {"username": "si"},
+	})
+	project = _rendered(tmp_path, {"Place": SAMPLES["Place"]})["Place"]
+
+	assert "Workspace settings" in drawn["Place"], drawn["Place"]
+	assert "Project settings" not in drawn["Place"], drawn["Place"]
+	assert "Prioritise" not in drawn["Place"] and "anything under it" not in drawn["Place"], (
+		f"a workspace's heading offered a project's controls: {drawn['Place']}"
+	)
+
+	assert "Project settings" in project and "Workspace settings" not in project, project
+	assert ">Prioritise" in project, f"a project's heading lost its toggle: {project}"
+
+	assert "Settings" in drawn["You"], drawn["You"]
+	assert "Project settings" not in drawn["You"], drawn["You"]
+	assert "Workspace settings" not in drawn["You"], drawn["You"]
+
+
+def test_show_everything_drops_every_narrowing_a_control_writes (tmp_path: pathlib.Path) -> None:
+	"""`SR#3736`: the bar said a priority narrowing out loud, and *Show everything* kept it.
+
+	`NARROWINGS` is what `widened` drops, and its own comment says `Narrowed` needs the same list.
+	The three keys the priority control writes were missing, so the link's address kept a
+	priority narrowing; a plain click hid it by going to the bare workspace, and since `SR#3708`
+	the click goes through `widened` too. **Each narrowing a control writes, one at a time**, and
+	the search line and the order stay, because neither is a narrowing: the search box clears its
+	own term.
+	"""
+
+	writes = [
+		("tag", "ops"), ("assignee", "si"), ("answers_to", "si"), ("assignee.is", "unset"),
+		("parent.is", "unset"), ("importance.gte", "4"), ("urgency.gte", "4"),
+		("importance.is", "unset"),
+	]
+	kept = {"q": "deploy", "order": "-priority_score"}
+
+	widened = _views(tmp_path, [
+		("widened", {"view": "list", "selection": {key: value, **kept}}) for key, value in writes
+	])
+
+	assert widened == [{"view": "list", "selection": kept}] * len(writes), (
+		f"Show everything kept a narrowing: {list(zip(writes, widened, strict=True))}"
 	)
 
 

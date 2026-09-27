@@ -774,14 +774,15 @@ export function Focus ({ prioritised = [], onStop = null, busy = false }) {
 
 		**Only ever *stop*, never *start*.** This line does not exist unless something is already
 		prioritised, so there is no other act available here — which is what keeps it distinct
-		from `Narrowed`'s toggle below, and why the two can sit on one page without arguing.
+		from the heading's toggle (`Place`, since `#3708`), and why the two can sit on one page
+		without arguing.
 
 		**The control belongs with the sentence that names the project it acts on**, and that is
-		the whole rule. `Narrowed` names *this page's* project and toggles that one; this names
+		the whole rule. The heading names *this page's* project and toggles that one; this names
 		*the raised* project — which on a merged agenda may not be the page's, and on `/` there is
-		no page project at all. Merging the two lines was considered and refused: one is about the
-		ordering and one is about the row set, and on `/` nothing is narrowed, so *Showing X and
-		anything under it* would simply be false.
+		no page project at all. Merging the two was considered and refused while the toggle was in
+		the narrowed bar: one is about the ordering and one is about the place, and on `/` there is
+		no place to name.
 
 		**Whether stopping is unambiguous is not decided here** — `stoppableHere` in `places.js`
 		decides it, because the write reaches one workspace while the sentence may name several.
@@ -807,28 +808,24 @@ export function Focus ({ prioritised = [], onStop = null, busy = false }) {
 
 
 export function Narrowed ({
-	project, onWiden, widenTo, prioritised = [], onPrioritise = null, busy = false,
-	/* What else narrowed the page — `#1020`. Defaulted, because most callers narrow by
-	   project alone and a missing selection means *nothing else*. */
+	onWiden, widenTo,
+	/* What narrowed the rows — `#1020`. Defaulted, because a page nothing narrowed passes none,
+	   and a missing selection means *nothing*. */
 	selection = {},
 }) {
 	/*
-		What narrowed this page, how to undo it, and — since `#986` — whether this project is the
-		one whose work is raised here.
+		What narrowed this page's rows, and how to undo it — `#1020`.
+
+		**Only what the query narrowed, since `#3708`** (Simon's answer on `#2604`). This bar opened
+		with *Showing websites and anything under it* a few lines below a heading naming the same
+		project, and held *Prioritise* beside the filters. The project is on the path and the
+		heading owns it now, with *and anything under it* and the toggle (`Place`), which is
+		`#649`'s line between the path and the query. **So *Show everything* keeps the place**: it
+		drops what narrows the rows, and the heading's first step is the way back to the workspace.
 
 		**One component because the list and the board had it twice, byte for byte.** Two copies
 		of one rule is this codebase's signature defect, and it was harmless only for as long as
 		the bar held one control; a second one would have been the moment they started to drift.
-
-		**This is the control decision `#982` asks the browser for**, and it is here rather than
-		beside every project name for the reason the mark is: the page is *about* this project,
-		so this is where the question "should its work be raised?" is actually asked. Elsewhere a
-		project is a destination or a place to file something, and a write control there would be
-		a decision offered to somebody who came to do something else.
-
-		**It says what it will displace before it does it**, which is the whole anti-spiral
-		argument made visible: choosing this project is also the other one stopping, and a reader
-		who is not shown the trade is the reader who sets a fifth one.
 	*/
 	/*
 		**A tag and a person narrow it too, and until `#1020` neither said so.** A reader
@@ -853,18 +850,10 @@ export function Narrowed ({
 	   narrowed page with nothing explaining why has no way back but the browser's own. */
 	const ranked = priorityValue(selection);
 
-	if (
-		!project && !tag && !who && !answerable && !nobody && !topOnly && !ranked
-	) return null;
-
-	const raised = prioritised.includes(project);
-	const displaces = prioritised.find((one) => one !== project) || null;
+	if (!tag && !who && !answerable && !nobody && !topOnly && !ranked) return null;
 
 	return html`
 		<div class="narrowed">
-			${project && html`
-				<span>Showing <strong>${project}</strong> and anything under it.</span>
-			`}
 			${tag && html`<span>Showing anything tagged <strong>#${tag}</strong>.</span>`}
 			${who && html`<span>Showing <strong>@${who}</strong>'s work.</span>`}
 			${answerable && html`<span>Showing <strong>@${answerable}</strong>'s work and
@@ -894,22 +883,6 @@ export function Narrowed ({
 			${ranked === `${URGENT_AT_LEAST}:${HIGH}` && html`<span>Showing work rated
 				<strong>${HIGH} or more for urgency</strong>. Documents have no priority, so none
 				are shown.</span>`}
-			${/* **`project &&`, because the guard above used to carry this for it** — `#1020`.
-			     While the only way into this component was a project narrowing, `if (!project)
-			     return null` also guaranteed the argument below; now a tag or a person can
-			     bring a reader here, and without this a page with no project offered
-			     *Prioritise* and would have called `onPrioritise(null)`. A rule can be doing a
-			     second job, and relaxing it breaks the case nobody wrote down. */ null}
-			${project && onPrioritise && html`
-				<button type="button" class="prioritise action" disabled=${busy}
-					onClick=${() => onPrioritise(raised ? null : project)}
-					title=${raised
-						? "Stop raising this project's work"
-						: displaces
-							? `Raise this project's work - ${displaces} stops being the priority`
-							: "Raise this project's work above the rest"}
-					>${raised ? "Stop prioritising" : "Prioritise"}</button>
-			`}
 			${onWiden && (widenTo
 				? html`<a class="widen" href=${widenTo}
 					onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
@@ -1311,6 +1284,9 @@ export function Listing ({
 	/* **The collapse, beside the other narrowing controls** — `#2173`. Withheld the way
 	   `onWhose` is: no handler means no control, rather than one that does nothing. */
 	topLevelOnly = false, onTopLevel = null,
+	/* **The saved views, drawn by `App`** — `#3734`, which puts them at the end of this row.
+	   Built there, where their state lives; null where a page cannot save one. */
+	saved = null,
 }) {
 	/*
 		**The kind used to be dropped when a page held one of them** (§12.2a), and it is in the
@@ -1409,6 +1385,12 @@ export function Listing ({
 				<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
 
 				<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+
+				${/* **And the saved views end the row** — `#3734`: a view saves the settings before
+				     it, so *Save this view* sits beside what it saves. When the row is full they take
+				     a line of their own under the filters, which on a list is the ordinary case: its
+				     frame is a reading measure wide at every window size. */ null}
+				${saved}
 			</div>
 
 			${/*
@@ -1417,13 +1399,13 @@ export function Listing ({
 				over every listing would claim an effect the page is not showing — and a reader learns
 				to ignore a line that is only sometimes true.
 			*/ null}
-			${/* **And it offers the way to stop, unless `Narrowed` below already is** —
-			     `SR#2265`. Both name a project and both could carry the control, so the rule is
-			     that the one naming *this page's* project wins: on a listing narrowed to the
-			     raised project the toggle underneath already says *Stop prioritising*, and two
-			     identical buttons a line apart read as two different settings. Everywhere else —
-			     a listing narrowed to nothing, or to some other project — this is the only one
-			     that can offer it.
+			${/* **And it offers the way to stop, unless the heading already is** — `SR#2265`,
+			     and the heading since `#3708`. Both name a project and both could carry the
+			     control, so the rule is that the one naming *this page's* project wins: on the
+			     raised project's own page the heading's toggle already says *Stop
+			     prioritising*, and two identical buttons read as two different settings.
+			     Everywhere else — a listing of the whole workspace, or of some other project —
+			     this is the only one that can offer it.
 
 			     A listing is narrowed to one workspace, so `prioritised` holds at most that
 			     workspace's own entry and `stoppableHere`'s question is answered by
@@ -1435,9 +1417,7 @@ export function Listing ({
 						: null} />
 			`}
 
-			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}
-				selection=${selection}
-				prioritised=${prioritised} onPrioritise=${onPrioritise} busy=${busy} />
+			<${Narrowed} onWiden=${onWiden} widenTo=${widenTo} selection=${selection} />
 
 			${/*
 				**An empty page has to say which question it answered** (`#706`). *Nothing here
