@@ -378,14 +378,38 @@ class Client:
 			),
 		)
 
-		return self._collected(
+		# **An instance older than the open listing refuses ``open`` by name** (`#3714`), since a
+		# listing refuses what it does not declare - and the terminal is upgraded first as often as
+		# not, so ``list`` lost every document of an instance one release behind. Asked again without
+		# it, that instance lists every document, which is what its release lists, and the listing
+		# says so rather than passing the retired ones off as asked for.
+		#
+		# **That refusal alone.** Any other is raised as it came, without a second request; one
+		# naming ``open`` beside another parameter is asked again, and refused for the rest.
+		retired_too = False
+
+		try:
+			body = self._json("GET", "/v1/documents", params=asking)
+
+		except subroutine.errors.ValidationError as refused:
+			if not open or not _lacks(refused, "open"):
+				raise
+
+			asking = [(name, value) for name, value in asking if name != "open"]
+			body = self._json("GET", "/v1/documents", params=asking)
+			retired_too = True
+
+		listed = self._collected(
 			subroutine.views.Document,
-			self._json("GET", "/v1/documents", params=asking),
+			body,
 			endpoint="documents",
 			path="/v1/documents",
 			params=asking,
 			wanted=limit,
 		)
+		listed.retired_too = retired_too
+
+		return listed
 
 	def saved_views (
 		self, *, workspace: str | None = None
@@ -2735,6 +2759,20 @@ def _given (**values: typing.Any) -> dict[str, typing.Any]:
 	"""
 
 	return {name: value for name, value in values.items() if value is not None}
+
+
+def _lacks (refusal: subroutine.errors.ValidationError, name: str) -> bool:
+	"""Say whether an instance refused a request because it does not know one parameter of it.
+
+	**Read off the field and the code** (`#3714`), as
+	:func:`subroutine.clients.base.names_a_word_not_kept_here` reads a refusal: the sentence is the
+	instance's to word, and ``unknown_field`` on the name is what says its release has no such
+	parameter, rather than that the value sent was wrong.
+	"""
+
+	return any(
+		problem.field == name and problem.code == "unknown_field" for problem in refusal.errors
+	)
 
 
 def _dated (

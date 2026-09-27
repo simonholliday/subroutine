@@ -27,7 +27,8 @@ upgrade involves.
   asking about the trash, or naming one by its number still finds them - `subroutine list
   --filter status_category.in=superseded,archived` lists every one - and the browser's
   *everything* shows them. `GET /v1/documents` still lists every document unless it is asked
-  for `open=true`.
+  for `open=true`. Reading an instance on an older release, the terminal lists every document
+  from it, as that release does, and says so under a list showing a retired one.
 - **The browser says what to do when an event is refused a deadline.** Adding an event with a
   deadline, or saving a task that has one as an event, said only that an event cannot have a
   deadline; the note now adds the remedy - clear the deadline, and set *Until* to when it is

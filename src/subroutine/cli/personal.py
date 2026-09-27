@@ -59,6 +59,7 @@ import subroutine.directory
 import subroutine.domain.agenda
 import subroutine.domain.capture
 import subroutine.domain.dates
+import subroutine.domain.documents
 import subroutine.domain.durations
 import subroutine.domain.filtering
 import subroutine.domain.grammar
@@ -833,6 +834,11 @@ class Listing:
 	#: told here is *which* of the words they typed was not understood. A number would say
 	#: something happened and leave them to guess which term.
 	unread: tuple[str, ...] = ()
+
+	#: Whether this connection listed its retired documents too, because its instance does not
+	#: have the open listing (`#3714`). Carried for ``unread``'s reason: the instance's fact about
+	#: its answer, which the rows alone cannot show.
+	retired_too: bool = False
 
 
 # These live above every function that annotates with them. A module-level annotation is
@@ -3390,6 +3396,7 @@ def _listing (
 		parked = 0
 		held_back = 0
 		unread: list[str] = []
+		retired_too = False
 
 		# **A project belongs to one workspace, and this asks them all** (`#332`). Until
 		# 2026-08-03 every instance had exactly one, so the loop ran once and could not
@@ -3657,6 +3664,9 @@ def _listing (
 				# "a filter was asked for".
 				reached = True
 
+				# One instance answers for every workspace on it, so one listing saying so is enough.
+				retired_too = retired_too or found_documents.retired_too
+
 			cut = cut or found_documents.has_more
 			rows.extend((client.connection.name, found) for found in found_documents)
 
@@ -3716,6 +3726,7 @@ def _listing (
 			parked=parked,
 			held_back=held_back,
 			unread=tuple(unread),
+			retired_too=retired_too,
 		)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
@@ -4638,6 +4649,8 @@ def _listed (
 		_say_held_back(gathered, console=program.console)
 
 		_say_unread(gathered, console=program.console)
+
+		_say_retired_too(world, gathered, shown, console=program.console)
 
 		_say_where_a_bare_number_goes(world, console=program.console)
 
@@ -14417,6 +14430,44 @@ def _say_unread (
 
 	for one in said:
 		console.print(rich.text.Text(f"      {one}", style=DETAIL))
+
+
+def _say_retired_too (
+	world: World,
+	gathered: subroutine.fanout.Gathered[Listing],
+	shown: typing.Sequence[Row],
+	*,
+	console: rich.console.Console,
+) -> None:
+	"""Say why a retired document is on the list, where its instance cannot leave one out.
+
+	**`#3714`.** The open list leaves superseded and archived documents out (`#3549`), and an
+	instance on an older release refuses to be asked for it, so the client asks again for every
+	document - right for that instance, and a retired decision on the list would otherwise read as
+	one still in force.
+
+	**Only when one is on the page**, which is `#2266`'s rule: somebody keeping a to-do list has no
+	documents, and a sentence about them under every list would be a notice nobody reads. Named per
+	connection where a listing names them, since the fact is one instance's.
+	"""
+
+	older = {answer.connection.name for answer in gathered.answers if answer.value.retired_too}
+	showing = sorted({
+		name
+		for name, item in shown
+		if name in older
+		and isinstance(item, subroutine.views.Document)
+		and item.status_category in subroutine.domain.documents.RETIRED_CATEGORIES
+	})
+
+	for name in showing:
+		said = (
+			f"{name} lists superseded and archived documents too, until it is updated."
+			if world.qualifies_connection
+			else "Superseded and archived documents are listed too, until the instance is updated."
+		)
+
+		console.print(rich.text.Text(f"      {said}", style=DETAIL))
 
 
 def _sunk (order: str | None) -> str:

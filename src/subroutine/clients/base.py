@@ -180,6 +180,13 @@ class Listing(list[LISTED]):
 	#: rule, which is the defect this codebase finds most often.
 	unread: tuple[str, ...] | None = None
 
+	#: Whether the retired documents are here too, because the instance was asked for the open
+	#: listing and does not have it (`#3714`). ``False`` on every other listing.
+	#:
+	#: **Beside ``unread`` for its reason**: something the instance did with the request that the
+	#: rows alone cannot show, since a superseded document among them reads as one that was asked for.
+	retired_too: bool = False
+
 	def __init__ (
 		self,
 		rows: typing.Iterable[LISTED] = (),
@@ -549,6 +556,10 @@ class Client(typing.Protocol):
 		documents out as :meth:`tasks` leaves finished work out, unless the request itself asks for
 		them - :func:`subroutine.domain.documents.kept_open` decides that for both transports.
 		Left false, every document is listed, which is what a parent's children are read from.
+
+		**An instance older than that refuses ``open`` by name**, and one reached over HTTP is asked
+		again without it (`#3714`): every document, which is what its release lists, with
+		:attr:`Listing.retired_too` saying so.
 		"""
 
 	def document (

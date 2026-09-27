@@ -48,13 +48,21 @@ import typing
 import httpx
 import pydantic
 import pytest
+import sqlalchemy.orm
+import typer.testing
 
+import api_support
+import subroutine.api.documents
 import subroutine.api.users
+import subroutine.cli.main
 import subroutine.clients.http
+import subroutine.clients.opening
+import subroutine.config
 import subroutine.connections
 import subroutine.errors
 import subroutine.installations
 import subroutine.views
+import test_api_tasks
 
 #: ``GET /v1/me`` as served by 0.2.1.dev31 — the last shape before ``project_scope_keys``.
 #: Captured 2026-08-03 from a served instance that was a commit behind the tree.
@@ -660,3 +668,388 @@ def test_the_captured_refusals_are_of_a_release_before_this_build () -> None:
 	assert {"limit", "answers_to"} <= set(declared)
 	assert ("/v1/users/{username}", "GET") in served
 	assert refused["errors"][0]["hint"] == "It accepts: fields, format."
+
+
+#: ``GET /v1/me`` as ``v0.9.10`` answers it - `#3714`. Captured 2026-09-27 as the ``v0.8.15``
+#: answers above were, by driving the tag's application in process from a ``git archive`` of it,
+#: with every XDG directory empty, a new instance, one decision in force and one superseded.
+#: Identifiers and the credential's prefix are replaced with fixed ones.
+ME_AT_0_9_10: dict[str, typing.Any] = {
+	"api_version": "1.0",
+	"user": {
+		"id": "01a0e2ce-0000-7000-8000-000000000001",
+		"username": "operator",
+		"display_name": None,
+		"email": None,
+		"timezone": "Etc/UTC",
+		"is_superuser": True,
+		"is_service_account": False,
+		"account_parent": None,
+		"answers_to": "operator",
+	},
+	"instance_version": "0.9.10",
+	"schema_revision": "58c81c09d101",
+	"credential": {
+		"kind": "api_token",
+		"id": "01a0e2ce-0000-7000-8000-000000000002",
+		"title": "capture",
+		"prefix": "0a1b2c3d",
+		"scopes": [],
+		"project_scope": None,
+		"project_scope_keys": None,
+		"project_write_scope": None,
+		"project_write_scope_keys": None,
+		"workspace_id": None,
+		"narrows": False,
+		"expires_at": None,
+		"last_used_at": "2026-09-27T12:20:01.599656Z",
+	},
+	"instance_permissions": [
+		"instance:admin",
+		"instance:user_create",
+		"instance:workspace_create",
+	],
+	"reader_timezone": "Etc/UTC",
+	"reader_timezone_set_by": "operator",
+	"workspaces": [
+		{
+			"id": "01a0e2ce-0000-7000-8000-000000000003",
+			"slug": "projects",
+			"title": "projects",
+			"reader_timezone": "Etc/UTC",
+			"prioritised_project": None,
+			"timezone": None,
+			"description": None,
+			"role": "superuser",
+			"permissions": [
+				"comment:read",
+				"comment:write",
+				"link_type:write",
+				"project:delete",
+				"project:read",
+				"project:write",
+				"status:write",
+				"tag:write",
+				"task:delete",
+				"task:read",
+				"task:write",
+				"token:admin",
+				"user:admin",
+				"workspace:admin",
+				"workspace:delete",
+				"workspace:read",
+				"workspace:write",
+			],
+			"narrowed_by_credential": False,
+			"projects": [],
+		},
+	],
+	"releases": {
+		"checking": False,
+		"asked_at": None,
+		"failure": None,
+		"releases": [],
+		"plugins": {},
+	},
+}
+
+#: What ``v0.9.10`` answered when asked for the open listing, which it does not have: by
+#: name, since a listing refuses what it does not declare.
+OPEN_LISTING_REFUSED_AT_0_9_10: dict[str, typing.Any] = {
+	"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#unknown_field",
+	"title": "Unknown field",
+	"status": 422,
+	"detail": "This endpoint does not accept 'open'.",
+	"hint": "Refused rather than ignored, because a request that quietly ignores 'fields' returns the whole object and charges you for it.",
+	"code": "unknown_field",
+	"instance": "/v1/documents",
+	"request_id": "01a0e2ce-0000-7000-8000-000000000004",
+	"errors": [
+		{
+			"field": "open",
+			"code": "unknown_field",
+			"message": "'open' is not a parameter of this endpoint.",
+			"hint": "It accepts: cursor, deleted, fields, format, group_by, group_limit, include, include_total, limit, order, project, q, status, status_category, tag, type, workspace_id.",
+		},
+	],
+}
+
+#: And what it answered to the same request without ``open``: every document, the superseded
+#: one included, which is what that release lists.
+EVERY_DOCUMENT_AT_0_9_10: dict[str, typing.Any] = {
+	"items": [
+		{
+			"id": "01a0e2ce-0000-7000-8000-000000000005",
+			"ref": 2,
+			"title": "Number items per project",
+			"body": "Replaced.",
+			"size_bytes": 9,
+			"workspace": "projects",
+			"workspace_id": "01a0e2ce-0000-7000-8000-000000000003",
+			"project_id": "01a0e2ce-0000-7000-8000-000000000006",
+			"project_key": "inbox",
+			"project_path": "inbox",
+			"project_colour": None,
+			"parent_id": None,
+			"parent_ref": None,
+			"parent_title": None,
+			"sub_documents": 0,
+			"status": "superseded",
+			"status_category": "superseded",
+			"status_id": "01a0e2ce-0000-7000-8000-000000000007",
+			"status_is_default": False,
+			"status_label": "Superseded",
+			"type": "decision",
+			"type_label": "Decision",
+			"type_category": "decision",
+			"type_is_default": False,
+			"type_id": "01a0e2ce-0000-7000-8000-000000000008",
+			"owner_id": "01a0e2ce-0000-7000-8000-000000000001",
+			"tags": [],
+			"relevance": None,
+			"archived_at": None,
+			"deleted_at": None,
+			"created_at": "2026-09-27T12:19:58.941671Z",
+			"updated_at": "2026-09-27T12:19:59.738503Z",
+			"content_updated_at": "2026-09-27T12:19:59.737679Z",
+			"created_by": "01a0e2ce-0000-7000-8000-000000000001",
+			"updated_by": "01a0e2ce-0000-7000-8000-000000000001",
+			"version": 2,
+			"revisions": None,
+		},
+		{
+			"id": "01a0e2ce-0000-7000-8000-000000000009",
+			"ref": 1,
+			"title": "Keep one counter per workspace",
+			"body": "The rule in force.",
+			"size_bytes": 18,
+			"workspace": "projects",
+			"workspace_id": "01a0e2ce-0000-7000-8000-000000000003",
+			"project_id": "01a0e2ce-0000-7000-8000-000000000006",
+			"project_key": "inbox",
+			"project_path": "inbox",
+			"project_colour": None,
+			"parent_id": None,
+			"parent_ref": None,
+			"parent_title": None,
+			"sub_documents": 0,
+			"status": "active",
+			"status_category": "current",
+			"status_id": "01a0e2ce-0000-7000-8000-000000000010",
+			"status_is_default": False,
+			"status_label": "Active",
+			"type": "decision",
+			"type_label": "Decision",
+			"type_category": "decision",
+			"type_is_default": False,
+			"type_id": "01a0e2ce-0000-7000-8000-000000000008",
+			"owner_id": "01a0e2ce-0000-7000-8000-000000000001",
+			"tags": [],
+			"relevance": None,
+			"archived_at": None,
+			"deleted_at": None,
+			"created_at": "2026-09-27T12:19:58.159861Z",
+			"updated_at": "2026-09-27T12:19:58.159862Z",
+			"content_updated_at": "2026-09-27T12:19:58.159860Z",
+			"created_by": "01a0e2ce-0000-7000-8000-000000000001",
+			"updated_by": None,
+			"version": 1,
+			"revisions": None,
+		},
+	],
+	"page": {
+		"limit": 50,
+		"next_cursor": None,
+		"has_more": False,
+		"total": None,
+		"held_back": None,
+		"unread": None,
+	},
+}
+
+#: The open listing, as this build's client asks it of the one workspace there.
+OPEN_LISTING = "/v1/documents?workspace_id=projects&limit=50&open=true"
+
+
+def _documents_at_0_9_10 (
+	asked: list[str], *, refusing: dict[str, typing.Any] = OPEN_LISTING_REFUSED_AT_0_9_10
+) -> subroutine.clients.http.Client:
+	"""Return a client whose instance answers as ``v0.9.10`` did, noting each listing it is asked."""
+
+	def answer (request: httpx.Request) -> httpx.Response:
+		"""Answer one request with what the tag answered to it."""
+
+		if request.url.path == "/v1/me":
+			return httpx.Response(200, json=ME_AT_0_9_10)
+
+		asked.append(request.url.raw_path.decode())
+
+		if "open" in request.url.params:
+			return httpx.Response(
+				422,
+				headers={"content-type": "application/problem+json"},
+				content=json.dumps(refusing).encode(),
+			)
+
+		return httpx.Response(200, json=EVERY_DOCUMENT_AT_0_9_10)
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token="sr_x",
+		transport=httpx.MockTransport(answer),
+	)
+
+
+def test_the_open_listing_is_asked_again_of_the_release_before_without_open () -> None:
+	"""`#3714`: ``list`` lost every document of an instance one release behind it.
+
+	The terminal asks for the open listing (`#3549`), the release before refuses the parameter by
+	name, and nothing was listed. Asked again without it, that instance lists every document - the
+	superseded one too, which is what its release lists - and the listing says so, since the rows
+	alone would present the retired one as asked for.
+	"""
+
+	asked: list[str] = []
+
+	with _documents_at_0_9_10(asked) as client:
+		client.me()
+		listed = client.documents(workspace="projects", limit=50, open=True)
+
+	assert [(one.ref, one.status_category) for one in listed] == [(2, "superseded"), (1, "current")]
+	assert listed.retired_too
+	assert asked == [OPEN_LISTING, "/v1/documents?workspace_id=projects&limit=50"]
+
+
+def test_a_documents_refusal_about_anything_else_is_raised_without_asking_again () -> None:
+	"""`#3714`'s second test: the fallback swallows one refusal, and asks once for it.
+
+	A client catching every refusal here would ask a second time and, where the second answered,
+	report every document of a broken request as a listing that was merely older. The refusal is
+	the tag's own with its field renamed, which is the one difference under test.
+	"""
+
+	asked: list[str] = []
+	about_status = {
+		**OPEN_LISTING_REFUSED_AT_0_9_10,
+		"errors": [{**OPEN_LISTING_REFUSED_AT_0_9_10["errors"][0], "field": "status"}],
+	}
+
+	with (
+		_documents_at_0_9_10(asked, refusing=about_status) as client,
+		pytest.raises(subroutine.errors.ValidationError),
+	):
+		client.documents(workspace="projects", limit=50, open=True)
+
+	assert asked == [OPEN_LISTING]
+
+
+def test_a_listing_this_build_answers_says_nothing_about_retired_documents (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The instance that has the open listing is asked once and says nothing extra."""
+
+	world = test_api_tasks._world(session)
+
+	with subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token=world.secret,
+		transport=api_support.SyncTransport(world.application),
+		base_url=api_support.BASE_URL,
+	) as client:
+		listed = client.documents(open=True)
+
+	assert not listed.retired_too
+
+
+def test_the_captured_documents_refusal_is_of_a_release_before_this_build () -> None:
+	"""The guard on the guard: this build's documents listing declares what the tag refused."""
+
+	declared = inspect.signature(subroutine.api.documents.listing).parameters
+	accepted = OPEN_LISTING_REFUSED_AT_0_9_10["errors"][0]["hint"]
+
+	assert "open" in declared
+	assert "open" not in accepted.removeprefix("It accepts: ").rstrip(".").split(", ")
+
+
+class _BeforeTheOpenListing(api_support.SyncTransport):
+	"""This build's application, with its documents listing answering ``open`` as ``v0.9.10`` did."""
+
+	def handle_request (self, request: httpx.Request) -> httpx.Response:
+		"""Refuse the open listing in the tag's own words, and pass everything else through."""
+
+		if request.url.path == "/v1/documents" and "open" in request.url.params:
+			return httpx.Response(
+				422,
+				headers={"content-type": "application/problem+json"},
+				content=json.dumps(OPEN_LISTING_REFUSED_AT_0_9_10).encode(),
+			)
+
+		return super().handle_request(request)
+
+
+def test_list_reads_an_older_instance_s_documents_and_says_why_a_retired_one_is_there (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3714`, driven end to end: the documents came back, and the list says why one is retired.
+
+	Met at 18:44 on 2026-09-26, when a build ran this tree's terminal against the served instance
+	before it was reinstalled: every list lost its documents. **Said only under a list showing a
+	retired one**, so a to-do list with no documents reads as it always did, and **never under
+	``--json``**, whose rows carry each document's status for a script to read.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call("POST", "/v1/tasks", json={"text": "Buy milk"})
+
+	written = subroutine.config.config_file_path()
+	written.parent.mkdir(parents=True, exist_ok=True)
+	written.write_text(
+		'default_connection = "work"\n\n[connections.local]\nenabled = false\n\n'
+		'[connections.work]\nurl = "https://tasks.example.com"\n',
+		encoding="utf-8",
+	)
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", world.secret)
+
+	def opened (
+		connection: subroutine.connections.Connection,
+		_roster: subroutine.connections.Roster,
+		_settings: subroutine.config.Settings,
+		*,
+		token: str | None = None,
+	) -> subroutine.clients.http.Client:
+		"""Reach the test's instance in process, as one release behind for its documents."""
+
+		return subroutine.clients.http.Client(
+			connection,
+			token=token or world.secret,
+			transport=_BeforeTheOpenListing(world.application),
+			base_url=api_support.BASE_URL,
+		)
+
+	monkeypatch.setattr(subroutine.clients.opening, "for_connection", opened)
+
+	runner = typer.testing.CliRunner()
+	notice = "Superseded and archived documents are listed too, until the instance is updated."
+	before = runner.invoke(subroutine.cli.main.app, ["list"])
+
+	assert before.exit_code == 0, before.output
+	assert "Buy milk" in before.output, before.output
+	assert notice not in " ".join(before.output.split()), "said under a list with no documents"
+
+	for title, status in (("The plan in force", "active"), ("The plan it replaced", "superseded")):
+		world.call(
+			"POST", "/v1/documents", json={"title": title, "type": "decision", "status": status}
+		)
+
+	listed = runner.invoke(subroutine.cli.main.app, ["list"])
+	said = " ".join(listed.output.split())
+
+	assert listed.exit_code == 0, listed.output
+	assert "The plan in force" in said and "The plan it replaced" in said, listed.output
+	assert said.count(notice) == 1, listed.output
+
+	scripted = runner.invoke(subroutine.cli.main.app, ["list", "--json"])
+	rows = json.loads(scripted.stdout)
+
+	assert {row["title"] for row in rows} >= {"The plan in force", "The plan it replaced"}
+	assert notice not in " ".join(scripted.output.split()), "a notice under --json"
