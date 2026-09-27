@@ -29,6 +29,15 @@ upgrade involves.
   *everything* shows them. `GET /v1/documents` still lists every document unless it is asked
   for `open=true`. Reading an instance on an older release, the terminal lists every document
   from it, as that release does, and says so under a list showing a retired one.
+- **A read the instance refuses ends as a failure.** `subroutine list`, `search`, `view`,
+  `agenda`, `journal`, `changes` and `whoami` exited 0 when the instance refused what they asked,
+  such as a mistyped status, a project that is not there or a parameter an older instance does
+  not know, and `list --json` printed `[]`, which is what an empty list prints, so a script took
+  the refusal for nothing to do. They now exit 1, with the refusal on standard error and nothing
+  on standard output, as a failed `update` does, and `journal`, `changes` and `whoami` under
+  `--json` report the refusal where they said nothing. Where one connection refuses and another
+  answers, what answered is still printed, the one that refused is named, and the command exits
+  0; `--strict` stops instead.
 - **The browser says what to do when an event is refused a deadline.** Adding an event with a
   deadline, or saving a task that has one as an event, said only that an event cannot have a
   deadline; the note now adds the remedy - clear the deadline, and set *Until* to when it is

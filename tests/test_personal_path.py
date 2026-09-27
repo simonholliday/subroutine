@@ -1783,7 +1783,7 @@ def test_a_listing_can_be_narrowed_to_one_tag (
 
 	# **A tag nobody uses is turned down by name**, rather than answered with an empty list —
 	# a typo and an unused tag produce the same nothing, and the second is far the rarer.
-	assert "nosuchtag" in run("list", "--tag", "nosuchtag").output
+	assert "nosuchtag" in run("list", "--tag", "nosuchtag", expect=1).output
 
 	# **And `search` takes it too**, so narrowing and searching compose rather than being two
 	# ways to ask that cannot be combined.
@@ -1858,7 +1858,7 @@ def test_a_tag_filter_survives_a_workspace_that_has_not_got_the_tag (
 	# **A tag that is nowhere is still refused by name**, which is what `#1319` built the
 	# refusal for: a typo and an unused tag produce the same empty listing, and tolerating
 	# every workspace would have traded that away to fix this.
-	assert "nosuchtag" in run("list", "--tag", "nosuchtag").output
+	assert "nosuchtag" in run("list", "--tag", "nosuchtag", expect=1).output
 
 
 def test_a_narrowing_filter_given_twice_is_refused_rather_than_halved (
@@ -3922,6 +3922,69 @@ def test_a_retired_document_leaves_the_list_and_a_search_and_is_found_by_asking 
 	assert "The plan it replaced" in named, named
 
 
+@pytest.mark.parametrize(
+	"arguments",
+	[
+		("list", "--status", "nonsense"),
+		("list", "--status", "nonsense", "--json"),
+		("search", "milk", "--project", "nonsense"),
+		("-w", "projects", "agenda", "--project", "nonsense"),
+		("-w", "projects", "agenda", "--project", "nonsense", "--json"),
+		("journal", "--by", "nobody"),
+		("journal", "--by", "nobody", "--json"),
+		("changes", "--by", "nobody"),
+		("changes", "--by", "nobody", "--json"),
+	],
+	ids=" ".join,
+)
+def test_a_read_the_instance_refused_ends_in_failure_with_nothing_on_standard_output (
+	run: typing.Callable[..., typer.testing.Result], arguments: tuple[str, ...]
+) -> None:
+	"""`SR#3667`, `SR#3717`: a refused read exited 0, and ``--json`` printed an empty answer.
+
+	A build reading ``list --json`` took ``[]`` and exit 0 for an empty backlog, and filed a second
+	item for every open finding it had. The plain reads claimed it in words - *Nothing matches*,
+	*Nothing due today* - and ``journal`` and ``changes`` under ``--json`` said nothing on standard
+	error at all. **Each ends now as a failed ``update`` does**: exit 1, the refusal on standard
+	error, and nothing on standard output.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	refused = run(*arguments, expect=1)
+
+	assert refused.stdout == "", refused.stdout
+	assert refused.stderr.startswith("Local: "), refused.stderr
+
+
+@pytest.mark.parametrize("scripted", [False, True], ids=["plain", "json"])
+def test_whoami_refused_by_the_instance_says_so_and_ends_in_failure (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	scripted: bool,
+) -> None:
+	"""`SR#3717`: ``whoami --json`` returned before reporting anything, so a refusal was ``[]``.
+
+	Fed through the client the command asks, since an instance that answers who it is and then
+	refuses who you are is rare enough that nothing else here reaches it.
+	"""
+
+	run("init")
+
+	def refused (*_arguments: typing.Any, **_options: typing.Any) -> typing.NoReturn:
+		"""Refuse the read the way an instance refuses a credential."""
+
+		raise subroutine.errors.Forbidden("This credential may not read who it is.")
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "me", refused)
+
+	ended = run("whoami", *(["--json"] if scripted else []), expect=1)
+
+	assert ended.stdout == "", ended.stdout
+	assert "This credential may not read who it is." in ended.stderr, ended.stderr
+
+
 def test_ls_is_the_same_command_under_a_shorter_name (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -4462,10 +4525,10 @@ def test_the_listing_narrows_to_one_project (
 	assert "Filed nowhere in particular" in narrowed
 
 	# **An unknown key is a failed connection, not a failed command**, because with several
-	# connections a project may legitimately exist on one and not another. So it is named on
-	# stderr and the command carries on — `--strict` is how a script says it would rather
-	# stop, and that is the fan-out's contract rather than anything this flag invented.
-	missing = run("list", "--project", "nosuch")
+	# connections a project may legitimately exist on one and not another: it is named on stderr
+	# and the others still print, and `--strict` is how a script says it would rather stop.
+	# **With one connection nothing else answers, so it ends as a failure** (`SR#3667`).
+	missing = run("list", "--project", "nosuch", expect=1)
 
 	assert "nosuch" in missing.output
 
@@ -7609,7 +7672,7 @@ def test_the_board_a_team_asks_for_first_can_be_narrowed_to_and_saved (
 	# **The other kind's word is a question with a real answer**, and the answer is none here.
 	assert "The plan" in run("search", "status_category:current").output
 
-	refused = run("search", "status_category:dnoe").output
+	refused = run("search", "status_category:dnoe", expect=1).output
 
 	assert "todo, in_progress, done, cancelled" in refused, refused
 	assert "draft" not in refused, "a task was offered a document's categories"
@@ -9238,10 +9301,11 @@ def test_the_changes_feed_narrows_to_what_one_account_did (
 
 	assert "no such account" not in run("changes", "--by", "si").output.lower()
 
-	# **Reported rather than fatal**, which is `fanout`'s rule and not this command's choice: a
-	# connection that cannot answer says so and the others still do, and `--strict` is what
-	# makes it stop. The name is in the message, so a typo is visible rather than silent.
-	missing = run("changes", "--by", "nobody-here")
+	# **Reported, and fatal only where nothing else answered**, which is `fanout`'s rule and not
+	# this command's choice: a connection that cannot answer says so and the others still do,
+	# `--strict` is what makes it stop, and with one connection there are no others (`SR#3667`).
+	# The name is in the message, so a typo is visible rather than silent.
+	missing = run("changes", "--by", "nobody-here", expect=1)
 
 	assert "nobody-here" in missing.output, missing.output
 	stopped = run("changes", "--by", "nobody-here", "--strict", expect=1)
@@ -9615,9 +9679,8 @@ def test_a_bad_status_names_the_status_even_when_a_real_project_is_named (
 	makes the task call raise about the *status* — which falls through instead of skipping the
 	workspace — and the document call then ran where the project does not exist.
 
-	**A failed listing exits 0**, because a per-connection failure is reported beside whatever
-	did arrive rather than ending the command. Asserting on the exit code would test nothing
-	here; the message is the whole subject.
+	**The exit status is not the subject**: nothing answered, so the listing ends as a failure
+	(`SR#3667`), and what matters here is which of the two refusals it names.
 
 	**What it cost**, from the report: a reader took the message at face value and spent a round
 	of calls establishing whether the marker was wrong, the project renamed, or the credential
@@ -9628,7 +9691,7 @@ def test_a_bad_status_names_the_status_even_when_a_real_project_is_named (
 	run("project", "create", "web", "Website")
 	run("workspace", "create", "personal", "Personal")
 
-	refused = run("list", "--project", "web", "--status", "all")
+	refused = run("list", "--project", "web", "--status", "all", expect=1)
 
 	assert "status" in refused.output, refused.output
 	assert "no project" not in refused.output, (
@@ -9651,7 +9714,7 @@ def test_a_project_that_is_nowhere_is_still_refused_by_name (
 	run("project", "create", "web", "Website")
 	run("workspace", "create", "personal", "Personal")
 
-	refused = run("list", "--project", "wbe")
+	refused = run("list", "--project", "wbe", expect=1)
 
 	assert "wbe" in refused.output, refused.output
 	assert "no project" in refused.output
@@ -10091,7 +10154,7 @@ def test_a_status_neither_kind_has_is_refused_by_name (
 	run("init")
 	run("add", "An ordinary task")
 
-	refused = run("list", "--status", "blockd")
+	refused = run("list", "--status", "blockd", expect=1)
 
 	assert "blockd" in refused.output
 	assert "Nothing on your list" not in refused.output
@@ -10519,12 +10582,12 @@ def test_a_listing_that_refuses_a_status_or_a_type_names_the_ones_there_are (
 
 	run("init")
 
-	status = run("list", "--status", "not-a-status").output
+	status = run("list", "--status", "not-a-status", expect=1).output
 
 	assert "There is no task status called 'not-a-status' here." in status, status
 	assert "Statuses here: " in status and "needs_input" in status, status
 
-	kind = run("list", "--type", "not-a-type").output
+	kind = run("list", "--type", "not-a-type", expect=1).output
 
 	assert "There is no task type called 'not-a-type' here." in kind, kind
 	assert "Types here: " in kind and "bug" in kind, kind
@@ -10615,7 +10678,7 @@ def test_a_filter_that_names_no_operator_is_refused_rather_than_dropped (
 
 	# A dotted name nobody declares keeps its own refusal, which names the field and the
 	# vocabulary — a different sentence about a different mistake, and from `understood`.
-	unknown = run("list", "--filter", "nonsense.gte=today").output
+	unknown = run("list", "--filter", "nonsense.gte=today", expect=1).output
 
 	assert "is not a field this endpoint can filter on" in unknown, unknown
 
@@ -13785,7 +13848,7 @@ def test_a_search_narrowed_to_a_project_finds_it_in_the_workspace_that_has_it (
 	assert "Fix the boiler" in found, found
 	assert "There is no project" not in found, found
 
-	missing = run("search", "project:nowhere").output
+	missing = run("search", "project:nowhere", expect=1).output
 
 	assert "nowhere" in missing, missing
 	assert run("search", "project:nowhere", "--strict", expect=1)

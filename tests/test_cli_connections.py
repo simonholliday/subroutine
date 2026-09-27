@@ -2184,7 +2184,7 @@ def test_a_credential_can_be_restricted_to_one_project_from_the_command_line (
 
 	# Not merely absent from a listing: the project itself does not resolve, which is what
 	# §7.3a means by a restriction hiding rather than forbidding.
-	assert "no project 'ops'" in run("list", "--project", "ops").output
+	assert "no project 'ops'" in run("list", "--project", "ops", expect=1).output
 
 
 def test_a_project_restriction_reaches_everything_under_it (

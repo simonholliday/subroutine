@@ -3907,9 +3907,6 @@ def _say_journal (
 
 		say("")
 
-	for failure in gathered.failures:
-		console.print(rich.text.Text(failure.describe(), style=LATE))
-
 
 def _say_changes (
 	world: World,
@@ -3964,9 +3961,6 @@ def _say_changes (
 		say("")
 		_suggest(console, f"subroutine changes --since {last}", "carry on from here")
 		say("")
-
-	for failure in gathered.failures:
-		console.print(rich.text.Text(failure.describe(), style=LATE))
 
 
 # --- Helpers that take the program with them ------------------------------------------
@@ -4490,6 +4484,7 @@ def _listed (
 		)
 
 		_report(program, world, gathered.failures)
+		_stop_if_nothing_answered(gathered)
 
 		# **The order that was *asked for*, not the one the reader typed.** The merge has to
 		# compare rows by the same keys the server paged them with, or a page boundary
@@ -5618,9 +5613,10 @@ def _report_dates_set_elsewhere (
 def _report (program: Program, world: World, failures: typing.Sequence[subroutine.fanout.Failure]) -> None:
 	"""Name every connection that could not be reached, and carry on.
 
-	To standard error, and the command still exits 0: an agenda that refuses to print
-	because one of three servers is down is worse than an agenda with a line saying which
-	one. ``--strict`` is how a script says it would rather stop.
+	To standard error, and the command still exits 0 where anything answered: an agenda that
+	refuses to print because one of three servers is down is worse than an agenda with a line
+	saying which one. ``--strict`` is how a script says it would rather stop, and
+	:func:`_stop_if_nothing_answered` ends a read that nothing answered (`#3667`).
 
 	**Said the way a refusal is said everywhere else** (`#2954`), through
 	:attr:`Program.refused`: the connection, then the refusal with its fields and what each
@@ -5631,6 +5627,29 @@ def _report (program: Program, world: World, failures: typing.Sequence[subroutin
 
 	for failure in (*world.unreachable, *failures):
 		program.refused(failure.error, failure.connection.label)
+
+
+def _stop_if_nothing_answered (gathered: subroutine.fanout.Gathered[typing.Any]) -> None:
+	"""End a read every connection refused, as a failure - `#3667`, `#3717`.
+
+	**A read nothing answered has no result, and printing an empty one is a claim.** ``list
+	--json`` printed ``[]`` for a refusal and exited 0, which is what *nothing matches* prints, so a
+	build reading the exit status and the rows took the refusal for an empty backlog and filed a
+	second item for every open one it had. The plain reads made the claim in words: *Nothing
+	matches*, *Nothing due today*, and a tip to add something.
+
+	**The rule opening the connections already keeps, one request later.** Where none can be
+	reached, :meth:`Program.opened` stops with *Nothing could be read.* and exit 1; this gives the
+	same answer where they were reached and then refused the read, so a script meets one exit
+	status for both. **A partial answer is unchanged**: the rows that came, a line naming each
+	connection that did not, exit 0, and ``--strict`` for a script that would rather stop.
+
+	**Called after** :func:`_report`, which has put each refusal on standard error in full, so
+	standard output is left empty - what a failed ``update`` leaves.
+	"""
+
+	if gathered.failures and not gathered.answers:
+		raise typer.Exit(code=1)
 
 
 def _only_this_connection (program: Program, world: World, name: str) -> World:
@@ -7105,6 +7124,11 @@ def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
 			world.clients, lambda client: client.me(), strict=strict
 		)
 
+		# **Before either output, since the scripted one returned without a word** (`#3717`): a
+		# refused read was ``[]`` and exit 0 under ``--json``, with nothing on standard error.
+		_report(program, world, gathered.failures)
+		_stop_if_nothing_answered(gathered)
+
 		if json_output:
 			program.say(
 				json.dumps(
@@ -7161,8 +7185,6 @@ def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
 				answer.value, machine=subroutine.config.system_timezone()
 			):
 				program.console.print(line)
-
-		_report(program, world, gathered.failures)
 
 
 def _connections_listed (program: Program) -> None:
@@ -11732,6 +11754,7 @@ def _agenda (
 		)
 
 		_report(program, world, gathered.failures)
+		_stop_if_nothing_answered(gathered)
 		_report_zones(program, gathered)
 		_report_dates_set_elsewhere(program, gathered)
 
@@ -12527,6 +12550,12 @@ def _read_journal (
 
 		gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
 
+		# **Every refusal on standard error, under ``--json`` as well** (`#3717`), where the
+		# scripted output said nothing and the plain one printed it among the rows - and a
+		# read nothing answered ends there (`#3667`).
+		_report(program, world, gathered.failures)
+		_stop_if_nothing_answered(gathered)
+
 		if json_output:
 			program.say(
 				json.dumps(
@@ -12670,6 +12699,12 @@ def _what_moved (
 			)
 
 		gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
+
+		# **Every refusal on standard error, under ``--json`` as well** (`#3717`), where the
+		# scripted output said nothing and the plain one printed it among the rows - and a
+		# read nothing answered ends there (`#3667`).
+		_report(program, world, gathered.failures)
+		_stop_if_nothing_answered(gathered)
 
 		if json_output:
 			program.say(
