@@ -462,6 +462,13 @@ def address (base: str | None, minted: subroutine.auth.IssuedToken) -> str | Non
 	*is* the credential: a URL naming the wrong host is one somebody pastes into a calendar
 	application, which then sends the secret there every fifteen minutes for ever.
 
+	**The other half of one rule** (`#3702`, Simon's decision on `#1084`): a sign-in link's
+	address is worked out from the request when nothing states it, in
+	:func:`subroutine.api.sessions._address`, because it goes straight back to the person who
+	asked and is used at once. A feed's is kept in somebody's calendar and used for months, where
+	a wrong one fails long after anybody could tie it to the missing setting, so it is never
+	guessed.
+
 	The path is built from the credential's two halves rather than from the whole string, so
 	this and the route that reads it back cannot disagree about where the split is.
 	"""

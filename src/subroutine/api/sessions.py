@@ -540,6 +540,13 @@ def _address (
 	Local callers reach the same three-way rule through
 	:func:`subroutine.config.browsable_url`; the branch differs here only because a request
 	is a better source than the bind when there is one.
+
+	**Guessed here and never for a calendar feed, by one rule** (`#3702`, Simon's decision on
+	`#1084`): an address may be worked out from the request where it goes straight back to the
+	person who asked and is used at once, as a sign-in link is, and flagged so they are told;
+	never where it is kept and used later by another program, as a feed's is - see
+	:func:`subroutine.domain.calendars.address`. A feature that needs its own address asks which
+	of the two it is.
 	"""
 
 	told = (settings.public_url or "").strip()

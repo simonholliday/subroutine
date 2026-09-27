@@ -1456,6 +1456,13 @@ address mints the feed and says it cannot give you one. Set `public_url` and run
 the `Host` header, deliberately - a proxy rewrites that, and a guessed host is a secret sent
 somewhere nobody chose, every fifteen minutes, for as long as the subscription lives.
 
+**The sign-in link does guess, and one rule covers both.** With `public_url` unset, Subroutine
+works its address out from the request only where the address goes straight back to the person
+who asked and is used at once - a sign-in link, which says the address was worked out. It
+refuses where the address is kept and used later by another program, as a calendar is. A wrong
+guess of the first kind is seen at once by the person holding it; one of the second kind fails
+months later, with nothing to tie it to the missing setting.
+
 **A leak is not detectable from here.** The address ends up in a phone's account settings and
 in whatever synced them, and a fetch from somewhere unexpected looks exactly like a fetch from
 somewhere expected. What there is instead is the `last polled` column
