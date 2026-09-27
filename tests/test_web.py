@@ -450,19 +450,19 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		],
 		"settings": "/settings/project/projects/subroutine/ui",
 		# **A project, and not the raised one** (`SR#3708`), so the heading draws its toggle as
-		# *Prioritise*, with the trade it would make, and the note that the page includes what is
-		# filed under it. A workspace's heading draws neither, which the tests below ask for.
+		# *Prioritise*, with the trade it would make. A workspace's heading draws none, which the
+		# tests below ask for.
 		"project": "subroutine/ui",
 		"prioritised": ["subroutine"],
 	},
 	# **The saved views, with the form open** - `#3096`. Open because the form is the riskier
 	# markup and the one a fallback would swallow: a name box, a shared checkbox and the
-	# sentence naming what a view cannot keep. The closed state is one button, and the browser
-	# tests drive the real app for it.
+	# sentence naming what a view cannot keep. The closed state is a select and a button, and
+	# the browser tests drive the real app for it.
 	#
-	# **One view of each kind**, so the shared mark is drawn and the unshared row proves it is
-	# not drawn on every row - and `mine` matches one owner, so the forget control appears
-	# beside a view this reader may remove and not beside somebody else's.
+	# **One view of each kind**, so the shared mark is drawn in its option and the unshared one
+	# proves it is not drawn in every option - and `showing` is a view `mine` saved, so the
+	# question forgetting asks is drawn (`forgetting` below).
 	"SavedViews": {
 		"views": [
 			{
@@ -475,9 +475,8 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 				"arrangement": "board", "order": "-priority_score",
 				"group_by": "status_category", "owner": "morpheus", "shared": True,
 			},
-			# **Somebody else's**, so the row without a forget control is drawn too: only the
-			# person who saved a view may remove it, and a sample where every view was this
-			# reader's would leave that absence drawn by nothing.
+			# **Somebody else's**, which only an administrator may forget; the test of that
+			# shows it to one (`SR#3142`).
 			{
 				"key": "everything", "title": "Everything", "q": None,
 				"arrangement": "agenda", "order": None, "group_by": None,
@@ -8961,9 +8960,9 @@ def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathli
 	showing, and offers the whole workspace.
 
 	**The heading says it since `SR#3708`**, and the narrowed bar no longer does: the trail names
-	the project, the note under it says the page includes what is filed under it, and the trail's
-	first step is the way back to the workspace. The bar said the same a few lines lower, and now
-	says only what narrows the rows, which is `SR#649`'s line between the path and the query.
+	the project, and its first step is the way back to the workspace. The bar said the same a few
+	lines lower, and now says only what narrows the rows, which is `SR#649`'s line between the
+	path and the query.
 
 	This is `SR#251`/`SR#303`'s shape read forwards: a filter nobody can see is a control that
 	does nothing, from the reader's side.
@@ -8981,9 +8980,6 @@ def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathli
 	})
 
 	assert "Web UI" in drawn["Place"], f"the heading did not name the project: {drawn['Place']}"
-	assert "and anything under it" in drawn["Place"], (
-		f"the heading did not say the page includes what is filed under it: {drawn['Place']}"
-	)
 
 	# **It leaves a project for its workspace, so it is an address and so it is a link**
 	# (`SR#722`), and since `SR#3708` that link is the trail's first step.
@@ -17035,7 +17031,7 @@ def test_the_raised_project_s_own_agenda_offers_to_stop_it_once (tmp_path: pathl
 	own = said("/projects/subroutine")
 	other = said("/projects/web")
 
-	assert "and anything under it" in own, f"the heading is not drawn over the agenda: {own!r}"
+	assert "Save this view" in own, f"the heading's controls are not drawn over the agenda: {own!r}"
 	assert "subroutine is prioritised" in own, f"the agenda stopped saying so: {own!r}"
 	assert own.count("Stop prioritising") == 1, (
 		f"the raised project's own agenda offers the same act twice: {own!r}"
@@ -17053,8 +17049,7 @@ def test_a_place_s_settings_button_says_whose_settings_they_are (tmp_path: pathl
 
 	A bare *Settings* beside a workspace called *Projects* read as settings for projects. The
 	menu's word stays, because where it sits already says whose they are. **And a workspace's
-	heading draws no toggle and no note**: prioritising is a project's, and a workspace is not
-	filed under anything.
+	heading draws no toggle**: prioritising is a project's.
 	"""
 
 	drawn = _rendered(tmp_path, {
@@ -17068,8 +17063,8 @@ def test_a_place_s_settings_button_says_whose_settings_they_are (tmp_path: pathl
 
 	assert "Workspace settings" in drawn["Place"], drawn["Place"]
 	assert "Project settings" not in drawn["Place"], drawn["Place"]
-	assert "Prioritise" not in drawn["Place"] and "anything under it" not in drawn["Place"], (
-		f"a workspace's heading offered a project's controls: {drawn['Place']}"
+	assert "Prioritise" not in drawn["Place"], (
+		f"a workspace's heading offered a project's toggle: {drawn['Place']}"
 	)
 
 	assert "Project settings" in project and "Workspace settings" not in project, project
@@ -21353,21 +21348,59 @@ def test_a_saved_view_says_whose_work_it_draws_and_offers_only_what_the_reader_m
 	sample = {**SAMPLES["SavedViews"], "forgetting": None}
 	shown = _rendered(tmp_path, {"SavedViews": sample})["SavedViews"]
 	barred = _rendered(tmp_path, {"SavedViews": {**sample, "mayShare": False}})["SavedViews"]
+	# **Somebody else's shared view showing**: *Everything* is saved as an agenda with no search.
+	theirs = {**sample, "showing": {"view": "agenda", "selection": {}}}
+	withheld = _rendered(tmp_path, {"SavedViews": theirs})["SavedViews"]
 	administering = _rendered(
-		tmp_path, {"SavedViews": {**sample, "mayForgetShared": True}}
+		tmp_path, {"SavedViews": {**theirs, "mayForgetShared": True}}
 	)["SavedViews"]
 
 	assert "shared, each reader's own" in shown, shown
 	assert "Let the workspace see it" in shown, shown
 	assert "Let the workspace see it" not in barred, barred
 
-	# One forget control per view this reader may remove: their own three, and the fourth -
-	# somebody else's shared one - only for an administrator. The control is a multiplication
-	# sign, written as its escape because it is easy to misread for a letter.
-	forget = "\u00d7"
+	# **Forget acts on the view that is showing** (`SR#3737`): a select cannot carry a control on
+	# each option. The reader's own view offers it, and somebody else's shared view offers it only
+	# to an administrator.
+	assert shown.count("Forget") == 1, shown
+	assert withheld.count("Forget") == 0, withheld
+	assert administering.count("Forget") == 1, administering
 
-	assert shown.count(forget) == 3, shown
-	assert administering.count(forget) == 4, administering
+
+def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3737`, decision `SR#3734` as revised: a drop-down, because a row grew with every view.
+
+	It shows the view the page is on, and *Choose* when the page is not a saved view - Simon's
+	word, since the label already says *Views* - and a shared view says so in its option, in words
+	(`SR#102`). **With nothing saved there is no select at all**: the control is the label and
+	*Save this view*, the one action (`SR#3096`).
+
+	Real markup rather than the text harness, because which option is selected is an attribute.
+	"""
+
+	sample = {**SAMPLES["SavedViews"], "forgetting": None, "saving": False}
+	drawn = _markup(tmp_path, {"SavedViews": sample})["SavedViews"]
+	elsewhere = _markup(tmp_path, {"SavedViews": {
+		**sample, "showing": {"view": "list", "selection": {"q": "nothing saved asks this"}},
+	}})["SavedViews"]
+	empty = _markup(tmp_path, {"SavedViews": {**sample, "views": []}})["SavedViews"]
+
+	def selected (markup: str) -> list[str]:
+		"""The text of every option the markup marks selected."""
+
+		return re.findall(r"<option[^>]*\bselected\b[^>]*>([^<]*)</option>", markup)
+
+	assert selected(drawn) == ["My bugs"], drawn
+	assert ">Choose<" not in drawn, f"a page on a saved view offered to choose one: {drawn}"
+	assert selected(elsewhere) == ["Choose"], elsewhere
+
+	assert "Team queue (shared)" in drawn, drawn
+	assert "My bugs (shared" not in drawn, f"the shared mark was drawn on every view: {drawn}"
+
+	assert "<select" not in empty, f"a select was drawn with nothing to choose: {empty}"
+	assert "Save this view" in empty, empty
 
 
 def test_a_board_saved_with_no_axis_is_applied_with_the_one_an_address_gives_it (

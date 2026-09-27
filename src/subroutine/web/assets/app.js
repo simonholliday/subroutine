@@ -35,8 +35,8 @@ import {
 	notChanged, refusal, sunkOrder, unpacked, unrenderable, unsaved,
 } from "./answers.js";
 import {
-	Facts, Foot, Note, Place, Prose, SavedViews, THEMES, Theme, Wordmark, You, applyTheme,
-	themeChoice,
+	Facts, Foot, Note, Place, Prose, SAVING_VIEW, SavedViews, THEMES, Theme, Wordmark, You,
+	applyTheme, themeChoice,
 } from "./chrome.js";
 import { Settings, deviceZone, listedZones, settingsHere } from "./configure.js";
 import {
@@ -3214,6 +3214,13 @@ export function App () {
 			}));
 
 			setSavingView(false);
+
+			/* **The panel closes with the save** (`#3734`). The browser opens and closes it, so the
+			   state above cannot: without this the form went and an empty panel stayed. */
+			const panel = globalThis.document && globalThis.document.getElementById(SAVING_VIEW);
+
+			if (panel && panel.matches && panel.matches(":popover-open")) panel.hidePopover();
+
 			await readSavedViews(workspace);
 		} catch (bad) {
 			/* **A sentence and a tone** (`#3146`): `refusal` builds an error from a response, and a
@@ -3326,16 +3333,15 @@ export function App () {
 	};
 
 	/*
-		**The views saved here, drawn at the end of the filter row** - `#3096`, placed there by
-		`#3734` (Simon, 2026-09-27): after the controls whose settings a view saves, so *Save this
-		view* sits beside what it saves. They had a row of their own under the place name, which
-		cost a row on every page.
+		**The views saved here, a drop-down in the place's heading beside its settings** - `#3096`,
+		and `#3734` for where and in what shape (Simon, 2026-09-27). They had a row of their own
+		under the place name, and then the end of the filter row, where on a list they always took
+		a second line.
 
-		**Built here and drawn by the arrangement**, `adding`'s argument one control along: the
-		list, the board and the agenda each own their filter row, and none of them has any business
-		knowing what a saved view is made of. **Not on the merged agenda**, which spans every
-		workspace and so has no single one to save a view into; `Place` is drawn on the same
-		condition.
+		**Built here and drawn by `Place`**, `adding`'s argument one control along: the heading has
+		no business knowing what a saved view is made of. **Not on the merged agenda**, which spans
+		every workspace and so has no single one to save a view into; `Place` is not drawn there
+		either.
 
 		**`unkept` is computed here rather than in the component**, because what a view cannot
 		carry is a fact about the grammar rather than about the control: the component is handed
@@ -3531,10 +3537,9 @@ export function App () {
 		<div class=${frame(showing, open)}>
 			${/*
 				**The place names itself above everything it holds** (`#2599`), with its settings at
-				the end for a reader who may change them, and since `#3708` a project's own controls:
-				*Prioritise*, and the note that the page includes what is filed under it. On its agenda,
-				list and board, and not on an open item, which has a title of its own and names its
-				project in its fact sheet.
+				the end for a reader who may change them, and since `#3708` and `#3734` the rest of its
+				own controls: *Prioritise*, and the saved views. On its agenda, list and board, and not
+				on an open item, which has a title of its own and names its project in its fact sheet.
 
 				**The trail is `placeTrail`'s, which the tab's title reads too**, and the link is
 				`settingsHere`'s: the registry this page already holds for the capture form, and what
@@ -3552,7 +3557,7 @@ export function App () {
 					)}
 					project=${project}
 					prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
-					onPrioritise=${mayWrite ? prioritise : null} busy=${busy} />
+					onPrioritise=${mayWrite ? prioritise : null} busy=${busy} saved=${saved} />
 			`}
 
 			${released && html`
@@ -3762,7 +3767,6 @@ export function App () {
 							)
 							? () => prioritise(null)
 							: null}
-						saved=${saved}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -3779,7 +3783,6 @@ export function App () {
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} onGo=${narrow}
 							project=${project} workspace=${workspace} onWiden=${widen}
-							saved=${saved}
 							selection=${showing.selection}
 							${/*
 							     **Gated like every other control on this call** — `#1781`, and
@@ -3879,7 +3882,7 @@ export function App () {
 							onWhose=${chooseWhose} onPriority=${choosePriority}
 							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
 							onTopLevel=${chooseTopLevel}
-							onWiden=${widen} saved=${saved}
+							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace, project }), widened(showing))}
 							selection=${showing.selection}
 							empty=${finishedOnly

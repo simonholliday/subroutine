@@ -1284,9 +1284,6 @@ export function Listing ({
 	/* **The collapse, beside the other narrowing controls** — `#2173`. Withheld the way
 	   `onWhose` is: no handler means no control, rather than one that does nothing. */
 	topLevelOnly = false, onTopLevel = null,
-	/* **The saved views, drawn by `App`** — `#3734`, which puts them at the end of this row.
-	   Built there, where their state lives; null where a page cannot save one. */
-	saved = null,
 }) {
 	/*
 		**The kind used to be dropped when a page held one of them** (§12.2a), and it is in the
@@ -1385,12 +1382,6 @@ export function Listing ({
 				<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
 
 				<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
-
-				${/* **And the saved views end the row** — `#3734`: a view saves the settings before
-				     it, so *Save this view* sits beside what it saves. When the row is full they take
-				     a line of their own under the filters, which on a list is the ordinary case: its
-				     frame is a reading measure wide at every window size. */ null}
-				${saved}
 			</div>
 
 			${/*

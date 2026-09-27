@@ -3235,9 +3235,9 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	*and their agents* put *Top level only* on a line of its own on every list, since a list is a
 	reading measure wide, and on a workspace's pages the masthead's tabs took a second row below
 	1350 pixels. Both selects are capped now and the search box may come down to its own basis,
-	which holds the masthead to one row down to about 1150. **The saved views are asked only to
-	be in the filter row** (`SR#3734`): on a list they take a line of their own, as the filters
-	leave too little room beside them.
+	which holds the masthead to one row down to about 1150. **And the heading holds one line with
+	twelve saved views** (`SR#3737`): they are a drop-down beside the settings, where a row of
+	them grew a line with every few views saved.
 	"""
 
 	opened, _written, _refusing, roster, *_ = running
@@ -3245,7 +3245,8 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	rows = {}
 	narrow = {}
 
-	# **This instance's longest names, and a development build in the wordmark** — `SR#3735`.
+	# **This instance's longest names, a development build in the wordmark** — `SR#3735` — **and
+	# twelve saved views** (`SR#3737`).
 	# Served to each page rather than written into the fixture, so the tests that read the
 	# fixture's roster and projects are not moved by names chosen for their width.
 	roster[0] = {**IDENTITY, "instance_version": "0.9.11.dev5+g5f5410bc8"}
@@ -3260,6 +3261,18 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 		"v1/projects": {**PROJECTS, "items": [*PROJECTS["items"], {
 			"key": "sampler-link", "title": "Sampler link — timing and resolution", "depth": 1,
 		}]},
+		"v1/views": {**SAVED_VIEWS, "items": [*SAVED_VIEWS["items"], *(
+			{
+				"key": title.lower().replace(" ", "-"), "title": title, "q": f"tag:{at}",
+				"arrangement": "list", "order": None, "group_by": None, "owner": "si",
+				"shared": False,
+			}
+			for at, title in enumerate((
+				"Release blockers", "Waiting on me", "Team queue", "Not yet judged", "Due this week",
+				"What the agents are holding", "Decisions in force", "Untouched for a month",
+				"Handouts board", "Triage",
+			))
+		)]},
 	}
 
 	def crowd (page: typing.Any) -> None:
@@ -3376,7 +3389,10 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 				return {
 					masthead: lines(".where > *, .within > *, .you"),
 					filters: lines(filters),
-					views: document.querySelectorAll(".listing .controls .saved-views").length,
+					views: document.querySelectorAll(".place .here .saved-views").length,
+					heading: lines(
+						".place .trail, .place .here > :not(.saved-views), .place .saved-views > *"
+					),
 				};
 			}""",
 		)
@@ -3412,7 +3428,10 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 		f"at 1280 pixels a long name put the filters on more than one line: {narrow}"
 	)
 	assert all(seen["views"] == 1 for seen in narrow.values()), (
-		f"the saved views are not at the end of the filter row on every arrangement: {narrow}"
+		f"the saved views are not beside the place's settings on every arrangement: {narrow}"
+	)
+	assert all(seen["heading"] == 1 for seen in narrow.values()), (
+		f"with twelve saved views the heading took more than one line: {narrow}"
 	)
 
 
@@ -6212,7 +6231,7 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 
 	**Pressed rather than reasoned about.** The conversion either side of this is pure and has
 	unit tests, and a pure function with tests is exactly what `SR#3038` got past: nothing had
-	driven the consumer. This presses the control in a real browser and reads the address bar.
+	driven the consumer. This chooses from the control in a real browser and reads the address bar.
 
 	**What the reader sends a colleague stays the thing they are looking at.** An opaque
 	`?view=my-bugs` would be shorter and would fail `SR#649` three ways at once: they could not
@@ -6229,8 +6248,27 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	# is no single one to save a view into and the control is deliberately not drawn there -
 	# which is the same condition `Place` is drawn on.
 	page = opened("/projects")
-	page.wait_for_selector(".saved-views", timeout=10_000)
-	page.click(".saved-view .inline")
+	page.wait_for_selector(".saved-views select", timeout=10_000)
+
+	# **Saving opens a panel and moves nothing** (`SR#3737`): the form floats under its button,
+	# where it used to open inside the row and push the work down. The add box is the first thing
+	# under the heading, so where it starts is where the work starts.
+	before = page.locator(".adding").first.bounding_box()
+	page.click(".saved-views-save")
+	page.wait_for_selector(".saved-views-panel .saved-views-form", timeout=10_000)
+	after = page.locator(".adding").first.bounding_box()
+
+	assert page.locator(".saved-views-panel input[name=title]").bounding_box() is not None, (
+		"the panel opened with its form out of sight"
+	)
+	assert before is not None and after is not None and before["y"] == after["y"], (
+		f"opening the form moved the work: {before} then {after}"
+	)
+
+	page.keyboard.press("Escape")
+	page.wait_for_selector(".saved-views-form", state="detached", timeout=10_000)
+
+	page.select_option(".saved-views select", "my-bugs")
 
 	# **Waited on in CSS, never by evaluating a string** (`SR#1000`): the policy this app serves
 	# has no `unsafe-eval`, so `wait_for_function` is refused *intermittently* - and this view
@@ -6250,7 +6288,7 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	# **An agenda saved on a project opens that project's agenda.** Applied at the workspace's
 	# own level, as every other view is (`SR#3144`), its line would narrow the workspace's agenda,
 	# which an agenda cannot be - so the place it names is where it goes, with no search line.
-	page.click(".saved-view .inline >> text=Websites day")
+	page.select_option(".saved-views select", "websites-day")
 	page.wait_for_url("**/projects/websites*", timeout=10_000)
 
 	assert "q=" not in page.url, f"the place went into the address as a search: {page.url}"

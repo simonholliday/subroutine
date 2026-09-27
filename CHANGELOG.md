@@ -84,14 +84,16 @@ upgrade involves.
   every connected agent now end: *a decision is always a document, in the project it governs,
   however it came up*. A decision written only as a comment on the task at hand never reaches
   the list of what is in force, which is what the next session reads.
-- **A place's heading holds its own controls, and the saved views sit with the filters.** A
-  project's heading now carries *Prioritise* and says the page includes anything filed under
-  it, and its settings button says *Project settings* - *Workspace settings* on a workspace -
-  while the menu under your name keeps *Settings*. The bar above the rows appears only when a
+- **A place's heading holds its own controls, and the saved views are a drop-down beside its
+  settings.** A project's heading now carries *Prioritise*, and its settings button says
+  *Project settings* - *Workspace settings* on a workspace - while the menu under your name
+  keeps *Settings*. The saved views are a drop-down that shows the view you are on, or
+  *Choose*; *Save this view* opens its form in a panel under the button, and *Forget* appears
+  while a view you may forget is showing. The heading's controls sit beside the place's name
+  when they fit and below it when the name is long. The bar above the rows appears only when a
   tag, a person, a priority or the top-level collapse narrows them, and its *Show everything*
-  keeps you in the place. The saved views left their own row for the end of the filter row,
-  and the *Whose work* selector and the masthead's place selector are capped, so a long name no
-  longer pushes the filters or the tabs onto another line.
+  keeps you in the place. The *Whose work* selector and the masthead's place selector are
+  capped, so a long name no longer pushes the filters or the tabs onto another line.
 - **Show everything drops a priority filter too.** The bar named it as a narrowing and the link
   kept it, so opening *Show everything* in a new tab still showed only the work it had ranked.
 
