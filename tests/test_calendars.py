@@ -38,6 +38,7 @@ import subroutine.domain.authorization
 import subroutine.domain.calendars
 import subroutine.domain.icalendar
 import subroutine.domain.projects
+import subroutine.domain.recurrence
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -1222,6 +1223,258 @@ def test_an_all_day_event_spans_one_day_across_a_clock_change () -> None:
 		assert f"DTEND;VALUE=DATE:{after:%Y%m%d}" in rendered, (
 			f"{meant}: the event is zero days long, which some clients hide entirely"
 		)
+
+
+#: Each zone's clock changes as its government publishes them, written here from those rules rather
+#: than from the code under test (`SR#1078`): which change, the offsets either side, the yearly
+#: rule, the hour the clock reads just before, and the name it takes.
+PUBLISHED_CHANGES = {
+	"Europe/London": {
+		("DAYLIGHT", "+0000", "+0100", "FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "010000", "BST"),
+		("STANDARD", "+0100", "+0000", "FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "020000", "GMT"),
+	},
+	"America/New_York": {
+		("DAYLIGHT", "-0500", "-0400", "FREQ=YEARLY;BYMONTH=3;BYDAY=2SU", "020000", "EDT"),
+		("STANDARD", "-0400", "-0500", "FREQ=YEARLY;BYMONTH=11;BYDAY=1SU", "020000", "EST"),
+	},
+	"Australia/Sydney": {
+		("DAYLIGHT", "+1000", "+1100", "FREQ=YEARLY;BYMONTH=10;BYDAY=1SU", "020000", "AEDT"),
+		("STANDARD", "+1100", "+1000", "FREQ=YEARLY;BYMONTH=4;BYDAY=1SU", "030000", "AEST"),
+	},
+}
+
+
+def _weekly (zone: str | None, **fields: typing.Any) -> typing.Any:
+	"""Return a weekly series starting on the Monday before London's clocks go back, at 09:00 local."""
+
+	start = datetime.datetime(2026, 10, 19, 9, 0, tzinfo=zoneinfo.ZoneInfo(zone or "UTC"))
+
+	class _Series:
+		"""The smallest template the renderer reads, so this needs no database."""
+
+		id = uuid.UUID("11111111-2222-3333-4444-555555555555")
+		title = "Standup"
+		starts_at = start.astimezone(datetime.UTC)
+		due_at = None
+		starts_is_all_day = False
+		due_is_all_day = False
+		ends_at = None
+		estimate_minutes = None
+		reminder_minutes = None
+		timezone = zone
+
+	for name, value in fields.items():
+		setattr(_Series, name, value)
+
+	return _Series()
+
+
+def _rendered (series: typing.Any, **occasion: typing.Any) -> str:
+	"""Render one weekly series as a feed would, with ``now`` before the clocks go back."""
+
+	return subroutine.domain.icalendar.render(
+		[
+			subroutine.domain.calendars.Occasion(
+				task=series, field="starts_at", rule="FREQ=WEEKLY", **occasion
+			)
+		],
+		name="Work",
+		instance_id=uuid.uuid4(),
+		now=datetime.datetime(2026, 9, 27, 12, 0, tzinfo=datetime.UTC),
+	)
+
+
+def _observances (rendered: str) -> set[tuple[str, str, str, str, str, str]]:
+	"""Return each change a ``VTIMEZONE`` describes, in :data:`PUBLISHED_CHANGES`'s shape."""
+
+	unfolded = rendered.replace("\r\n ", "")
+	found: set[tuple[str, str, str, str, str, str]] = set()
+
+	for kind in ("DAYLIGHT", "STANDARD"):
+		for block in unfolded.split(f"BEGIN:{kind}\r\n")[1:]:
+			said = dict(
+				line.split(":", 1) for line in block.split(f"END:{kind}")[0].split("\r\n") if line
+			)
+			found.add(
+				(
+					kind,
+					said["TZOFFSETFROM"],
+					said["TZOFFSETTO"],
+					said.get("RRULE", ""),
+					said["DTSTART"].partition("T")[2],
+					said.get("TZNAME", ""),
+				)
+			)
+
+	return found
+
+
+@pytest.mark.parametrize("zone", sorted(PUBLISHED_CHANGES))
+def test_a_timed_repeat_keeps_its_hour_on_both_sides_of_a_clock_change (zone: str) -> None:
+	"""`SR#1078`: a weekly 09:00 in London was 08:00 on a subscriber's calendar after 25 October.
+
+	Every date went out in UTC, which is right for one instant and wrong for a rule: *every Monday
+	at nine where I am* has no spelling in UTC, so the ``RRULE`` repeated at a fixed UTC hour.
+	Simon's decision of 2026-08-22 is that a scheduled time is wall-clock time in the setter's
+	zone, so the start is written on that zone's clock and the zone's changes are described
+	beside it - **held here against the published rules**, not against what the code derived.
+	"""
+
+	rendered = _rendered(_weekly(zone))
+
+	assert f"DTSTART;TZID={zone}:20261019T090000" in rendered, rendered
+	assert rendered.index("BEGIN:VTIMEZONE") < rendered.index("BEGIN:VEVENT"), (
+		"the zone is described after the event that names it"
+	)
+	assert f"TZID:{zone}\r\n" in rendered, rendered
+	assert _observances(rendered) == PUBLISHED_CHANGES[zone], rendered
+
+	block = "\n".join(
+		line
+		for line in rendered.split("BEGIN:VEVENT")[1].split("\r\n")
+		if line.startswith(("DTSTART", "RRULE"))
+	)
+	drawn = list(dateutil.rrule.rrulestr(block, forceset=True))[:3]
+
+	assert [one.astimezone(zoneinfo.ZoneInfo(zone)).hour for one in drawn] == [9, 9, 9], drawn
+
+
+def test_the_calendar_and_the_server_put_each_occurrence_at_the_same_moment () -> None:
+	"""`SR#1078`: the feed names the zone :func:`subroutine.domain.tasks.materialise` mints in.
+
+	The two are expanded by different code - a subscriber's calendar reads the feed, and the agenda
+	is minted by the server - so what keeps them together is that both read the rule on one
+	zone's clock. Compared across the change, where a disagreement would be an hour.
+	"""
+
+	series = _weekly("Europe/London")
+	rendered = _rendered(series)
+	block = "\n".join(
+		line
+		for line in rendered.split("BEGIN:VEVENT")[1].split("\r\n")
+		if line.startswith(("DTSTART", "RRULE"))
+	)
+	calendar = [
+		one.astimezone(datetime.UTC) for one in list(dateutil.rrule.rrulestr(block, forceset=True))[:4]
+	]
+	server = subroutine.domain.recurrence.occurrences(
+		"FREQ=WEEKLY", start=series.starts_at, timezone=series.timezone, limit=4
+	)
+
+	assert calendar == server
+
+
+@pytest.mark.parametrize("zone", [None, "UTC", "Asia/Tokyo"])
+def test_a_repeat_whose_clock_never_changes_is_still_written_in_utc (zone: str | None) -> None:
+	"""A zone without summer time falls at one UTC hour all year, so nothing about it changes.
+
+	**Every series a feed carried before `SR#1078` reads exactly as it did**, and a zone nobody set
+	is the server's own fallback, UTC, as it is for the occurrences it mints.
+	"""
+
+	rendered = _rendered(_weekly(zone))
+	hour = datetime.datetime(2026, 10, 19, 9, 0, tzinfo=zoneinfo.ZoneInfo(zone or "UTC"))
+
+	assert f"DTSTART:{hour.astimezone(datetime.UTC):%Y%m%dT%H%M%SZ}" in rendered, rendered
+	assert "VTIMEZONE" not in rendered and "TZID" not in rendered, rendered
+
+
+def test_a_repeat_s_end_and_its_exclusions_are_on_the_same_clock_as_its_start () -> None:
+	"""RFC 5545 wants an ``EXDATE`` of ``DTSTART``'s own type, or it excludes nothing (`SR#1248`).
+
+	An exclusion left in UTC beside a start on London's clock names 08:00 on a day whose slot is
+	09:00 once the clocks have gone back, and matches no occurrence at all.
+	"""
+
+	london = zoneinfo.ZoneInfo("Europe/London")
+	skipped = datetime.datetime(2026, 11, 2, 9, 0, tzinfo=london).astimezone(datetime.UTC)
+	rendered = _rendered(_weekly("Europe/London", estimate_minutes=30), emptied=(skipped,))
+
+	assert "DTEND;TZID=Europe/London:20261019T093000" in rendered, rendered
+	assert "EXDATE;TZID=Europe/London:20261102T090000" in rendered, rendered
+
+	block = "\n".join(
+		line
+		for line in rendered.split("BEGIN:VEVENT")[1].split("\r\n")
+		if line.startswith(("DTSTART", "RRULE", "EXDATE"))
+	)
+	drawn = [one.astimezone(datetime.UTC) for one in list(dateutil.rrule.rrulestr(block, forceset=True))[:3]]
+
+	assert skipped not in drawn and len(drawn) == 3, drawn
+
+
+def test_a_zone_that_keeps_no_yearly_pattern_is_described_date_by_date () -> None:
+	"""Where no one rule names a zone's changes, they are listed, each at the offsets it changes.
+
+	Israel's clocks go forward on the Friday before the last Sunday of March - the fourth Friday
+	in some years and the fifth in others - so no rule of the shape calendars write names it, and
+	its dates are listed; its autumn change is the last Sunday of October, and has one. Every date
+	written is checked against the zone itself, an hour either side of it.
+	"""
+
+	zone = zoneinfo.ZoneInfo("Asia/Jerusalem")
+	rendered = _rendered(_weekly("Asia/Jerusalem"))
+	unfolded = rendered.replace("\r\n ", "")
+	listed = 0
+
+	assert "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU" in unfolded, unfolded
+	assert "RDATE:" in unfolded and "BYMONTH=3" not in unfolded, unfolded
+
+	for kind in ("DAYLIGHT", "STANDARD"):
+		for block in unfolded.split(f"BEGIN:{kind}\r\n")[1:]:
+			said = dict(
+				line.split(":", 1) for line in block.split(f"END:{kind}")[0].split("\r\n") if line
+			)
+			before = _parsed_offset(said["TZOFFSETFROM"])
+			after = _parsed_offset(said["TZOFFSETTO"])
+			hour = datetime.timedelta(hours=1)
+
+			for wall in filter(None, [said["DTSTART"], *said.get("RDATE", "").split(",")]):
+				onset = datetime.datetime.strptime(wall, "%Y%m%dT%H%M%S").replace(
+					tzinfo=datetime.UTC
+				) - before
+
+				assert (onset - hour).astimezone(zone).utcoffset() == before, wall
+				assert (onset + hour).astimezone(zone).utcoffset() == after, wall
+
+				listed += 1
+
+	assert listed > 8, f"only {listed} changes described:\n{unfolded}"
+
+
+def test_a_zone_that_stops_changing_its_clocks_is_given_no_rule_that_goes_on () -> None:
+	"""A rule read off the years a zone changed must not outlive them (`SR#1078`).
+
+	Three autumns of London's change are the last Sunday of October at 02:00, and read to the end
+	of the last of them that is the rule. Read to 2030 with nothing after 2027, the zone stopped,
+	and a rule would tell a calendar it had gone on - so the dates are listed instead.
+	"""
+
+	autumns = [
+		subroutine.domain.icalendar._Change(
+			onset=datetime.datetime(year, 10, day, 1, 0, tzinfo=datetime.UTC),
+			before=datetime.timedelta(hours=1),
+			after=datetime.timedelta(0),
+			daylight=False,
+			name="GMT",
+		)
+		for year, day in ((2025, 26), (2026, 25), (2027, 31))
+	]
+
+	assert subroutine.domain.icalendar._yearly(
+		autumns, until=datetime.datetime(2027, 12, 31, tzinfo=datetime.UTC)
+	) == "FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU"
+	assert subroutine.domain.icalendar._yearly(
+		autumns, until=datetime.datetime(2030, 12, 31, tzinfo=datetime.UTC)
+	) is None
+
+
+def _parsed_offset (said: str) -> datetime.timedelta:
+	"""Read an RFC 5545 offset - ``+0100`` - back into a duration."""
+
+	sign = -1 if said.startswith("-") else 1
+
+	return sign * datetime.timedelta(hours=int(said[1:3]), minutes=int(said[3:5]))
 
 
 def test_the_rendered_document_is_what_a_calendar_will_accept () -> None:

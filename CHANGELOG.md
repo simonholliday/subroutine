@@ -43,6 +43,12 @@ upgrade involves.
   deadline; the note now adds the remedy - clear the deadline, and set *Until* to when it is
   over. Other refusals on those forms still show only their own sentence, since many of their
   hints name a terminal command.
+- **A repeating event at a time of day keeps its hour when the clocks change.** A calendar
+  subscribed to a feed showed a weekly 09:00 meeting at 08:00 once the clocks went back, because
+  each repeat was written at a fixed UTC time. A repeat at a time of day is now written on the
+  clock of the zone it was set in, with that zone's clock changes described beside it, so it
+  stays at 09:00 all year. Events that happen once, all-day ones, and repeats in a zone without
+  summer time were already right and read as before.
 
 ## 0.9.10 — 2026-09-26
 

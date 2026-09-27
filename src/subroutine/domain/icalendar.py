@@ -11,12 +11,17 @@ escaped inside a text value. Getting any of them wrong produces a file that most
 open and one client rejects, which is the worst way to find out.
 """
 
+import calendar
+import dataclasses
 import datetime
 import typing
 import uuid
 
+import dateutil.rrule
+
 import subroutine.db.models.work
 import subroutine.domain.calendars
+import subroutine.domain.dates
 import subroutine.domain.schedule
 
 #: What this program calls itself in the files it produces. RFC 5545 wants a globally unique
@@ -66,8 +71,23 @@ def render (
 		f"X-WR-CALNAME:{_escaped(name)}",
 	]
 
+	# **A timed repeat is kept on the clock of the zone it was set in** (`#1078`), which is Simon's
+	# decision of 2026-08-22: *a scheduled time is wall-clock time in the setter's zone*. A rule
+	# over a UTC start repeats at a fixed UTC hour, so a weekly 09:00 in London became 08:00 on a
+	# subscriber's calendar when the clocks went back. Each zone so named is described once, ahead
+	# of the events that name it.
+	described = _described(occasions, now=now)
+
+	for zone in sorted(described):
+		changes, until = described[zone]
+		lines.extend(_vtimezone(zone, changes, until=until))
+
 	for occasion in occasions:
-		lines.extend(_event(occasion, instance_id=instance_id, now=now, url_for=url_for))
+		lines.extend(
+			_event(
+				occasion, instance_id=instance_id, now=now, url_for=url_for, described=described
+			)
+		)
 
 	lines.append("END:VCALENDAR")
 
@@ -80,6 +100,40 @@ def render (
 #: Minutes in a day, for writing a reminder as days rather than as a large number of minutes.
 _MINUTES_A_DAY = 24 * 60
 
+#: How far either side of a timed repeat its zone's clock changes are read (`#1078`): a year
+#: before the earliest start, so each rule a client needs has begun before the first occurrence,
+#: and a year past the feed's own window, so every occurrence it is shown falls under one.
+_ZONE_MARGIN = datetime.timedelta(days=366)
+
+#: **And eight years at least**, so a yearly rule is read off enough of them to tell *the last
+#: Sunday* from *the fourth*, which are the same day in most years.
+_ZONE_SPAN = datetime.timedelta(days=366 * 8)
+
+#: How often a zone's clock is read while looking for a change, before narrowing to the second.
+#: **Once a day, and measured to be enough**: over all 599 zones this system knows, 2025 to 2035,
+#: reading hourly found no change that reading daily missed.
+_A_DAY_IN_SECONDS = 24 * 60 * 60
+
+#: RFC 5545's weekdays, in :meth:`datetime.date.weekday` order.
+_WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+
+
+@dataclasses.dataclass(frozen=True)
+class _Change:
+	"""One moment a zone's clocks change: the instant, the offsets either side, and its new name."""
+
+	onset: datetime.datetime
+	before: datetime.timedelta
+	after: datetime.timedelta
+	daylight: bool
+	name: str
+
+	@property
+	def wall (self) -> datetime.datetime:
+		"""Return the onset as the clock read it just before, which is how RFC 5545 dates one."""
+
+		return (self.onset + self.before).replace(tzinfo=None)
+
 
 def _event (
 	occasion: subroutine.domain.calendars.Occasion,
@@ -87,12 +141,15 @@ def _event (
 	instance_id: uuid.UUID,
 	now: datetime.datetime,
 	url_for: typing.Callable[[subroutine.db.models.work.Task], str] | None,
+	described: typing.Collection[str] = (),
 ) -> list[str]:
-	"""Return the lines of one ``VEVENT``."""
+	"""Return the lines of one ``VEVENT``, on its zone's clock where ``described`` names the zone."""
 
 	task = occasion.task
 	when = getattr(task, occasion.field)
 	all_day = getattr(task, _ALL_DAY[occasion.field], False)
+	zone = _series_zone(occasion)
+	local = zone if zone in described else None
 
 	lines = [
 		"BEGIN:VEVENT",
@@ -139,7 +196,7 @@ def _event (
 		lines.append(f"DTEND;VALUE=DATE:{_basic(last + datetime.timedelta(days=1))}")
 
 	else:
-		lines.append(f"DTSTART:{_instant(when)}")
+		lines.append(_moment("DTSTART", when, local))
 
 		# **An end where one was given, an estimate where one was not** — decision `#1235`
 		# over decision `#972` §2, and the fallback is deliberate rather than left behind.
@@ -153,10 +210,10 @@ def _event (
 		minutes = task.estimate_minutes if occasion.field == "starts_at" else None
 
 		if finish is not None:
-			lines.append(f"DTEND:{_instant(finish)}")
+			lines.append(_moment("DTEND", finish, local))
 
 		elif minutes:
-			lines.append(f"DTEND:{_instant(when + datetime.timedelta(minutes=minutes))}")
+			lines.append(_moment("DTEND", when + datetime.timedelta(minutes=minutes), local))
 
 	if occasion.rule:
 		lines.append(f"RRULE:{occasion.rule}")
@@ -178,8 +235,13 @@ def _event (
 
 				lines.append("EXDATE;VALUE=DATE:" + ",".join(days))
 
-			else:
+			elif local is None:
 				lines.append("EXDATE:" + ",".join(_instant(one) for one in occasion.emptied))
+
+			else:
+				lines.append(
+					f"EXDATE;TZID={local}:" + ",".join(_clock(one, local) for one in occasion.emptied)
+				)
 
 	if url_for is not None:
 		# **Not escaped, because `URL` is a URI value rather than a TEXT one** (RFC 5545
@@ -251,13 +313,242 @@ _ALL_DAY = {"starts_at": "starts_is_all_day", "due_at": "due_is_all_day"}
 def _instant (when: datetime.datetime) -> str:
 	"""Return one instant as UTC basic format — ``20260817T140000Z``.
 
-	**Everything is emitted in UTC rather than with a `TZID`**, which needs no `VTIMEZONE`
+	**A single instant is emitted in UTC rather than with a `TZID`**, which needs no `VTIMEZONE`
 	block and cannot disagree with one. A client shows it in the reader's own zone, which is
 	what a reader wants: §6.5's chain decides what the *server* computes with, and a calendar
 	is read wherever the person is.
+
+	**A timed repeat is not an instant** (`#1078`). Its rule is about the clock in the zone it was
+	set in, and *every Monday at nine where I am* has no spelling in UTC, so its dates go through
+	:func:`_moment` with the zone named and described.
 	"""
 
 	return when.astimezone(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _moment (name: str, when: datetime.datetime, zone: str | None) -> str:
+	"""Return one date-time property: in UTC, or on the clock of a zone the document describes."""
+
+	if zone is None:
+		return f"{name}:{_instant(when)}"
+
+	return f"{name};TZID={zone}:{_clock(when, zone)}"
+
+
+def _clock (when: datetime.datetime, zone: str) -> str:
+	"""Return an instant as a zone's clock showed it — ``20261019T090000``, with no zone mark."""
+
+	return _wall(when.astimezone(subroutine.domain.dates.zone(zone)).replace(tzinfo=None))
+
+
+def _wall (clock: datetime.datetime) -> str:
+	"""Return a time as a clock shows it, in basic format with nothing to say which clock."""
+
+	return clock.strftime("%Y%m%dT%H%M%S")
+
+
+def _series_zone (occasion: subroutine.domain.calendars.Occasion) -> str | None:
+	"""Return the zone a timed repeat's clock is read in, or ``None`` for anything else.
+
+	**The zone the server mints its occurrences in** - ``template.timezone`` and its fallback, as
+	:func:`subroutine.domain.tasks.materialise` reads them - so a calendar and the agenda cannot
+	put one occurrence at two hours. A single timed event is an instant and needs none; an all-day
+	one is a day, and a day has none to need.
+	"""
+
+	if not occasion.rule or getattr(occasion.task, _ALL_DAY[occasion.field], False):
+		return None
+
+	return occasion.task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+
+
+def _described (
+	occasions: typing.Sequence[subroutine.domain.calendars.Occasion], *, now: datetime.datetime
+) -> dict[str, tuple[list[_Change], datetime.datetime]]:
+	"""Return each zone a timed repeat here is kept in, its clock changes, and how far they reach.
+
+	**Only a zone whose clocks change in that window.** A repeat in UTC, or in a zone without
+	summer time, falls at one UTC hour all year, so it stays written in UTC and needs no
+	``VTIMEZONE`` - which is every series a feed carried before `#1078`, unchanged.
+	"""
+
+	earliest: dict[str, datetime.datetime] = {}
+
+	for occasion in occasions:
+		zone = _series_zone(occasion)
+
+		if zone is None:
+			continue
+
+		when = getattr(occasion.task, occasion.field)
+		earliest[zone] = min(when, earliest.get(zone, when))
+
+	ahead = now + datetime.timedelta(days=subroutine.domain.calendars.FUTURE_DAYS) + _ZONE_MARGIN
+	described: dict[str, tuple[list[_Change], datetime.datetime]] = {}
+
+	for zone, first in earliest.items():
+		since = first - _ZONE_MARGIN
+		until = max(ahead, since + _ZONE_SPAN)
+		changes = _changes(zone, since=since, until=until)
+
+		if changes:
+			described[zone] = (changes, until)
+
+	return described
+
+
+def _changes (name: str, *, since: datetime.datetime, until: datetime.datetime) -> list[_Change]:
+	"""Return every moment a zone's clocks change between two instants, oldest first.
+
+	**Found by asking the zone, since nothing publishes its rules.** :mod:`zoneinfo` answers what
+	the clock reads at an instant and nothing else, so this reads it once a day and narrows each
+	difference to the second, which is as finely as the tz database writes a change.
+	"""
+
+	zone = subroutine.domain.dates.zone(name)
+	here = int(since.timestamp())
+	end = int(until.timestamp())
+	was = _reading(zone, here)
+	found: list[_Change] = []
+
+	while here < end:
+		there = min(here + _A_DAY_IN_SECONDS, end)
+
+		if _reading(zone, there) == was:
+			here = there
+
+			continue
+
+		low, high = here, there
+
+		while high - low > 1:
+			middle = (low + high) // 2
+
+			if _reading(zone, middle) == was:
+				low = middle
+
+			else:
+				high = middle
+
+		became = _reading(zone, high)
+		found.append(
+			_Change(
+				onset=datetime.datetime.fromtimestamp(high, datetime.UTC),
+				before=was[0],
+				after=became[0],
+				daylight=became[1],
+				name=became[2],
+			)
+		)
+		here, was = high, became
+
+	return found
+
+
+def _reading (zone: datetime.tzinfo, seconds: int) -> tuple[datetime.timedelta, bool, str]:
+	"""Return what a zone's clock says at one instant: its offset, whether it is summer time, its name."""
+
+	moment = datetime.datetime.fromtimestamp(seconds, zone)
+
+	return moment.utcoffset() or datetime.timedelta(0), bool(moment.dst()), moment.tzname() or ""
+
+
+def _vtimezone (
+	name: str, changes: typing.Sequence[_Change], *, until: datetime.datetime
+) -> list[str]:
+	"""Return one ``VTIMEZONE``: each kind of change a zone makes, and when it makes it.
+
+	**A yearly rule where one says it exactly**, which is how the calendars people use write a zone
+	for themselves - the last Sunday of October at 02:00, for as long as the zone keeps to it.
+	Where no single rule does, because the zone moved its dates or never kept a pattern, **the
+	dates themselves**, as ``RDATE``: longer, and as true for the window they were read over.
+	"""
+
+	lines = ["BEGIN:VTIMEZONE", f"TZID:{name}"]
+	kinds: dict[tuple[bool, datetime.timedelta, datetime.timedelta, str], list[_Change]] = {}
+
+	for change in changes:
+		kinds.setdefault(
+			(change.daylight, change.before, change.after, change.name), []
+		).append(change)
+
+	for (daylight, before, after, called), made in kinds.items():
+		kind = "DAYLIGHT" if daylight else "STANDARD"
+		rule = _yearly(made, until=until)
+
+		lines.extend(
+			[
+				f"BEGIN:{kind}",
+				f"DTSTART:{_wall(made[0].wall)}",
+				f"TZOFFSETFROM:{_offset(before)}",
+				f"TZOFFSETTO:{_offset(after)}",
+			]
+		)
+
+		if rule is not None:
+			lines.append(f"RRULE:{rule}")
+
+		elif len(made) > 1:
+			lines.append("RDATE:" + ",".join(_wall(one.wall) for one in made[1:]))
+
+		if called:
+			lines.append(f"TZNAME:{_escaped(called)}")
+
+		lines.append(f"END:{kind}")
+
+	lines.append("END:VTIMEZONE")
+
+	return lines
+
+
+def _yearly (made: typing.Sequence[_Change], *, until: datetime.datetime) -> str | None:
+	"""Return the yearly rule these changes follow, or ``None`` where no one rule names them all.
+
+	**Read off the dates and then checked by expanding it.** The month, the weekday and the hour
+	have to agree, and either every date is the last of its weekday in the month or every one is
+	in the same week of it. The rule is then kept only if it names exactly these dates **and no
+	other before the window ends**: a zone that stops changing its clocks must not be written as
+	one that goes on.
+	"""
+
+	walls = [one.wall for one in made]
+	first = walls[0]
+	years = [wall.year for wall in walls]
+
+	if len(walls) < 2 or years != list(range(first.year, first.year + len(walls))):
+		return None
+
+	if len({(wall.month, wall.weekday(), wall.time()) for wall in walls}) != 1:
+		return None
+
+	if all(wall.day + 7 > calendar.monthrange(wall.year, wall.month)[1] for wall in walls):
+		week = -1
+
+	elif len({(wall.day - 1) // 7 for wall in walls}) == 1:
+		week = (first.day - 1) // 7 + 1
+
+	else:
+		return None
+
+	rule = f"FREQ=YEARLY;BYMONTH={first.month};BYDAY={week}{_WEEKDAYS[first.weekday()]}"
+	series = dateutil.rrule.rrulestr(f"RRULE:{rule}", dtstart=first)
+	last = (until + made[-1].before).replace(tzinfo=None)
+
+	if list(series.between(first, last, inc=True)) != walls:
+		return None
+
+	return rule
+
+
+def _offset (delta: datetime.timedelta) -> str:
+	"""Return a UTC offset as RFC 5545 writes one - ``+0100``, ``-0500``, ``+0530``."""
+
+	total = int(delta.total_seconds())
+	sign = "-" if total < 0 else "+"
+	hours, rest = divmod(abs(total), 3600)
+	minutes, seconds = divmod(rest, 60)
+
+	return f"{sign}{hours:02d}{minutes:02d}" + (f"{seconds:02d}" if seconds else "")
 
 
 def _basic (day: datetime.date) -> str:
