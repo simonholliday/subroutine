@@ -65,7 +65,10 @@ upgrade involves.
 - **A timestamp no clock could have written is refused by name.** One too near the calendar's
   first or last day answered with a server error, and one with an offset outside -12:00 to
   +14:00 was taken at its word, moving the moment to another day. A date field now refuses
-  both, naming the field, and a captured line leaves them in its title with a note.
+  both, naming the field, and a captured line leaves them in its title with a note - a date
+  written without a time included, so *Deliver by 9999-12-31* is filed with the date in its
+  title. An offset is asked of only where it was written, so a date before a zone kept standard
+  time, such as *1800-06-01T12:00* in Anchorage, is not refused for its local mean time.
 - **An end year from 2068 to 2076 is read as written**, so *from 2 October to 12 October 2070*
   is a span in 2070 in a captured line and in `plan --until` alike, where one refused it and
   the other stored 2026 to 2070. And a span refused with a weekday in it names the weekday
@@ -102,6 +105,16 @@ upgrade involves.
   too.** A project's page opens on its agenda, and there such an address showed the failure
   page, where the list said the project was gone, showed the whole workspace and opened the
   item. The agenda does the same now.
+- **A line to capture is limited to 1,000 characters**, five times a title's limit, and a
+  longer one is refused before it is read. Reading one took seconds to minutes, holding a worker
+  and a database connection all the while, before its title was refused anyway.
+- **A repeat's end written in any spelling works.** A rule ending *UNTIL=20261210T0000Z*, or
+  with an offset, was saved and then answered with a server error when an occurrence was
+  completed, where only *UNTIL=20261210T000000Z* worked. Every spelling is stored that way now
+  and read as before, and an end in a year no clock reaches is refused when it is written.
+- **A deferral given to a new repeat can be cleared.** It was stored on the repeat itself,
+  where nothing reads it, and could then be neither cleared nor saved from the edit form. A
+  deferral set on the repeat itself is still refused, naming the occurrence to defer instead.
 - **An agenda that answers after the reader has moved on stays off the page they moved to.**
   Choosing another view or page while an agenda was still loading could put *That could not be
   shown* over the new one when that agenda was refused.

@@ -953,12 +953,20 @@ OFF_THE_CALENDAR = (
 )
 
 
-def beyond_every_clock (written: str) -> str | None:
-	"""Return why an ISO moment with an offset is one no clock could have written, or ``None``.
+def beyond_every_clock (
+	written: str, *, timezone: str | None = None, boundary: Boundary = Boundary.START
+) -> str | None:
+	"""Return why an ISO value is one no clock could have written, or ``None``.
 
 	For quick capture (`#3766`), which hands an ISO value on unread, and so met these only when
-	the create refused the whole line or its own parse raised. A value with no offset of its own
-	names nothing here: it is read in the writer's zone, where :func:`_to_instant` asks.
+	the create refused the whole line or its own parse raised.
+
+	**A value with no offset of its own is read in the writer's zone** (`#3900`), and a day written
+	without a time at the edge its field takes: *Deliver by 9999-12-31* was handed on and refused
+	whole at the create, because a deadline is the day's last moment and that one is off the
+	calendar for a reader fourteen hours east of London. **Not told the zone, it is asked in the
+	zones furthest either side of UTC, at both edges**, which is how a note tells why such a value
+	was left in a line - and never more than the line it came from was refused for.
 	"""
 
 	try:
@@ -967,10 +975,25 @@ def beyond_every_clock (written: str) -> str | None:
 	except ValueError:
 		return None
 
-	if moment.tzinfo is None:
-		return None
+	if moment.tzinfo is not None:
+		return _outside_the_offsets(moment) or _off_the_calendar(moment)
 
-	return _outside_the_offsets(moment) or _off_the_calendar(moment)
+	whole_day = _DATE_ONLY.match(written.strip()) is not None
+	last = moment.replace(hour=23, minute=59, second=59, microsecond=999_999)
+
+	if timezone is not None:
+		edge = last if whole_day and boundary is Boundary.END else moment
+
+		return _off_the_calendar(edge.replace(tzinfo=subroutine.domain.dates.zone(timezone)))
+
+	for edge in [moment, last] if whole_day else [moment]:
+		for offset in (EARLIEST_OFFSET, LATEST_OFFSET):
+			why = _off_the_calendar(edge.replace(tzinfo=datetime.timezone(offset)))
+
+			if why is not None:
+				return why
+
+	return None
 
 
 def _outside_the_offsets (moment: datetime.datetime) -> str | None:
@@ -1011,19 +1034,26 @@ def _to_instant (
 	# Checked before `date`, which it subclasses. The other order silently reads every
 	# datetime as a whole day and throws away the time.
 	if isinstance(value, datetime.datetime):
-		found = (value if value.tzinfo is not None else value.replace(tzinfo=zone), False)
+		offered = value.tzinfo is not None
+		found = (value if offered else value.replace(tzinfo=zone), False)
 
 	elif isinstance(value, datetime.date):
+		offered = False
 		found = (datetime.datetime.combine(value, datetime.time.min, tzinfo=zone), True)
 
 	else:
+		offered = _carries_an_offset(value)
 		found = _parse(value, zone=zone, timezone=timezone, now=now, field=field)
 
 	# **A moment no clock could have written is refused by name** (`#3766`, decision `#3837`):
 	# an offset outside the range clocks use, or a moment too near the calendar's first or last
-	# day for every clock to show it, which raised from whichever conversion met it first. A
-	# zone this program attached is a clock's by construction, so this asks nothing new of it.
-	why = _outside_the_offsets(found[0]) or _off_the_calendar(found[0])
+	# day for every clock to show it, which raised from whichever conversion met it first.
+	#
+	# **The offset only where the writer wrote one** (`#3900`). A zone this program attaches can
+	# still sit outside that range, in its local mean time before it kept a standard one:
+	# *1800-06-01T12:00* in Anchorage, fourteen hours ahead of UTC then, was refused for an offset
+	# nobody wrote.
+	why = (_outside_the_offsets(found[0]) if offered else None) or _off_the_calendar(found[0])
 
 	if why is not None:
 		shown = value.isoformat() if isinstance(value, datetime.date) else value
@@ -1031,6 +1061,16 @@ def _to_instant (
 		raise _invalid(shown, field, f"{why[0].upper()}{why[1:]}.")
 
 	return found
+
+
+def _carries_an_offset (text: str) -> bool:
+	"""Whether an ISO value was written with an offset of its own - `#3900`."""
+
+	try:
+		return datetime.datetime.fromisoformat(text.strip()).tzinfo is not None
+
+	except ValueError:
+		return False
 
 
 def _parse (

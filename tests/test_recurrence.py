@@ -154,6 +154,46 @@ def test_an_exhausted_series_has_nothing_left_rather_than_failing () -> None:
 	)
 
 
+def test_an_until_in_any_spelling_is_stored_in_utc_and_read_on_the_starts_clock () -> None:
+	"""`SR#3897`, M-9 (b) of the cold review of 2026-09-28: one spelling of ``UNTIL`` was mended.
+
+	dateutil reads an ``UNTIL`` written many ways, and only ``YYYYMMDDTHHMMSSZ`` was put on the
+	start's clock, so a rule ending *20261210T0000Z* was saved and then answered 500 when an
+	occurrence was completed. **Stored in that one spelling now, and every spelling read**, because
+	rows already hold the others; a year no clock can move it into is refused where it is written,
+	and one a row holds already is read rather than raised.
+	"""
+
+	spellings = ("20261210T0000Z", "20261210T000000+0000", "20261210T010000+0100")
+	start = datetime.datetime(2026, 12, 8, 9, 0, tzinfo=datetime.UTC)
+
+	for spelling in spellings:
+		stored = subroutine.domain.recurrence.rule(f"FREQ=DAILY;UNTIL={spelling}").rule
+
+		assert stored == "FREQ=DAILY;UNTIL=20261210T000000Z", (spelling, stored)
+
+		walked = subroutine.domain.recurrence.occurrences(
+			f"FREQ=DAILY;UNTIL={spelling}", start=start, timezone=LONDON, limit=10
+		)
+
+		assert walked == [start, start + datetime.timedelta(days=1)], (spelling, walked)
+
+	for spelling in ("99991231T230000Z", "00010101T000000Z"):
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			subroutine.domain.recurrence.rule(f"FREQ=DAILY;UNTIL={spelling}")
+
+		assert "first or last day" in refused.value.errors[0].message, refused.value.errors
+
+	far = subroutine.domain.recurrence.occurrences(
+		"FREQ=YEARLY;UNTIL=99991231T230000Z",
+		start=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+		timezone="Asia/Tokyo",
+		limit=2,
+	)
+
+	assert len(far) == 2, far
+
+
 def test_the_instant_asked_from_is_not_answered_with_itself () -> None:
 	""""What comes next" must not answer with the occurrence you are standing on.
 

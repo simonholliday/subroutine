@@ -3200,6 +3200,49 @@ def test_an_em_dash_between_two_times_is_read_as_a_hyphen_is () -> None:
 		assert read.unparsed == hyphen.unparsed, (dash, read)
 
 
+def test_a_date_set_aside_for_its_year_is_not_read_across () -> None:
+	"""`SR#3901`: a date left whole for its year was blanked to spaces, and rules read across them.
+
+	*Tax return due by 31 January 2024 tomorrow* was due tomorrow, with *due* gone from its title;
+	*Call Bob tomorrow 5 March 2024* planned tomorrow, which was not the last word; and a note
+	built across the gap showed it. **Reserved from the start, so no rule reads across it.**
+	"""
+
+	due = _parse("Tax return due by 31 January 2024 tomorrow")
+
+	assert due.title == "Tax return due by 31 January 2024", due
+	assert due.due is None, due
+	assert due.starts_at == NOW.date() + datetime.timedelta(days=1), due
+
+	called = _parse("Call Bob tomorrow 5 March 2024")
+
+	assert called.title == "Call Bob tomorrow 5 March 2024", called
+	assert called.starts_at is None, called
+
+	workshop = _parse("Workshop from 5 March 2024 at 9am until 6 March 2024 at 5pm")
+	said = subroutine.domain.capture.explain(workshop.unparsed) or ""
+
+	assert not any("  " in token for token in workshop.unparsed), workshop.unparsed
+	assert "  " not in said, said
+	assert workshop.title == "Workshop from 5 March 2024 at 9am until 6 March 2024 at 5pm", workshop
+
+
+def test_a_captured_deadline_off_the_calendar_is_left_where_a_start_is_read () -> None:
+	"""`SR#3900`: a deadline is a day's last moment, and a start or a deferral its first.
+
+	*by 9999-12-31* ends where a reader fourteen hours east of London cannot show it, and was handed
+	on to be refused whole at the create; the same day to start or defer from stands.
+	"""
+
+	due = _parse("Deliver by 9999-12-31")
+	said = subroutine.domain.capture.explain(due.unparsed) or ""
+
+	assert due.due is None and due.title == "Deliver by 9999-12-31", due
+	assert "first or last day" in said, said
+
+	assert _parse("Workshop from 9999-12-31").snooze == "9999-12-31"
+
+
 @pytest.mark.parametrize(
 	("text", "read"),
 	[

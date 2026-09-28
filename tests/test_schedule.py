@@ -1265,6 +1265,36 @@ def test_the_last_day_of_the_calendar_is_refused_where_its_end_cannot_be_shown (
 	).is_all_day
 
 
+def test_a_zones_own_old_offset_is_not_refused_as_one_nobody_wrote () -> None:
+	"""`SR#3900`: an offset is asked of only where the writer wrote one.
+
+	A zone keeps the local mean time it had before it kept a standard one, and Anchorage's then was
+	fourteen hours ahead of UTC and Manila's sixteen behind, both outside the range clocks use. So a
+	date in 1800 written with no offset was refused for one the program attached, where 0.9.11 took
+	it. **One the writer wrote is still refused.**
+	"""
+
+	for zone in ("America/Anchorage", "Asia/Manila"):
+		read = subroutine.domain.schedule.interpret(
+			"1800-06-01T12:00",
+			boundary=subroutine.domain.schedule.Boundary.START,
+			timezone=zone,
+			now=NOW,
+			field="starts_at",
+		)
+
+		assert read.instant is not None, zone
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.schedule.interpret(
+			"1800-06-01T12:00+14:30",
+			boundary=subroutine.domain.schedule.Boundary.START,
+			timezone=LONDON,
+			now=NOW,
+			field="starts_at",
+		)
+
+
 def test_an_end_whose_year_only_today_reads_still_names_it () -> None:
 	"""`SR#3766`, part 2, in the rule quick capture and ``plan --until`` share.
 

@@ -26,9 +26,11 @@ import datetime
 import re
 import typing
 
+import dateutil.parser
 import dateutil.rrule
 
 import subroutine.domain.dates
+import subroutine.domain.schedule
 import subroutine.errors
 
 #: How often a series repeats, and the only frequencies a *task* may use.
@@ -445,6 +447,17 @@ def _checked (value: str, *, field: str) -> str:
 
 	_refuse_a_day_that_never_comes(value, found, field=field)
 
+	# **``UNTIL`` stored in the one spelling everything after this reads** (`#3897`). dateutil reads
+	# many - *20261210T0000Z*, *20261210T000000+0000* - and only UTC's ``YYYYMMDDTHHMMSSZ`` was put
+	# on the start's clock, so the others saved and then answered 500 when an occurrence was
+	# completed. A year no clock can move it into is refused here, where it is written.
+	if "UNTIL" in found:
+		until = _until_in_utc(value, found["UNTIL"], field=field)
+		written = ";".join(
+			f"UNTIL={until}" if piece.partition("=")[0].strip().upper() == "UNTIL" else piece
+			for piece in written.split(";")
+		)
+
 	# **Stored as it was checked, not as it was typed** (`#929`). Every part of an ``RRULE`` is
 	# case-insensitive and this function upper-cases each *name* to validate it — then returned
 	# the original string, so ``freq=weekly;byday=mo`` was accepted, stored verbatim, and
@@ -454,6 +467,24 @@ def _checked (value: str, *, field: str) -> str:
 	# Safe to upper-case whole: an ``RRULE``'s values are keywords, integers and a UTC
 	# timestamp, none of which carries meaning in its case.
 	return written.upper()
+
+
+def _until_in_utc (value: str, until: str, *, field: str) -> str:
+	"""Return an ``UNTIL`` as UTC writes it, read the way dateutil reads it - `#3897`.
+
+	Aware by the time it gets here: the rule was built beside a start with a zone, and dateutil
+	refuses an ``UNTIL`` without one there.
+	"""
+
+	moment = dateutil.parser.parse(until)
+	why = subroutine.domain.schedule.beyond_every_clock(moment.isoformat())
+
+	if why is not None:
+		raise _refuse(value, field=field, why=f"It ends at {until}: {why}.")
+
+	utc = moment.astimezone(datetime.UTC)
+
+	return f"{utc.year:04d}{utc:%m%dT%H%M%S}Z"
 
 
 def _refuse_a_day_that_never_comes (
@@ -533,22 +564,38 @@ def names_its_own_day (stored: str) -> bool:
 	return "FREQ=DAILY" in stored.upper() and "INTERVAL=" not in stored.upper()
 
 
-#: A rule's ``UNTIL`` written in UTC, which RFC 5545 requires beside a start that has a zone.
-_UNTIL_IN_UTC = re.compile(r"UNTIL=(\d{8}T\d{6})Z")
+#: A rule's ``UNTIL``, in whichever spelling it was stored (`#3897`). RFC 5545 writes one in UTC
+#: beside a start that has a zone, and rows saved before :func:`_checked` settled on that
+#: spelling hold others dateutil reads as well.
+_UNTIL = re.compile(r"UNTIL=([^;]+)")
 
 
 def _on_the_clock (stored: str, zone: datetime.tzinfo) -> str:
-	"""Return a rule with a UTC ``UNTIL`` rewritten on ``zone``'s clock, as its start is (`#3765`)."""
+	"""Return a rule with an ``UNTIL`` that has a zone rewritten on ``zone``'s clock, as its start is (`#3765`)."""
 
 	def local (found: re.Match[str]) -> str:
 		"""Return one ``UNTIL`` as the zone's clock read that instant, its year in four digits."""
 
-		instant = datetime.datetime.strptime(found[1], "%Y%m%dT%H%M%S").replace(tzinfo=datetime.UTC)
-		clock = instant.astimezone(zone)
+		try:
+			instant = dateutil.parser.parse(found[1])
+
+		except (ValueError, OverflowError):
+			return found[0]
+
+		if instant.tzinfo is None:
+			return found[0]
+
+		try:
+			clock = instant.astimezone(zone)
+
+		# **A year no clock can move it into** was accepted until `#3897` refused it, and a row may
+		# hold one still: its own reading is within a day of right, where raising was a 500.
+		except OverflowError:
+			clock = instant.replace(tzinfo=None)
 
 		return f"UNTIL={clock.year:04d}{clock:%m%dT%H%M%S}"
 
-	return _UNTIL_IN_UTC.sub(local, stored)
+	return _UNTIL.sub(local, stored)
 
 
 def occurrences (

@@ -26,6 +26,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.capture
 import subroutine.domain.instances
 import subroutine.domain.ordering
 import subroutine.domain.projects
@@ -5717,3 +5718,49 @@ def test_a_link_already_in_a_stored_ring_is_answered_rather_than_refused (world:
 
 	assert again.status_code in (200, 201), again.text
 	assert again.json()["id"] == stored, again.text
+
+
+def test_a_line_too_long_to_capture_is_refused_before_it_is_read (
+	world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3895`, M-1 of the cold review of 2026-09-28: one long line held a worker for minutes.
+
+	Reading a line of dates in years outside the window was quadratic, and a line of claimed tokens
+	worse, so a request of a few kilobytes held a worker and a database connection for seconds to
+	minutes - and its title was then refused anyway. **Refused by its length before capture reads
+	it**, naming the field. Capture is replaced here by something that fails if it is asked, so an
+	answer at all says it never was; and a line at the limit is still read.
+	"""
+
+	limit = subroutine.domain.tasks.MAX_CAPTURE_LENGTH
+	kept = world.call("POST", "/v1/tasks", json={"text": "Buy milk" + " " * (limit - len("Buy milk"))})
+
+	assert kept.status_code == 201, kept.text
+	assert kept.json()["title"] == "Buy milk", kept.json()
+
+	def read (*_arguments: typing.Any, **_options: typing.Any) -> typing.NoReturn:
+		"""Fail, because a line over the limit must not be read at all."""
+
+		raise AssertionError("capture read a line over the limit")
+
+	monkeypatch.setattr(subroutine.domain.capture, "parse", read)
+
+	refused = world.call("POST", "/v1/tasks", json={"text": "Pay 5 March 2024 " * (limit // 16)})
+
+	assert refused.status_code == 413, refused.text
+	assert [one["field"] for one in refused.json()["errors"]] == ["text"], refused.text
+
+
+def test_a_captured_deadline_at_the_calendars_end_is_left_in_the_title (world: World) -> None:
+	"""`SR#3900`: *Deliver by 9999-12-31* was refused whole, where 0.9.11 filed it.
+
+	A deadline is a day's last moment, and that one is off the calendar for a reader fourteen hours
+	east of London, so the create refused the whole line. It is filed now, with the date in its
+	title and nothing set, as a captured line does with every moment no clock could show.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"text": "Deliver by 9999-12-31"})
+
+	assert made.status_code == 201, made.text
+	assert made.json()["title"] == "Deliver by 9999-12-31", made.json()
+	assert made.json()["due_at"] is None, made.json()

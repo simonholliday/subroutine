@@ -963,6 +963,10 @@ def _not_years (
 	"""
 
 	found: set[tuple[int, int, str]] = set()
+	# **Found once, rather than once for every year** (`#3895`). The line is the same on every turn
+	# of the loop, and rescanning it for each year outside the window made a long line quadratic.
+	every_span = [span for pattern in _SPANS for span in pattern.finditer(text)]
+	every_dated = list(_DATED.finditer(text))
 
 	for match in _DATED_DIGITS.finditer(text):
 		if subroutine.domain.dates.is_written_year(int(match["year"]), today=today):
@@ -970,10 +974,7 @@ def _not_years (
 
 		start, end = match.span()
 		token = match.group(0)
-		spans = [
-			span for pattern in _SPANS for span in pattern.finditer(text)
-			if span.start() <= start and end <= span.end()
-		]
+		spans = [span for span in every_span if span.start() <= start and end <= span.end()]
 
 		if spans:
 			start, end = spans[0].span()
@@ -983,7 +984,7 @@ def _not_years (
 			start = min(
 				[start]
 				+ [
-					dated.start() for dated in _DATED.finditer(text)
+					dated.start() for dated in every_dated
 					if dated.start() <= start < dated.end()
 				]
 			)
@@ -1062,7 +1063,13 @@ def parse (
 	# the span is what stops `every monday` being read as a planned day and `every month on the
 	# 30th` being read as one — and since `#94` the phrase is *read* rather than only reserved,
 	# so the words leave the title when they became a rule and stay in it when they did not.
-	reserved: list[tuple[int, int]] = []
+	#
+	# **A date left whole for its year is reserved from the start** (`#3901`). It is blanked to
+	# spaces so that every index still holds, and a rule reading `\s+` or `\s*$` read straight
+	# across the gap: *Tax return due by 31 January 2024 tomorrow* was due tomorrow, with *due*
+	# gone from its title, and a note built across it showed the gap. Every rule below skips what
+	# is reserved, as it skips what is claimed.
+	reserved: list[tuple[int, int]] = [(start, end) for start, end, _words, _token in hidden]
 	#: Where each repeat that *was* read landed, so :func:`_mid_sentence` can ask afterwards
 	#: whether anything unclaimed follows it. Recorded here because this is the only place
 	#: those spans exist, and a second list built later would be a second copy to keep in step.
@@ -1236,6 +1243,18 @@ def _collect_dates (
 		word = match.group("word").lower()
 		phrase = match.group("phrase")
 		value, all_day = _read_phrase(phrase, today=today, now=now, timezone=timezone)
+
+		# **A deadline is a day's last moment, so a day handed on is asked at that edge too** (`#3900`),
+		# in the writer's zone: *Deliver by 9999-12-31* was refused whole at the create, where the
+		# same day as a start or a deferral is its first moment and stands.
+		if (
+			word in DEADLINE_WORDS
+			and isinstance(value, str)
+			and subroutine.domain.schedule.beyond_every_clock(
+				value, timezone=timezone, boundary=subroutine.domain.schedule.Boundary.END
+			) is not None
+		):
+			value = None
 
 		if value is None:
 			# **Read and then not used, so it is reported** (`#778`, `#2116`) — the same rule
@@ -2365,7 +2384,7 @@ def _read_phrase (
 	# `#3837`): an offset outside the range clocks use, or a moment too near the calendar's first
 	# or last day. ``schedule`` refuses both in a field, so handing one on refused the whole line
 	# at the create, or raised from inside :func:`parse` where the phrase set a start.
-	if subroutine.domain.schedule.beyond_every_clock(written) is not None:
+	if subroutine.domain.schedule.beyond_every_clock(written, timezone=timezone) is not None:
 		return None, None
 
 	# Everything else — a §9.3 expression or an ISO value — is handed to `schedule`, which

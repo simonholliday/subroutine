@@ -359,6 +359,42 @@ def test_the_repeat_itself_saved_with_its_own_empty_deferral_is_not_refused (
 	assert kept.snoozed_until is None
 
 
+def test_a_deferral_on_the_repeat_itself_can_be_cleared_or_sent_back (
+	instance: Instance,
+) -> None:
+	"""`SR#3898`, M-11 of the cold review of 2026-09-28: one written there could not be let go.
+
+	A deferral given with a new repeat was stored on the series row, where nothing reads it, and the
+	refusal above then turned down clearing it, and resending it to the minute, which is what the
+	browser's edit form sends back. **Clearing cannot mislead, and a deferral sent back as it was
+	is not a new one**, so both go through; setting one is refused as before.
+	"""
+
+	series = _the_repeat_itself(instance)
+	shown = instance.client.task(ref=series)
+
+	assert shown is not None
+
+	row = instance.session.get(subroutine.db.models.work.Task, uuid.UUID(str(shown.id)))
+
+	assert row is not None
+
+	row.snoozed_until = datetime.datetime(2026, 10, 3, 9, 30, 15, 123456, tzinfo=datetime.UTC)
+	row.snoozed_is_all_day = False
+	instance.session.flush()
+
+	resent = instance.client.update(ref=series, snooze="2026-10-03T09:30:00Z")
+
+	assert resent.snoozed_until is not None, resent
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		instance.client.update(ref=series, snooze="2026-10-04T09:30:00Z")
+
+	cleared = instance.client.update(ref=series, snooze=None)
+
+	assert cleared.snoozed_until is None, cleared
+
+
 def test_a_repeat_with_nothing_open_is_refused_saying_so (instance: Instance) -> None:
 	"""The refusal names the occurrence only when there is one to name - `SR#3748`.
 

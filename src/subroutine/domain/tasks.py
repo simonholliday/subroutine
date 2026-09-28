@@ -65,6 +65,14 @@ FINISHED_CATEGORIES = frozenset({"done", "cancelled"})
 #: which is what somebody chose when they thought about it.
 MAX_TITLE_LENGTH = 200
 
+#: **How long a line to capture may be, checked before it is read** (`#3895`). Reading a line
+#: costs more than its length - a long one of dates in years outside the window took seconds to
+#: minutes, holding a worker and a database connection all the while - and its title was then
+#: refused anyway, past :data:`MAX_TITLE_LENGTH`. Five titles long, because the tokens a real
+#: line carries besides its title - a project, tags, a person, a priority, an estimate, a repeat
+#: and a date - add at most a couple of hundred characters.
+MAX_CAPTURE_LENGTH = 5 * MAX_TITLE_LENGTH
+
 #: What the column holds, and what a title **nobody is changing** may still be — `#2022`.
 #:
 #: **A cap applied to rows that already exist, through a surface that resends everything, is
@@ -1196,6 +1204,19 @@ def create_from_text (
 	in the text and over the Inbox default.
 	"""
 
+	if len(text) > MAX_CAPTURE_LENGTH:
+		raise subroutine.errors.PayloadTooLarge(
+			f"That line is {len(text)} characters, and the limit is {MAX_CAPTURE_LENGTH}.",
+			hint="Put what does not belong in the title in the description.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="text",
+					code="payload_too_large",
+					message=f"A line to capture is limited to {MAX_CAPTURE_LENGTH} characters.",
+				)
+			],
+		)
+
 	zone = _timezone(session, workspace.id, actor=actor, explicit=timezone)
 	instant = now or subroutine.db.types.utcnow()
 
@@ -1514,15 +1535,16 @@ def update (
 	# **A deferral given the repeat itself is refused, naming the occurrence** (decision `#3795`,
 	# answering `#3748`). A deferral is only ever for the occurrence in front of you (`#3705`), and
 	# written to the series it reached nothing: `defer 3` said *Deferred* while the live row stayed
-	# as it was. **Only a change is refused**, because the browser's form sends every date on every
-	# save, and a series edited there sends its own empty deferral back unchanged.
+	# as it was. **Only setting one is refused**, because the browser's form sends every date on
+	# every save: a series edited there sends its own deferral back, to the minute, since the form
+	# holds no seconds. **And clearing one is let through** (`#3898`), since it cannot mislead: a
+	# deferral given with a new repeat was written to the series, and could then be neither
+	# cleared nor saved.
 	if (
 		task.is_template
 		and defer is not subroutine.domain.patch.UNSET
-		and (
-			defer.instant != task.snoozed_until
-			or (defer.instant is not None and defer.is_all_day != task.snoozed_is_all_day)
-		)
+		and defer.instant is not None
+		and not _the_deferral_it_has(task, defer)
 	):
 		_refuse_the_repeat_itself(session, task, act="a deferral", verb="defer", field="snooze")
 
@@ -2126,6 +2148,23 @@ def complete (
 		actor=actor,
 	)
 
+
+
+def _the_deferral_it_has (
+	task: subroutine.db.models.work.Task, defer: subroutine.domain.schedule.Moment
+) -> bool:
+	"""Whether a deferral sent is the one a row holds already, to the minute - `#3898`.
+
+	The browser's edit form holds a time to the minute, so a row deferred to 10:30:15 is sent back
+	as 10:30, and that is the deferral it has rather than a new one.
+	"""
+
+	held = task.snoozed_until
+
+	if held is None or defer.instant is None or defer.is_all_day != task.snoozed_is_all_day:
+		return False
+
+	return held.replace(second=0, microsecond=0) == defer.instant.replace(second=0, microsecond=0)
 
 
 def _refuse_the_repeat_itself (
