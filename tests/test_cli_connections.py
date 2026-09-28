@@ -1777,8 +1777,10 @@ def test_an_ambiguous_workspace_is_refused_in_words_a_terminal_can_act_on (
 	assert "token pinned to one" not in result.output, (
 		"that is advice for whoever receives the credential, not for whoever issues it"
 	)
-	assert "subroutine -w" in result.output
-	assert "subroutine use" in result.output
+	assert "subroutine -w <workspace> agent create" in result.output
+	# **Not `use`, since decision `#3831`**: `agent create` never reads it, so offering it sent
+	# `#3248`'s reader round the same refusal twice.
+	assert "subroutine use" not in result.output
 	assert "second" in result.output, "and it still names the workspaces there are"
 
 

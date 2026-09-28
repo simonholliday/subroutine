@@ -12,6 +12,18 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+- **A command with a `--workspace` of its own takes `-w` as well, before the command or after
+  it.** `token create`, `agent create`, `calendar create`, `user create` and `user list` ignored
+  a `-w` given before them, and the refusal for a missing workspace advised exactly that `-w`,
+  so following its advice was refused again. They take it now - and still never from
+  `subroutine use` or a checkout's marker, because each binds what it makes or shows to the
+  workspace - and the refusal quotes the command back with `-w` in place. So
+  `subroutine -w projects token create` pins the token to `projects`, where it used to make one
+  for every workspace. `user add`, `user role` and `user remove` take `-w` after the command
+  too, and a `-w` and a `--workspace` naming two different workspaces are refused.
+
 ## 0.9.11 — 2026-09-28
 
 - **Subroutine now needs SQLAlchemy 2.1.1 or later**, and upgrading brings it. Two things read

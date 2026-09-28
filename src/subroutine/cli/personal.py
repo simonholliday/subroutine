@@ -170,6 +170,39 @@ class Selected:
 
 	connection: str | None = None
 	workspace: str | None = None
+	#: The command being run, when it takes its workspace only from its own command line
+	#: (decision `#3831`), so a refusal can quote it back rather than offer `use`. Set by
+	#: :func:`workspace_named`, and cleared before every command.
+	command: str | None = None
+
+
+def workspace_named (own: str, selected: Selected, *, command: str | None = None) -> str:
+	"""Return the workspace the command line names, for a command with a ``--workspace`` of its own.
+
+	Decision ``#3831``: the command's own option after it, or ``-w`` before it. ``selected``
+	carries only what the command line said - never ``use`` or a checkout's marker - so a
+	command that binds what it makes to a workspace takes nothing else, and one that honours
+	those as well falls back to them itself when this returns nothing.
+
+	**Given both, they must agree**, rather than one silently winning: somebody who typed two
+	workspaces meant one of them, and only they know which. ``command`` is recorded for a
+	command that takes nothing else, so a refusal can quote it back with ``-w`` in place.
+	"""
+
+	after = own.strip()
+	before = (selected.workspace or "").strip()
+
+	if command is not None:
+		selected.command = command
+
+	if after and before and after.casefold() != before.casefold():
+		raise subroutine.errors.ValidationError(
+			f"'-w {before}' and '--workspace {after}' name two different workspaces.",
+			code="invalid_field_value",
+			hint="Name the one you mean once, before the command or after it.",
+		)
+
+	return after or before
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1698,8 +1731,9 @@ def _onboarding_workspace (where: Reached, named: str) -> str:
 				message=f"Workspaces you can reach: {', '.join(reachable)}.",
 			)
 		],
-		hint=f"For example: --workspace {reachable[0]}. They can be added to the others "
-		f"afterwards with 'subroutine user add'.",
+		hint=f"For example: 'subroutine -w {reachable[0]} user create …', or --workspace "
+		f"{reachable[0]} after it. They can be added to the others afterwards with "
+		"'subroutine user add'.",
 	)
 
 
@@ -8800,6 +8834,21 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 		)
 
 
+def _workspace_named_or_fail (program: Program, own: str, *, command: str | None = None) -> str:
+	"""Return what :func:`workspace_named` does, or refuse through ``program`` the ordinary way.
+
+	Raised rather than printed, :func:`workspace_named` would escape the command and be
+	reported only by the program's own last resort, which a test driving the application
+	never reaches - so a refusal nobody could read would pass for one that was printed.
+	"""
+
+	try:
+		return workspace_named(own, program.selected, command=command)
+
+	except subroutine.errors.SubroutineError as error:
+		program.fail(error)
+
+
 def _register_users (app: typer.Typer, program: Program) -> None:
 	"""Add the ``user`` group to the application.
 
@@ -8837,7 +8886,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			f"'{ONBOARDING_ROLE}'.",
 		),
 		workspace: str = typer.Option(
-			"", "--workspace", help="Which workspace they work in. Needed if there are several."
+			"", "--workspace", "-w", help="Which workspace they work in. Needed if there are several."
 		),
 		browser: bool = typer.Option(
 			False, "--browser", help="Also make them a sign-in link for the web interface."
@@ -8889,7 +8938,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		next is one of those, or a link.
 		"""
 
-		if superuser and (role.strip() or workspace.strip()):
+		named = _workspace_named_or_fail(program, workspace, command="user create")
+
+		if superuser and (role.strip() or named):
 			program.fail(_a_superuser_joins_nothing())
 
 		if agent and browser:
@@ -8911,7 +8962,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# **Resolved once and carried**, because the workspace decides two things: where
 			# they are a member, and what a credential issued here is pinned to. Asking twice
 			# would let a second reading of "which workspace" disagree with the first.
-			joining = None if superuser else _onboarding_workspace(where, workspace)
+			joining = None if superuser else _onboarding_workspace(where, named)
 
 			# Read *before* creating, because the question is how many accounts there were —
 			# see `_keep_the_operators_own_list` for why that is the one that matters.
@@ -8995,7 +9046,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 	@user_app.command("list")
 	def user_list (
 		workspace: str = typer.Option(
-			"", "--workspace", help="Show who belongs to this workspace, and their roles."
+			"", "--workspace", "-w", help="Show who belongs to this workspace, and their roles."
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
@@ -9012,6 +9063,8 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		'subroutine init'. With it, only that workspace's members, and what each may do there.
 		"""
 
+		chosen = _workspace_named_or_fail(program, workspace, command="user list")
+
 		with program.opened() as world:
 			where = world.writing_to()
 			# Neither of these rows carries a moment, so nothing here reads it; it is passed
@@ -9023,8 +9076,8 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# come back whole; the directory does not since `SR#2384`.
 			more = False
 
-			if workspace.strip():
-				members = where.client.members(workspace=workspace.strip())
+			if chosen:
+				members = where.client.members(workspace=chosen)
 				rows = [member.columns(reading) for member in members]
 				payload = [member.model_dump(mode="json") for member in members]
 
@@ -9073,7 +9126,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		role: str = typer.Option(
 			"", "--role", help="What they may do there - 'member', 'admin', 'viewer'."
 		),
-		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+		workspace: str = typer.Option("", "--workspace", "-w", help="Which workspace."),
 	) -> None:
 		"""Let somebody work in a workspace.
 
@@ -9106,7 +9159,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			joined = where.client.add_member(
 				username=username,
 				role=role.strip(),
-				workspace=workspace.strip() or _writing_workspace(world),
+				workspace=_workspace_named_or_fail(program, workspace) or _writing_workspace(world),
 			)
 
 			program.say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
@@ -9117,7 +9170,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		role: str = typer.Argument(
 			..., help="What they may do there - 'member', 'admin', 'viewer'."
 		),
-		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+		workspace: str = typer.Option("", "--workspace", "-w", help="Which workspace."),
 	) -> None:
 		"""Change what somebody who is already there may do.
 
@@ -9139,7 +9192,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			moved = where.client.set_member_role(
 				username=username,
 				role=role.strip(),
-				workspace=workspace.strip() or _writing_workspace(world),
+				workspace=_workspace_named_or_fail(program, workspace) or _writing_workspace(world),
 			)
 
 			# **The role they now hold, not the move.** What it was before is on the event,
@@ -9246,7 +9299,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 	@user_app.command("remove")
 	def user_remove (
 		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
-		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+		workspace: str = typer.Option("", "--workspace", "-w", help="Which workspace."),
 	) -> None:
 		"""Take somebody out of a workspace.
 
@@ -9261,7 +9314,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		with program.opened() as world:
 			where = world.writing_to()
-			chosen = workspace.strip() or _writing_workspace(world)
+			chosen = _workspace_named_or_fail(program, workspace) or _writing_workspace(world)
 
 			where.client.remove_member(username=username, workspace=chosen)
 

@@ -311,6 +311,14 @@ TERMINAL_REMEDIES = {
 	),
 }
 
+#: The same remedy for a command that takes its workspace only from its own command line -
+#: `token create`, `agent create`, `calendar create`, `user create` and `user list` (decision
+#: `#3831`). `use` and a checkout's marker are no answer for those, and offering them sent
+#: `#3248`'s reader round the same refusal twice, so the command is quoted back with `-w`.
+NAMED_ON_THE_COMMAND_LINE = (
+	"Say which - 'subroutine -w <workspace> {command} …', or '--workspace <workspace>' after it."
+)
+
 
 def _printed (error: subroutine.errors.SubroutineError, *, connection: str | None = None) -> None:
 	"""Write a refusal to standard error, without deciding how the process ends.
@@ -349,6 +357,9 @@ def _printed (error: subroutine.errors.SubroutineError, *, connection: str | Non
 
 		if remedy is not None:
 			hint = remedy
+
+		if (named, field.code) == ("workspace_id", "missing_field") and _selected.command:
+			hint = NAMED_ON_THE_COMMAND_LINE.format(command=_selected.command)
 
 		spelling = TERMINAL_FIELD_NAMES.get(named, named)
 
@@ -1997,6 +2008,20 @@ def _shaped_by_profile (
 		_fail(error)
 
 
+def _named_on_the_command_line (own: str, command: str) -> str:
+	"""Return the workspace the command line names for ``command``, or refuse by name.
+
+	Decision ``#3831``, through the helper all eight commands share, with the refusal sent
+	out the ordinary way so it is printed wherever the command runs.
+	"""
+
+	try:
+		return subroutine.cli.personal.workspace_named(own, _selected, command=command)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+
 @token_app.command("create")
 def token_create (
 	title: str = typer.Option("", "--title", help="What this credential is for."),
@@ -2011,7 +2036,7 @@ def token_create (
 		help="Issue for a machine identity of this name, creating it if needed.",
 	),
 	workspace: str = typer.Option(
-		"", "--workspace", help="Pin the token to one workspace. Unset means all of them."
+		"", "--workspace", "-w", help="Pin the token to one workspace. Unset means all of them."
 	),
 	scope: list[str] = typer.Option(
 		None, "--scope", help="Narrow the token to these permissions. Repeatable."
@@ -2087,6 +2112,7 @@ def token_create (
 	process an agent started, so it narrows nothing of yours.
 	"""
 
+	workspace = _named_on_the_command_line(workspace, "token create")
 	shaped = _shaped_by_profile(
 		profile, project=project, write=write, scope=scope, workspace=workspace
 	)
@@ -2376,7 +2402,7 @@ def agent_create (
 		help="Only let it change things in this project. Must be one it can reach.",
 	),
 	workspace: str = typer.Option(
-		"", "--workspace", help="Which workspace it works in. Pins the credential to it."
+		"", "--workspace", "-w", help="Which workspace it works in. Pins the credential to it."
 	),
 	scope: list[str] = typer.Option(
 		None, "--scope", help="Narrow it to these permissions. Repeatable."
@@ -2450,6 +2476,7 @@ def agent_create (
 	only a person may run.
 	"""
 
+	workspace = _named_on_the_command_line(workspace, "agent create")
 	shaped = _shaped_by_profile(
 		profile, project=project, write=write, scope=scope, workspace=workspace
 	)
@@ -2918,7 +2945,7 @@ def token_revoke (
 def calendar_create (
 	title: str = typer.Argument("", help="What this calendar is for, as a person would say it."),
 	workspace: str = typer.Option(
-		"", "--workspace", help="Whose work to show. Unset means your only one."
+		"", "--workspace", "-w", help="Whose work to show. Unset means your only one."
 	),
 	project: str = typer.Option(
 		"", "--project", help="Narrow it to this project and everything under it."
@@ -2960,6 +2987,7 @@ def calendar_create (
 	somebody else's work.
 	"""
 
+	workspace = _named_on_the_command_line(workspace, "calendar create")
 	named = title.strip()
 
 	if not named:
@@ -3973,6 +4001,9 @@ def _default (
 	# `subroutine use` makes the same choice durably (docs/design.md §13.7).
 	_selected.workspace = workspace.strip() or None
 	_selected.connection = connection.strip() or None
+	# Cleared on every run, because the object outlives a command in one process - a test
+	# runs hundreds - and a stale one would quote the wrong command back in a refusal.
+	_selected.command = None
 
 	if context.invoked_subcommand is not None:
 		return
