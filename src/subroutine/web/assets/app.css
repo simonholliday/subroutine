@@ -1051,6 +1051,17 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 		position-anchor: --saving;
 		top: anchor(bottom);
 		right: anchor(right);
+		position-try-fallbacks: --saving-within-the-screen;
+	}
+
+	/*
+		**Inside the screen, where under the button would leave it** (`#3752`). With its right edge
+		under the button's, the panel opened 110 px off the left of every screen narrower than
+		384 px, so the browser is given this place to try when that one does not fit.
+	*/
+	@position-try --saving-within-the-screen {
+		right: auto;
+		left: 1rem;
 	}
 }
 

@@ -3118,6 +3118,14 @@ export function App () {
 		   already written. */
 		go(listingAddress(place), { arranged: wanted });
 
+		/* **A read refused here says so** (`#3753`). A tab, a saved view, *Show everything* and
+		   *None* all come through this, and it caught nothing, so a refusal was an error in the
+		   console and nothing on the page - and `widen`, which said *The rest did not load* until it
+		   was routed here, lost even that. */
+		const refused = (failure) => setNote({
+			text: `That could not be shown. ${failure.message}`, tone: "bad",
+		});
+
 		/*
 			**Entering and leaving the agenda is this control's job now** (`#1215`).
 
@@ -3133,7 +3141,7 @@ export function App () {
 			place, and this only decides how it is drawn.
 		*/
 		if (wanted.view === AGENDA_VIEW) {
-			await readAgenda(place.agenda ? null : place.workspace, place.project);
+			await readAgenda(place.agenda ? null : place.workspace, place.project).catch(refused);
 
 			return;
 		}
@@ -3152,7 +3160,7 @@ export function App () {
 
 		if (leaving) setAgenda(null);
 
-		if (leaving || again || moving) await load(place.workspace, place.project);
+		if (leaving || again || moving) await load(place.workspace, place.project).catch(refused);
 	}, [agenda, enter, everywhere, go, load, me, nowOpen, nowShowing, project, readAgenda,
 		showing, workspace]);
 

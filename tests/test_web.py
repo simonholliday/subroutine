@@ -21567,6 +21567,25 @@ def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
 		f"the workspace's own agenda did not name the view saved as it: {at_workspace}"
 	)
 
+	# **And two views apart only in their order are told apart** (`SR#3751`). The select named the
+	# first of them whichever was applied, and *Forget* then deleted it - the view nobody chose.
+	oldest = {
+		"key": "bugs-oldest", "title": "Bugs, oldest first", "q": "type:bug",
+		"arrangement": "list", "order": "created_at", "group_by": None,
+		"owner": "morpheus", "shared": False,
+	}
+	newest = {**oldest, "key": "bugs-newest", "title": "Bugs, newest first", "order": "-created_at"}
+	twins = {
+		**sample,
+		"views": [oldest, newest],
+		"showing": {"view": "list", "selection": {"q": "type:bug", "order": "-created_at"}},
+	}
+	named = _markup(tmp_path, {"SavedViews": twins})["SavedViews"]
+	asking = _markup(tmp_path, {"SavedViews": {**twins, "forgetting": "bugs-newest"}})["SavedViews"]
+
+	assert selected(named) == ["Bugs, newest first"], named
+	assert "Forget Bugs, newest first?" in asking, asking
+
 
 def test_a_board_saved_with_no_axis_is_applied_with_the_one_an_address_gives_it (
 	tmp_path: pathlib.Path,

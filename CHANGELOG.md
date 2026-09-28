@@ -127,6 +127,9 @@ upgrade involves.
   in a zone with summer time already was. A repeat dated near year 1 or year 9999 no longer makes
   the whole feed fail, nor one dated long ago make it slow, and a date before the year 1000 is
   written with its year in full, where no calendar could read it.
+- **Choosing a tab or a saved view says so when the page cannot be read.** A tab, a saved view,
+  *Show everything* and *None* said nothing when the instance refused the read behind them: the
+  address changed and the page did not. Each now says the page could not be shown, and why.
 
 ## 0.9.10 — 2026-09-26
 

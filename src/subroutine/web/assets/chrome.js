@@ -10,8 +10,8 @@
 import * as markdown from "./markdown.js";
 import { html } from "./html.js";
 import {
-	AGENDA_VIEW, PRODUCT, addressOf, encodedPath, parseAddress, placeAlone, shortVersion,
-	withShowing,
+	AGENDA_VIEW, PRODUCT, addressOf, asShowing, encodedPath, parseAddress, placeAlone,
+	shortVersion, withShowing,
 } from "./address.js";
 import { unrenderable } from "./answers.js";
 import { day, here, rankOf, span } from "./dates.js";
@@ -427,7 +427,15 @@ export function SavedViews ({
 
 		if (place) return !showing.selection.q && project === place;
 
-		return !project && (showing.selection.q || null) === (view.q || null);
+		/* **Everything a view sets, not only its search** (`#3751`). Two views apart only in their
+		   order or grouping were both showing, so the select named the first of them and *Forget*
+		   deleted it: the view nobody chose, and a view has no trash. Compared with what `asShowing`
+		   makes of the view, so the question is the one applying it answers. */
+		const applied = asShowing(view).selection;
+
+		return !project && ["q", "order", "group_by"].every(
+			(key) => (showing.selection[key] || null) === (applied[key] || null),
+		);
 	};
 
 	/* **The view this page is showing, if it is one**, and whether this reader may forget it. */

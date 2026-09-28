@@ -6359,7 +6359,8 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	something different the day the view changed.
 
 	**And the one view not applied at its workspace** (`SR#3588`): an agenda saved on a project,
-	pressed here rather than in a test of its own, since this file's size is an agreed bound.
+	pressed here rather than in a test of its own, since this file's size is an agreed bound - as
+	are the panel on a phone's screen (`SR#3752`) and a read refused under a view (`SR#3753`).
 	"""
 
 	opened, *_ = running
@@ -6387,6 +6388,25 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 
 	page.keyboard.press("Escape")
 	page.wait_for_selector(".saved-views-form", state="detached", timeout=10_000)
+
+	# **And inside the screen on a phone** (`SR#3752`): with its right edge under the button's, the
+	# panel opened 110 px off the left of every screen narrower than 384 px.
+	wide = page.viewport_size
+
+	assert wide is not None
+
+	page.set_viewport_size({"width": 320, "height": wide["height"]})
+	page.click(".saved-views-save")
+	page.wait_for_selector(".saved-views-panel .saved-views-form", timeout=10_000)
+	panel = page.locator(".saved-views-panel").bounding_box()
+
+	assert panel is not None and panel["x"] >= 0 and panel["x"] + panel["width"] <= 320, (
+		f"the panel opened outside a 320 px screen: {panel}"
+	)
+
+	page.keyboard.press("Escape")
+	page.wait_for_selector(".saved-views-form", state="detached", timeout=10_000)
+	page.set_viewport_size(wide)
 
 	page.select_option(".saved-views select", "my-bugs")
 
@@ -6437,6 +6457,37 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	_until(page, lambda: "/projects/websites" not in page.url)
 
 	assert "/projects/websites" not in page.url, f"None stayed on the project: {page.url}"
+
+	# **And a read refused under a view says so** (`SR#3753`). A tab, a view, *Show everything* and
+	# *None* all go through `chooseView`, which caught nothing: the refusal was an error in the
+	# console, and the page said nothing. Both of its reads: an agenda saved on a project that has
+	# gone, and a list's rows.
+	errors: list[str] = []
+	page.on("pageerror", lambda error: errors.append(str(error)))
+	page.route(
+		"**/v1/agenda?**",
+		lambda route: route.fulfill(
+			status=404,
+			body=json.dumps({"status": 404, "detail": "There is no project 'websites' here."}),
+			content_type="application/problem+json",
+		),
+	)
+	page.select_option(".saved-views select", "websites-day")
+	page.wait_for_selector(".note.bad:has-text('no project')", timeout=10_000)
+	page.unroute("**/v1/agenda?**")
+	page.route(
+		"**/v1/tasks?**",
+		lambda route: route.fulfill(
+			status=503,
+			body=json.dumps({"status": 503, "detail": "The database was busy."}),
+			content_type="application/problem+json",
+		),
+	)
+	page.select_option(".saved-views select", "my-bugs")
+	page.wait_for_selector(".note.bad:has-text('database was busy')", timeout=10_000)
+
+	assert "could not be shown" in page.inner_text(".note.bad"), page.inner_text(".note.bad")
+	assert errors == [], f"the refusal escaped to the console: {errors}"
 
 
 def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
