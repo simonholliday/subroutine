@@ -37,7 +37,7 @@ import subroutine.auth
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
-import subroutine.db.base
+import subroutine.db.session
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.authentication
@@ -1125,7 +1125,7 @@ def test_authenticating_twice_in_one_request_does_not_block (two_connections: st
 	engine = sqlalchemy.create_engine(two_connections)
 
 	try:
-		subroutine.db.base.Base.metadata.create_all(engine)
+		subroutine.db.session.create_all(engine)
 		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
 
 		with factory() as setup:
@@ -1300,7 +1300,7 @@ def test_the_credential_write_does_not_hold_the_database_for_the_handler (
 	)
 
 	try:
-		subroutine.db.base.Base.metadata.create_all(engine)
+		subroutine.db.session.create_all(engine)
 		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
 
 		with factory() as setup:

@@ -1705,6 +1705,10 @@ export function asSavedView (showing, project = null) {
 	};
 }
 
+/* The term a place is written as, and the marks the search grammar quotes a value with. */
+const PLACE_TERM = "project:";
+const QUOTE_MARKS = "\"'";
+
 export function placeAlone (q) {
 	/*
 		The project a saved query names and nothing else, or null — `#3588`, and the server's
@@ -1713,10 +1717,43 @@ export function placeAlone (q) {
 		**A place rather than a search.** A view saved inside a project carries `project:<key>`
 		(`#3144`), and an agenda is drawn for a place: so a project's agenda is saved with that line
 		and nothing else, and is drawn on that project rather than narrowed by it.
-	*/
-	const found = /^\s*project:(\S+)\s*$/.exec(q || "");
 
-	return found && !found[1].includes(",") ? found[1] : null;
+		**Split as the search grammar splits it** (`#3776`, `domain/grammar._tokens`): a quote
+		opened straight after the colon holds a value whole, spaces and all, until it closes, and a
+		matching pair comes off. The server reads `project:"web"` as `web` and saved an agenda view
+		that way, where this kept the quotes and drew the view on a project nobody has, which
+		answered 404. A list is declined however it is written, as the server declines it.
+	*/
+	const terms = [];
+	let term = "";
+	let closing = "";
+
+	for (const char of String(q || "")) {
+		if (closing) {
+			term += char;
+			closing = char === closing ? "" : closing;
+		} else if (QUOTE_MARKS.includes(char) && term.endsWith(":")) {
+			term += char;
+			closing = char;
+		} else if (/\s/.test(char)) {
+			if (term) terms.push(term);
+
+			term = "";
+		} else {
+			term += char;
+		}
+	}
+
+	if (term) terms.push(term);
+
+	const written = terms.length === 1 && terms[0].startsWith(PLACE_TERM)
+		? terms[0].slice(PLACE_TERM.length)
+		: "";
+	const quoted = written.length > 1 && QUOTE_MARKS.includes(written[0])
+		&& written.endsWith(written[0]);
+	const named = quoted ? written.slice(1, -1) : written;
+
+	return named && !named.includes(",") ? named : null;
 }
 
 export function asShowing (view) {

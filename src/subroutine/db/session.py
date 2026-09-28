@@ -244,7 +244,20 @@ def create_all (engine: sqlalchemy.engine.Engine) -> None:
 
 	For tests only. Real schema changes go through Alembic, so that an installation with
 	data in it can be upgraded rather than recreated.
+
+	**A foreign key added by its own ``ALTER`` is let back into ``CREATE TABLE`` first**
+	(`#3779`). PostgreSQL adds such a key after its tables, and SQLAlchemy marks the shared
+	constraint on the way past so that no later ``CREATE TABLE`` writes it - which SQLite, with
+	no ``ALTER`` to add it by, then obeyed. So a process that built PostgreSQL's schema first
+	gave SQLite a ``workspace`` table with no key on ``prioritised_project_id``, and what a
+	SQLite test tested depended on the tests before it. PostgreSQL goes on adding the key by
+	``ALTER``, as it does for every key declared ``use_alter``, whatever the mark says.
 	"""
+
+	for table in subroutine.db.base.Base.metadata.tables.values():
+		for constraint in table.foreign_key_constraints:
+			if constraint.use_alter:
+				constraint._create_rule = None
 
 	subroutine.db.base.Base.metadata.create_all(engine)
 

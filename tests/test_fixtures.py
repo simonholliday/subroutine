@@ -30,6 +30,8 @@ import subroutine.cli.main
 import subroutine.cli.output
 import subroutine.config
 import subroutine.connections
+import subroutine.db.base
+import subroutine.db.session
 import subroutine.domain.users
 import subroutine.installations
 import test_browser
@@ -814,3 +816,39 @@ def test_a_commit_inside_a_test_goes_no_further_on_any_backend (
 		).scalar_one()
 
 	assert seen == 0, f"a commit inside a test reached the {engine.dialect.name} database"
+
+
+def test_the_sqlite_schema_keeps_the_key_postgresql_adds_by_alter (tmp_path: pathlib.Path) -> None:
+	"""`#3779`: building PostgreSQL's schema first cost SQLite's a foreign key.
+
+	PostgreSQL adds a key declared ``use_alter`` after its tables, and SQLAlchemy marks the shared
+	constraint on the way past so that no later ``CREATE TABLE`` writes it. SQLite has no ``ALTER``
+	to add it by, so in a process that built PostgreSQL's schema first, ``workspace`` came out with
+	no key on ``prioritised_project_id``, and what a SQLite test tested depended on the tests
+	before it.
+
+	**PostgreSQL's schema is compiled rather than built**, by an engine that runs nothing, so the
+	order is forced here rather than left to the run. SQLite alone, because it is the backend with
+	no ``ALTER`` to put the key back by.
+	"""
+
+	postgresql = sqlalchemy.create_mock_engine(
+		sqlalchemy.engine.make_url("postgresql+psycopg://"), lambda *_statement, **_options: None
+	)
+	subroutine.db.base.Base.metadata.create_all(postgresql, checkfirst=False)
+
+	engine = sqlalchemy.create_engine(f"sqlite:///{tmp_path / 'after-postgresql.db'}")
+
+	try:
+		subroutine.db.session.create_all(engine)
+
+		with engine.connect() as connection:
+			keys = connection.execute(sqlalchemy.text("PRAGMA foreign_key_list(workspace)")).all()
+
+	finally:
+		engine.dispose()
+
+	assert ("project", "prioritised_project_id") in [(key[2], key[3]) for key in keys], (
+		f"SQLite's workspace table has no key on prioritised_project_id after PostgreSQL's schema "
+		f"was built: {keys}"
+	)

@@ -9381,14 +9381,58 @@ def test_a_project_that_is_gone_does_not_take_the_page_with_it () -> None:
 	project** since `SR#3592`, where a search for a parent neither collection keeps read as the
 	project having gone; `aboutTheProject` is driven against the refusal the instance really sends
 	by ``test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other``.
+
+	**The agenda falls back too** (`SR#3775`). A project's page opens on its agenda, which had no
+	such branch, so an address naming a renamed project showed the failure page there and never
+	opened its item. ``test_an_agenda_address_naming_a_project_gone_still_opens_its_item`` drives
+	that one through a mount.
 	"""
 
 	app = _without_comments(_our_source())
 
-	assert "!key || !aboutTheProject(failure)" in app, (
-		"a project that no longer exists no longer falls back to the workspace"
+	assert app.count("!key || !aboutTheProject(failure, key)") == 2, (
+		"a project that no longer exists no longer falls back to the workspace, on the listing and "
+		"on the agenda both"
 	)
 	assert "any more" in app, "the reader is no longer told why the list widened"
+
+
+def test_an_agenda_address_naming_a_project_gone_still_opens_its_item (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3775`: a project's page opens on its agenda, and the agenda had no fallback.
+
+	An address saved before a project was renamed names a project the instance refuses with a
+	404. The listing has read the whole workspace instead since the first rename, and said so; the
+	agenda threw, and took the page with it - so `/projects/oldname/42` showed the failure page
+	and never opened #42, where the same address with `?view=list` did.
+
+	**Driven through a mount**, because the fallback is inside `App`, and the arrival reads the
+	agenda and the item together, so one refusal failed both. The refusal has the shape
+	``test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other`` holds
+	`aboutTheProject` to, against the one the instance really sends.
+	"""
+
+	refused = {
+		"type": "about:blank", "title": "Not found", "status": 404,
+		"detail": "There is no project 'gone' here.", "code": "not_found",
+		"errors": [{"field": "query.project", "code": "not_found",
+			"message": "No project in projects answers to 'gone'.", "hint": None}],
+	}
+	driven = _driven(
+		tmp_path,
+		pathname="/projects/gone/42",
+		answers={"project=gone": refused, **_open_item(tmp_path)},
+	)
+	agendas = [one["path"] for one in driven["asked"] if "/agenda" in one["path"]]
+
+	assert "That did not work" not in driven["said"], driven["said"]
+	assert "There is no project called gone here any more" in driven["said"], driven["said"]
+	assert driven["title"] == "#42 Open · Subroutine", driven["title"]
+	assert agendas and "project=gone" in agendas[0], agendas
+	assert len(agendas) > 1 and not any("project=gone" in path for path in agendas[1:]), (
+		f"the agenda was not read again for the whole workspace: {agendas}"
+	)
 
 
 def test_an_unmatched_address_answers_a_browser_and_a_client_differently (
@@ -11577,7 +11621,7 @@ def _views (
 				}}
 			}})()
 			: name === "aboutTheProject"
-				? app.aboutTheProject(app.refusal(argument.status, argument.problem))
+				? app.aboutTheProject(app.refusal(argument.status, argument.problem), argument.key)
 			: name === "unsaved"
 				? app.unsaved(
 					argument.item,
@@ -14419,6 +14463,45 @@ def test_an_end_goes_out_as_it_came_in_and_takes_the_day_it_starts (
 
 	assert (back["starts"], back["ends"]) == ("2026-10-02", "2026-10-12"), (
 		f"a holiday went back out as {back['starts']} to {back['ends']}"
+	)
+
+
+def test_emptying_the_until_day_clears_the_end_rather_than_moving_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3774`: the edit form lent the start's day to an end it had just been told to lose.
+
+	`fromItem` fills both of the end's boxes, and an end given a time and no day borrows the
+	start's day (`SR#1238`), on the add form and the edit form alike. So emptying the Until day of
+	a London item running from 11:00 on the 27th to 13:00 on the 28th saved it as ending at 13:00
+	on the 27th, and one ending after midnight was refused as finishing before it starts. **The
+	start's day is lent only where the form opened with no end day**, so an end time given to an
+	item with none still lands on the day it starts.
+	"""
+
+	course = {"ref": 7, "version": 2, "title": "Dojo training", "type": "event",
+		"status": "open", "project_key": "inbox", "timezone": "Europe/London",
+		"starts_is_all_day": False, "starts_at": "2026-09-27T10:00:00Z",
+		"ends_at": "2026-09-28T12:00:00Z"}
+	endless = {**course, "ends_at": None}
+
+	spanning, open_ended = _views(tmp_path, [
+		("fromItem", {"item": course}),
+		("fromItem", {"item": endless}),
+	])
+
+	assert (spanning["ends"], spanning["ends_time"]) == ("2026-09-28", "13:00"), spanning
+	assert not open_ended["ends"] and not open_ended["ends_time"], open_ended
+
+	emptied, given = _views(tmp_path, [
+		("edited", {"item": course, "values": {**spanning, "ends": ""}, "opened": spanning}),
+		("edited", {"item": endless, "values": {**open_ended, "ends_time": "13:00"},
+			"opened": open_ended}),
+	])
+
+	assert emptied["ends"] is None, f"emptying the Until day moved the end to {emptied['ends']}"
+	assert given["ends"] == "2026-09-27T13:00", (
+		f"an end time given to an item with none did not land on its start's day: {given['ends']}"
 	)
 
 
@@ -21255,14 +21338,21 @@ def test_a_project_s_saved_agenda_is_drawn_on_that_project (tmp_path: pathlib.Pa
 
 	**Read as the server reads it** - one project term and nothing else is a place, and anything
 	more is a search, which a list keeps and an agenda is refused.
+
+	**Quoted as the grammar quotes** (`SR#3776`): the server reads `project:"web"` as `web`, and
+	the browser kept the quotes, so an agenda view saved that way found no project.
 	"""
 
 	lines = [
 		"project:web", "project:acme/web", "project:web urgent", "project:web,docs", "tag:ops", None,
+		'project:"web"', "project:'web'", 'project:"web site"', 'project:"web,docs"', 'project:""',
+		'project:"web" "docs"',
 	]
 	places = _views(tmp_path, [("placeAlone", line) for line in lines])
 
-	assert places == ["web", "acme/web", None, None, None, None], places
+	assert places == [
+		"web", "acme/web", None, None, None, None, "web", "web", "web site", None, None, None,
+	], places
 
 	for line, drawn in zip(lines, places, strict=True):
 		assert subroutine.domain.saved.place_alone(line) == drawn, (line, drawn)
@@ -21294,26 +21384,34 @@ def test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other (
 
 	**Refusals the instance really sent**, read off the application rather than written here: a
 	synthetic one is how `SR#757`'s reader passed while the wire between them was missing.
+
+	**And a search's own `project:` term is not the page's project** (`SR#3773`). The instance
+	refuses both under one field, so on the Inbox's page a search for `project:nosuch` read as
+	the Inbox gone, and the page let go of it. The refusal quotes the project it could not find,
+	so the page's own key is asked for by name.
 	"""
 
 	world = test_api_tasks._world(session)
 	parent = world.call("POST", "/v1/tasks", json={"title": "Plan the release"}).json()["ref"]
 	declined = world.call("GET", "/v1/documents", params={"q": f"parent:{parent}"})
 	elsewhere = world.call("GET", "/v1/tasks", params={"project": "nowhere"})
+	searched = world.call("GET", "/v1/tasks", params={"project": "inbox", "q": "project:nosuch"})
 
 	assert declined.status_code == 404, declined.text
 	assert elsewhere.status_code == 404, elsewhere.text
+	assert searched.status_code == 404, searched.text
 
 	page = {"items": [{"ref": parent + 1, "title": "Write the changelog"}], "page": {"has_more": False}}
-	kept, both, other, gone, not_gone = _views(tmp_path, [
+	kept, both, other, gone, not_gone, searched_for = _views(tmp_path, [
 		("forgiven", [{"answer": page}, {"status": 404, "problem": declined.json()}]),
 		("forgiven", [
 			{"status": 404, "problem": declined.json()},
 			{"status": 404, "problem": declined.json()},
 		]),
 		("forgiven", [{"answer": page}, {"status": 404, "problem": elsewhere.json()}]),
-		("aboutTheProject", {"status": 404, "problem": elsewhere.json()}),
-		("aboutTheProject", {"status": 404, "problem": declined.json()}),
+		("aboutTheProject", {"status": 404, "problem": elsewhere.json(), "key": "nowhere"}),
+		("aboutTheProject", {"status": 404, "problem": declined.json(), "key": "inbox"}),
+		("aboutTheProject", {"status": 404, "problem": searched.json(), "key": "inbox"}),
 	])
 
 	assert kept == {"answers": [page, {"items": [], "page": {"has_more": False, "next_cursor": None}}]}
@@ -21321,6 +21419,9 @@ def test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other (
 	assert other["status"] == 404, "a refusal about anything but a ref is thrown as it came"
 	assert gone is True, "a project that has gone is still read as gone"
 	assert not_gone is False, "a ref the documents declined was read as the project having gone"
+	assert searched_for is False, (
+		"a search naming a project that does not exist was read as the page's own project gone"
+	)
 
 
 @pytest.mark.parametrize("word", ["type:bug", "status:done"])

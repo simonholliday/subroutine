@@ -1422,14 +1422,21 @@ export const SAID_AS_NUMBERS = ["importance", "urgency"];
 */
 export const NEVER_CLEARED = ["title", "status", "type", "project"];
 
-function dateSaid (said, name) {
+function dateSaid (said, name, borrows = true) {
 	/*
 		A date control and its time box as the one field the wire takes (`#798`) - and **an end
 		given a time and no day ends on the day it starts** (`#1238`). An appointment is written
 		*Starts 27 Sep, 11:00* and *Until 13:00*, and a time with no day is otherwise nothing, so
 		the end would go unsaved without a word.
+
+		**Unless the form opened with an end day** (`#3774`), which `borrows` says: there, a day
+		emptied is an end cleared. The edit form fills both of the end's boxes, so emptying the
+		day moved an item ending at 13:00 the next day to 13:00 on its first, and one ending after
+		midnight was refused as finishing before it starts.
 	*/
-	const day = name === "ends" && !said(name) && said("ends_time") ? said("starts") : said(name);
+	const day = name === "ends" && borrows && !said(name) && said("ends_time")
+		? said("starts")
+		: said(name);
 
 	return withTime(day, said(`${name}_time`));
 }
@@ -1829,11 +1836,15 @@ export function edited (values, item, appliesTo = null, opened = null) {
 		if (value) body[name] = value;
 	});
 
+	/* **An end day the form opened with is never lent the start's** (`#3774`): emptying it clears
+	   the end, and an end time given to an item with none still lands on the day it starts. */
+	const borrows = !String((opened || {}).ends || "").trim();
+
 	SAID_AS_WRITTEN.forEach((name) => {
 		if (NEVER_CLEARED.includes(name)) return;
 
 		body[name] = (TIMED.includes(name)
-			? dateSaid(said, name)
+			? dateSaid(said, name, borrows)
 			: said(name)) || null;
 	});
 

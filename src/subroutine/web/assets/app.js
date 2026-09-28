@@ -32,7 +32,7 @@ import {
 } from "./address.js";
 import {
 	Boundary, aboutTheProject, accumulated, forgiven, inOrder, mergeOrder, newestFirst, notAdded,
-	notChanged, refusal, sunkOrder, unpacked, unrenderable, unsaved,
+	notChanged, projectGone, refusal, sunkOrder, unpacked, unrenderable, unsaved,
 } from "./answers.js";
 import {
 	Facts, Foot, Note, Place, Prose, SAVING_VIEW, SavedViews, THEMES, Theme, Wordmark, You,
@@ -493,7 +493,22 @@ export function App () {
 		agendaAsked.current += 1;
 
 		const ticket = agendaAsked.current;
-		const answered = await sent(agendaRequest(slug, key));
+		let answered;
+
+		try {
+			answered = await sent(agendaRequest(slug, key));
+		} catch (failure) {
+			/* **A project the address names may not be there any more** (`#3775`), which `load`
+			   has answered since the first rename: the workspace is read instead, and the reason
+			   said. A project's page opens on its agenda, which had no such branch, so an address
+			   naming a renamed project showed the failure page there and never opened its item. */
+			if (!key || !aboutTheProject(failure, key)) throw failure;
+
+			setNote({ text: projectGone(key), tone: "bad" });
+			setProject(null);
+
+			return readAgenda(slug, null);
+		}
 
 		/* **Drawn only while it is still wanted** (`#3740`): the answer to the latest read, on a
 		   page still arranged as an agenda. `shown` rather than `showing`, because this runs long
@@ -571,10 +586,9 @@ export function App () {
 				out loud. Only for the filter: a 404 with no project asked for is a different
 				fact and belongs to the caller.
 			*/
-			if (!key || !aboutTheProject(failure)) throw failure;
+			if (!key || !aboutTheProject(failure, key)) throw failure;
 
-			setNote({ text: `There is no project called ${key} here any more. `
-				+ `Showing the whole workspace.`, tone: "bad" });
+			setNote({ text: projectGone(key), tone: "bad" });
 			setProject(null);
 
 			return load(slug, null, after);

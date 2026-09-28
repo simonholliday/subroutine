@@ -463,7 +463,7 @@ export function forgiven (settled) {
 	return settled.map((one) => (one.status === "fulfilled" ? one.value : NOTHING_KEPT));
 }
 
-export function aboutTheProject (failure) {
+export function aboutTheProject (failure, key) {
 	/*
 		Whether a 404 is about the project a page names — `#3592`. Every 404 on a project's page read
 		as *There is no project called … here any more*, including a search for a parent that
@@ -473,9 +473,24 @@ export function aboutTheProject (failure) {
 		parameter and the API says which part of the request it means. Measured, and it is why the
 		test reads a refusal the application really sent: the first version of this asked for
 		`project`, which no answer carries, and would have ended the fallback without a word.
+
+		**And only where the refusal names the page's own project** (`#3773`). A search's
+		`project:` term is refused under the same field, so on acme's page a search for
+		`project:nosuch` read as acme having gone, and the page let go of it. The refusal quotes the
+		project it could not find, which is what tells the two apart.
 	*/
 	return Boolean(failure && failure.status === 404 && failure.body
-		&& (failure.body.errors || []).some((one) => ["query.project", "project"].includes(one.field)));
+		&& (failure.body.errors || []).some((one) => ["query.project", "project"].includes(one.field)
+			&& String(one.message || "").includes(`'${key}'`)));
+}
+
+export function projectGone (key) {
+	/*
+		What a page says when the project its address names is not there any more - `#3775`. The
+		listing and the agenda both fall back to the whole workspace, so both say so, in one
+		sentence rather than two copies of it.
+	*/
+	return `There is no project called ${key} here any more. Showing the whole workspace.`;
 }
 
 /*

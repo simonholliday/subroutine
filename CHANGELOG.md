@@ -88,6 +88,21 @@ upgrade involves.
   gone two minutes untouched - which is how a page on a second screen is left. A change
   arriving counts as activity now, so the faster pace holds while work is landing, and the
   page still slows down after two quiet minutes.
+- **A search naming a project that does not exist leaves the page's own project in place.**
+  Typed on a project's page, `project:` and a name no project has said the page's own project
+  was gone and showed the whole workspace. It says the search was refused now, and the page
+  stays where it was.
+- **Emptying an item's Until day clears its end.** The edit form lent the end the start's day,
+  as the add form does for an end given only a time, so the end moved to the day the item
+  starts - and one ending after midnight was refused as ending before it starts. The start's
+  day is lent only where the form opened with no end.
+- **An address naming a project that has since been renamed opens its item on the agenda
+  too.** A project's page opens on its agenda, and there such an address showed the failure
+  page, where the list said the project was gone, showed the whole workspace and opened the
+  item. The agenda does the same now.
+- **An agenda view saved with its project in quotes is drawn on that project in the browser.**
+  The server reads `project:"web"` as `web` and saved such a view, while the browser took the
+  quotes as part of the name and found no project.
 
 ## 0.9.11 — 2026-09-28
 
