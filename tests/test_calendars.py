@@ -1269,13 +1269,16 @@ def _weekly (zone: str | None, **fields: typing.Any) -> typing.Any:
 	return _Series()
 
 
-def _rendered (series: typing.Any, **occasion: typing.Any) -> str:
-	"""Render one weekly series as a feed would, with ``now`` before the clocks go back."""
+def _rendered (
+	series: typing.Any, *, rule: str | None = "FREQ=WEEKLY", **occasion: typing.Any
+) -> str:
+	"""Render one series as a feed would, weekly unless ``rule`` says otherwise, or one event where
+	it is ``None`` - with ``now`` before the clocks go back."""
 
 	return subroutine.domain.icalendar.render(
 		[
 			subroutine.domain.calendars.Occasion(
-				task=series, field="starts_at", rule="FREQ=WEEKLY", **occasion
+				task=series, field="starts_at", rule=rule, **occasion
 			)
 		],
 		name="Work",
@@ -1364,12 +1367,14 @@ def test_the_calendar_and_the_server_put_each_occurrence_at_the_same_moment () -
 	assert calendar == server
 
 
-@pytest.mark.parametrize("zone", [None, "UTC", "Asia/Tokyo"])
-def test_a_repeat_whose_clock_never_changes_is_still_written_in_utc (zone: str | None) -> None:
-	"""A zone without summer time falls at one UTC hour all year, so nothing about it changes.
+@pytest.mark.parametrize("zone", [None, "UTC", "Africa/Abidjan"])
+def test_a_repeat_at_utc_s_own_offset_is_still_written_in_utc (zone: str | None) -> None:
+	"""A zone at offset zero has UTC's days as well as its hours, so nothing about it changes.
 
-	**Every series a feed carried before `SR#1078` reads exactly as it did**, and a zone nobody set
-	is the server's own fallback, UTC, as it is for the occurrences it mints.
+	**Every series a feed carried before `SR#1078` in the zone the server falls back to reads
+	exactly as it did**, and a zone nobody set is that fallback, UTC, as it is for the occurrences
+	the server mints. A zone at another offset is on its own clock, whether or not it has summer
+	time (`SR#3749`).
 	"""
 
 	rendered = _rendered(_weekly(zone))
@@ -1377,6 +1382,128 @@ def test_a_repeat_whose_clock_never_changes_is_still_written_in_utc (zone: str |
 
 	assert f"DTSTART:{hour.astimezone(datetime.UTC):%Y%m%dT%H%M%SZ}" in rendered, rendered
 	assert "VTIMEZONE" not in rendered and "TZID" not in rendered, rendered
+
+
+@pytest.mark.parametrize(
+	("zone", "hour", "offset", "rule"),
+	[
+		("Asia/Tokyo", 8, "+0900", "FREQ=WEEKLY;BYDAY=MO"),
+		("Asia/Kolkata", 5, "+0530", "FREQ=WEEKLY;BYDAY=MO"),
+		("America/Phoenix", 18, "-0700", "FREQ=WEEKLY;BYDAY=MO"),
+		("Asia/Tokyo", 8, "+0900", "FREQ=MONTHLY;BYMONTHDAY=19"),
+	],
+	ids=["Tokyo weekly", "Kolkata weekly", "Phoenix weekly", "Tokyo monthly"],
+)
+def test_a_repeat_in_a_zone_without_summer_time_keeps_its_day (
+	zone: str, hour: int, offset: str, rule: str
+) -> None:
+	"""`SR#3749`: every Monday at 08:00 in Tokyo was every Tuesday on a subscriber's calendar.
+
+	It was written in UTC, where 08:00 on a Monday in Tokyo is 23:00 on the Sunday, so a rule
+	naming Monday expanded on UTC's Mondays, a day late, and a month's 19th on its 20th. A zone whose
+	clock never changes is on its own clock now, described with the one observance RFC 5545 asks of
+	every ``VTIMEZONE``, at its only offset - and held against what the server mints.
+	"""
+
+	start = datetime.datetime(2026, 10, 19, hour, 0, tzinfo=zoneinfo.ZoneInfo(zone))
+	series = _weekly(zone, starts_at=start.astimezone(datetime.UTC))
+	rendered = _rendered(series, rule=rule)
+
+	assert f"DTSTART;TZID={zone}:20261019T{hour:02d}0000" in rendered, rendered
+	assert {observance[:3] for observance in _observances(rendered)} == {
+		("STANDARD", offset, offset)
+	}, rendered
+
+	block = "\n".join(
+		line
+		for line in rendered.split("BEGIN:VEVENT")[1].split("\r\n")
+		if line.startswith(("DTSTART", "RRULE"))
+	)
+	calendar = [
+		one.astimezone(datetime.UTC) for one in list(dateutil.rrule.rrulestr(block, forceset=True))[:3]
+	]
+	server = subroutine.domain.recurrence.occurrences(
+		rule, start=series.starts_at, timezone=zone, limit=3
+	)
+
+	assert calendar == server, (calendar, server)
+
+
+@pytest.mark.parametrize("year", [1, 9995])
+def test_a_repeat_at_either_end_of_the_calendar_leaves_the_feed_whole (year: int) -> None:
+	"""`SR#3750`: one repeat dated in year 1 or 9995 made the whole feed answer 500.
+
+	Its zone was read from a year before its start to at least eight years after, which runs off
+	one end of the calendar or the other, so describing it overflowed and took every other item in
+	the feed with it. It is read over the years a reader looks at now, and the date is written
+	with four digits (`SR#3788`).
+	"""
+
+	london = zoneinfo.ZoneInfo("Europe/London")
+	edge = _weekly(
+		"Europe/London",
+		starts_at=datetime.datetime(year, 3, 1, 9, 0, tzinfo=london).astimezone(datetime.UTC),
+	)
+	rendered = subroutine.domain.icalendar.render(
+		[
+			subroutine.domain.calendars.Occasion(task=edge, field="starts_at", rule="FREQ=WEEKLY"),
+			subroutine.domain.calendars.Occasion(task=_weekly(None, title="Dentist"), field="starts_at"),
+		],
+		name="Work",
+		instance_id=uuid.uuid4(),
+		now=datetime.datetime(2026, 9, 27, 12, 0, tzinfo=datetime.UTC),
+	)
+
+	assert f"DTSTART;TZID=Europe/London:{year:04d}0301T090000" in rendered, rendered
+	assert rendered.count("BEGIN:VEVENT") == 2 and "Dentist" in rendered, rendered
+
+
+def test_a_repeat_begun_long_ago_reads_its_zone_only_near_now (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3750`: a repeat begun in year 2 had its zone read every day since - 0.7 s a request.
+
+	A client draws the occurrences near now, so the zone is read over much the same years whenever
+	the series began: here no more than twice as often as for one that begins this autumn.
+	"""
+
+	read: list[int] = []
+	reading = subroutine.domain.icalendar._reading
+
+	def counted (zone: datetime.tzinfo, seconds: int) -> tuple[datetime.timedelta, bool, str]:
+		"""Count one reading of a zone's clock, and take it."""
+
+		read.append(seconds)
+
+		return reading(zone, seconds)
+
+	monkeypatch.setattr(subroutine.domain.icalendar, "_reading", counted)
+	london = zoneinfo.ZoneInfo("Europe/London")
+	begun = datetime.datetime(2, 3, 1, 9, 0, tzinfo=london).astimezone(datetime.UTC)
+
+	_rendered(_weekly("Europe/London", starts_at=begun))
+	long_ago = len(read)
+	read.clear()
+	_rendered(_weekly("Europe/London"))
+
+	assert long_ago <= 2 * len(read), f"year 2 read the zone {long_ago} times, this autumn {len(read)}"
+
+
+def test_a_date_before_the_year_1000_is_written_with_four_digits () -> None:
+	"""`SR#3788`: ``%Y`` is not padded here, so year 206 went out as ``206`` and nobody can read it.
+
+	A mistyped year is enough to put one in a feed, since the API takes it.
+	"""
+
+	timed = _weekly(None, starts_at=datetime.datetime(206, 3, 1, 9, 0, tzinfo=datetime.UTC))
+	whole = _weekly(
+		None,
+		starts_at=datetime.datetime(999, 1, 1, 0, 0, tzinfo=datetime.UTC),
+		starts_is_all_day=True,
+	)
+
+	assert "DTSTART:02060301T090000Z" in _rendered(timed, rule=None)
+	assert "DTSTART;VALUE=DATE:09990101" in _rendered(whole, rule=None)
 
 
 def test_a_repeat_s_end_and_its_exclusions_are_on_the_same_clock_as_its_start () -> None:

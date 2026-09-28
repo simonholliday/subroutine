@@ -120,6 +120,13 @@ upgrade involves.
   when the item repeated, while the page went on showing the same time. The form now says which
   clock its dates are on, so they stay where they were, and a time you change lands where the
   form showed it.
+- **A repeat in a zone without summer time is on the right day in a subscribed calendar.** A
+  timed repeat in such a zone - Tokyo, India, Arizona - was written in UTC, so one whose time
+  falls on another day in UTC landed a day out: every Monday at 08:00 in Tokyo arrived as every
+  Tuesday, and a month's 1st as its 2nd. It is written on its own zone's clock now, as a repeat
+  in a zone with summer time already was. A repeat dated near year 1 or year 9999 no longer makes
+  the whole feed fail, nor one dated long ago make it slow, and a date before the year 1000 is
+  written with its year in full, where no calendar could read it.
 
 ## 0.9.10 — 2026-09-26
 

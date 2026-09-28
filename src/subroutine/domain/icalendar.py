@@ -117,6 +117,11 @@ _A_DAY_IN_SECONDS = 24 * 60 * 60
 #: RFC 5545's weekdays, in :meth:`datetime.date.weekday` order.
 _WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
 
+#: **The last moment a zone is read up to, two years short of the calendar's end** (`#3750`), so
+#: a reading an offset later, and a rule expanded to the end of its window, stay inside the years
+#: Python can count.
+_LAST_READABLE = datetime.datetime(9998, 1, 1, tzinfo=datetime.UTC)
+
 
 @dataclasses.dataclass(frozen=True)
 class _Change:
@@ -310,6 +315,17 @@ def _duration (minutes: int) -> str:
 _ALL_DAY = {"starts_at": "starts_is_all_day", "due_at": "due_is_all_day"}
 
 
+def _dated (when: datetime.date, rest: str) -> str:
+	"""Return a date in basic format: its year in four digits, then the rest as ``rest`` writes it.
+
+	**The four digits are written out rather than left to** ``%Y`` (`#3788`), which the C library
+	pads or not as it pleases: here year 2 came out as ``2``, and 09:00 on 1 March of it as
+	``20301T090000``, which no client can read.
+	"""
+
+	return f"{when.year:04d}{when.strftime(rest)}"
+
+
 def _instant (when: datetime.datetime) -> str:
 	"""Return one instant as UTC basic format — ``20260817T140000Z``.
 
@@ -323,7 +339,7 @@ def _instant (when: datetime.datetime) -> str:
 	:func:`_moment` with the zone named and described.
 	"""
 
-	return when.astimezone(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+	return _dated(when.astimezone(datetime.UTC), "%m%dT%H%M%SZ")
 
 
 def _moment (name: str, when: datetime.datetime, zone: str | None) -> str:
@@ -344,7 +360,7 @@ def _clock (when: datetime.datetime, zone: str) -> str:
 def _wall (clock: datetime.datetime) -> str:
 	"""Return a time as a clock shows it, in basic format with nothing to say which clock."""
 
-	return clock.strftime("%Y%m%dT%H%M%S")
+	return _dated(clock, "%m%dT%H%M%S")
 
 
 def _series_zone (occasion: subroutine.domain.calendars.Occasion) -> str | None:
@@ -367,9 +383,11 @@ def _described (
 ) -> dict[str, tuple[list[_Change], datetime.datetime]]:
 	"""Return each zone a timed repeat here is kept in, its clock changes, and how far they reach.
 
-	**Only a zone whose clocks change in that window.** A repeat in UTC, or in a zone without
-	summer time, falls at one UTC hour all year, so it stays written in UTC and needs no
-	``VTIMEZONE`` - which is every series a feed carried before `#1078`, unchanged.
+	**Every zone but one at UTC's own offset** (`#3749`). A zone without summer time does fall at
+	one UTC hour all year, and was left in UTC for that - but a rule names days, and 08:00 on a
+	Monday in Tokyo is 23:00 on the Sunday in UTC, so a rule naming Monday repeated a day late
+	there, and a month's 1st on the 2nd. A zone at offset zero has UTC's days, so it stays in UTC,
+	and so does every series a feed carried before `#1078` in the zone the server falls back to.
 	"""
 
 	earliest: dict[str, datetime.datetime] = {}
@@ -387,14 +405,36 @@ def _described (
 	described: dict[str, tuple[list[_Change], datetime.datetime]] = {}
 
 	for zone, first in earliest.items():
-		since = first - _ZONE_MARGIN
+		# **Read over the years somebody will look at** (`#3750`). From a year before a start typed
+		# as year 2 was two thousand years of daily readings, 0.7 s a request, and a start before its
+		# second day, or in the calendar's last years, ran off one end of it - so the whole feed
+		# answered 500. A client draws the occurrences near now, so the first start is taken as no
+		# earlier than :data:`_ZONE_SPAN` ago, and no later than leaves the window room to end.
+		start = min(max(first, now - _ZONE_SPAN), _LAST_READABLE - _ZONE_SPAN - _ZONE_MARGIN)
+		since = start - _ZONE_MARGIN
 		until = max(ahead, since + _ZONE_SPAN)
-		changes = _changes(zone, since=since, until=until)
+		changes = _changes(zone, since=since, until=until) or _unchanging(zone, since=since)
 
 		if changes:
 			described[zone] = (changes, until)
 
 	return described
+
+
+def _unchanging (name: str, *, since: datetime.datetime) -> list[_Change]:
+	"""Return the one observance a zone whose clock never changes needs, or none at offset zero.
+
+	**RFC 5545 §3.6.5 wants a STANDARD or a DAYLIGHT in every VTIMEZONE** (`#3749`), and a block
+	with neither gives a client that reads it no offset at all. So a zone whose clock never moves
+	is written as one change that changes nothing: its only offset, from the start of the window.
+	"""
+
+	offset, _summer, called = _reading(subroutine.domain.dates.zone(name), int(since.timestamp()))
+
+	if not offset:
+		return []
+
+	return [_Change(onset=since, before=offset, after=offset, daylight=False, name=called)]
 
 
 def _changes (name: str, *, since: datetime.datetime, until: datetime.datetime) -> list[_Change]:
@@ -566,7 +606,7 @@ def _basic (day: datetime.date) -> str:
 	somebody reads.
 	"""
 
-	return day.strftime("%Y%m%d")
+	return _dated(day, "%m%d")
 
 
 def _escaped (value: str) -> str:
