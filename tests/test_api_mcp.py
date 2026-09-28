@@ -1475,8 +1475,14 @@ def _adding (text: str) -> str:
 	)
 
 
+@pytest.mark.parametrize(
+	"workspace", [None, "büro"], ids=["a marker", "a workspace named outside ASCII"]
+)
 def test_a_remote_session_files_where_the_callers_checkout_says (
-	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+	world: test_api_tasks.World,
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+	workspace: str | None,
 ) -> None:
 	"""`SR#1438`: the tools run where the instance does, so they never saw the caller's checkout.
 
@@ -1487,6 +1493,10 @@ def test_a_remote_session_files_where_the_callers_checkout_says (
 	**The server is made to stand somewhere else while it answers**, as a served instance stands
 	in ``/``. In one process the two would otherwise share a directory, and this would pass with
 	no header at all - which is how the defect stayed invisible to every test in this file.
+
+	**And whatever the marker's values are written in** (`#3746`). A workspace's short name may
+	keep a letter outside ASCII, which a header cannot carry, and the relay crashed building its
+	first request in any checkout marked for one - before a byte was sent.
 	"""
 
 	web = _a_project(world, "web")
@@ -1495,7 +1505,9 @@ def test_a_remote_session_files_where_the_callers_checkout_says (
 	checkout.mkdir()
 	server.mkdir()
 	(checkout / subroutine.directory.FILE_NAME).write_text(
-		f'project = "web"\nproject_id = "{web}"\n', encoding="utf-8"
+		(f'workspace = "{workspace}"\n' if workspace else "")
+		+ f'project = "web"\nproject_id = "{web}"\n',
+		encoding="utf-8",
 	)
 	monkeypatch.chdir(checkout)
 

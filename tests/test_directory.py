@@ -533,6 +533,60 @@ def test_a_header_naming_no_project_is_no_checkout (said: str | None) -> None:
 	assert subroutine.directory.from_header(said) is None
 
 
+@pytest.mark.parametrize(
+	("workspace", "project"),
+	[
+		("büro", "web"),
+		("acme", "web; project=elsewhere"),
+		("acme", "web\r\nX-Injected: yes"),
+		("acme", "100% done"),
+	],
+	ids=["a workspace named outside ASCII", "a separator in a value", "a line break", "a percent sign"],
+)
+def test_a_header_carries_any_marker_on_one_ascii_line (workspace: str, project: str) -> None:
+	"""`#3746`: a header is ASCII on one line, and a marker's values need not be.
+
+	httpx refused a letter outside ASCII before sending anything, so the relay crashed on its
+	first message in a checkout marked for `büro`; a line break was refused at the socket, with
+	advice about the token; and a `;` or an `=` in a value read as the next pair.
+	"""
+
+	marker = subroutine.directory.Marker(
+		path=pathlib.Path(".subroutine"), workspace=workspace, project=project
+	)
+
+	said = subroutine.directory.as_header(marker)
+
+	assert said is not None
+	assert said.isascii() and said.isprintable(), said
+
+	back = subroutine.directory.from_header(said)
+
+	assert back is not None
+	assert (back.workspace, back.project) == (workspace, project)
+
+
+def test_a_header_leaves_ids_keys_and_addresses_as_they_are () -> None:
+	"""`#3746`: encoding changes nothing an instance built before it reads.
+
+	The instance reads a header's ids and its project, and each is ASCII with no `;`, `=` or `%`
+	in it - a key by its pattern, and a whole address with its `/` left readable - so a header
+	from this relay means the same to an instance whose reader does not decode.
+	"""
+
+	marker = subroutine.directory.Marker(
+		path=pathlib.Path(".subroutine"),
+		workspace_id="01a0e2ce-0000-7000-8000-000000000001",
+		project="substation/dist",
+		project_id="01a0e2ce-0000-7000-8000-000000000002",
+	)
+
+	assert subroutine.directory.as_header(marker) == (
+		"workspace_id=01a0e2ce-0000-7000-8000-000000000001; "
+		"project_id=01a0e2ce-0000-7000-8000-000000000002; project=substation/dist"
+	)
+
+
 def test_a_marker_naming_no_project_sends_nothing () -> None:
 	"""A marker that only names a workspace says nothing about where work is filed."""
 

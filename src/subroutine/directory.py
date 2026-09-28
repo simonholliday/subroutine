@@ -42,6 +42,7 @@ standing one in comparable tooling — not having a setting, but not knowing whe
 import pathlib
 import tomllib
 import typing
+import urllib.parse
 
 #: What the file is called. A dotfile because it is machine-written configuration rather than
 #: something a reader of the repository needs to meet, and TOML because every other file this
@@ -79,13 +80,22 @@ CARRIED = ("workspace_id", "workspace", "project_id", "project")
 
 
 def as_header (marker: "Marker") -> str | None:
-	"""Return a marker as :data:`HEADER`'s value, or ``None`` where it names no project."""
+	"""Return a marker as :data:`HEADER`'s value, or ``None`` where it names no project.
+
+	**Every value goes percent-encoded** (`#3746`), and :func:`from_header` decodes it. A header
+	carries ASCII on one line and nothing else, and httpx refuses anything more before a byte is
+	sent - so a workspace whose short name is `büro`, which keeps its letters, stopped the relay
+	on its first message in every checkout marked for it. Encoding also keeps a `;` or an `=`
+	in a value from reading as the next pair, and a line break from ending the header.
+	"""
 
 	if marker.project is None and marker.project_id is None:
 		return None
 
 	return "; ".join(
-		f"{key}={value}" for key in CARRIED if (value := getattr(marker, key)) is not None
+		f"{key}={urllib.parse.quote(value, safe='/')}"
+		for key in CARRIED
+		if (value := getattr(marker, key)) is not None
 	)
 
 
@@ -109,9 +119,10 @@ def from_header (value: str | None) -> "Marker | None":
 
 	for part in value.split(";"):
 		key, equals, said = part.partition("=")
+		meant = urllib.parse.unquote(said).strip()
 
-		if equals and key.strip() in CARRIED and said.strip():
-			held[key.strip()] = said.strip()
+		if equals and key.strip() in CARRIED and meant:
+			held[key.strip()] = meant
 
 	if "project" not in held and "project_id" not in held:
 		return None
