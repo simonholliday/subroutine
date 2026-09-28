@@ -6,11 +6,6 @@ Designed from the ground up so that a coding agent is a first-class user rather 
 agents get accounts of their own, can file and claim work, and document findings. An agent
 learns the tool while using it.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/simonholliday/subroutine/main/docs/images/board-dark.png">
-  <img alt="The board of a website rebuild in Subroutine's browser: work to do, in progress and done, with cards assigned to people and to an agent" src="https://raw.githubusercontent.com/simonholliday/subroutine/main/docs/images/board-light.png">
-</picture>
-
 ## Setup takes about a minute, and that is it
 
 **Four commands, and most of the minute is waiting for downloads.**
@@ -29,7 +24,10 @@ a repository - the one prerequisite here that is Claude Code's rather than ours.
 **Then start a fresh Claude Code session and tell it *"we use Subroutine now"*. That sentence is
 the setup.**
 
----
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/simonholliday/subroutine/main/docs/images/board-dark.png">
+  <img alt="The board of a website rebuild in Subroutine's browser: work to do, in progress and done, with cards assigned to people and to an agent" src="https://raw.githubusercontent.com/simonholliday/subroutine/main/docs/images/board-light.png">
+</picture>
 
 ## Your agent takes it from there
 
