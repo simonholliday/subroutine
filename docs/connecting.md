@@ -687,6 +687,12 @@ https://subroutine.example.com/mcp?workspace=acme&project=web
 A project named in the line itself, as `+web`, still wins, and so does a checkout's own file
 where the `subroutine` plugin reads one: that plugin sends it along with every request.
 
+**An instance older than the release that added this refuses the whole address.** It answers
+*This endpoint does not accept 'project'*, and that ends the connection rather than one request,
+so the agent has no Subroutine tools at all. Leave `&project=` off for such an instance, and name
+the project in the line instead. The changelog names the release that added it; once the agent
+is connected, `subroutine_whoami` names the version the instance runs.
+
 **You know it worked** when the agent can answer "who am I on this instance?" - it has a
 `subroutine_whoami` tool for exactly that, and the answer names the account the token belongs to
 and the workspaces it reaches.
