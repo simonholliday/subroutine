@@ -994,6 +994,42 @@ export function appliedAt (view, workspace) {
 	return { agenda: false, workspace, project: placed };
 }
 
+export function viewed (view, workspace) {
+	/*
+		Where a saved view takes the reader: the place it is applied at (`appliedAt`) and what it
+		shows there (`asShowing`), in the two halves `chooseView` takes - `#3751`. The menu draws
+		each view's link from this and a click on it goes to it, so the address a link opens in a new
+		tab and the page a click draws are one answer rather than two that must agree.
+	*/
+	return { place: appliedAt(view, workspace), showing: asShowing(view) };
+}
+
+export function unviewed (showing, workspace) {
+	/*
+		Where *None* leaves a saved view for - `#3738`, and `#3751` for why it is asked here: the
+		menu's link is drawn from it and the click is sent to it, for `viewed`'s reason.
+
+		**The workspace's own page, in the same arrangement, with nothing narrowed**: the level a view
+		is applied at (`#3144`), so this is the page as it would be with no view. An agenda saved on a
+		project is left for the workspace's agenda by the same rule. **What *nothing narrowed* means
+		for each arrangement is the tab's own showing**, from `chips`, so a board keeps the columns
+		its tab asks for rather than a second spelling of them.
+	*/
+	const place = { agenda: false, workspace, project: null };
+	const plain = chips(listingAddress(place), showing).find((chip) => chip.name === showing.view);
+
+	return { place, showing: plain ? plain.showing : { view: showing.view, selection: {} } };
+}
+
+export function destination ({ place, showing }) {
+	/*
+		The address a place and a showing make together, which is what `chooseView` writes for them
+		through `go` - so a link drawn from `viewed` or `unviewed` is the address following it lands
+		on (`#3751`).
+	*/
+	return withShowing(listingAddress(place), showing);
+}
+
 export function placeShown (open, listing) {
 	/*
 		The place a page is about: the open item's own where one is open, and otherwise the

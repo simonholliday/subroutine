@@ -458,11 +458,12 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	# **The saved views, with the form open** - `#3096`. Open because the form is the riskier
 	# markup and the one a fallback would swallow: a name box, a shared checkbox and the
-	# sentence naming what a view cannot keep. The closed state is a select and a button, and
-	# the browser tests drive the real app for it.
+	# sentence naming what a view cannot keep. The menu of views is drawn whether or not it is
+	# open, since the browser is what hides a closed popover, and the browser tests drive the
+	# real app for opening it (`#3751`).
 	#
-	# **One view of each kind**, so the shared mark is drawn in its option and the unshared one
-	# proves it is not drawn in every option - and `showing` is a view `mine` saved, so the
+	# **One view of each kind**, so the shared mark is drawn in its entry and the unshared one
+	# proves it is not drawn in every entry - and `showing` is a view `mine` saved, so the
 	# question forgetting asks is drawn (`forgetting` below).
 	"SavedViews": {
 		"views": [
@@ -501,6 +502,8 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		# `test_every_selector_in_the_stylesheet_reaches_something` reads as a dead rule.
 		"forgetting": "my-bugs",
 		"mine": "morpheus",
+		# **The workspace each view's link is an address in** (`#3751`).
+		"workspace": "metacortex",
 	},
 	# **A workspace's journal, with every kind of line it draws** — `#2731`: two days, a door, a
 	# change and a phrase, a cut comment with the way to the rest, the instance acting, and older
@@ -21523,41 +21526,50 @@ def test_a_saved_view_says_whose_work_it_draws_and_offers_only_what_the_reader_m
 	sample = {**SAMPLES["SavedViews"], "forgetting": None}
 	shown = _rendered(tmp_path, {"SavedViews": sample})["SavedViews"]
 	barred = _rendered(tmp_path, {"SavedViews": {**sample, "mayShare": False}})["SavedViews"]
-	# **Somebody else's shared view showing**: *Everything* is saved as an agenda with no search.
-	theirs = {**sample, "showing": {"view": "agenda", "selection": {}}}
-	withheld = _rendered(tmp_path, {"SavedViews": theirs})["SavedViews"]
-	administering = _rendered(
-		tmp_path, {"SavedViews": {**theirs, "mayForgetShared": True}}
+	drawn = _markup(tmp_path, {"SavedViews": sample})["SavedViews"]
+	administering = _markup(
+		tmp_path, {"SavedViews": {**sample, "mayForgetShared": True}}
 	)["SavedViews"]
+
+	def forgettable (markup: str) -> list[str]:
+		"""The views the markup offers to forget, by the name each control says it forgets."""
+
+		return re.findall(r'aria-label="Forget ([^"]*)"', markup)
 
 	assert "shared, each reader's own" in shown, shown
 	assert "Let the workspace see it" in shown, shown
 	assert "Let the workspace see it" not in barred, barred
 
-	# **Forget acts on the view that is showing** (`SR#3737`): a select cannot carry a control on
-	# each option. The reader's own view offers it, and somebody else's shared view offers it only
-	# to an administrator.
-	assert shown.count("Forget") == 1, shown
-	assert withheld.count("Forget") == 0, withheld
-	assert administering.count("Forget") == 1, administering
+	# **Forget is beside each view the reader may forget** (`SR#3751`, decision `SR#3734` as
+	# revised), whether or not it is showing: their own views, and somebody else's shared one
+	# only for an administrator.
+	assert forgettable(drawn) == ["My bugs", "Team queue", "What I hold"], drawn
+	assert forgettable(administering) == [
+		"My bugs", "Team queue", "Everything", "What I hold",
+	], administering
 
 
-def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
+def test_the_saved_views_are_links_under_a_button_naming_the_view_the_page_is_on (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""`SR#3737`, decision `SR#3734` as revised: a drop-down, because a row grew with every view.
+	"""`SR#3751`, decision `SR#3734` as revised on 2026-09-28: a menu of links, where a select was.
 
-	It shows the view the page is on, and *Choose* when the page is not a saved view - Simon's
-	word, since the label already says *Views* - and a shared view says so in its option, in words
-	(`SR#102`). **With nothing saved there is no select at all**: the control is the label and
-	*Save this view*, the one action (`SR#3096`).
+	The select applied a view on `change`, which Chromium fires for every arrow key in a closed
+	select, so a keyboard reader applied each view they passed (WCAG 3.2.2). **A link applies
+	nothing until it is followed**, and it is the view's own address - what it shows, never its
+	name (`SR#649`) - so it opens in a new tab or copies as any other.
 
-	**And it can be left, and it knows its place.** While a view is showing, the first option is
+	The button names the view the page is on, and *Choose* when the page is not a saved view -
+	Simon's word - and a shared view says so in its entry, in words (`SR#102`). **With nothing
+	saved there is no menu at all**: the control is the label and *Save this view* (`SR#3096`).
+
+	**And it can be left, and it knows its place.** While a view is showing, the first entry is
 	*None*, the way back (`SR#3738`, Simon's report). Which view is showing is asked of the place as
 	well as the search line (`SR#3739`): an agenda saved on a project is showing on that project's
 	agenda, and a view applied at the workspace is showing only there.
 
-	Real markup rather than the text harness, because which option is selected is an attribute.
+	Real markup rather than the text harness, because which entry is showing, and where each one
+	goes, are attributes.
 	"""
 
 	sample = {**SAMPLES["SavedViews"], "forgetting": None, "saving": False}
@@ -21567,27 +21579,49 @@ def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
 	}})["SavedViews"]
 	empty = _markup(tmp_path, {"SavedViews": {**sample, "views": []}})["SavedViews"]
 
-	def selected (markup: str) -> list[str]:
-		"""The text of every option the markup marks selected."""
+	def showing (markup: str) -> list[str]:
+		"""The text of every entry the markup marks as the view that is showing."""
 
-		return re.findall(r"<option[^>]*\bselected\b[^>]*>([^<]*)</option>", markup)
+		return re.findall(r'<a [^>]*aria-current="true"[^>]*>([^<]*)</a>', markup)
 
-	assert selected(drawn) == ["My bugs"], drawn
-	assert ">Choose<" not in drawn, f"a page on a saved view offered to choose one: {drawn}"
-	assert selected(elsewhere) == ["Choose"], elsewhere
+	def named (markup: str) -> str:
+		"""What the button that opens the menu says."""
 
-	# **An option that can be chosen**: the renderer writes an empty value as a bare attribute.
-	none = re.search(r"<option([^>]*)>None</option>", drawn)
+		found = re.search(r'<span class="saved-views-current">([^<]*)</span>', markup)
 
-	assert none is not None and "disabled" not in none.group(1), (
-		f"a view that is showing cannot be left: {drawn}"
-	)
+		assert found is not None, f"no button names the view: {markup}"
+
+		return found.group(1)
+
+	def address (markup: str, entry: str) -> str:
+		"""Where the entry saying this goes."""
+
+		found = re.search(rf'<a [^>]*href="([^"]*)"[^>]*>{re.escape(entry)}</a>', markup)
+
+		assert found is not None, f"no link says {entry}: {markup}"
+
+		return found.group(1).replace("&amp;", "&")
+
+	assert "<select" not in drawn, f"a select applies a view on every arrow key: {drawn}"
+
+	assert named(drawn) == "My bugs" and showing(drawn) == ["My bugs"], drawn
+	assert named(elsewhere) == "Choose" and showing(elsewhere) == [], elsewhere
+
+	# **What the view shows is in its address, and never its name** (`SR#649`), at its workspace's
+	# own level (`SR#3144`).
+	bugs = address(drawn, "My bugs")
+
+	assert bugs.startswith("/metacortex?") and "q=type%3Abug" in bugs, bugs
+	assert "my-bugs" not in bugs, f"the address names the view rather than what it shows: {bugs}"
+	assert "view=board" in address(drawn, "Team queue (shared)"), drawn
+
+	# ***None*, only while there is a view to leave**, to the same arrangement with nothing narrowed.
+	assert address(drawn, "None") == "/metacortex?view=list", drawn
 	assert ">None<" not in elsewhere, f"None was offered with no view to leave: {elsewhere}"
 
-	assert "Team queue (shared)" in drawn, drawn
 	assert "My bugs (shared" not in drawn, f"the shared mark was drawn on every view: {drawn}"
 
-	assert "<select" not in empty, f"a select was drawn with nothing to choose: {empty}"
+	assert "saved-views-menu" not in empty, f"a menu was drawn with nothing to choose: {empty}"
 	assert "Save this view" in empty, empty
 
 	websites = {
@@ -21602,10 +21636,10 @@ def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
 	on_project = _markup(tmp_path, {"SavedViews": {**placed, "project": "websites"}})["SavedViews"]
 	at_workspace = _markup(tmp_path, {"SavedViews": placed})["SavedViews"]
 
-	assert selected(on_project) == ["Websites day"], (
+	assert showing(on_project) == ["Websites day"], (
 		f"an agenda saved on a project is not showing on that project's agenda: {on_project}"
 	)
-	assert selected(at_workspace) == ["Everything (shared)"], (
+	assert showing(at_workspace) == ["Everything (shared)"], (
 		f"the workspace's own agenda did not name the view saved as it: {at_workspace}"
 	)
 
@@ -21622,10 +21656,10 @@ def test_the_saved_views_are_a_select_showing_the_view_the_page_is_on (
 		"views": [oldest, newest],
 		"showing": {"view": "list", "selection": {"q": "type:bug", "order": "-created_at"}},
 	}
-	named = _markup(tmp_path, {"SavedViews": twins})["SavedViews"]
+	twinned = _markup(tmp_path, {"SavedViews": twins})["SavedViews"]
 	asking = _markup(tmp_path, {"SavedViews": {**twins, "forgetting": "bugs-newest"}})["SavedViews"]
 
-	assert selected(named) == ["Bugs, newest first"], named
+	assert showing(twinned) == ["Bugs, newest first"], twinned
 	assert "Forget Bugs, newest first?" in asking, asking
 
 

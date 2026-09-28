@@ -978,9 +978,9 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 .place-settings:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /*
-	**The views saved here, a drop-down in the place's heading** - `#3096`, and `#3734` for where
-	and in what shape: a row of buttons grew with every view saved, and a select holds any number
-	in the width of its longest name. The heading's gap spaces it from the other controls, so it
+	**The views saved here, a menu in the place's heading** - `#3096`, `#3734` for where and in what
+	shape, and `#3751` for the menu: a row of buttons grew with every view saved, and a select
+	applied a view on every arrow key. The heading's gap spaces it from the other controls, so it
 	carries no margin.
 */
 .saved-views {
@@ -997,11 +997,21 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 	font-weight: 600;
 }
 
-/* The label and its select, one control as `.whose label` is. */
+/* **The button naming the view that is showing** - `#3751`. Capped as the select before it was
+   (`#3734`), since a view's name is the reader's own words and a long one would take the heading
+   onto a second line; the name gives way, and the caret stays. */
 .saved-views-pick {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-3);
+	gap: var(--space-2);
+	max-width: 16em;
+}
+
+.saved-views-current {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .saved-view-asking {
@@ -1060,6 +1070,81 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 		384 px, so the browser is given this place to try when that one does not fit.
 	*/
 	@position-try --saving-within-the-screen {
+		right: auto;
+		left: 1rem;
+	}
+}
+
+/*
+	**The views as a menu of links, in a panel under the button naming the one showing** -
+	`#3751`. The browser's own popover, laid out as the menu under the reader's name is (`#1848`):
+	a row per entry, each a link. **`display` is set only while it is open**, for that menu's
+	reason: a rule of ours beats the user agent's, and a bare `display: flex` would draw it for good.
+*/
+.saved-views-menu {
+	max-width: min(24rem, calc(100vw - 2rem));
+	min-width: 12rem;
+	padding: var(--space-3) 0;
+	background: var(--bg-raised);
+	color: var(--ink);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	font-size: var(--text-small);
+}
+
+.saved-views-menu:popover-open {
+	display: flex;
+	flex-direction: column;
+}
+
+.saved-views-menu a {
+	display: block;
+	padding: var(--space-3) var(--space-7);
+	color: var(--ink);
+	text-decoration: none;
+}
+
+.saved-views-menu a:hover {
+	background: var(--bg-sunken);
+	text-decoration: none;
+}
+
+.saved-views-menu a:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: -2px;
+}
+
+/* **The view that is showing, in weight as well as in `aria-current`** - never a colour alone
+   (`#102`). */
+.saved-views-menu a[aria-current="true"] { font-weight: 600; }
+
+/* *None* is the way out rather than a view, so it is ruled off from the views below it. */
+.saved-views-none { border-block-end: 1px solid var(--line); }
+
+/* An entry is its link, with the view's *Forget* or the question it asks beside it. */
+.saved-view {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-3);
+	padding-inline-end: var(--space-4);
+}
+
+.saved-view a { flex: 1; }
+
+@supports (anchor-name: --picking) {
+	.saved-views-pick { anchor-name: --picking; }
+
+	.saved-views-menu {
+		inset: auto;
+		margin: var(--space-2) 0 0;
+		position-anchor: --picking;
+		top: anchor(bottom);
+		right: anchor(right);
+		position-try-fallbacks: --picking-within-the-screen;
+	}
+
+	/* **Inside the screen, where under the button would leave it**, for `#3752`'s reason. */
+	@position-try --picking-within-the-screen {
 		right: auto;
 		left: 1rem;
 	}
@@ -2277,8 +2362,7 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 */
 .ordered select,
 .judged select,
-.whose select,
-.saved-views select {
+.whose select {
 	padding: var(--control-tight);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
@@ -2290,8 +2374,7 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 
 .ordered select:disabled,
 .judged select:disabled,
-.whose select:disabled,
-.saved-views select:disabled { opacity: 0.5; }
+.whose select:disabled { opacity: 0.5; }
 
 /* **Whose work is capped, so the filters keep one line** - `#3734`. A select is as wide as its
    longest option, and with agents that is a name, whom it answers to *and their agents*: about
@@ -2299,9 +2382,6 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
    every width, since a list is a reading measure wide. The closed control shows the choice, and
    the open list shows every name whole. */
 .whose select { max-width: 16em; }
-
-/* **Views is capped for the same reason** (`#3734`): a view's name is the reader's own words. */
-.saved-views select { max-width: 16em; }
 
 /* What choosing an order does to the page, beside the control that chose it (`SR#2698`) —
    which for a ranked page is that it holds no documents. The choice itself is the select's to

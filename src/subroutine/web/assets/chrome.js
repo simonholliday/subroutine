@@ -10,8 +10,8 @@
 import * as markdown from "./markdown.js";
 import { html } from "./html.js";
 import {
-	AGENDA_VIEW, PRODUCT, addressOf, asShowing, encodedPath, parseAddress, placeAlone,
-	shortVersion, withShowing,
+	AGENDA_VIEW, PRODUCT, addressOf, asShowing, destination, encodedPath, parseAddress,
+	placeAlone, shortVersion, unviewed, viewed, withShowing,
 } from "./address.js";
 import { unrenderable } from "./answers.js";
 import { day, here, rankOf, span } from "./dates.js";
@@ -363,6 +363,12 @@ export function Place ({
 */
 export const SAVING_VIEW = "save-view";
 
+/*
+	The id of the menu of saved views - `#3751`. Named once for `SAVING_VIEW`'s reason: the button
+	opens the menu by this id, and two spellings of one id is a menu no button opens.
+*/
+export const PICKING_VIEW = "pick-view";
+
 export function SavedViews ({
 	views = [], showing = null, unkept = [], saving = false, forgetting = null, busy = false,
 	onApply = null, onSave = null, onStartSaving = null, onStopSaving = null,
@@ -372,15 +378,23 @@ export function SavedViews ({
 	   showing depends on the place as well as the search line, and *None* leaves the one that
 	   is. */
 	project = null, onClear = null,
+	/* **The workspace the views belong to, and the menu's own state** - `#3751`. Each view is a
+	   link, and its address is the workspace's; `picking` mirrors the menu and does not decide it,
+	   as `saving` does the panel. */
+	workspace = null, picking = false, onPicking = null,
 }) {
 	/*
-		The views somebody saved, as a drop-down in the place's heading beside its settings -
-		`#3096`, and `#3734` for where and in what shape (Simon, 2026-09-27).
+		The views somebody saved, as a menu in the place's heading beside its settings - `#3096`,
+		`#3734` for where and in what shape (Simon, 2026-09-27), and `#3751` for the menu (Simon,
+		2026-09-28).
 
-		**A select rather than a row of buttons**, because a row grew with every view saved: twelve
-		took three lines wherever they were put, and a select holds any number in the width of its
-		longest name. It shows the view the page is on, or *Choose* when the page is not a saved
-		view - Simon's word, since the label already says *Views*.
+		**A menu of links rather than a row of buttons or a select.** A row grew with every view
+		saved: twelve took three lines wherever they were put. A select held any number in the width
+		of its longest name, and applied a view on `change`, which Chromium fires for each arrow key
+		in a closed select - so a keyboard reader applied every view they passed (WCAG 3.2.2). A
+		button names the view the page is on, or *Choose* when the page is not a saved view - Simon's
+		word, since the label already says *Views* - and opens the views as links, which apply
+		nothing until one is followed.
 
 		**Away from the arrangement chips**, which is not only a taste: `VIEWS` is three
 		arrangements of *work* and `viewOf` refuses a word that is not one of them, so a saved view
@@ -393,16 +407,16 @@ export function SavedViews ({
 		a reader who has never seen the control cannot ask for the feature, so the empty state
 		names the one action and nothing else.
 
-		**Applying one goes through `onApply` rather than a link**, because a view expands into
-		the address (`#649`) and the caller is what knows how to write it. The control offers no
-		opaque `?view=my-bugs`: what the reader sends a colleague stays the thing they are
-		looking at.
+		**Each view is a link to its own address**: what the view shows, and never its name
+		(`#649`), so what the reader sends a colleague stays the thing they are looking at, and it
+		opens in a new tab as any other link does. A plain click stays in the app and goes through
+		`onApply`, and `viewed` answers both the link's address and where the click goes.
 
-		**A view that is showing is left from the same control** (`#3738`, found by Simon): the
-		select's first option is then *None*, which returns to the workspace's own page in the same
-		arrangement with nothing narrowed. That is the level a view is applied at (`#3144`), so it
-		is the page as it would be with no view. While no view is showing the option is *Choose*,
-		and disabled, because choosing it would do nothing.
+		**A view that is showing is left from the same menu** (`#3738`, found by Simon): its first
+		entry is then *None*, which returns to the workspace's own page in the same arrangement with
+		nothing narrowed - `unviewed`'s answer, for the link and the click alike. That is the level a
+		view is applied at (`#3144`), so it is the page as it would be with no view. While no view is
+		showing there is nothing to leave, and no *None*.
 
 		**Which view is showing is a question about the place as well as the search** (`#3739`). A
 		view is applied at its workspace's own level, so it is showing only there; an agenda saved on
@@ -410,8 +424,9 @@ export function SavedViews ({
 		project's agenda. Asked of the search line alone, the second was never showing, and the
 		first was showing on every project whose page happened to carry the same search.
 
-		**Forgetting acts on the view that is showing** (`#3734`): a select cannot carry a control
-		on each option, so a view is opened to be forgotten, and the question names it.
+		**Each view the reader may forget carries its own *Forget*** (`#3751`), as each button in
+		the row did. A select could carry no control on an option, so *Forget* acted on the view that
+		was showing; beside each entry, the view forgotten is always the one named.
 
 		**Saving opens a panel under its button**, the browser's own popover as the menu under the
 		reader's name uses (`#1848`), so opening the form moves nothing on the page. **`saving`
@@ -443,70 +458,79 @@ export function SavedViews ({
 	const mayForget = (view) => Boolean(onForget && mine
 		&& (view.owner === mine || (view.shared && mayForgetShared)));
 
+	/* **The menu closes with the choice** (`#3751`), as the save panel closes with a save: a plain
+	   click stays in the app rather than loading a page, so nothing else would close it. Any other
+	   click - into a new tab, say - leaves the menu open and the app out of it, which `followed`
+	   decides. */
+	const choosing = (act) => (event) => followed(event, () => {
+		const menu = event.currentTarget.closest("[popover]");
+
+		if (menu && menu.hidePopover) menu.hidePopover();
+
+		act();
+	});
+
 	return html`
 		<div class="saved-views">
+			${/* **Nothing is said about there being nothing** - Simon, 2026-09-21: an empty control
+			     names the one action and nothing else, so with nothing saved it is this label and the
+			     button beside it. */ null}
+			<span class="saved-views-label">Views</span>
+
 			${views.length ? html`
-				<label class="saved-views-pick">
-					<span class="saved-views-label">Views</span>
-					<select disabled=${busy} onChange=${(event) => {
-						const value = event.currentTarget.value;
-
-						if (!value) {
-							if (onClear) onClear();
-
-							return;
-						}
-
-						const view = views.find((one) => one.key === value);
-
-						if (view && onApply) onApply(view);
-					}}>
-						${/* ***Choose* while no view is showing, and *None* while one is** (`#3738`). The
-						     first is disabled, because choosing it would do nothing; the second is the way
-						     back to the page with no view. */ null}
-						${current
-							? html`<option value="">None</option>`
-							: html`<option value="" selected disabled>Choose</option>`}
-						${/* **The word, never a colour alone** - decision `#102`. A shared view is
-						     somebody's statement about how the team's queue is read, and which ones those are
-						     is information a reader acts on. */ null}
-						${views.map((view) => html`
-							<option key=${view.key} value=${view.key}
-								selected=${Boolean(current) && current.key === view.key}
+				${/* **Named by the view that is showing, or *Choose*** (`#3734`, Simon's word), and said
+				     whole to a reader who hears it, since the label beside it is not part of its name. */ null}
+				<button type="button" class="reveal saved-views-pick" disabled=${busy}
+					popovertarget=${PICKING_VIEW} aria-expanded=${picking ? "true" : "false"}
+					aria-label=${`Views: ${current ? current.title : "choose one"}`}>
+					<span class="saved-views-current">${current ? current.title : "Choose"}</span>
+					<${Icon} name="caret-down" />
+				</button>
+				<div id=${PICKING_VIEW} class="saved-views-menu" popover="auto"
+					onToggle=${(event) => onPicking && onPicking(event.newState === "open")}>
+					${/* ***None* while a view is showing** (`#3738`): the way back to the page with no
+					     view, and there is nothing to leave otherwise. */ null}
+					${current ? html`
+						<a class="saved-views-none" href=${destination(unviewed(showing, workspace))}
+							onClick=${choosing(() => onClear && onClear())}>None</a>
+					` : null}
+					${views.map((view) => html`
+						<span key=${view.key} class="saved-view">
+							${/* **The word, never a colour alone** - decision `#102`. A shared view is
+							     somebody's statement about how the team's queue is read, and which ones those are
+							     is information a reader acts on. */ null}
+							<a href=${destination(viewed(view, workspace))}
+								aria-current=${current && current.key === view.key ? "true" : undefined}
+								onClick=${choosing(() => onApply && onApply(view))}
 								>${view.title}${view.shared
 									? (view.about_the_reader ? " (shared, each reader's own)" : " (shared)")
-									: ""}</option>
-						`)}
-					</select>
-				</label>
-			` : html`
-				${/* **Nothing is said about there being nothing** - Simon, 2026-09-21: an empty
-				     control names the one action and nothing else, so it is this label and the button
-				     beside it. */ null}
-				<span class="saved-views-label">Views</span>
-			`}
-
-			${/* **A workspace's administrator may forget a shared view** (`#3142`), as they may take
-			     a comment out, and may not change one. **Asks first, because there is no trash for a
-			     view**: a task deleted by mistake comes back, and a view does not, and the name goes
-			     back to the workspace with it. Two clicks rather than a modal, which is this app's
-			     idiom (`#785`). */ null}
-			${current && mayForget(current) ? (
-				forgetting === current.key
-					? html`
-						<span class="saved-view-asking">
-							Forget ${current.title}?
-							<button type="button" class="action" disabled=${busy}
-								onClick=${() => onForget(current)}>Yes</button>
-							<button type="button" class="quiet"
-								onClick=${() => onStartForgetting(null)}>No</button>
+									: ""}</a>
+							${/* **A workspace's administrator may forget a shared view** (`#3142`), as they
+							     may take a comment out, and may not change one. **Asks first, because there is
+							     no trash for a view**: a task deleted by mistake comes back, and a view does
+							     not, and the name goes back to the workspace with it. Two clicks rather than a
+							     modal, which is this app's idiom (`#785`). */ null}
+							${mayForget(view) ? (
+								forgetting === view.key
+									? html`
+										<span class="saved-view-asking">
+											Forget ${view.title}?
+											<button type="button" class="action" disabled=${busy}
+												onClick=${() => onForget(view)}>Yes</button>
+											<button type="button" class="quiet"
+												onClick=${() => onStartForgetting(null)}>No</button>
+										</span>
+									`
+									: html`
+										<button type="button" class="quiet saved-view-forget" disabled=${busy}
+											aria-label=${`Forget ${view.title}`}
+											onClick=${() => onStartForgetting(view.key)}>×</button>
+									`
+							) : null}
 						</span>
-					`
-					: html`
-						<button type="button" class="quiet" disabled=${busy}
-							onClick=${() => onStartForgetting(current.key)}>Forget</button>
-					`
-			) : null}
+					`)}
+				</div>
+			` : null}
 
 			${/* **A reveal stays where it is and turns its caret** (`#1046` rule 4, Simon's *"a
 			     button which reveals more content should indicate that"*). The first version of this

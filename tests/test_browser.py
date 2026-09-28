@@ -605,6 +605,25 @@ def _until (
 		page.wait_for_timeout(50)
 
 
+def _chosen_view (page: typing.Any, entry: str) -> str:
+	"""Open the saved views' menu and follow the entry saying this, returning its address.
+
+	**A plain click**, which the app takes over (`followed`), so where the page lands is the app's
+	doing - and the entry's own address, returned, is what opening it in a new tab would load
+	(`SR#3751`). The menu closes with the choice, which is what lets the next call open it again.
+	"""
+
+	page.click(".saved-views-pick")
+	link = page.locator(".saved-views-menu a", has_text=entry).first
+	link.wait_for(state="visible", timeout=10_000)
+	href = link.get_attribute("href")
+	link.click()
+
+	assert href is not None, f"the entry {entry} has no address"
+
+	return str(href)
+
+
 def _lettered (page: typing.Any, family: str, weight: str, seconds: float = 10.0) -> None:
 	"""Wait until the face a measurement depends on has actually arrived — `SR#3168`.
 
@@ -6360,7 +6379,8 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 
 	**And the one view not applied at its workspace** (`SR#3588`): an agenda saved on a project,
 	pressed here rather than in a test of its own, since this file's size is an agreed bound - as
-	are the panel on a phone's screen (`SR#3752`) and a read refused under a view (`SR#3753`).
+	are the panel on a phone's screen (`SR#3752`), a read refused under a view (`SR#3753`) and an
+	arrow key that applies nothing (`SR#3751`).
 	"""
 
 	opened, *_ = running
@@ -6369,7 +6389,7 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	# is no single one to save a view into and the control is deliberately not drawn there -
 	# which is the same condition `Place` is drawn on.
 	page = opened("/projects")
-	page.wait_for_selector(".saved-views select", timeout=10_000)
+	page.wait_for_selector(".saved-views-pick", timeout=10_000)
 
 	# **Saving opens a panel and moves nothing** (`SR#3737`): the form floats under its button,
 	# where it used to open inside the row and push the work down. The add box is the first thing
@@ -6406,9 +6426,31 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 
 	page.keyboard.press("Escape")
 	page.wait_for_selector(".saved-views-form", state="detached", timeout=10_000)
+
+	# **And the menu of views as well**, which opens under its button by the same rule.
+	page.click(".saved-views-pick")
+	page.wait_for_selector(".saved-views-menu a", timeout=10_000)
+	menu = page.locator(".saved-views-menu").bounding_box()
+
+	assert menu is not None and menu["x"] >= 0 and menu["x"] + menu["width"] <= 320, (
+		f"the menu of views opened outside a 320 px screen: {menu}"
+	)
+
+	page.keyboard.press("Escape")
 	page.set_viewport_size(wide)
 
-	page.select_option(".saved-views select", "my-bugs")
+	# **An arrow key applies nothing** (`SR#3751`). The select this replaced applied a view on
+	# `change`, which Chromium fires for each arrow key in a closed select, so a keyboard reader
+	# applied every view they passed: three presses, three addresses.
+	before = page.url
+	page.focus(".saved-views-pick")
+
+	for _ in range(3):
+		page.keyboard.press("ArrowDown")
+
+	assert page.url == before, f"an arrow key moved the page: {page.url}"
+
+	href = _chosen_view(page, "My bugs")
 
 	# **Waited on in CSS, never by evaluating a string** (`SR#1000`): the policy this app serves
 	# has no `unsafe-eval`, so `wait_for_function` is refused *intermittently* - and this view
@@ -6417,6 +6459,8 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 
 	where = page.url
 
+	# **The link's address is where following it lands** - `viewed` answers both.
+	assert where.endswith(href), f"the link and the click went to two places: {href}, {where}"
 	assert "q=type%3Abug" in where, f"the saved narrowing did not reach the address: {where}"
 	assert "view=board" in where, f"the saved arrangement did not reach the address: {where}"
 	assert "group_by=status_category" in where, f"the grouping did not reach it: {where}"
@@ -6427,33 +6471,36 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 
 	# **And left from the same control** (`SR#3738`, Simon's report): *None* returns to the
 	# workspace's own board with nothing narrowed, which is where the view had put the reader.
-	page.select_option(".saved-views select", "")
+	_chosen_view(page, "None")
 	_until(page, lambda: "q=" not in page.url)
 
 	assert "view=board" in page.url and "q=" not in page.url, (
 		f"None did not leave the view for the plain board: {page.url}"
 	)
-	assert page.input_value(".saved-views select") == "", "the select still names a view"
+
+	_until(page, lambda: page.inner_text(".saved-views-current") == "Choose")
+
+	assert page.inner_text(".saved-views-current") == "Choose", "the button still names a view"
 
 	# **An agenda saved on a project opens that project's agenda.** Applied at the workspace's
 	# own level, as every other view is (`SR#3144`), its line would narrow the workspace's agenda,
 	# which an agenda cannot be - so the place it names is where it goes, with no search line.
-	page.select_option(".saved-views select", "websites-day")
+	_chosen_view(page, "Websites day")
 	page.wait_for_url("**/projects/websites*", timeout=10_000)
 
 	assert "q=" not in page.url, f"the place went into the address as a search: {page.url}"
 
-	# **And the select says so** (`SR#3739`): an agenda saved on a project is showing on that
+	# **And the button says so** (`SR#3739`): an agenda saved on a project is showing on that
 	# project's agenda, which the page's search line cannot say.
-	_until(page, lambda: page.input_value(".saved-views select") == "websites-day")
+	_until(page, lambda: page.inner_text(".saved-views-current") == "Websites day")
 
-	assert page.input_value(".saved-views select") == "websites-day", (
-		"the select went back to Choose on the view it had just applied"
+	assert page.inner_text(".saved-views-current") == "Websites day", (
+		"the button went back to Choose on the view it had just applied"
 	)
 
 	# **Left, it goes back to the workspace's agenda**: the level a view is applied at, where the
 	# page is as it would be with no view (`SR#3738`).
-	page.select_option(".saved-views select", "")
+	_chosen_view(page, "None")
 	_until(page, lambda: "/projects/websites" not in page.url)
 
 	assert "/projects/websites" not in page.url, f"None stayed on the project: {page.url}"
@@ -6472,7 +6519,7 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 			content_type="application/problem+json",
 		),
 	)
-	page.select_option(".saved-views select", "websites-day")
+	_chosen_view(page, "Websites day")
 	page.wait_for_selector(".note.bad:has-text('no project')", timeout=10_000)
 	page.unroute("**/v1/agenda?**")
 	page.route(
@@ -6483,7 +6530,7 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 			content_type="application/problem+json",
 		),
 	)
-	page.select_option(".saved-views select", "my-bugs")
+	_chosen_view(page, "My bugs")
 	page.wait_for_selector(".note.bad:has-text('database was busy')", timeout=10_000)
 
 	assert "could not be shown" in page.inner_text(".note.bad"), page.inner_text(".note.bad")

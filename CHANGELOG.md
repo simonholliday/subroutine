@@ -86,13 +86,14 @@ upgrade involves.
   every connected agent now end: *a decision is always a document, in the project it governs,
   however it came up*. A decision written only as a comment on the task at hand never reaches
   the list of what is in force, which is what the next session reads.
-- **A place's heading holds its own controls, and the saved views are a drop-down beside its
+- **A place's heading holds its own controls, and the saved views are a menu beside its
   settings.** A project's heading now carries *Prioritise*, and its settings button says
   *Project settings* - *Workspace settings* on a workspace - while the menu under your name
-  keeps *Settings*. The saved views are a drop-down that shows the view you are on, or
-  *Choose*, and *None* leaves the one you are on; *Save this view* opens its form in a panel
-  under the button, and *Forget* appears while a view you may forget is showing. The heading's controls sit beside the place's name
-  when they fit and below it when the name is long. The bar above the rows appears only when a
+  keeps *Settings*. The saved views are a menu under a button naming the view you are on, or
+  *Choose*: each view in it is a link, so it opens in a new tab like any other, and *None*
+  leaves the one you are on. Each view you may forget has a *Forget* of its own, and *Save this
+  view* opens its form in a panel under its button. The heading's controls sit beside the
+  place's name when they fit and below it when the name is long. The bar above the rows appears only when a
   tag, a person, a priority or the top-level collapse narrows them, and its *Show everything*
   keeps you in the place. The *Whose work* selector and the masthead's place selector are
   capped, so a long name no longer pushes the filters or the tabs onto another line.

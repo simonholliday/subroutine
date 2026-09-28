@@ -27,7 +27,7 @@ import {
 	journalPlace, listingAddress, mentionHref, narrowingTo, pageTitle,
 	parseAddress, permits, placeAlone, placeShown, placeTrail, projectLabel, refAsked, reloads,
 	selectionOf, shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
-	titlesByPath, viewOf,
+	titlesByPath, unviewed, viewOf, viewed,
 	withShowing, widened,
 } from "./address.js";
 import {
@@ -349,6 +349,7 @@ export function App () {
 	   the instance, and a component that is handed answers. */
 	const [savedViews, setSavedViews] = useState([]);
 	const [savingView, setSavingView] = useState(false);
+	const [pickingView, setPickingView] = useState(false);
 	const [forgettingView, setForgettingView] = useState(null);
 	const since = useRef(null);
 
@@ -3229,29 +3230,25 @@ export function App () {
 		   query holds the project it was saved in, and drawn inside another project's path the
 		   two would narrow each other to nothing. **Except an agenda saved in a project**
 		   (`#3588`), which is drawn on that project: `appliedAt` says which. */
-		return chooseView(asShowing(view), appliedAt(view, workspace));
+		const to = viewed(view, workspace);
+
+		return chooseView(to.showing, to.place);
 	}, [chooseView, workspace]);
 
 	const clearView = useCallback(() => {
 		/*
-			Leave the view that is showing - `#3738`, Simon's report: *None* in the drop-down.
+			Leave the view that is showing - `#3738`, Simon's report: *None* among the views.
 
-			**The workspace's own page, in the same arrangement, with nothing narrowed**: the level a
-			view is applied at (`#3144`), so this is the page as it would be with no view. An agenda
-			saved on a project is left for the workspace's agenda by the same rule. **What *nothing
-			narrowed* means for each arrangement is the tab's own showing**, from `chips`, so a board
-			keeps the columns its tab asks for rather than a second spelling of them.
+			**Where to is `unviewed`'s answer** - the workspace's own page, in the same arrangement,
+			with nothing narrowed - and the menu's *None* is a link drawn from the same answer
+			(`#3751`), so the click and the link cannot go to two places.
 		*/
 		setForgettingView(null);
 
-		const plain = chips(listingAddress({ workspace }), showing)
-			.find((chip) => chip.name === showing.view);
+		const to = unviewed(showing, workspace);
 
-		return chooseView(
-			plain ? plain.showing : { view: showing.view, selection: {} },
-			{ agenda: false, workspace, project: null },
-		);
-	}, [chooseView, project, showing, workspace]);
+		return chooseView(to.showing, to.place);
+	}, [chooseView, showing, workspace]);
 
 	const saveView = useCallback(async (title, shared) => {
 		/*
@@ -3419,6 +3416,14 @@ export function App () {
 			mayShare=${allowed.has("project:write")}
 			mayForgetShared=${allowed.has("workspace:admin")}
 			onApply=${applyView} onClear=${clearView} project=${project}
+			workspace=${workspace} picking=${pickingView}
+			onPicking=${(open) => {
+				setPickingView(open);
+
+				/* **A question left open closes with the menu** (`#3751`), so it is not still
+				   waiting there the next time the menu opens. */
+				if (!open) setForgettingView(null);
+			}}
 			onStartSaving=${() => setSavingView(true)}
 			onStopSaving=${() => setSavingView(false)}
 			onSave=${saveView}
