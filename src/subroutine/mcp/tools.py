@@ -3757,7 +3757,7 @@ def _checkout (
 		# which is what committing this file is *for* — refused every write with "there is no
 		# project 'SR' here". `#166` settled that the marker is advisory, and resolving also buys
 		# `#177`: a renamed project is followed by id.
-		projects = list(client.projects(workspace=workspace))
+		projects = subroutine.clients.base.every_project(client, workspace=workspace)
 		elsewhere = _elsewhere(client, marker, projects)
 		filed = None if elsewhere else subroutine.directory.resolve(marker, projects)
 
@@ -3776,7 +3776,7 @@ def _checkout (
 
 	if standing.project is not None:
 		if projects is None:
-			projects = list(client.projects(workspace=workspace))
+			projects = subroutine.clients.base.every_project(client, workspace=workspace)
 
 		named = subroutine.directory.Marker(
 			path=pathlib.Path(subroutine.directory.FILE_NAME), project=standing.project
@@ -3859,10 +3859,14 @@ def _added (
 	workspace = _text(arguments, "workspace")
 
 	# **A `+key` in the line is somebody speaking now, and outranks a file on disk** (§13.7a).
+	# **So does a parent** (`#3769`): a sub-task belongs to its parent's project, and the checkout's
+	# own is only a default - one that refused every sub-task of work filed anywhere else.
 	checkout = _checkout(
 		client,
 		workspace=workspace,
-		overridden=subroutine.domain.capture.names_a_project(line),
+		overridden=(
+			subroutine.domain.capture.names_a_project(line) or arguments.get("parent") is not None
+		),
 		standing=standing,
 	)
 
@@ -4746,7 +4750,7 @@ def _projected (
 	key = _text(arguments, "key")
 
 	if key is None:
-		rows = client.projects(workspace=workspace)
+		rows = subroutine.clients.base.every_project(client, workspace=workspace)
 
 		if not rows:
 			return "No projects."

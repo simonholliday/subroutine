@@ -909,6 +909,7 @@ def _called_in (package: str) -> set[str]:
 	"""
 
 	names = _protocol()
+	helpers = _helpers()
 	found = set()
 
 	for path in sorted((ROOT / "src" / "subroutine" / package).rglob("*.py")):
@@ -920,6 +921,41 @@ def _called_in (package: str) -> set[str]:
 
 			if node.func.attr in names:
 				found.add(node.func.attr)
+
+			found |= helpers.get(node.func.attr, set())
+
+	return found
+
+
+def _helpers () -> dict[str, set[str]]:
+	"""Return each function of ``clients/base.py`` and the protocol methods it calls for its caller.
+
+	**A helper that calls a method on its caller's behalf reaches it for them** (`SR#3767`):
+	``every_project`` asks ``projects`` for more while there is more, so a lookup cannot stop at
+	the first page, and the packages calling it reach ``projects`` exactly as they did when they
+	called it themselves. Read from the source, as the calls are, so a helper that stopped
+	calling a method would stop counting for it.
+	"""
+
+	names = _protocol()
+	path = ROOT / "src" / "subroutine" / "clients" / "base.py"
+	module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+	found: dict[str, set[str]] = {}
+
+	for function in module.body:
+		if not isinstance(function, ast.FunctionDef):
+			continue
+
+		called = {
+			node.func.attr
+			for node in ast.walk(function)
+			if isinstance(node, ast.Call)
+			and isinstance(node.func, ast.Attribute)
+			and node.func.attr in names
+		}
+
+		if called:
+			found[function.name] = called
 
 	return found
 

@@ -5618,3 +5618,102 @@ def test_a_date_field_refuses_a_moment_no_clock_could_have_written (world: World
 	assert captured.status_code == 201, captured.text
 	assert captured.json()["starts_at"] is None, captured.text
 	assert captured.json()["title"] == "Call on 2026-10-02T09:00+23:00", captured.text
+
+
+def test_a_sub_task_named_without_a_project_goes_where_its_parent_is (world: World) -> None:
+	"""`SR#3769`, on both of the endpoint's paths: a sub-task added with no project was refused.
+
+	It was filed where an item with no parent goes - the Inbox here - and a sub-task has to share
+	its parent's project. **A project the line names still decides**, and is refused where it is
+	not the parent's, as it always was.
+	"""
+
+	assert world.call("POST", "/v1/projects", json={"key": "ops", "title": "Ops"}).status_code == 201
+
+	parent = world.call(
+		"POST", "/v1/tasks", json={"title": "Rebuild the servers", "project": "ops"}
+	).json()
+
+	for body in ({"title": "Replace the disks"}, {"text": "Check the backups"}):
+		made = world.call("POST", "/v1/tasks", json={**body, "parent_task_id": parent["id"]})
+
+		assert made.status_code == 201, made.text
+		assert made.json()["project_key"] == "ops", made.text
+
+	refused = world.call(
+		"POST", "/v1/tasks", json={"text": "Check the logs +inbox", "parent_task_id": parent["id"]}
+	)
+
+	assert refused.status_code == 422, refused.text
+
+
+def _a_ring (world: World, first: int, second: int) -> str:
+	"""Store ``first`` blocks ``second`` and its reverse, as a database from before the check can.
+
+	The first link through the endpoint and the second written directly, since the endpoint has
+	refused a ring since 0.9.9 and a ring already stored is what is being asked about. Returns
+	the first link's id.
+	"""
+
+	made = world.call(
+		"POST", f"/v1/tasks/{first}/links", json={"target": second, "link_type": "blocks"}
+	)
+
+	assert made.status_code in (200, 201), made.text
+
+	stored = world.session.get_one(subroutine.db.models.work.Link, uuid.UUID(made.json()["id"]))
+
+	world.session.add(
+		subroutine.db.models.work.Link(
+			workspace_id=stored.workspace_id,
+			source_type=stored.target_type,
+			source_id=stored.target_id,
+			target_type=stored.source_type,
+			target_id=stored.source_id,
+			link_type_id=stored.link_type_id,
+		)
+	)
+	world.session.flush()
+
+	return str(made.json()["id"])
+
+
+def test_a_ring_stored_before_the_check_draws_its_root_once (world: World) -> None:
+	"""`SR#3798`: the tree drew the item beneath itself, whole, and counted it.
+
+	``beneath`` kept a visited set and a drawn one, and never put the root into the second, so
+	for two items blocking each other the first one's tree read the second, then the first, then
+	the second again. **The root is drawn first now**, so meeting it below is *drawn above*.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Pour the foundation"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Frame the walls"}).json()["ref"]
+
+	_a_ring(world, first, second)
+
+	drawn = world.call("GET", f"/v1/tasks/{second}/tree")
+
+	assert drawn.status_code == 200, drawn.text
+
+	rows = [(row["depth"], row["item"]["ref"], row["stopped"]) for row in drawn.json()["items"]]
+
+	assert rows == [(1, first, None), (2, second, "again")], rows
+
+
+def test_a_link_already_in_a_stored_ring_is_answered_rather_than_refused (world: World) -> None:
+	"""`SR#3798`: sending a link that is stored was refused as a cycle, because the check ran first.
+
+	A request asking for exactly what is there should get what is there - which is what the
+	endpoint promises everywhere else, so a client unsure its request landed can safely resend it.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Pour the foundation"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Frame the walls"}).json()["ref"]
+	stored = _a_ring(world, first, second)
+
+	again = world.call(
+		"POST", f"/v1/tasks/{first}/links", json={"target": second, "link_type": "blocks"}
+	)
+
+	assert again.status_code in (200, 201), again.text
+	assert again.json()["id"] == stored, again.text

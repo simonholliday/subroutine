@@ -2156,7 +2156,8 @@ def _capture_name (world: World, project: subroutine.views.Project) -> str:
 	where = world.writing_to()
 
 	return subroutine.directory.address(
-		project, where.client.projects(workspace=_writing_workspace(world))
+		project,
+		subroutine.clients.base.every_project(where.client, workspace=_writing_workspace(world)),
 	)
 
 
@@ -2327,8 +2328,8 @@ def _project_written_down (
 	"""
 
 	where = world.writing_to()
-	tree = where.client.projects(
-		workspace=_writing_workspace(world) if workspace is None else workspace
+	tree = subroutine.clients.base.every_project(
+		where.client, workspace=_writing_workspace(world) if workspace is None else workspace
 	)
 	found = _addressed_in(tree, wanted)
 
@@ -2364,7 +2365,9 @@ def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str
 	):
 		return None
 
-	found = where.client.projects(workspace=_writing_workspace(world))
+	found = subroutine.clients.base.every_project(
+		where.client, workspace=_writing_workspace(world)
+	)
 
 	return subroutine.directory.resolve(marker, found)
 
@@ -2976,6 +2979,11 @@ def _hidden (
 			ref=task.ref,
 			workspace=located.workspace,
 			snooze=_moment(world, _asked(when, "Defer it until when?"), at=located),
+			# **Said anyway, for an instance that asks** (`#3771`). Nothing is asked of a person,
+			# but a 0.9.10 instance refuses a deferral of an occurrence without ``applies_to`` and
+			# names flags this terminal ignores. ``this_one`` is what a deferral means, and every
+			# instance since takes it and applies it to the occurrence alone.
+			applies_to="this_one" if task.recurrence_template_ref is not None else None,
 		)
 
 		deferred = f"Deferred until {_when_rendered(changed)}"
@@ -5317,15 +5325,21 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 	_suggest(program.console, "subroutine add \"something to do\"")
 
 
-def _default_project (program: Program, world: World, text: str) -> str | None:
+def _default_project (
+	program: Program, world: World, text: str, *, under: int | None = None
+) -> str | None:
 	"""Return the project a captured line should go to when it does not say (§13.7a).
 
 	``None`` whenever the answer is "wherever it went before" — no marker, no project in the
 	marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
 	and must beat a file they may not know is there.
+
+	**Or a parent, ``under``** (`#3769`): a sub-task belongs to its parent's project, and a
+	marker's is only a default, which refused every sub-task of work filed anywhere else. The
+	instance files it by the parent.
 	"""
 
-	if world.marker is None:
+	if world.marker is None or under is not None:
 		return None
 
 	if world.marker.project_id is None and world.marker.project is None:
@@ -5755,7 +5769,7 @@ def _project_moved (program: Program, *, key: str, under: str, root: bool, yes: 
 		# Counted before anything changes, like `project rename` — "this moves a subtree"
 		# is abstract, and "this moves 3 projects and 137 items" is something somebody can
 		# weigh. Reading first is the whole reason this is not a one-liner.
-		tree = place.client.projects(workspace=workspace)
+		tree = subroutine.clients.base.every_project(place.client, workspace=workspace)
 		moving = _subtree(tree, key)
 
 		if not moving:
@@ -6497,7 +6511,7 @@ def _projects_listed (program: Program, *, json_output: bool) -> None:
 	with program.opened() as world:
 		where = world.writing_to()
 		workspace = _writing_workspace(world)
-		found = where.client.projects(workspace=workspace)
+		found = subroutine.clients.base.every_project(where.client, workspace=workspace)
 
 		if json_output:
 			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
@@ -9588,7 +9602,7 @@ def register (
 		description: str = typer.Option(
 			"", "--description", help="What it is about, in full. The title stays one line."
 		),
-		under: int = typer.Option(
+		under: int | None = typer.Option(
 			None, "--under", help="File it underneath this item, by number."
 		),
 		repeat: str = typer.Option(
@@ -9639,7 +9653,7 @@ def register (
 
 		with program.opened() as world:
 			where = world.writing_to()
-			filed = _default_project(program, world, text)
+			filed = _default_project(program, world, text, under=under)
 			# **A flag rather than a sigil** (`#178`). §6.13's sigils are for things somebody
 			# types mid-sentence; "this is a bug" is a classification *about* the sentence
 			# rather than part of it — which is the argument `client.capture` already makes for

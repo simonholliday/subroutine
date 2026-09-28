@@ -2059,3 +2059,34 @@ def refuse_a_write (connection: subroutine.connections.Connection) -> typing.NoR
 		hint=f"Remove 'read_only' from [connections.{connection.name}] in "
 		f"{subroutine.config.config_file_path()} if that is no longer what you want.",
 	)
+
+
+#: How many projects :func:`every_project` asks for first (`#3767`), and it asks for more while
+#: the answer says there is more.
+_A_LOOKUPS_FIRST_ASK = 1_000
+
+
+def every_project (
+	client: Client, *, workspace: str | None = None
+) -> list[subroutine.views.Project]:
+	"""Return every project this credential can see in a workspace, not the first page of them.
+
+	**For a lookup, and for a tree, neither of which may stop part way** (`#3767`). ``projects()``
+	with no limit is one page - fifty on a default instance - and says so with ``has_more``,
+	which is what a listing wants. A lookup that read it could not find the fifty-first project
+	by key or by id: a checkout marked for it filed into the Inbox, and ``use --here --project``
+	answered that there was no such project. A tree cut there draws children with no parents.
+
+	**Asked again for more while more is said to be there**, since both clients honour a
+	caller's limit whole: the HTTP one follows the cursor for it and the local one asks the
+	database for it.
+	"""
+
+	limit = _A_LOOKUPS_FIRST_ASK
+	found = client.projects(workspace=workspace, limit=limit)
+
+	while found.has_more:
+		limit *= 8
+		found = client.projects(workspace=workspace, limit=limit)
+
+	return list(found)

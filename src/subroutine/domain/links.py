@@ -363,34 +363,10 @@ def create (
 	for end in (source, target):
 		_permitted(session, actor, workspace_id, end)
 
-	_refuse_what_cannot_count(
-		session, source=source, target=target, link_type=link_type, acted_on=acted_on
-	)
-	_refuse_a_loop(
-		session,
-		workspace_id=workspace_id,
-		source=source,
-		target=target,
-		link_type=link_type,
-	)
-
-	# **The other half of what `SR#1684` gave up** — `SR#2285`. The retired column was unique
-	# per superseded document, and a link type carries no cardinality at all, so two documents
-	# could replace one and every surface would render both.
-	if (
-		link_type.key == SUPERSEDING
-		and source.entity_type == "document"
-		and target.entity_type == "document"
-	):
-		subroutine.domain.documents.refuse_a_second_successor(
-			session,
-			workspace_id=workspace_id,
-			superseded=target.id,
-			ref=target.ref,
-			by=source.id,
-			field="target",
-		)
-
+	# **The link that is already there is answered before anything is checked** (`#3798`). A
+	# ring stored before its check existed refused the re-sending of one of its own links as a
+	# cycle - a 409 for a request asking for exactly what is stored. Idempotence means the same
+	# answer to the same request, so the lookup comes first; nothing new is written by it.
 	model = subroutine.db.models.work.Link
 
 	joins = sqlalchemy.and_(
@@ -436,6 +412,34 @@ def create (
 
 	if existing is not None:
 		return existing
+
+	_refuse_what_cannot_count(
+		session, source=source, target=target, link_type=link_type, acted_on=acted_on
+	)
+	_refuse_a_loop(
+		session,
+		workspace_id=workspace_id,
+		source=source,
+		target=target,
+		link_type=link_type,
+	)
+
+	# **The other half of what `SR#1684` gave up** — `SR#2285`. The retired column was unique
+	# per superseded document, and a link type carries no cardinality at all, so two documents
+	# could replace one and every surface would render both.
+	if (
+		link_type.key == SUPERSEDING
+		and source.entity_type == "document"
+		and target.entity_type == "document"
+	):
+		subroutine.domain.documents.refuse_a_second_successor(
+			session,
+			workspace_id=workspace_id,
+			superseded=target.id,
+			ref=target.ref,
+			by=source.id,
+			field="target",
+		)
 
 	link = subroutine.db.models.work.Link(
 		id=subroutine.db.types.new_uuid(),
@@ -1245,7 +1249,10 @@ def beneath (
 				frontier.append(end.id)
 
 	found: list[Beneath] = []
-	drawn: set[uuid.UUID] = set()
+	# **The root is drawn before anything under it** (`#3798`). A ring stored before its check
+	# existed brings the root back below itself, and without this it was drawn there whole - A,
+	# then B, then A again with B beneath it - and counted as work of its own.
+	drawn: set[uuid.UUID] = {identifier}
 
 	def emit (one: uuid.UUID, at: int) -> None:
 		"""Read the gathered map out in the order somebody looks at it."""

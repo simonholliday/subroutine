@@ -7218,6 +7218,54 @@ def test_new_work_goes_to_the_project_this_directory_names (
 	assert "web" in run("show", "1").output
 
 
+def test_a_project_past_the_first_page_can_be_marked_and_listed (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3767`: a lookup read one page of projects, fifty on a default instance.
+
+	``use --here --project p51`` answered that there was no such project, a checkout marked for
+	it filed into the Inbox, and ``project list`` stopped at fifty without saying so.
+	"""
+
+	run("init")
+
+	for number in range(1, 52):
+		run("project", "create", f"p{number:02d}", f"Part {number}")
+
+	monkeypatch.chdir(tmp_path)
+	run("use", "--here", "--project", "p51")
+
+	assert "in p51" in run("add", "Fix the last part").output
+	assert "p51" in run("project", "list").output
+
+
+def test_a_sub_task_goes_where_its_parent_is_whatever_the_checkout_says (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3769`: ``add --under`` was refused in a checkout marked for another project.
+
+	The marker's project went with the line as though somebody had named it, and a sub-task has
+	to share its parent's. The parent decides now, and nothing claims the checkout did.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Website")
+	run("project", "create", "ops", "Operations")
+	run("add", "Rebuild the servers +ops")
+
+	monkeypatch.chdir(tmp_path)
+	run("use", "--here", "--project", "web")
+
+	added = run("add", "Replace the disks", "--under", "1")
+
+	assert subroutine.directory.FILE_NAME not in added.output, added.output
+	assert json.loads(run("show", "2", "--json").output)["item"]["project_key"] == "ops"
+
+
 def test_a_project_in_the_line_beats_the_one_in_the_file (
 	run: typing.Callable[..., typer.testing.Result],
 	tmp_path: pathlib.Path,
@@ -11280,6 +11328,38 @@ def test_a_deferral_is_never_asked_which_occurrences_it_is_for (
 		"difference." in flagged
 	), flagged
 	assert "--from-now-on" not in run("defer", "--help").output, "offered as though it chose"
+
+
+def test_a_deferral_of_an_occurrence_says_so_to_an_instance_that_asks (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3771`: a 0.9.11 terminal could not defer a repeating item on a 0.9.10 instance.
+
+	`defer` stopped sending ``applies_to`` when it stopped asking (`SR#3705`), and 0.9.10 refuses
+	a deferral of an occurrence without it, naming flags this terminal ignores. ``this_one`` is
+	what a deferral means, and every instance since takes it; a task that does not repeat is
+	sent none.
+	"""
+
+	sent: list[str | None] = []
+	scheduling = subroutine.clients.local.Client.schedule
+
+	def recorded (self: typing.Any, **keywords: typing.Any) -> typing.Any:
+		"""Keep what the deferral said about occurrences, and schedule it as before."""
+
+		sent.append(keywords.get("applies_to"))
+
+		return scheduling(self, **keywords)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "schedule", recorded)
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+	run("add", "Water the plants")
+
+	assert "Deferred until" in run("defer", "2", "today").output
+	assert "Deferred until" in run("defer", "3", "today").output
+	assert sent == ["this_one", None], sent
 
 
 def test_a_deferral_given_the_repeat_itself_is_refused_and_names_the_occurrence (

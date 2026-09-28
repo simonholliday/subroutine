@@ -70,6 +70,19 @@ upgrade involves.
   is a span in 2070 in a captured line and in `plan --until` alike, where one refused it and
   the other stored 2026 to 2070. And a span refused with a weekday in it names the weekday
   among what a span needs.
+- **Projects after the fiftieth can be found.** A lookup read one page of projects, so a
+  checkout marked for a later one filed into the Inbox, `?project=` in an address could not
+  name it, and `use --here --project` answered that it did not exist. `project list` and
+  `subroutine_project` stopped at fifty too, without saying so. They read every project now.
+- **A sub-task goes where its parent is.** Added without a project, it was refused on every
+  surface, because it was filed where an item with no parent would go and a sub-task has to
+  share its parent's project. It takes its parent's project now, ahead of a checkout's; a
+  project named in the line still decides, and is refused if it is not the parent's.
+- **Deferring a repeating item works against a 0.9.10 instance**, which refused a deferral of
+  an occurrence that did not say it was for that one.
+- **A ring of links stored before rings were refused is harmless.** An item's tree drew the
+  item again below itself and counted it, and sending one of the ring's links again was
+  refused as a cycle; the tree marks the item as drawn above, and the link is answered.
 
 ## 0.9.11 — 2026-09-28
 

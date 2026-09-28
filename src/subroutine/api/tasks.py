@@ -329,7 +329,12 @@ def create (
 	created = subroutine.domain.tasks.create(
 		session,
 		settings=settings,
-		project=subroutine.domain.selection.project(session, actor, workspace, body.project),
+		# **A sub-task goes where its parent is, when nothing names a project** (`#3769`).
+		project=(
+			subroutine.domain.tasks.parents_project(session, structured["parent"])
+			if body.project is None and structured.get("parent") is not None
+			else subroutine.domain.selection.project(session, actor, workspace, body.project)
+		),
 		timezone=body.timezone,
 		actor=actor,
 		**structured,

@@ -1153,6 +1153,19 @@ def create (
 	return first
 
 
+def parents_project (
+	session: sqlalchemy.orm.Session, parent: subroutine.db.models.work.Task
+) -> subroutine.db.models.project.Project:
+	"""Return where a sub-task goes when nothing names a project: its parent's (`#3769`).
+
+	A sub-task belongs to the same project as its parent, so the default that suits an item
+	with no parent - the Inbox, or a bounded credential's own project - refused every sub-task
+	that named no project, on the agent tools, the API and the terminal alike.
+	"""
+
+	return session.get_one(subroutine.db.models.project.Project, parent.project_id)
+
+
 def create_from_text (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -1187,6 +1200,11 @@ def create_from_text (
 	instant = now or subroutine.db.types.utcnow()
 
 	captured = subroutine.domain.capture.parse(text, now=instant, timezone=zone)
+
+	# **A sub-task goes where its parent is, when nothing names a project** (`#3769`). A `+KEY` in
+	# the line still names one, and a parent elsewhere is then refused as it always was.
+	if project is None and captured.project_key is None and overrides.get("parent") is not None:
+		project = parents_project(session, overrides["parent"])
 
 	if project is None:
 		# **The default is asked for rather than assumed, and that is the whole of `#374`.**

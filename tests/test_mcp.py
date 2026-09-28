@@ -5789,6 +5789,72 @@ def test_revising_a_document_does_not_move_it_to_the_checkouts_project (
 	assert "web" not in shown, shown
 
 
+def test_a_checkout_marked_for_a_project_past_the_first_page_files_into_it (
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3767`: a lookup read one page of projects, fifty on a default instance.
+
+	So a checkout marked for the fifty-first filed into the Inbox, and ``subroutine_project``
+	listed fifty without saying there were more. Keys are padded so the last one sorts last.
+	"""
+
+	for number in range(1, 52):
+		made, failed = _called(
+			bound, "subroutine_project", key=f"p{number:02d}", title=f"Part {number}"
+		)
+
+		assert not failed, made
+
+	(tmp_path / subroutine.directory.FILE_NAME).write_text('project = "p51"\n', encoding="utf-8")
+	os.chdir(tmp_path)
+
+	text, failed = _called(
+		_where_the_relay_stands(local_client), "subroutine_add", text="Fix the last part"
+	)
+
+	assert not failed, text
+	assert f"in p51, from {subroutine.directory.FILE_NAME}" in text, text
+	assert "p51" in _called(bound, "subroutine_project")[0], "the listing stopped at fifty"
+
+
+def test_a_sub_task_goes_where_its_parent_is (
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3769`: a sub-task added without a project was refused, with or without a checkout.
+
+	No surface took a sub-task's project from its parent: the checkout's, or the Inbox where
+	there was none, was not the parent's, and a sub-task has to share it. **The parent outranks
+	the checkout**, which is only a default, as a ``+key`` in the line does.
+	"""
+
+	_called(bound, "subroutine_project", key="ops", title="Operations")
+	_called(bound, "subroutine_project", key="web", title="Website")
+	parent = _added(bound, "Rebuild the servers +ops")
+
+	child, failed = _called(bound, "subroutine_add", text="Replace the disks", parent=parent)
+
+	assert not failed, child
+	assert "+ops" in _called(bound, "subroutine_show", ref=_numbered(child))[0], child
+
+	(tmp_path / subroutine.directory.FILE_NAME).write_text('project = "web"\n', encoding="utf-8")
+	os.chdir(tmp_path)
+
+	marked, failed = _called(
+		_where_the_relay_stands(local_client),
+		"subroutine_add",
+		text="Check the backups",
+		parent=parent,
+	)
+
+	assert not failed, marked
+	assert subroutine.directory.FILE_NAME not in marked, "the checkout was said to have decided"
+	assert "+ops" in _called(bound, "subroutine_show", ref=_numbered(marked))[0], marked
+
+
 # --- Which instance a session is bound to ------------------------------------------------
 
 
