@@ -147,6 +147,7 @@ def call (
 	body: typing.Any | None = None,
 	query: dict[str, str] | None = None,
 	content: bytes | None = None,
+	headers: dict[str, str] | None = None,
 ) -> httpx.Response:
 	"""Make one request against ``application``, resolving the caller inside it.
 
@@ -155,6 +156,9 @@ def call (
 	the point**: a malformed message has to reach the far end and be refused there, or the two
 	transports answer it differently and the adapter has quietly become a second implementation
 	of the protocol, which is the whole thing this change removes.
+
+	``headers`` go with the request as a caller's would: the relay's checkout header, which a
+	local session carries as a served one does (`#3761`).
 	"""
 
 	with httpx.Client(
@@ -167,7 +171,7 @@ def call (
 				path,
 				params=query,
 				content=content,
-				headers={"Content-Type": "application/json"},
+				headers={"Content-Type": "application/json", **(headers or {})},
 			)
 
-		return client.request(method, path, params=query, json=body)
+		return client.request(method, path, params=query, json=body, headers=headers)

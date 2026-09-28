@@ -467,6 +467,41 @@ def test_a_token_no_header_can_carry_is_refused_without_being_quoted (
 	assert "Nothing was sent" in said[0] and "Nothing was sent" in said[2], said
 
 
+def test_a_token_holding_a_character_outside_ascii_is_refused_without_being_quoted (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3772`, the half the test above cannot reach: a no-break space pasted inside a token.
+
+	httpx encodes a header as ASCII and refuses anything else while the client is being built,
+	before any request - so the refusal above, which catches a request's, never ran, and both
+	the program's client and the plugin's relay crashed at start-up with a report. A no-break
+	space is what a token copied out of a web page most often brings with it.
+	"""
+
+	secret = "sr_aaaaaaaa_se" + chr(0xA0) + "cret"
+	there = connection(url="http://127.0.0.1:9")
+
+	with pytest.raises(subroutine.errors.Unauthenticated) as by_the_program:
+		subroutine.clients.http.Client(there, token=secret)
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", secret)
+
+	with pytest.raises(subroutine.errors.Unauthenticated) as by_the_relay:
+		subroutine.mcp.relay.answering(
+			there,
+			subroutine.connections.Roster(connections=(there,), default="work"),
+			subroutine.config.Settings(dev_mode=True),
+		)
+
+	refusals = (by_the_program.value, by_the_relay.value)
+	said = [text for refusal in refusals for text in (refusal.detail, refusal.hint or "")]
+
+	assert not [one for one in said if "cret" in one or "sr_aaaaaaaa" in one], (
+		f"the token was quoted into what the caller reads: {said}"
+	)
+	assert all("Nothing was sent" in refusal.detail for refusal in refusals), said
+
+
 def test_token_command_takes_the_first_line (config_home: pathlib.Path) -> None:
 	"""Rule 3, and ``pass show`` prints the secret first and anything at all after it."""
 

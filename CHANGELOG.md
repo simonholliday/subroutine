@@ -35,6 +35,23 @@ upgrade involves.
   or deactivating the instance's last two superusers could each succeed when done at the same
   moment, because each counted the other as staying. The second now waits for the first and is
   refused, as it would be one after the other.
+- **On a local instance, the agent tools file into the project a checkout is marked for.** In
+  a checkout marked with `subroutine use --here --project web`, `subroutine add` filed into
+  `web` while the agent's `subroutine_add` filed into the Inbox, because the tools compared the
+  marker with the instance's own name rather than the connection's. The plugin now says where
+  it is standing on a local instance, as it already did on a served one.
+- **A served instance no longer reads a `.subroutine` file in its own directory.** Started
+  inside a marked checkout, it filed writes from everybody else's sessions by its own marker,
+  ahead of the `?project=` in their address.
+- **A token holding a character no header can carry is refused rather than crashing.** A token
+  pasted with a no-break space, or another character outside ASCII, crashed the plugin and the
+  terminal at start-up. Both now say that nothing was sent and ask for the token again, copied
+  whole, without quoting it.
+- **`subroutine_show` says the status an item starts in** - *open*, or *draft* - where it said
+  nothing, so the full record of an open item never said it was open.
+- **`subroutine_update` says what it saved when its dates are refused.** It saves the other
+  fields first, so a title sent with an end before the start was saved while the answer read
+  as though nothing had been. Only a busy database said so before.
 
 ## 0.9.11 — 2026-09-28
 

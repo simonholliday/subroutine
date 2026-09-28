@@ -131,7 +131,7 @@ def answering (
 	# learn where it came from, which the notice below needs (`#3603`), would prompt twice.
 	held = credential(connection, roster)
 	forward = (
-		_in_process(held, settings, workspace=workspace)
+		_in_process(connection, held, settings, workspace=workspace)
 		if connection.is_local
 		else _over_http(connection, held, workspace=workspace)
 	)
@@ -240,31 +240,39 @@ def _over_http (
 
 	# **One client for the session, not one per message.** A tool call is a request inside a
 	# request, and opening a connection for each would add a handshake to every one of them.
-	client = httpx.Client(
-		base_url=typing.cast(str, connection.url),
-		timeout=connection.timeout_seconds,
-		headers={
-			"Authorization": f"Bearer {resolved.token}",
-			"Content-Type": "application/json",
-			# **Both, because the transport says a client must offer both** — a server is free
-			# to answer a stream, and one that does would find this client saying it could not
-			# read the only reply it is able to give. Ours answers JSON and always has; this
-			# is about what a *different* server is entitled to assume, which is the half a
-			# client written against one implementation never exercises.
-			"Accept": "application/json, text/event-stream",
-			# The version this session speaks, on every request after the handshake, as the
-			# transport requires. Sent unconditionally rather than after `initialize`: this
-			# forwarder speaks exactly one version, so there is nothing to negotiate and
-			# nothing that could make the header disagree with the session.
-			"MCP-Protocol-Version": subroutine.mcp.protocol.PROTOCOL_VERSION,
-			"User-Agent": f"subroutine/{subroutine.API_VERSION}",
-			# **Which copy of us is talking** (`#839`). `User-Agent` carries `API_VERSION` — the
-			# contract, `1.0` — so before this nothing told the far end what was running here.
-			# This forwarder is the one path where both answers are knowable: the program is the
-			# process, and the plugin is the cache directory the editor started it from.
-			**subroutine.installations.calling(),
-		},
-	)
+	try:
+		client = httpx.Client(
+			base_url=typing.cast(str, connection.url),
+			timeout=connection.timeout_seconds,
+			headers={
+				"Authorization": f"Bearer {resolved.token}",
+				"Content-Type": "application/json",
+				# **Both, because the transport says a client must offer both** — a server is free
+				# to answer a stream, and one that does would find this client saying it could not
+				# read the only reply it is able to give. Ours answers JSON and always has; this
+				# is about what a *different* server is entitled to assume, which is the half a
+				# client written against one implementation never exercises.
+				"Accept": "application/json, text/event-stream",
+				# The version this session speaks, on every request after the handshake, as the
+				# transport requires. Sent unconditionally rather than after `initialize`: this
+				# forwarder speaks exactly one version, so there is nothing to negotiate and
+				# nothing that could make the header disagree with the session.
+				"MCP-Protocol-Version": subroutine.mcp.protocol.PROTOCOL_VERSION,
+				"User-Agent": f"subroutine/{subroutine.API_VERSION}",
+				# **Which copy of us is talking** (`#839`). `User-Agent` carries `API_VERSION` — the
+				# contract, `1.0` — so before this nothing told the far end what was running here.
+				# This forwarder is the one path where both answers are knowable: the program is the
+				# process, and the plugin is the cache directory the editor started it from.
+				**subroutine.installations.calling(),
+			},
+		)
+
+	except UnicodeEncodeError:
+		# **A character no header can carry, refused while the client is built** (`#3772`). httpx
+		# encodes a header as ASCII, so a token holding a no-break space pasted with it stopped the
+		# session here, before any message was read - the refusal of a request below never ran.
+		# Never quoted, for that one's reason: the value is the token.
+		raise subroutine.credentials.unsendable(connection.name) from None
 
 	def forward (raw: str) -> tuple[int, str]:
 		"""Post one message and return the status and body."""
@@ -297,6 +305,7 @@ def _over_http (
 
 
 def _in_process (
+	connection: subroutine.connections.Connection,
 	held: subroutine.credentials.Resolved,
 	settings: subroutine.config.Settings,
 	*,
@@ -317,6 +326,13 @@ def _in_process (
 	scopes task:read`` at the terminal and ``si (person) … instance:admin`` here, and a write
 	the CLI refuses succeeded. ``plugin.json`` sells that field as *"if you want it to have
 	less access than you do"*.
+
+	**And the same checkout header** (`#3761`). The application names its client after the
+	instance, where the marker ``use --here`` writes names the connection - ``local`` - so the
+	tools, reading the marker themselves, found it spoke for another instance and filed every
+	write in the Inbox, while ``subroutine add`` in the same directory filed it in the project.
+	The relay asks that question on this side, where the caller's name for the connection is
+	known, and sends what it found as it does over HTTP.
 	"""
 
 	# A late import, using the house style's documented exception, exactly as `serve` and
@@ -359,6 +375,7 @@ def _in_process (
 			path=PATH,
 			query=_asking_for(workspace),
 			content=raw.encode("utf-8"),
+			headers=_standing(connection),
 		)
 
 		return answered.status_code, answered.text

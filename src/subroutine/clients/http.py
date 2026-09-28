@@ -105,20 +105,28 @@ class Client:
 		"""
 
 		self.connection = connection
-		self._client = httpx.Client(
-			base_url=base_url or typing.cast(str, connection.url),
-			timeout=connection.timeout_seconds,
-			transport=transport,
-			headers={
-				# Never in a query string (§7.4): a URL lands in access logs, in
-				# `Referer` headers and in browser history, and a token that has been
-				# logged is a token that has been shared.
-				"Authorization": f"Bearer {token}",
-				"Accept": "application/json",
-				"User-Agent": f"subroutine/{subroutine.API_VERSION}",
-				**subroutine.installations.calling(),
-			},
-		)
+		try:
+			self._client = httpx.Client(
+				base_url=base_url or typing.cast(str, connection.url),
+				timeout=connection.timeout_seconds,
+				transport=transport,
+				headers={
+					# Never in a query string (§7.4): a URL lands in access logs, in
+					# `Referer` headers and in browser history, and a token that has been
+					# logged is a token that has been shared.
+					"Authorization": f"Bearer {token}",
+					"Accept": "application/json",
+					"User-Agent": f"subroutine/{subroutine.API_VERSION}",
+					**subroutine.installations.calling(),
+				},
+			)
+
+		except UnicodeEncodeError:
+			# **A character no header can carry** (`#3772`). httpx encodes a header as ASCII and
+			# refuses anything else here, while the client is built, so a token pasted with a
+			# no-break space crashed every command before a request was made. Never quoted
+			# (`#3584`).
+			raise subroutine.credentials.unsendable(connection.name) from None
 
 		# **What this instance last said it was running** — `#250`. Recorded as responses go
 		# past rather than fetched, because the call that needs it is the one that just failed:

@@ -385,10 +385,10 @@ def test_every_message_is_one_line (server: subroutine.mcp.protocol.Server) -> N
 
 
 @pytest.fixture
-def bound (
+def local_client (
 	session: sqlalchemy.orm.Session,
-) -> typing.Iterator[subroutine.mcp.protocol.Server]:
-	"""A server whose tools reach a real database through the ordinary local client.
+) -> typing.Iterator[subroutine.clients.local.Client]:
+	"""The ordinary local client, reaching a real database: what ``bound``'s tools are built on.
 
 	Built the way ``test_transport_equivalence`` builds its local client — ``factory_for``
 	rather than a lambda returning the outer session, and the client entered as a context
@@ -409,9 +409,18 @@ def bound (
 	)
 
 	with client:
-		yield subroutine.mcp.protocol.Server(
-			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
-		)
+		yield client
+
+
+@pytest.fixture
+def bound (
+	local_client: subroutine.clients.local.Client,
+) -> subroutine.mcp.protocol.Server:
+	"""A server whose tools reach a real database through the ordinary local client."""
+
+	return subroutine.mcp.protocol.Server(
+		subroutine.mcp.tools.catalogue(local_client), name="subroutine", version="0"
+	)
 
 
 def test_the_journal_tool_says_a_claim_was_given_up (
@@ -772,26 +781,28 @@ def test_withdrawing_a_link_withdraws_only_the_kind_it_names (
 	assert not failed, f"the blocks link went with the relates_to one: {kept}"
 
 
+@pytest.mark.parametrize("refusal", sorted(_REFUSED_LATER))
 def test_an_update_that_was_half_saved_says_which_half (
-	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch, refusal: str
 ) -> None:
 	"""`SR#3153`: a status and a plan are two requests, and a busy refusal spoke for both.
 
 	The refusal says *this request changed nothing*, which is true of the second request - the
 	dates - and was read as true of the whole call, when the status had been saved a moment
 	before. An agent told nothing happened sets the status again, or gives up on it.
+
+	**Whatever the refusal** (`SR#3770`): only a busy database's said the first half stood, and
+	every other refusal of the dates arrived as the whole call's.
 	"""
 
 	ref = _added(bound, "Chase the invoice")
 
-	def busy (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
-		"""Refuse as a busy database does, whatever was asked."""
+	def refused (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Refuse the dates as this case's refusal does, whatever was asked."""
 
-		raise subroutine.errors.DatabaseBusy(
-			"The database was busy: another connection was writing to it."
-		)
+		raise _REFUSED_LATER[refusal]()
 
-	monkeypatch.setattr(subroutine.clients.local.Client, "schedule", busy)
+	monkeypatch.setattr(subroutine.clients.local.Client, "schedule", refused)
 
 	answered, failed = _called(
 		bound, "subroutine_update", ref=ref, status="in_progress", plan="friday"
@@ -801,9 +812,44 @@ def test_an_update_that_was_half_saved_says_which_half (
 	assert "saved first" in answered, answered
 	assert "status" in answered, answered
 
+	if refusal == "narrowed":
+		assert "Use a token that includes" in answered, (
+			f"the credential's own advice was lost: {answered}"
+		)
+
+	if refusal == "busy":
+		assert "Try it again" not in answered, f"a retry would repeat what was saved: {answered}"
+
 	shown, _failed = _called(bound, "subroutine_show", ref=ref)
 
 	assert "in_progress" in shown, shown
+
+
+def test_an_update_whose_dates_are_refused_says_what_it_saved (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3770`, unstubbed: a new title saved, then an end before the start refused.
+
+	The case the review met. The answer was *It cannot finish before it starts*, true of the
+	dates and read as true of the call, while the title sent beside them had been saved a
+	moment before.
+	"""
+
+	ref = _added(bound, "Paint the fence")
+
+	assert not _called(bound, "subroutine_update", ref=ref, plan="2026-10-10")[1]
+
+	answered, failed = _called(
+		bound, "subroutine_update", ref=ref, title="Paint the gate", until="2026-10-01"
+	)
+
+	assert failed, answered
+	assert "title on" in answered and "saved first" in answered, answered
+	assert "finish before it starts" in answered, answered
+
+	shown, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert "Paint the gate" in shown, shown
 
 
 def test_the_skills_own_sequence_writes_with_the_version_it_read (
@@ -1067,6 +1113,32 @@ def test_a_listing_says_what_is_already_started (
 	assert "open" not in rows[f"#{untouched}"], (
 		f"the status everything starts in is on an ordinary row: {rows[f'#{untouched}']!r}"
 	)
+
+
+def test_show_says_the_status_an_item_starts_in (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3674`: the full record of an open item never said it was open.
+
+	``_more`` leaves out the status everything starts in, on `SR#168`'s rule, which the test
+	above holds a listing row to. On the one tool that promises an item *in full*, silence read
+	as *not printed*: an agent could not tell whether an item was open or its status had been
+	left off. A draft is a document's default, and was silent the same way.
+	"""
+
+	ref = _added(bound, "Rewire the parser")
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, shown
+	assert shown.splitlines()[1].split("  ")[0] == "open", shown
+
+	drafted = _documented(
+		bound, title="How the parser is rewired", body="In stages.", status="draft"
+	)
+	shown, failed = _called(bound, "subroutine_show", ref=drafted)
+
+	assert not failed, shown
+	assert shown.splitlines()[1].split("  ")[0] == "draft", shown
 
 
 def test_a_listing_says_who_is_holding_something_and_forgets_when_the_lease_runs_out (
@@ -5483,8 +5555,37 @@ def test_add_carries_a_description_in_one_call (
 	assert "Measured at 400ms a call" in shown
 
 
+def _as_the_relay_sends (client: subroutine.clients.base.Client) -> subroutine.mcp.tools.Standing:
+	"""Return where this directory says the caller stands, as the relay reads and sends it.
+
+	**The tools read no directory of their own** (`SR#3768`): they run where the instance runs,
+	so the directory they would find is the server's. The relay reads the marker on the
+	caller's side - asking there whether it speaks for the connection, since only the caller
+	knows its own name for it - and sends it as a header, which the endpoint decodes. Both
+	halves are the production ones.
+	"""
+
+	sent = subroutine.mcp.relay._standing(client.connection)
+
+	return subroutine.mcp.tools.Standing(
+		checkout=subroutine.directory.from_header(sent.get(subroutine.directory.HEADER))
+	)
+
+
+def _where_the_relay_stands (
+	client: subroutine.clients.base.Client,
+) -> subroutine.mcp.protocol.Server:
+	"""Return a server whose tools know where the caller stands, from this directory's marker."""
+
+	return subroutine.mcp.protocol.Server(
+		subroutine.mcp.tools.catalogue(client, standing=_as_the_relay_sends(client)),
+		name="subroutine",
+		version="0",
+	)
+
+
 def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
-	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+	local_client: subroutine.clients.local.Client, tmp_path: pathlib.Path
 ) -> None:
 	"""`#232`. The failure was reachable by installing the plugin and cloning a team's repo.
 
@@ -5506,7 +5607,9 @@ def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
 	)
 	os.chdir(tmp_path)
 
-	text, failed = _called(bound, "subroutine_add", text="Filed anyway")
+	text, failed = _called(
+		_where_the_relay_stands(local_client), "subroutine_add", text="Filed anyway"
+	)
 
 	assert not failed, text
 	assert "Added" in text
@@ -5518,7 +5621,9 @@ def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
 
 
 def test_a_marker_for_another_connection_does_not_file_by_key (
-	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
 ) -> None:
 	"""Item ``#414``. The marker names one instance; a same-named project here is not it.
 
@@ -5530,7 +5635,9 @@ def test_a_marker_for_another_connection_does_not_file_by_key (
 	behaviours apart, and would pass against the defect.
 
 	**Falsified against the original code**: drop ``marker.speaks_for(...)`` from ``_added``'s
-	``consulted`` and this fails, reporting the task filed ``in WEB``.
+	``consulted`` and this fails, reporting the task filed ``in WEB``. The question is the relay's
+	since `SR#3768`, asked in its ``_standing`` on the caller's side, and dropping it there fails
+	this the same way.
 	"""
 
 	_called(bound, "subroutine_project", key="web", title="Website")
@@ -5540,7 +5647,11 @@ def test_a_marker_for_another_connection_does_not_file_by_key (
 	)
 	os.chdir(tmp_path)
 
-	text, failed = _called(bound, "subroutine_add", text="Filed where this session points")
+	text, failed = _called(
+		_where_the_relay_stands(local_client),
+		"subroutine_add",
+		text="Filed where this session points",
+	)
 
 	assert not failed, text
 	assert "Added" in text
@@ -5552,7 +5663,9 @@ def test_a_marker_for_another_connection_does_not_file_by_key (
 
 
 def test_a_document_is_filed_where_the_checkout_says (
-	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
 ) -> None:
 	"""Item ``#1219``. ``subroutine_add`` read the marker from the start; this never did.
 
@@ -5573,7 +5686,7 @@ def test_a_document_is_filed_where_the_checkout_says (
 	os.chdir(tmp_path)
 
 	made, failed = _called(
-		bound,
+		_where_the_relay_stands(local_client),
 		"subroutine_document",
 		title="Why the cache is keyed on the version",
 		body="Because a plugin copy is stored under it.",
@@ -5593,7 +5706,9 @@ def test_a_document_is_filed_where_the_checkout_says (
 
 
 def test_a_project_argument_outranks_the_checkout (
-	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
 ) -> None:
 	"""Somebody speaking now beats a file on disk (§13.7a), same as a ``+key`` in a line.
 
@@ -5610,7 +5725,7 @@ def test_a_project_argument_outranks_the_checkout (
 	os.chdir(tmp_path)
 
 	made, failed = _called(
-		bound,
+		_where_the_relay_stands(local_client),
 		"subroutine_document",
 		title="How the guide is published",
 		body="From the repository.",
@@ -5628,7 +5743,9 @@ def test_a_project_argument_outranks_the_checkout (
 
 
 def test_revising_a_document_does_not_move_it_to_the_checkouts_project (
-	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
 ) -> None:
 	"""Omitted means unchanged (§8.3), and that has to survive the fix above.
 
@@ -5658,7 +5775,10 @@ def test_revising_a_document_does_not_move_it_to_the_checkouts_project (
 	os.chdir(tmp_path)
 
 	revised, failed = _called(
-		bound, "subroutine_document", ref=ref, body="Generated by registry_markdown()."
+		_where_the_relay_stands(local_client),
+		"subroutine_document",
+		ref=ref,
+		body="Generated by registry_markdown().",
 	)
 
 	assert not failed, revised
@@ -8561,11 +8681,16 @@ def _bound_to (session: sqlalchemy.orm.Session, workspace: str) -> str:
 	)
 
 	with client:
+		# **Where the checkout is, as the relay reads and sends it** (`SR#3768`): the tools read no
+		# directory of their own.
+		standing = _as_the_relay_sends(client)
 		server = subroutine.mcp.protocol.Server(
-			subroutine.mcp.tools.catalogue(client, workspace=workspace),
+			subroutine.mcp.tools.catalogue(client, workspace=workspace, standing=standing),
 			name="subroutine",
 			version="0",
-			resources=subroutine.mcp.tools.references(client, workspace=workspace),
+			resources=subroutine.mcp.tools.references(
+				client, workspace=workspace, standing=standing
+			),
 		)
 		answered = _exchange(
 			server,
@@ -8590,9 +8715,10 @@ def _marked_as (
 	"""Make this checkout look marked for one project, or for none.
 
 	**The marker is a fact about the filesystem, not about what is under test.** Reading one is
-	``_checkout``'s job and is covered where that lives; what these cases hold is what the index
-	does with the answer. Patching the module's own lookup is the seam that leaves everything
-	else — the connection guard, resolving by id, the request, the wording — running for real.
+	the relay's job since `SR#3768`, and is covered where that lives; what these cases hold is
+	what the index does with the answer. Patching the module's own lookup is the seam that
+	leaves everything else — the connection guard, resolving by id, the request, the wording —
+	running for real.
 	"""
 
 	found = (

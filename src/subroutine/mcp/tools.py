@@ -330,8 +330,8 @@ class Standing(typing.NamedTuple):
 	"""Where a request says its caller is standing - `#1438`, Simon's decision of 2026-09-27.
 
 	**Two answers to *where does this belong* that only the caller has.** The tools run where the
-	instance runs (`#539`), so a served instance reads its own working directory for a checkout
-	and finds nothing: every write that named no project landed in the Inbox. The caller's relay
+	instance runs (`#539`), so a served instance read its own working directory for a checkout
+	and found nothing: every write that named no project landed in the Inbox. The caller's relay
 	sends its checkout's marker instead, and any client can name a default project in the
 	address, the way ``?workspace=`` already works.
 	"""
@@ -343,8 +343,9 @@ class Standing(typing.NamedTuple):
 	project: str | None = None
 
 
-#: A request that said nothing about where it stands - every stdio session, where the tools run
-#: beside the checkout and read it themselves, and every caller before `#1438`.
+#: A request that said nothing about where it stands: a client with no relay of ours, such as
+#: ``subroutine-remote``, and every caller before `#1438`. Nothing reads a checkout for it
+#: (`#3768`).
 NOWHERE = Standing()
 
 
@@ -679,11 +680,11 @@ def _conventions (
 		# which project answered, **where that came from**, and how to see past it.
 		#
 		# **Naming the source is what makes `#1438` visible.** Over `subroutine-remote` these
-		# handlers run on the *server*, so `directory.find()` reads the server's working
-		# directory rather than the reader's — and a narrowing to a project they have never
-		# heard of is then legible on sight instead of looking like a workspace that has decided
-		# very little. **The source that answered** (`#3747`): this named the checkout even
-		# where the address had chosen, and there was no checkout at all.
+		# handlers run on the *server*, where `directory.find()` read the server's working
+		# directory rather than the reader's until `#3768` - and a narrowing to a project they
+		# had never heard of was then legible on sight instead of looking like a workspace that
+		# has decided very little. **The source that answered** (`#3747`): this named the
+		# checkout even where the address had chosen, and there was no checkout at all.
 		lines += [
 			"",
 			f"**Narrowed to {chosen.project}**, from {chosen.source}. Anything in force elsewhere",
@@ -2716,11 +2717,11 @@ def _where_it_landed (
 	actually gone.
 
 	**The case it was found on cannot be fixed by reading a marker at all.** Over
-	``subroutine-remote`` these handlers run **on the server**, so ``directory.find()`` reads
-	the server's working directory and the caller's checkout is on a machine this code has
-	never seen. `#1219` cured the same symptom for stdio and could not reach that door. Two
-	decision documents went to the workspace Inbox on 2026-08-27 and the answers named the ref
-	and not the project, exactly as five had before them.
+	``subroutine-remote`` these handlers run **on the server**, so ``directory.find()`` read the
+	server's working directory - until `#3768` stopped them reading one - and the caller's
+	checkout is on a machine this code has never seen. `#1219` cured the same symptom for stdio
+	and could not reach that door. Two decision documents went to the workspace Inbox on
+	2026-08-27 and the answers named the ref and not the project, exactly as five had before them.
 
 	**Read off the created entity**, so it is true whatever the cause — no marker, a marker for
 	another instance, an overriding argument, or a transport that can never see one.
@@ -3211,10 +3212,19 @@ def _shown (
 	reading = _account_zone(client, workspace)
 
 	parts = [_line(found, now=subroutine.db.types.utcnow())]
+	more = _more(found)
+
+	# **And the status everything starts in, which `_more` leaves out** (`#3674`). Silence is
+	# `#168`'s rule for a row, where most items are open and saying so is noise. On the one tool
+	# that promises an item *in full* it read as *not printed*, and an agent reading an open item
+	# could not say it was open. First among the facts, where every other status goes; a
+	# finished item has ``done <date>`` there already.
+	if found.status_is_default and found.status_category != "done":
+		more.insert(0, found.status)
 
 	# **In `show` rather than in `_line`**, on `#819`'s argument: this is the tool that
 	# promises *in full*, and a listing row stays as terse as it was for both kinds.
-	if more := _more(found):
+	if more:
 		parts.append("  ".join(more))
 
 	# **The number `expected_version` asks for, on the tool its own description names**
@@ -3713,10 +3723,10 @@ def _checkout (
 	restarted — which is the one thing an agent cannot do to itself.
 
 	**The caller's checkout first, then the address, then the Inbox** (`#1438`, Simon's decision
-	of 2026-09-27). On a served instance these run where the instance does, so the marker below
-	is the one the caller's relay sent (``standing.checkout``) and the server's own directory is
-	never it; what the address names comes after what is *here*, because a checkout says what
-	this work is and a session default only what the connection is usually for.
+	of 2026-09-27). These run where the instance does, served or local, so the marker below is
+	the one the caller's relay sent (``standing.checkout``), and the server's own directory is
+	never read (`#3768`). What the address names comes after what is *here*, because a checkout
+	says what this work is and a session default only what the connection is usually for.
 	"""
 
 	if overridden:
@@ -3725,18 +3735,20 @@ def _checkout (
 	projects: list[typing.Any] | None = None
 	ignored: list[str] = []
 
-	marker = standing.checkout or subroutine.directory.find()
+	# **Only the marker the caller's relay sent, never one in this process's own directory**
+	# (`#3768`). The tools run where the instance does, so the directory here is the server's: a
+	# server started inside a marked checkout filed every write from elsewhere by its own marker,
+	# ahead of the `?project=` the caller had put in the address. The relay sends the header on
+	# the local path too since `#3761`, so no caller of ours needs this directory read.
+	#
+	# **Whether the marker speaks for the connection** (`#414`) is asked by the relay, on the
+	# caller's side, because only the caller knows its own name for the connection - the header
+	# carries none. Asked here too, it compared the caller's marker with the name this instance
+	# gives its client, which is how a local session came to file nothing by its marker.
+	marker = standing.checkout
 
-	consulted = (
-		marker is not None
-		# **And only where the marker speaks for the connection this session is on** (`#414`).
-		# A marker names one instance; its project is a fact about that instance and nothing
-		# else. Without this, `directory.resolve`'s match-by-key fallback — which exists for
-		# markers written before `#177` gave them ids — filed work into a same-named project on
-		# whichever instance happened to answer. A marker the relay sent names no connection,
-		# because the relay asked this question on the caller's side before sending it.
-		and marker.speaks_for(client.connection.name)
-		and (marker.project is not None or marker.project_id is not None)
+	consulted = marker is not None and (
+		marker.project is not None or marker.project_id is not None
 	)
 
 	if consulted and marker is not None:
@@ -5064,20 +5076,25 @@ def _updated (
 				**sending,
 			)
 
-		except subroutine.errors.DatabaseBusy as busy:
-			# **Two requests, and the first went through** (`#3153`). The refusal says the
-			# request changed nothing, which is true of the dates and false of the call: the
-			# fields above were saved a moment before. Said, so an agent retries the half that
-			# was refused rather than the whole, or concludes nothing happened.
+		except subroutine.errors.SubroutineError as refused:
+			# **Two requests, and the first went through** (`#3153`). A refusal speaks for its own
+			# request, which is true of the dates and false of the call: the fields above were saved
+			# a moment before. Said, so an agent retries the half that was refused rather than the
+			# whole, or concludes nothing happened.
+			#
+			# **Whatever the refusal** (`#3770`). Only a busy database's said so, and every other -
+			# *It cannot finish before it starts* among them - arrived as the whole call's, with
+			# the title sent beside it already saved. `errors.after_saving` is how the other tools
+			# made of several requests say it (`#3756`).
 			if not changes:
 				raise
 
-			raise subroutine.errors.DatabaseBusy(
-				f"{busy.detail} {', '.join(sorted(changes))} on #{ref} had been saved first; "
-				"the dates were not.",
-				hint="Set the dates again - the rest is done, and a busy database clears on "
-				"its own.",
-			) from busy
+			raise subroutine.errors.after_saving(
+				f"{', '.join(sorted(changes))} on #{ref} had been saved first, and the dates were "
+				"not.",
+				refused,
+				hint="The rest stands: send the dates again, on their own.",
+			) from refused
 
 	if changed is None:
 		raise LookupError(

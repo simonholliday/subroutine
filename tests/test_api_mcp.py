@@ -1604,6 +1604,65 @@ def test_the_address_names_where_a_write_goes_when_nothing_else_does (
 	assert "The address names 'nosuch', which is not on this instance. Ignoring it." in nowhere
 
 
+def test_a_server_standing_in_a_marked_checkout_does_not_file_by_its_marker (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3768`: a served instance started inside a marked checkout filed others' writes by it.
+
+	A request with no checkout header fell back to the server's own working directory, and a
+	marker found there outranked the address: a server started in a checkout marked ``web``
+	filed a write sent with ``?project=ops`` into ``web``. ``_checkout``'s docstring already said
+	the server's own directory is never the caller's; now nothing reads it.
+	"""
+
+	web = _a_project(world, "web")
+	_a_project(world, "ops")
+	(tmp_path / subroutine.directory.FILE_NAME).write_text(
+		f'project = "web"\nproject_id = "{web}"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(tmp_path)
+
+	answered = _message(world, json.loads(_adding("Fix the footer")), params={"project": "ops"})
+
+	assert answered.status_code == 200, answered.text
+
+	said = str(answered.json()["result"]["content"][0]["text"])
+
+	assert "in ops, from the address" in said, said
+	assert _filed_under(world, said) == "ops", "the server's own marker outranked the address"
+
+
+def test_a_local_session_files_where_its_checkout_says (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3761`: on a local instance, the agent tools filed a marked checkout's work in the Inbox.
+
+	``use --here --project web`` writes ``connection = "local"`` into the marker, and on a local
+	connection the relay answers in process, where the application names its client after the
+	instance. The tools asked whether the marker spoke for *that* name, found it did not, and
+	filed in the Inbox, while ``subroutine add`` in the same directory filed in ``web``. **The
+	relay sends the header on this path too**, having asked the question on the caller's side.
+
+	**Marked as the program marks it**, ``connection`` line and all. The marker tests before this
+	wrote none, and a marker naming no connection speaks for any, which is how they missed it.
+	"""
+
+	web = _a_project(world, "web")
+	(tmp_path / subroutine.directory.FILE_NAME).write_text(
+		f'connection = "local"\nproject = "web"\nproject_id = "{web}"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(tmp_path)
+
+	answered = _through_the_adapter(world, monkeypatch, message=_adding("Fix the sidebar"))
+
+	assert answered is not None
+
+	said = str(answered["result"]["content"][0]["text"])
+
+	assert f"in web, from {subroutine.directory.FILE_NAME}" in said, said
+	assert _filed_under(world, said) == "web", "filed somewhere other than the checkout said"
+
+
 @pytest.mark.parametrize("by_id", [True, False], ids=["by id", "by name alone"])
 def test_a_checkout_marked_for_another_workspace_is_ignored_there (
 	world: test_api_tasks.World, by_id: bool
