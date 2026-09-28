@@ -1179,3 +1179,107 @@ def test_every_surface_the_moment_scan_reads_is_one_that_exists () -> None:
 		f"{stale} are excused from naming a zone and no longer read a moment as a day — "
 		"delete the entry"
 	)
+
+
+@pytest.mark.parametrize(
+	("value", "reason"),
+	[
+		("2026-10-02T09:00+23:00", "from -12:00 to +14:00"),
+		(
+			datetime.datetime(
+				2026, 10, 2, 9, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=15))
+			),
+			"from -12:00 to +14:00",
+		),
+		("9999-12-31T23:00-05:00", "first or last day"),
+		("0001-01-01T01:00+05:00", "first or last day"),
+	],
+	ids=["an offset no clock uses", "one given as a datetime", "past the end", "before the start"],
+)
+def test_a_moment_no_clock_could_have_written_is_refused_by_name (
+	value: str | datetime.datetime, reason: str
+) -> None:
+	"""`SR#3766`, decision `SR#3837`: every date field read these, and answered 500 or moved a day.
+
+	*9999-12-31T23:00-05:00* is in the year 10000 in UTC, so whichever conversion met it first
+	raised; ``+23:00`` is valid in RFC 3339 and no clock uses it, and it moved the moment to the day
+	before without a word. Refused now, naming the field and the reason.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.schedule.interpret(
+			value,
+			boundary=subroutine.domain.schedule.Boundary.END,
+			timezone=LONDON,
+			now=NOW,
+			field="due_at",
+		)
+
+	assert reason in (refused.value.hint or ""), refused.value.hint
+	assert [error.field for error in refused.value.errors] == ["due"], refused.value.errors
+
+
+def test_the_offsets_at_the_ends_of_the_range_clocks_use_are_taken () -> None:
+	"""`SR#3766`'s limit, from both sides: UTC-12:00 and UTC+14:00 are clocks' own."""
+
+	for written, expected in (
+		("2026-10-02T09:00+14:00", datetime.datetime(2026, 10, 1, 19, 0, tzinfo=datetime.UTC)),
+		("2026-10-02T09:00-12:00", datetime.datetime(2026, 10, 2, 21, 0, tzinfo=datetime.UTC)),
+	):
+		read = subroutine.domain.schedule.interpret(
+			written,
+			boundary=subroutine.domain.schedule.Boundary.START,
+			timezone=LONDON,
+			now=NOW,
+			field="starts_at",
+		)
+
+		assert read.instant == expected, (written, read)
+
+
+def test_the_last_day_of_the_calendar_is_refused_where_its_end_cannot_be_shown () -> None:
+	"""`SR#3766`: a whole day is snapped to its edge where the writer is.
+
+	So *9999-12-31* as a deadline ends in the year 10000 in UTC from New York, and from London
+	ends where a reader fourteen hours east cannot show it. The day before is a day like any other.
+	"""
+
+	for zone in (LONDON, "America/New_York"):
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			subroutine.domain.schedule.interpret(
+				"9999-12-31",
+				boundary=subroutine.domain.schedule.Boundary.END,
+				timezone=zone,
+				now=NOW,
+				field="due_at",
+			)
+
+		assert "first or last day" in (refused.value.hint or ""), (zone, refused.value.hint)
+
+	assert subroutine.domain.schedule.interpret(
+		"9999-12-30",
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone="America/New_York",
+		now=NOW,
+		field="due_at",
+	).is_all_day
+
+
+def test_an_end_whose_year_only_today_reads_still_names_it () -> None:
+	"""`SR#3766`, part 2, in the rule quick capture and ``plan --until`` share.
+
+	*12 October 2070* was read from today and was no date at all from nine years back, where the
+	window of years read ends at 2067, so it was taken for a counted year and the start was read
+	on its own, in 2026. A weekday that does not fall on the day is refused as it always was.
+	"""
+
+	assert subroutine.domain.schedule.start_counted_back(
+		"2 October", "12 October 2070", timezone=LONDON, now=NOW
+	) == datetime.date(2070, 10, 2)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.schedule.start_counted_back(
+			"Friday 2 October", "12 October 2070", timezone=LONDON, now=NOW
+		)
+
+	assert "Thursday" in refused.value.detail, refused.value.detail

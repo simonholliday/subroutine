@@ -52,6 +52,24 @@ upgrade involves.
 - **`subroutine_update` says what it saved when its dates are refused.** It saves the other
   fields first, so a title sent with an end before the start was saved while the answer read
   as though nothing had been. Only a busy database said so before.
+- **A time beside a date written without *on* sets nothing, and says so.** *Dentist 2 October
+  at 3pm* was an appointment today at 15:00, with *2 October* left in the title and nothing
+  said. The time now stays in the title with the note on how a time is read, as it already did
+  beside a bare weekday. *Dentist on 2 October at 3pm* is read as before.
+- **Four digits after a written date are always its year, and one outside the years read
+  leaves the date unread.** *File the return by 31 January 2024* was due on 31 January 2027,
+  with *2024* left in the title and called a time. A year from last year to fifty years ahead
+  is read; any other leaves the whole date, and any span it is part of, in the title with
+  nothing set, and the note says which years are read. A time or a quantity written as four
+  digits after a date loses the date too: *Standup on 5 March 0930* sets nothing.
+- **A timestamp no clock could have written is refused by name.** One too near the calendar's
+  first or last day answered with a server error, and one with an offset outside -12:00 to
+  +14:00 was taken at its word, moving the moment to another day. A date field now refuses
+  both, naming the field, and a captured line leaves them in its title with a note.
+- **An end year from 2068 to 2076 is read as written**, so *from 2 October to 12 October 2070*
+  is a span in 2070 in a captured line and in `plan --until` alike, where one refused it and
+  the other stored 2026 to 2070. And a span refused with a weekday in it names the weekday
+  among what a span needs.
 
 ## 0.9.11 — 2026-09-28
 

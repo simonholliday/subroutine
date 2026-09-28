@@ -403,6 +403,13 @@ _UNREAD_DAY = re.compile(
 	re.IGNORECASE,
 )
 
+#: **A date written out anywhere in a line**, preposition or none (`#3763`): what
+#: :func:`_an_unread_date` looks for once the phrases already read are blanked.
+_A_WRITTEN_DAY = re.compile(rf"{_STARTS_A_WORD}(?:{_WRITTEN_DAY})(?![\w'])", re.IGNORECASE)
+
+#: **A weekday anywhere in a phrase** (`#3766`), for the note on a span that names one.
+_A_WEEKDAY = re.compile(rf"{_STARTS_A_WORD}(?:{_WEEKDAY_ALTERNATION})(?![\w'])", re.IGNORECASE)
+
 #: What a time-shaped thing that could not be read is called back to the writer. Named here
 #: rather than inline so the refusal and the test cannot drift.
 _TIME_LOOKS_LIKE = re.compile(
@@ -671,18 +678,36 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		if one not in contradicted and one not in spans and one not in clocked
 		and one not in hours and _TIME_RANGE.fullmatch(one)
 	]
+	# **And a moment no clock could have written** (`#3766`), told apart by asking the function
+	# that declined it: an offset outside the range clocks use, or a moment off the calendar.
+	unclocked = [
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and one not in ranges
+		and subroutine.domain.schedule.beyond_every_clock(one) is not None
+	]
+	# **And a date left whole for its year** (`#3809`, decision `#3799`), told apart from a day no
+	# calendar has by asking whether the day is one its year has.
+	yeared = [
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and one not in ranges and one not in unclocked
+		and subroutine.domain.dates.is_a_day_of_its_year(one)
+	]
 	# **And a date written out that names no day** (`#3582`): *29 February 2027*, *31 April*. It
 	# reached the time's sentence, which advised `at` about a line with no clock in it.
 	dateless = [
 		one for one in over
 		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges
+		and one not in hours and one not in ranges and one not in unclocked
+		and one not in yeared
 		and subroutine.domain.dates.is_written_date(one)
 	]
 	timed = [
 		one for one in over
 		if one not in contradicted and one not in spans and one not in clocked
 		and one not in hours and one not in ranges and one not in dateless
+		and one not in unclocked and one not in yeared
 	]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
@@ -723,9 +748,26 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	if spans:
 		# **And a first day with no year no further back than eleven months** (`#3580`), which is
 		# the one reason a span is refused whose days are in order and real.
+		#
+		# **And two more where the span has what they are about** (`#3766`, `#3809`): *from
+		# Friday 2 October to 12 October 2027* reads its first day in 2027, a Saturday, and was
+		# refused with a sentence that never mentioned the weekday; a span with a year outside the
+		# ones read is left whole. Listed as conditions, like the rest, because which of them
+		# failed is the span reader's to know and not this sentence's.
+		weekday = (
+			" any weekday written beside a date to fall on it,"
+			if any(_A_WEEKDAY.search(one) for one in spans)
+			else ""
+		)
+		year = (
+			f" any year written after a date to be one from {_THE_YEARS_READ},"
+			if any(_DATED_DIGITS.search(one) for one in spans)
+			else ""
+		)
 		clauses.append(
 			f"Left as written: {', '.join(spans)} - a span needs its first day before its "
-			f"last, both of them days there are, and a first day written with no year no more than "
+			f"last, both of them days there are,{weekday}{year} and a first day written with "
+			f"no year no more than "
 			f"{subroutine.domain.schedule.COUNTED_BACK_MONTHS} months before a last day that names "
 			f"one, so neither was set."
 		)
@@ -760,6 +802,19 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 			f"different days, so neither was used. Write one or the other."
 		)
 
+	if unclocked:
+		clauses.extend(
+			f"Left as written: {one} - {subroutine.domain.schedule.beyond_every_clock(one)}, so "
+			"nothing was set."
+			for one in unclocked
+		)
+
+	if yeared:
+		clauses.append(
+			f"Left as written: {', '.join(yeared)} - four digits after a date are its year, and a "
+			f"year is read from {_THE_YEARS_READ}, so nothing was set."
+		)
+
 	if dateless:
 		clauses.append(
 			f"Left as written: {', '.join(dateless)} - the calendar has no such day, so nothing "
@@ -783,6 +838,18 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		)
 
 	return " ".join(clauses)
+
+
+#: **Which years a written year may be**, as the notes say it (`#3809`) - from the window's own
+#: numbers, so the sentence cannot drift from the rule.
+_THE_YEARS_READ = (
+	(
+		"last year"
+		if subroutine.domain.dates.WRITTEN_YEARS_BEFORE == 1
+		else f"{subroutine.domain.dates.WRITTEN_YEARS_BEFORE} years back"
+	)
+	+ f" to {subroutine.domain.dates.WRITTEN_YEARS_AHEAD} years ahead"
+)
 
 
 def read_back (summary: str | None) -> str | None:
@@ -873,40 +940,77 @@ def summarise (capture: Capture) -> str | None:
 	return " ".join(parts) or None
 
 
-def _not_years (text: str, *, today: datetime.date) -> tuple[str, list[tuple[int, int, str]]]:
-	"""Blank every four digits after a written date that are not a year, and say where they were.
+def _not_years (
+	text: str, *, today: datetime.date
+) -> tuple[str, list[tuple[int, int, str, str]]]:
+	"""Blank every date whose year is not one capture reads, whole, and say where each was.
 
-	**A written year is one from last year to fifty years ahead** (`#3579`, Simon's rule). Read as
-	any four digits, *Standup on 5 March 0930* began in the year 930 and *Deliver by 1 March 1500
-	chairs* was due in the year 1500, both without a word, and *9999* after a span was a 500. What
-	is blanked here is not read by any rule, so the date before it is read as though it had no
-	year, and the digits are put back in the title by :func:`_titled` and reported.
+	**A written year is one from last year to fifty years ahead** (`#3579`, Simon's rule): read
+	as any four digits, *Standup on 5 March 0930* began in the year 930 and *9999* after a span
+	was a 500. **And four digits straight after a written date are always its year** (`#3809`,
+	Simon's decision `#3799`), so one outside the window leaves the whole date unread: *File the
+	return by 31 January 2024* sets nothing, where it was due on 31 January 2027 with *2024* left
+	in the title and a note calling it a time. A date read wrongly is invisible; a date left
+	unread shows as missing. *Standup on 5 March 0930* loses its date too - the cost accepted for
+	one rule with no boundary to learn.
 
-	**Blanked to spaces, one for each digit** (`#3762`), so every span still indexes the line as
-	written. They were hidden in characters nobody types, which sat between a date and the joint
-	after it as a word no rule reads: *Trip from 5 March 2024 to 10 March 2024* stopped being a
-	span, and *from 5 March* became the deferral a span is there to prevent, hiding the trip until
-	2027. As spaces, the span reads across them.
+	**The date and its year, the preposition in front of it, and any span it is part of**, so no
+	rule below reads the date without its year and no word after it is read as its preposition's.
+	A span with one of its days blanked made the other a deferral (`#3762`), so a span goes whole,
+	blanked to spaces so that every index into the line still holds. Each is put back in the
+	title as written by :func:`_titled`, and reported as one token: the span as it was written, or
+	the date and its year.
 	"""
 
-	hidden: list[tuple[int, int, str]] = []
-	kept = list(text)
+	found: set[tuple[int, int, str]] = set()
 
 	for match in _DATED_DIGITS.finditer(text):
 		if subroutine.domain.dates.is_written_year(int(match["year"]), today=today):
 			continue
 
-		start, end = match.span("year")
+		start, end = match.span()
+		token = match.group(0)
+		spans = [
+			span for pattern in _SPANS for span in pattern.finditer(text)
+			if span.start() <= start and end <= span.end()
+		]
+
+		if spans:
+			start, end = spans[0].span()
+			token = spans[0].group(0)
+
+		else:
+			start = min(
+				[start]
+				+ [
+					dated.start() for dated in _DATED.finditer(text)
+					if dated.start() <= start < dated.end()
+				]
+			)
+
+		found.add((start, end, token))
+
+	# **Once for each place**: two dates in one span find the same span.
+	hidden: list[tuple[int, int, str, str]] = []
+
+	for start, end, token in sorted(found):
+		if hidden and start < hidden[-1][1]:
+			continue
+
+		hidden.append((start, end, text[start:end], token))
+
+	kept = list(text)
+
+	for start, end, _words, _token in hidden:
 		kept[start:end] = " " * (end - start)
-		hidden.append((start, end, match["year"]))
 
 	return "".join(kept), hidden
 
 
 def _titled (
-	text: str, claimed: list[tuple[int, int]], hidden: list[tuple[int, int, str]]
+	text: str, claimed: list[tuple[int, int]], hidden: list[tuple[int, int, str, str]]
 ) -> str:
-	"""Return the title, with the digits :func:`_not_years` blanked put back where they were.
+	"""Return the title, with what :func:`_not_years` blanked put back where it was.
 
 	**Never taken by a phrase read across them** (`#3762`): a span claims the line from its
 	opening word to its end, and the digits in its middle are the writer's words, which stay in
@@ -916,13 +1020,13 @@ def _titled (
 	written = list(text)
 	kept: list[tuple[int, int]] = []
 
-	for start, end, digits in hidden:
-		written[start:end] = digits
+	for start, end, words, _token in hidden:
+		written[start:end] = words
 
 	for claim in claimed:
 		pieces = [claim]
 
-		for start, end, _digits in hidden:
+		for start, end, _words, _token in hidden:
 			pieces = [
 				piece
 				for low, high in pieces
@@ -1031,6 +1135,8 @@ def parse (
 		unread_day=(
 			bool(_UNREAD_DAY.search(_blanked(text, claimed)))
 			or _an_unread_date(text, claimed, reserved)
+			# **A date left whole for its year is a day the writer named too** (`#3809`).
+			or bool(hidden)
 		),
 		now=now,
 		timezone=timezone,
@@ -1092,7 +1198,7 @@ def parse (
 		if not any(start < match.end() and match.start() < end for start, end in claimed)
 	)
 
-	unparsed.extend(digits for _start, _end, digits in hidden)
+	unparsed.extend(token for _start, _end, _words, token in hidden)
 
 	return Capture(
 		title=_titled(text, claimed, hidden),
@@ -1193,12 +1299,19 @@ def _an_unread_date (
 	date is not put on today where one was. *on 29 February 2027 at 9am* raised until the date
 	was reported; reporting it alone would have filed a start of today at nine, a date nobody
 	wrote beside the one they did.
+
+	**And a date written with no preposition at all** (`#3763`, Simon's decision `#3836`).
+	*Dentist 2 October at 3pm* put the time on today with *2 October* left in the title, and said
+	nothing. The word in front of a date says what it is - a start, a deadline, a span - so a
+	bare one is not read, but it is a day the writer named, as a bare weekday is: the time beside
+	it is left as written and said. The cost is a date used as prose, *Review the 2 October
+	release notes at 3pm*, which no longer puts 3pm on today - the weekday rule's trade.
 	"""
 
 	return any(
 		not _overlaps(match.span(), claimed) and not _overlaps(match.span(), reserved)
 		for match in _DATED.finditer(text)
-	)
+	) or _A_WRITTEN_DAY.search(_blanked(text, [*claimed, *reserved])) is not None
 
 
 def _counted_from_when_it_begins (
@@ -2247,6 +2360,13 @@ def _read_phrase (
 		return subroutine.domain.schedule.local_date(
 			subroutine.domain.dates.resolve(lowered, now=now, timezone=timezone), timezone
 		), True
+
+	# **A moment no clock could have written stays in the title too** (`#3766`, decision
+	# `#3837`): an offset outside the range clocks use, or a moment too near the calendar's first
+	# or last day. ``schedule`` refuses both in a field, so handing one on refused the whole line
+	# at the create, or raised from inside :func:`parse` where the phrase set a start.
+	if subroutine.domain.schedule.beyond_every_clock(written) is not None:
+		return None, None
 
 	# Everything else — a §9.3 expression or an ISO value — is handed to `schedule`, which
 	# already knows how to read both and how to infer all-day from the form.

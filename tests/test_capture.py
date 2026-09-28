@@ -2464,64 +2464,196 @@ def test_a_written_year_is_read_with_the_date_it_follows (
 
 
 @pytest.mark.parametrize(
-	("line", "title", "field", "expected", "left"),
+	("line", "left"),
 	[
-		# **A time written as four digits**, which is the case this was filed on.
-		("Standup on 5 March 0930", "Standup 0930", "starts_at", datetime.date(2027, 3, 5), "0930"),
-		("Call on March 5 1230 about it", "Call 1230 about it", "starts_at",
-			datetime.date(2027, 3, 5), "1230"),
-		("Workshop from 2 October 0900 to 1700", "Workshop 0900 to 1700", "snooze",
-			datetime.date(2026, 10, 2), "0900"),
+		# **A time written as four digits**, which is the case the window was drawn for.
+		("Standup on 5 March 0930", "5 March 0930"),
+		("Call on March 5 1230 about it", "March 5 1230"),
+		("Workshop from 2 October 0900 to 1700", "2 October 0900"),
 		# **A quantity**, after a comma or not.
-		("Deliver by 1 March 1500 chairs", "Deliver 1500 chairs", "due", datetime.date(2027, 3, 1),
-			"1500"),
-		("Pay by 1 March, 2500 GBP", "Pay, 2500 GBP", "due", datetime.date(2027, 3, 1), "2500"),
+		("Deliver by 1 March 1500 chairs", "1 March 1500"),
+		("Pay by 1 March, 2500 GBP", "1 March, 2500"),
 		# **Just outside the window**, at either end.
-		("File the return by 31 January 2024", "File the return 2024", "due",
-			datetime.date(2027, 1, 31), "2024"),
-		("Renew the lease by 1 June 2077", "Renew the lease 2077", "due", datetime.date(2027, 6, 1),
-			"2077"),
+		("File the return by 31 January 2024", "31 January 2024"),
+		("Renew the lease by 1 June 2077", "1 June 2077"),
 		# **And the two that were no answer at all**: a 500 after a span, and a parse that raised.
-		("Holiday 2-12 October 9999", "Holiday 9999", "starts_at", datetime.date(2026, 10, 2), "9999"),
-		("Standup on 5 March 0000", "Standup 0000", "starts_at", datetime.date(2027, 3, 5), "0000"),
+		("Holiday 2-12 October 9999", "2-12 October 9999"),
+		("Standup on 5 March 0000", "5 March 0000"),
 	],
 )
-def test_four_digits_that_are_not_a_year_stay_in_the_title_and_are_reported (
-	line: str, title: str, field: str, expected: object, left: str
-) -> None:
-	"""`SR#3579`: any four digits after a written date were taken for its year.
+def test_a_date_whose_year_is_not_one_read_is_left_whole (line: str, left: str) -> None:
+	"""`SR#3809`, decision `SR#3799`: four digits after a written date are always its year.
 
-	*Standup on 5 March 0930* began in the year 930 and *Deliver by 1 March 1500 chairs* was due
-	in the year 1500, both without a word, and *9999* after a span was a 500. **A written year is
-	one from last year to fifty years ahead** (Simon, 2026-09-24): anything else after a date
-	leaves that date to be read as though no year were written, stays in the title, and is
-	reported.
+	One outside the years read - last year to fifty ahead (`SR#3579`) - leaves the whole date
+	in the title with nothing set. It was read as the date's next occurrence with the digits
+	called a time, so *File the return by 31 January 2024* was due on 31 January 2027. **The
+	times and the quantities lose their dates too**, the cost Simon accepted for one rule with no
+	boundary to learn.
 	"""
 
 	read = _parse(line)
 
-	assert read.title == title, f"{line!r} left {read.title!r}"
-	assert getattr(read, field) == expected, f"{line!r} set {field}={getattr(read, field)!r}"
+	assert read.title == line, f"{line!r} left {read.title!r}"
+	assert (read.starts_at, read.ends_at, read.due, read.snooze) == (None, None, None, None), read
 	assert read.unparsed == (left,), read.unparsed
 
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
 
-def test_four_digits_that_are_not_a_year_leave_a_span_a_span () -> None:
-	"""`SR#3762`: hidden where they stood, they cut a span in two and made its start a deferral.
+	assert "so nothing was set" in said or "so neither was set" in said, said
+	assert "a time is read" not in said, f"the year was called a time again: {said}"
 
-	*Trip from 5 March 2024 to 10 March 2024* hid the trip until 2027, with *2024 to 10 March 2024*
-	left in its title - the outcome a span is read to prevent. Blanked rather than hidden, the span
-	reads across them, and they stay in the title and are reported, as after a single date. What
-	they should mean is a question of its own.
+
+def test_the_note_on_a_date_left_whole_for_its_year_names_the_years_read () -> None:
+	"""`SR#3809`: *the answer says which years are read*, where the old note called it a time."""
+
+	said = subroutine.domain.capture.explain(_parse("File the return by 31 January 2024").unparsed)
+
+	assert said == (
+		"Left as written: 31 January 2024 - four digits after a date are its year, and a year is "
+		"read from last year to 50 years ahead, so nothing was set."
+	), said
+
+
+@pytest.mark.parametrize(
+	"line", ["Trip from 5 March 2024 to 10 March 2024", "Trip from 5 March to 10 March 2024"]
+)
+def test_a_span_with_a_year_that_is_not_read_is_left_whole (line: str) -> None:
+	"""`SR#3809`: a span with such a year in it is left whole, both dates in the title.
+
+	`SR#3762` kept it a span by blanking only the digits, so it read as 5 to 10 March 2027 with
+	*2024 2024* left in the title. **Whole, and never half**: a span with one of its days taken
+	made the other a deferral, hiding the trip until 2027 - the outcome a span is read to prevent.
 	"""
 
-	read = _parse("Trip from 5 March 2024 to 10 March 2024")
+	read = _parse(line)
 
 	assert read.snooze is None, f"the span became a deferral until {read.snooze}"
+	assert (read.starts_at, read.ends_at) == (None, None), read
+	assert read.title == line, read.title
+	assert read.unparsed == (line.removeprefix("Trip "),), read.unparsed
+
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert "any year written after a date to be one from last year to 50 years ahead" in said, said
+
+
+@pytest.mark.parametrize(
+	("line", "left"),
+	[
+		("Dentist 2 October at 3pm", "at 3pm"),
+		("Dentist October 2 at 3pm", "at 3pm"),
+		("Dentist 2nd October at 3pm", "at 3pm"),
+		("Dentist 2 October 2027 at 3pm", "at 3pm"),
+		("Dentist at 3pm 2 October", "at 3pm"),
+		("Dentist 2026-10-02 at 3pm", "at 3pm"),
+		("Dentist 2 October at 3pm-4pm", "at 3pm-4pm"),
+		# **A date left whole for its year is a day the writer named too** (`SR#3809`).
+		("Dentist 5 March 2024 at 3pm", "at 3pm"),
+		# **And prose**: a date used in a sentence stops the time as well, the weekday rule's trade.
+		("Review the 2 October release notes at 3pm", "at 3pm"),
+	],
+)
+def test_a_time_beside_a_date_with_no_preposition_sets_nothing (line: str, left: str) -> None:
+	"""`SR#3763`, decision `SR#3836`: *Dentist 2 October at 3pm* started today at 15:00.
+
+	The word before a date says what it is, so a bare date is not read - but it is a day the
+	writer named, as a bare weekday is, and the time beside it went on today with *2 October*
+	left in the title and nothing said. Now nothing is set, the time stays in the title, and the
+	note shows the form that is read.
+	"""
+
+	read = _parse(line)
+
+	assert (read.starts_at, read.ends_at, read.due, read.snooze) == (None, None, None, None), read
+	assert read.title == line, read.title
+	assert left in read.unparsed, read.unparsed
+
+
+def test_a_time_beside_a_date_with_its_preposition_is_still_read () -> None:
+	"""`SR#3763`'s control: *on 2 October at 3pm* is an appointment on 2 October, as it was."""
+
+	read = _parse("Dentist on 2 October at 3pm")
+
+	assert read.starts_at == datetime.datetime(2026, 10, 2, 15, 0), read
+	assert read.title == "Dentist", read.title
+	assert read.unparsed == (), read.unparsed
+
+
+def test_a_span_refused_with_a_weekday_in_it_names_the_weekday_among_its_conditions () -> None:
+	"""`SR#3766`, part 1: *from Friday 2 October to 12 October 2027* reads its first day in 2027.
+
+	That is a Saturday, so the span is refused - rightly, since neither day is guessed - and the
+	sentence listed everything a span needs except the weekday. It lists that too now.
+	"""
+
+	read = _parse("Trip from Friday 2 October to 12 October 2027")
+
+	assert (read.starts_at, read.ends_at) == (None, None), read
+
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert "any weekday written beside a date to fall on it" in said, said
+
+
+def test_an_end_year_the_window_reads_only_from_today_is_still_the_one_written () -> None:
+	"""`SR#3766`, part 2: an end year from 2068 to 2076 was read as counted, not as written.
+
+	The end was read from today and from nine years back, where the window of years read ends at
+	2067, so it answered only once and was taken for a counted year: capture refused the span
+	while ``plan --until`` stored the same words as 2 October 2026 to 12 October 2070.
+	"""
+
+	read = _parse("Trip from 2 October to 12 October 2070")
+
 	assert (read.starts_at, read.ends_at) == (
-		datetime.date(2027, 3, 5), datetime.date(2027, 3, 10)
+		datetime.date(2070, 10, 2), datetime.date(2070, 10, 12)
 	), read
-	assert read.title == "Trip 2024 2024", read.title
-	assert read.unparsed == ("2024", "2024"), read.unparsed
+	assert read.unparsed == (), read.unparsed
+
+
+def test_a_private_use_character_typed_in_a_line_comes_back_as_itself () -> None:
+	"""`SR#3766`, part 3: U+E000 to U+E009 came back as digits, in the title and the tags.
+
+	Capture hid the digits it set aside in those characters and turned every one back into a digit
+	afterwards, so a pasted Nerd Fonts icon became a *1*. `55a23d8` blanks with spaces and hides
+	nothing, which ended it; this holds it.
+	"""
+
+	icons = "".join(chr(0xE000 + offset) for offset in (1, 2, 3))
+	read = _parse(f"Note {icons} here #x{chr(0xE005)}")
+
+	assert read.title == f"Note {icons} here", read.title
+	assert read.tags == (f"x{chr(0xE005)}",), read.tags
+
+
+@pytest.mark.parametrize(
+	("line", "left", "reason"),
+	[
+		("Party on 9999-12-31T23:00-05:00", "9999-12-31T23:00-05:00", "first or last day"),
+		("Party by 9999-12-31T23:00-05:00", "9999-12-31T23:00-05:00", "first or last day"),
+		("Party from 9999-12-31T23:00-05:00", "9999-12-31T23:00-05:00", "first or last day"),
+		("Party on 0001-01-01T01:00+05:00", "0001-01-01T01:00+05:00", "first or last day"),
+		("Party by 0001-01-01T01:00+05:00", "0001-01-01T01:00+05:00", "first or last day"),
+		("Call on 2026-10-02T09:00+23:00", "2026-10-02T09:00+23:00", "from -12:00 to +14:00"),
+		("Call by 2026-10-02T09:00+15:00", "2026-10-02T09:00+15:00", "from -12:00 to +14:00"),
+	],
+)
+def test_a_moment_no_clock_could_have_written_is_left_as_written (
+	line: str, left: str, reason: str
+) -> None:
+	"""`SR#3766`, parts 4 and 5, and decision `SR#3837`.
+
+	An offset carrying a moment off the calendar raised from inside the parse, or answered 500 at
+	the create; an offset no clock uses was taken at its word and moved the moment to another
+	day. Both stay in the title now, and the note says which.
+	"""
+
+	read = _parse(line)
+
+	assert read.title == line, read.title
+	assert (read.starts_at, read.due, read.snooze) == (None, None, None), read
+	assert read.unparsed == (left,), read.unparsed
+	assert reason in (subroutine.domain.capture.explain(read.unparsed) or ""), read.unparsed
 
 
 @pytest.mark.parametrize(

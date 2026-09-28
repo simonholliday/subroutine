@@ -5584,3 +5584,37 @@ def test_every_field_a_date_refusal_names_is_one_a_caller_can_send (
 		f"These refusals name fields PATCH /v1/tasks/{{id_or_ref}} does not accept: "
 		f"{unsendable}. A caller who does what the refusal says gets a second 422."
 	)
+
+
+def test_a_date_field_refuses_a_moment_no_clock_could_have_written (world: World) -> None:
+	"""`SR#3766`, decision `SR#3837`: these answered 500, or were taken at their word.
+
+	Refused on a create and on a change, since both read a field the same way, naming the field.
+	**A captured line keeps its words instead**, as it does with a date the calendar has not got.
+	"""
+
+	for body, field in (
+		({"title": "Party", "due": "9999-12-31T23:00-05:00"}, "due"),
+		({"title": "Call", "starts": "2026-10-02T09:00+23:00"}, "starts"),
+		({"title": "Wait", "snooze": "0001-01-01T01:00+05:00"}, "snooze"),
+	):
+		refused = world.call("POST", "/v1/tasks", json=body)
+
+		assert refused.status_code == 422, refused.text
+		assert [error["field"] for error in refused.json()["errors"]] == [field], refused.text
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Chase the invoice"})
+
+	assert made.status_code == 201, made.text
+
+	changed = world.call(
+		"PATCH", f"/v1/tasks/{made.json()['ref']}", json={"due": "2026-10-02T09:00+15:00"}
+	)
+
+	assert changed.status_code == 422, changed.text
+
+	captured = world.call("POST", "/v1/tasks", json={"text": "Call on 2026-10-02T09:00+23:00"})
+
+	assert captured.status_code == 201, captured.text
+	assert captured.json()["starts_at"] is None, captured.text
+	assert captured.json()["title"] == "Call on 2026-10-02T09:00+23:00", captured.text

@@ -324,6 +324,14 @@ def interpret (
 	)
 	snapped = datetime.datetime.combine(local.date(), moment, tzinfo=local.tzinfo)
 
+	# **A whole day's edge has to be on every clock too** (`#3766`). It is snapped to its first or
+	# last moment where the writer is, so *9999-12-31* as a deadline in New York ends in the year
+	# 10000 in UTC, and in London ends where a reader fourteen hours east cannot show it.
+	if _off_the_calendar(snapped) is not None:
+		shown = value.isoformat() if isinstance(value, datetime.date) else value
+
+		raise _invalid(shown, field, f"{OFF_THE_CALENDAR[0].upper()}{OFF_THE_CALENDAR[1:]}.")
+
 	return Moment(instant=snapped.astimezone(datetime.UTC), is_all_day=True)
 
 
@@ -761,14 +769,31 @@ def _named_with_its_year (
 
 	try:
 		day = interpret_written_day(written, timezone=timezone, now=now, field="ends_at")
+
+	except (subroutine.errors.SubroutineError, OverflowError):
+		return None
+
+	if day is None:
+		return None
+
+	try:
 		earlier = interpret_written_day(
 			written, timezone=timezone, now=now - _FAR_ENOUGH_BACK, field="ends_at"
 		)
 
 	except (subroutine.errors.SubroutineError, OverflowError):
-		return None
+		earlier = None
 
-	return day if day is not None and day == earlier else None
+	# **A year read from today and not from nine years back still names itself** (`#3766`). The
+	# window runs fifty years ahead of the day it is asked on, so from nine years back it ends
+	# nine years sooner: *12 October 2070* was read from today and was no date at all from 2017,
+	# which made its year a counted one - quick capture refused *from 2 October to 12 October
+	# 2070*, and ``plan --until`` stored the same words as 2 October 2026 to 12 October 2070. A
+	# date written with its year is that year's, whichever reading found it.
+	if earlier is None and not subroutine.domain.dates.names_no_year(written):
+		return day
+
+	return day if day == earlier else None
 
 
 def check_span (
@@ -908,6 +933,70 @@ def local_date (instant: datetime.datetime, timezone: str, *, field: str = "date
 	return instant.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
 
 
+#: The offsets clocks use, from UTC-12:00 to UTC+14:00 (`#3766`, decision `#3837`). RFC 3339's
+#: grammar and Python's ``datetime`` allow up to ±23:59, so ``+23:00`` was accepted and moved a
+#: moment to another day without a word. No clock produces one, so a timestamp carrying one is
+#: a mistake rather than a place.
+EARLIEST_OFFSET = datetime.timedelta(hours=-12)
+LATEST_OFFSET = datetime.timedelta(hours=14)
+
+#: Why an offset outside :data:`EARLIEST_OFFSET` to :data:`LATEST_OFFSET` is not taken at its
+#: word: the reason a field's refusal gives, and the one quick capture's note gives.
+OFFSET_RANGE = "an offset runs from -12:00 to +14:00, the range clocks use"
+
+#: Why a moment some clock could not show is not taken at all (`#3766`). Near the calendar's
+#: first or last day an offset carries a moment off it - *9999-12-31T23:00-05:00* is in the
+#: year 10000 in UTC - and whichever conversion met it first raised: a 500 on quick capture and
+#: on every date field an item has.
+OFF_THE_CALENDAR = (
+	"that moment is too near the calendar's first or last day to be shown on every clock"
+)
+
+
+def beyond_every_clock (written: str) -> str | None:
+	"""Return why an ISO moment with an offset is one no clock could have written, or ``None``.
+
+	For quick capture (`#3766`), which hands an ISO value on unread, and so met these only when
+	the create refused the whole line or its own parse raised. A value with no offset of its own
+	names nothing here: it is read in the writer's zone, where :func:`_to_instant` asks.
+	"""
+
+	try:
+		moment = datetime.datetime.fromisoformat(written.strip())
+
+	except ValueError:
+		return None
+
+	if moment.tzinfo is None:
+		return None
+
+	return _outside_the_offsets(moment) or _off_the_calendar(moment)
+
+
+def _outside_the_offsets (moment: datetime.datetime) -> str | None:
+	"""Return :data:`OFFSET_RANGE` where a moment's offset is one no clock uses."""
+
+	offset = moment.utcoffset()
+
+	if offset is None or EARLIEST_OFFSET <= offset <= LATEST_OFFSET:
+		return None
+
+	return OFFSET_RANGE
+
+
+def _off_the_calendar (moment: datetime.datetime) -> str | None:
+	"""Return :data:`OFF_THE_CALENDAR` where some clock could not show a moment."""
+
+	try:
+		for offset in (EARLIEST_OFFSET, LATEST_OFFSET):
+			moment.astimezone(datetime.timezone(offset))
+
+	except OverflowError:
+		return OFF_THE_CALENDAR
+
+	return None
+
+
 def _to_instant (
 	value: datetime.datetime | datetime.date | str,
 	*,
@@ -922,14 +1011,26 @@ def _to_instant (
 	# Checked before `date`, which it subclasses. The other order silently reads every
 	# datetime as a whole day and throws away the time.
 	if isinstance(value, datetime.datetime):
-		aware = value if value.tzinfo is not None else value.replace(tzinfo=zone)
+		found = (value if value.tzinfo is not None else value.replace(tzinfo=zone), False)
 
-		return aware, False
+	elif isinstance(value, datetime.date):
+		found = (datetime.datetime.combine(value, datetime.time.min, tzinfo=zone), True)
 
-	if isinstance(value, datetime.date):
-		return datetime.datetime.combine(value, datetime.time.min, tzinfo=zone), True
+	else:
+		found = _parse(value, zone=zone, timezone=timezone, now=now, field=field)
 
-	return _parse(value, zone=zone, timezone=timezone, now=now, field=field)
+	# **A moment no clock could have written is refused by name** (`#3766`, decision `#3837`):
+	# an offset outside the range clocks use, or a moment too near the calendar's first or last
+	# day for every clock to show it, which raised from whichever conversion met it first. A
+	# zone this program attached is a clock's by construction, so this asks nothing new of it.
+	why = _outside_the_offsets(found[0]) or _off_the_calendar(found[0])
+
+	if why is not None:
+		shown = value.isoformat() if isinstance(value, datetime.date) else value
+
+		raise _invalid(shown, field, f"{why[0].upper()}{why[1:]}.")
+
+	return found
 
 
 def _parse (

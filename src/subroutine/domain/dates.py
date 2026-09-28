@@ -346,6 +346,33 @@ def is_written_date (written: str) -> bool:
 	return _written_parts(written) is not None
 
 
+def is_a_day_of_its_year (written: str) -> bool:
+	"""Report whether ``written`` is a date written with a year, on a day that year has.
+
+	**Whatever the window** (`#3809`). Quick capture leaves a date whole when its year is not one
+	it reads, and its note tells that from a day no calendar has - *29 February 2027*, *31 April
+	2024* - by asking this, since :func:`written_date` answers ``None`` for both.
+	"""
+
+	parts = _written_parts(written)
+
+	if parts is None:
+		return False
+
+	day, month, year = parts
+
+	if year is None:
+		return False
+
+	try:
+		datetime.date(year, month, day)
+
+	except ValueError:
+		return False
+
+	return True
+
+
 def names_no_year (written: str) -> bool:
 	"""Report whether ``written`` is a calendar date written out with no year of its own.
 
