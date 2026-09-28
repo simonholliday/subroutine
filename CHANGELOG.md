@@ -25,6 +25,11 @@ upgrade involves.
   too, and a `-w` and a `--workspace` naming two different workspaces are refused.
 - **Each entry of `subroutine://conventions` names the project it belongs to**, so an agent
   reading what binds it can tell a rule for its own project from one for another.
+- **A write made with a browser's session cookie has to say which page sent it.** A browser
+  sends `Origin` or `Sec-Fetch-Site` with every write, so the browser pages are unaffected; a
+  write from a neighbouring site, or one carrying neither header, is refused and told to use an
+  API token, as agents and the terminal already do. It matters where several instances share
+  one domain, whose pages a browser treats as one site.
 
 ## 0.9.11 — 2026-09-28
 

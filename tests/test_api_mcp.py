@@ -1232,7 +1232,8 @@ def test_a_browser_session_is_not_a_credential_for_this_transport (
 		"POST",
 		subroutine.api.mcp.PATH,
 		content=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
-		headers={"content-type": "application/json"},
+		# The header a browser's own page sends, so this reaches the rule it is here for (`#3016`).
+		headers={"content-type": "application/json", "sec-fetch-site": "same-origin"},
 		cookies={subroutine.api.security.SESSION_COOKIE: cookie},
 	)
 

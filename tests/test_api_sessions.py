@@ -400,6 +400,7 @@ def test_signing_out_clears_the_cookie_under_both_names (
 		application,
 		"DELETE",
 		"/v1/session",
+		headers={"sec-fetch-site": "same-origin"},
 		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 	)
 
@@ -557,7 +558,13 @@ def test_signing_out_revokes_the_session_and_clears_the_cookie (
 	held = _cookie(setup.application, _link(session, setup.user))
 	sent = {subroutine.api.security.SESSION_COOKIE: held}
 
-	answer = api_support.call(setup.application, "DELETE", "/v1/session", cookies=sent)
+	answer = api_support.call(
+		setup.application,
+		"DELETE",
+		"/v1/session",
+		headers={"sec-fetch-site": "same-origin"},
+		cookies=sent,
+	)
 
 	assert answer.status_code == 204
 	assert subroutine.api.security.SESSION_COOKIE in answer.headers["set-cookie"]
@@ -832,14 +839,13 @@ def test_a_page_this_instance_serves_may_write (
 	assert answer.status_code == 200, answer.text
 
 
-def test_a_caller_that_states_no_origin_may_write (
+def test_a_write_that_states_no_origin_but_its_own_site_may_write (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
-	"""**Absent means allow**, and getting that backwards is what would break every caller.
+	"""A browser that leaves ``Origin`` off still says ``Sec-Fetch-Site``, and ``same-origin`` passes.
 
-	Only a browser attaches this header without being asked. A request without one is `curl`, a
-	script or an agent — measured on the MCP surface before this rule was first written, and the
-	same reasoning applies to the same header here.
+	**Absent used to mean allow** on its own, on the reasoning that only a browser attaches the
+	header - which is true of a bearer token's callers and not of a cookie (`#3016`).
 	"""
 
 	application, held = _served(session, setup.user)
@@ -848,10 +854,45 @@ def test_a_caller_that_states_no_origin_may_write (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
+		headers={"sec-fetch-site": "same-origin"},
 		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 	)
 
 	assert answer.status_code == 200, answer.text
+
+
+@pytest.mark.parametrize(
+	("headers", "said"),
+	[
+		({}, "has to say which page sent it"),
+		({"sec-fetch-site": "same-site"}, "(same-site)"),
+		({"sec-fetch-site": "cross-site"}, "(cross-site)"),
+	],
+	ids=["neither header", "another tenant", "another site"],
+)
+def test_a_cookie_write_that_does_not_come_from_this_instance_s_own_page_is_refused (
+	session: sqlalchemy.orm.Session, setup: Setup, headers: dict[str, str], said: str
+) -> None:
+	"""`#3016`: where tenants share a registrable domain, ``SameSite`` cannot tell them apart.
+
+	A neighbouring tenant's page is ``same-site`` to the browser, so the cookie goes with it; and a
+	write naming no page at all is the one request the check cannot vouch for, so it is refused
+	rather than trusted. Each says to use a token instead.
+	"""
+
+	application, held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		headers=headers,
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
+	)
+
+	assert answer.status_code == 403, answer.text
+	assert said in answer.text, answer.text
+	assert "API token" in answer.text, answer.text
 
 
 def test_reading_is_not_restricted_by_where_the_page_was (
@@ -1138,7 +1179,10 @@ def test_confirming_switches_and_ends_the_session_it_replaced (
 		"POST",
 		subroutine.api.sessions.SWITCH,
 		content=f"link={_link(session, other)}",
-		headers={"content-type": subroutine.api.sessions.FORM_ENCODING},
+		headers={
+			"content-type": subroutine.api.sessions.FORM_ENCODING,
+			"sec-fetch-site": "same-origin",
+		},
 		cookies={subroutine.api.security.SESSION_COOKIE: held},
 		follow_redirects=False,
 	)

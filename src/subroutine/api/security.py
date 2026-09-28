@@ -370,6 +370,15 @@ def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None
 	would break a configuration somebody deliberately made. ``*`` is honoured too and gives
 	this up entirely — which it already does for reads, since the middleware is built with
 	``allow_credentials=True``.
+
+	**And a write that names no page at all is refused** (`#3016`, Simon's decision of
+	2026-09-28). An absent ``Origin`` used to pass, on the reasoning that only a browser attaches
+	one - true of a bearer token's callers, which never reach this, and not of a cookie, which
+	only a browser presents, or something replaying one. Where tenants share a registrable
+	domain ``SameSite`` counts them as one site, so where ``Origin`` is absent
+	``Sec-Fetch-Site`` is asked and only ``same-origin`` passes; with neither, the write is
+	refused. ``Origin`` still decides first when it is there, so an origin an operator named in
+	``cors_origins`` goes on working.
 	"""
 
 	settings: subroutine.config.Settings = request.app.state.settings
@@ -380,16 +389,31 @@ def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None
 	answered.add(origin_of(settings.public_url))
 	answered.add(origin_of(str(request.base_url)))
 
-	refuse_an_unanswered_origin(
-		request,
-		allowed=answered,
-		hint=(
-			"A page in a browser sent this write, from somewhere this instance is not served. "
-			"A session cookie is only accepted for a write made by this instance's own pages; "
-			"an API token is not restricted this way and is what a script or an agent should "
-			"send."
-		),
+	refuse_an_unanswered_origin(request, allowed=answered, hint=_A_WRITE_FROM_ELSEWHERE)
+
+	if request.headers.get("origin") is not None:
+		return
+
+	site = request.headers.get("sec-fetch-site")
+
+	if site == "same-origin":
+		return
+
+	raise subroutine.errors.Forbidden(
+		"A write made with a session cookie has to say which page sent it, and this one did not."
+		if site is None
+		else f"A browser sent this write from a page this instance does not serve ({site}).",
+		hint=_A_WRITE_FROM_ELSEWHERE,
 	)
+
+
+#: What a cookie-authenticated write from elsewhere is told, whichever header gave it away.
+_A_WRITE_FROM_ELSEWHERE = (
+	"A page in a browser sent this write, from somewhere this instance is not served. "
+	"A session cookie is only accepted for a write made by this instance's own pages; "
+	"an API token is not restricted this way and is what a script or an agent should "
+	"send."
+)
 
 
 #: Every way of proving identity, tried in order. The first to find a credential of its kind
