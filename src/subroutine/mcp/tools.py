@@ -772,7 +772,7 @@ def _governing (
 		"",
 		kind.obliges,
 		"",
-		*[f"- **#{one.ref}** - {_on_one_line(one.title)}" for one in found],
+		*[f"- **#{one.ref}**{_in_project(one)} - {_on_one_line(one.title)}" for one in found],
 	]
 
 	if cut:
@@ -793,6 +793,20 @@ def _governing (
 		]
 
 	return section, len(found)
+
+
+def _in_project (document: subroutine.views.Document) -> str:
+	"""Return the project an entry belongs to, as it is written after its number - `#3832`.
+
+	**On every entry**, because the index spans every project it is not narrowed from, and an
+	entry that does not say whose rule it is reads as binding everybody who meets it. The path
+	is the one every row of ``GET /v1/documents`` carries; a row without one names nothing,
+	rather than an empty pair of brackets.
+	"""
+
+	path = getattr(document, "project_path", None)
+
+	return f" ({path})" if isinstance(path, str) and path else ""
 
 
 def _on_one_line (title: str) -> str:

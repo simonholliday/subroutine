@@ -23,6 +23,8 @@ upgrade involves.
   `subroutine -w projects token create` pins the token to `projects`, where it used to make one
   for every workspace. `user add`, `user role` and `user remove` take `-w` after the command
   too, and a `-w` and a `--workspace` naming two different workspaces are refused.
+- **Each entry of `subroutine://conventions` names the project it belongs to**, so an agent
+  reading what binds it can tell a rule for its own project from one for another.
 
 ## 0.9.11 — 2026-09-28
 

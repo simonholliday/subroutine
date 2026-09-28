@@ -541,6 +541,24 @@ def test_a_planted_title_cannot_open_a_heading_in_the_conventions () -> None:
 	)
 
 
+def test_every_conventions_entry_names_the_project_it_belongs_to () -> None:
+	"""`#3832`: an index spanning several projects says whose each rule is, on the entry itself."""
+
+	client = _client()
+	client.documents.side_effect = [
+		subroutine.clients.base.Listing(
+			[unittest.mock.MagicMock(ref=47, title="Use tabs", project_path="web/docs")]
+		),
+		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		_listing(0),
+	]
+
+	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
+	text = answer["result"]["contents"][0]["text"]
+
+	assert "- **#47** (web/docs) - Use tabs" in text.splitlines(), text
+
+
 def test_an_empty_conventions_resource_says_why_rather_than_nothing () -> None:
 	"""`#506`, on `#496`'s lesson. **A resource has no second call.**
 
