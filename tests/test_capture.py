@@ -2505,6 +2505,25 @@ def test_four_digits_that_are_not_a_year_stay_in_the_title_and_are_reported (
 	assert read.unparsed == (left,), read.unparsed
 
 
+def test_four_digits_that_are_not_a_year_leave_a_span_a_span () -> None:
+	"""`SR#3762`: hidden where they stood, they cut a span in two and made its start a deferral.
+
+	*Trip from 5 March 2024 to 10 March 2024* hid the trip until 2027, with *2024 to 10 March 2024*
+	left in its title - the outcome a span is read to prevent. Blanked rather than hidden, the span
+	reads across them, and they stay in the title and are reported, as after a single date. What
+	they should mean is a question of its own.
+	"""
+
+	read = _parse("Trip from 5 March 2024 to 10 March 2024")
+
+	assert read.snooze is None, f"the span became a deferral until {read.snooze}"
+	assert (read.starts_at, read.ends_at) == (
+		datetime.date(2027, 3, 5), datetime.date(2027, 3, 10)
+	), read
+	assert read.title == "Trip 2024 2024", read.title
+	assert read.unparsed == ("2024", "2024"), read.unparsed
+
+
 @pytest.mark.parametrize(
 	("text", "start", "end"),
 	[

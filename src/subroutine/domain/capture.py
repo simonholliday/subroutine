@@ -217,12 +217,6 @@ _DATED_DIGITS = re.compile(
 	re.IGNORECASE,
 )
 
-#: What stands in for each digit of four that are not a year while the line is read, and back.
-#: **One character for one**, so every span still indexes the line as written, and characters
-#: from the private use area, which nobody types and no pattern here reads as a digit.
-_STANDING_IN = str.maketrans({str(digit): chr(0xE000 + digit) for digit in range(10)})
-_STOOD_DOWN = str.maketrans({chr(0xE000 + digit): str(digit) for digit in range(10)})
-
 #: ``from 2nd October to 12th October``, ``on Monday until Wednesday``, ``from 2 October -
 #: 12 October``: an opening word, a date, a joint and a date.
 _WORDED_SPAN = re.compile(
@@ -879,17 +873,23 @@ def summarise (capture: Capture) -> str | None:
 	return " ".join(parts) or None
 
 
-def _not_years (text: str, *, today: datetime.date) -> tuple[str, list[str]]:
-	"""Hide every four digits after a written date that are not a year, and return them.
+def _not_years (text: str, *, today: datetime.date) -> tuple[str, list[tuple[int, int, str]]]:
+	"""Blank every four digits after a written date that are not a year, and say where they were.
 
 	**A written year is one from last year to fifty years ahead** (`#3579`, Simon's rule). Read as
 	any four digits, *Standup on 5 March 0930* began in the year 930 and *Deliver by 1 March 1500
 	chairs* was due in the year 1500, both without a word, and *9999* after a span was a 500. What
-	is hidden here is not read by any rule, so the date before it is read as though it had no
-	year, and the digits stay in the title and are reported.
+	is blanked here is not read by any rule, so the date before it is read as though it had no
+	year, and the digits are put back in the title by :func:`_titled` and reported.
+
+	**Blanked to spaces, one for each digit** (`#3762`), so every span still indexes the line as
+	written. They were hidden in characters nobody types, which sat between a date and the joint
+	after it as a word no rule reads: *Trip from 5 March 2024 to 10 March 2024* stopped being a
+	span, and *from 5 March* became the deferral a span is there to prevent, hiding the trip until
+	2027. As spaces, the span reads across them.
 	"""
 
-	hidden: list[str] = []
+	hidden: list[tuple[int, int, str]] = []
 	kept = list(text)
 
 	for match in _DATED_DIGITS.finditer(text):
@@ -897,10 +897,42 @@ def _not_years (text: str, *, today: datetime.date) -> tuple[str, list[str]]:
 			continue
 
 		start, end = match.span("year")
-		kept[start:end] = match["year"].translate(_STANDING_IN)
-		hidden.append(match["year"])
+		kept[start:end] = " " * (end - start)
+		hidden.append((start, end, match["year"]))
 
 	return "".join(kept), hidden
+
+
+def _titled (
+	text: str, claimed: list[tuple[int, int]], hidden: list[tuple[int, int, str]]
+) -> str:
+	"""Return the title, with the digits :func:`_not_years` blanked put back where they were.
+
+	**Never taken by a phrase read across them** (`#3762`): a span claims the line from its
+	opening word to its end, and the digits in its middle are the writer's words, which stay in
+	the title and are reported as they are after a date alone.
+	"""
+
+	written = list(text)
+	kept: list[tuple[int, int]] = []
+
+	for start, end, digits in hidden:
+		written[start:end] = digits
+
+	for claim in claimed:
+		pieces = [claim]
+
+		for start, end, _digits in hidden:
+			pieces = [
+				piece
+				for low, high in pieces
+				for piece in ((low, min(high, start)), (max(low, end), high))
+				if piece[0] < piece[1]
+			]
+
+		kept.extend(pieces)
+
+	return _remaining("".join(written), kept)
 
 
 def parse (
@@ -913,7 +945,7 @@ def parse (
 	"""
 
 	today = subroutine.domain.schedule.local_date(now, timezone)
-	# **Four digits that are not a year are hidden before anything reads the line** (`#3579`), and
+	# **Four digits that are not a year are blanked before anything reads the line** (`#3579`), and
 	# given back at the end - to the title, and to what is reported - so no rule below has to know
 	# which years are years.
 	text, hidden = _not_years(text, today=today)
@@ -1060,17 +1092,13 @@ def parse (
 		if not any(start < match.end() and match.start() < end for start, end in claimed)
 	)
 
-	unparsed.extend(hidden)
-	restored: dict[str, typing.Any] = {
-		name: value.translate(_STOOD_DOWN) if isinstance(value, str) else value
-		for name, value in fields.items()
-	}
+	unparsed.extend(digits for _start, _end, digits in hidden)
 
 	return Capture(
-		title=_remaining(text, claimed).translate(_STOOD_DOWN),
-		tags=tuple(tag.translate(_STOOD_DOWN) for tag in tags),
-		unparsed=tuple(piece.translate(_STOOD_DOWN) for piece in unparsed),
-		**restored,
+		title=_titled(text, claimed, hidden),
+		tags=tuple(tags),
+		unparsed=tuple(unparsed),
+		**fields,
 	)
 
 

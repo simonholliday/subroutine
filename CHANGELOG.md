@@ -152,6 +152,11 @@ upgrade involves.
   `status:done`, `status:draft` - failed in the browser, because the kind that has no such word
   refused it and took the whole listing with it; a saved view on one failed with nothing on the
   page at all. It now lists the kind that has the word, as the terminal and the agent tools do.
+- **A span with a year outside the ones capture reads is still a span.** A year before last
+  year or more than fifty ahead is left as written, and in a span it cut the span in two, so
+  *Trip from 5 March 2024 to 10 March 2024* hid the trip until the next 5 March instead of
+  planning it. The span is read now, and the year stays in the title and is reported, as it is
+  after a single date.
 
 ## 0.9.10 — 2026-09-26
 
