@@ -579,6 +579,15 @@ def _refuse_removing_the_last_workspace (
 
 	model = subroutine.db.models.identity.Workspace
 
+	# **Locked before counting** (`#1178`). Two deletes of the last two workspaces each counted
+	# the other as a survivor, and both went through. Under PostgreSQL's default isolation a
+	# count taken again after the flush still sees the other's row, so only a lock closes it:
+	# every live workspace, so the second caller waits for the first and counts what it left.
+	# SQLite has one writer, and renders no lock at all.
+	session.execute(
+		sqlalchemy.select(model.id).where(model.deleted_at.is_(None)).with_for_update()
+	).all()
+
 	survivors = session.scalars(
 		sqlalchemy.select(model.id).where(
 			model.deleted_at.is_(None), model.id != workspace.id
@@ -978,6 +987,14 @@ def _refuse_leaving_nobody_who_can_administer (
 
 	member = subroutine.db.models.identity.WorkspaceMember
 	role = subroutine.db.models.identity.Role
+	place = subroutine.db.models.identity.Workspace
+
+	# **The workspace is locked before its administrators are counted** (`#1178`), so two
+	# callers each removing or demoting one of the last two cannot each count the other as
+	# staying: the second waits for the first, then counts what it left.
+	session.execute(
+		sqlalchemy.select(place.id).where(place.id == workspace.id).with_for_update()
+	).all()
 
 	# One query for every membership's permissions, not one per membership. The obvious
 	# version of this asks the database once per row and is `#39`'s N+1 on the path of a

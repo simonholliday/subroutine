@@ -390,6 +390,21 @@ def _refuse_deactivating_the_last_administrator (
 		return
 
 	model = subroutine.db.models.identity.User
+
+	# **Every active superuser is locked before the others are counted** (`#1178`), for the
+	# reason the workspace's own rule gives: two deactivations at once each counted the other
+	# as staying. The second waits for the first, then counts what it left.
+	session.execute(
+		sqlalchemy.select(model.id)
+		.where(
+			model.is_superuser.is_(True),
+			model.is_active.is_(True),
+			model.is_service_account.is_(False),
+			model.deleted_at.is_(None),
+		)
+		.with_for_update()
+	).all()
+
 	others = session.scalars(
 		sqlalchemy.select(model.id).where(
 			model.is_superuser.is_(True),

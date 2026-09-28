@@ -30,6 +30,11 @@ upgrade involves.
   write from a neighbouring site, or one carrying neither header, is refused and told to use an
   API token, as agents and the terminal already do. It matters where several instances share
   one domain, whose pages a browser treats as one site.
+- **Two people acting at once can no longer remove the last of something between them.**
+  Deleting the last two workspaces, removing or demoting a workspace's last two administrators,
+  or deactivating the instance's last two superusers could each succeed when done at the same
+  moment, because each counted the other as staying. The second now waits for the first and is
+  refused, as it would be one after the other.
 
 ## 0.9.11 — 2026-09-28
 
