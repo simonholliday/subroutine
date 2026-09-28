@@ -1504,8 +1504,15 @@ def test_a_remote_session_files_where_the_callers_checkout_says (
 	server = tmp_path / "server"
 	checkout.mkdir()
 	server.mkdir()
+	# **With the session's own workspace id beside the name** (`SR#3747`): a marker naming another
+	# workspace speaks for none here, and the id is what a marker written before a rename still has
+	# right, so the name alone can be anything a header has to carry.
 	(checkout / subroutine.directory.FILE_NAME).write_text(
-		(f'workspace = "{workspace}"\n' if workspace else "")
+		(
+			f'workspace_id = "{world.workspace.id}"\nworkspace = "{workspace}"\n'
+			if workspace
+			else ""
+		)
 		+ f'project = "web"\nproject_id = "{web}"\n',
 		encoding="utf-8",
 	)
@@ -1594,6 +1601,83 @@ def test_the_address_names_where_a_write_goes_when_nothing_else_does (
 	assert _filed_under(world, by_checkout) == "web", "the address outranked the checkout"
 	assert _filed_under(world, nowhere) == "inbox"
 	assert "The address names 'nosuch', which is not on this instance. Ignoring it." in nowhere
+
+
+@pytest.mark.parametrize("by_id", [True, False], ids=["by id", "by name alone"])
+def test_a_checkout_marked_for_another_workspace_is_ignored_there (
+	world: test_api_tasks.World, by_id: bool
+) -> None:
+	"""`SR#3747`: a marker names one workspace, and its project is a fact about that one.
+
+	Only the session's workspace was looked in, so a checkout marked for ``team``'s ``web`` missed
+	the id there and matched the session's own ``web`` by key: filed into it, and said to be the
+	checkout's doing. **By name alone** is a marker written before markers carried ids.
+	"""
+
+	here = world.workspace.slug
+	_a_project(world, "web")
+	team = world.call("POST", "/v1/workspaces", json={"slug": "team", "title": "Team"})
+
+	assert team.status_code == 201, team.text
+
+	theirs = world.call(
+		"POST", "/v1/projects", json={"key": "web", "title": "Web", "workspace_id": "team"}
+	)
+
+	assert theirs.status_code == 201, theirs.text
+
+	named = f"workspace_id={team.json()['id']}; " if by_id else ""
+	header = f"{named}workspace=team; project_id={theirs.json()['id']}; project=web"
+	answered = _message(
+		world,
+		json.loads(_adding("Fix the header")),
+		params={"workspace": here},
+		headers={subroutine.directory.HEADER: header},
+	)
+
+	assert answered.status_code == 200, answered.text
+
+	said = str(answered.json()["result"]["content"][0]["text"])
+	ref = said.split("#", 1)[1].split()[0]
+	filed = world.call("GET", f"/v1/tasks/{ref}", params={"workspace_id": here}).json()
+	left = world.call("GET", "/v1/tasks", params={"workspace_id": "team"}).json()
+
+	assert "names the workspace 'team', not the one this session is in. Ignoring it." in said, said
+	assert filed["project_key"] == "inbox", filed
+	assert left["items"] == [], f"the work reached the other workspace's project: {left}"
+
+
+def test_the_conventions_say_the_address_chose_their_project (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3747`: *Narrowed to ops, from `.subroutine` in this checkout*, with no checkout at all.
+
+	The narrowing was credited to the file whichever source had answered, and here the address
+	did - so a reader went looking for a file that is not there.
+	"""
+
+	_a_project(world, "ops")
+	made = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "Deploy on Tuesdays", "type": "decision", "status": "active", "project": "ops"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	read = _message(
+		world,
+		{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "resources/read",
+			"params": {"uri": "subroutine://conventions"},
+		},
+		params={"project": "ops"},
+	)
+	text = str(read.json()["result"]["contents"][0]["text"])
+
+	assert "**Narrowed to ops**, from the address." in text, text
 
 
 def test_a_checkout_sent_for_somewhere_the_caller_cannot_see_files_nowhere_new (

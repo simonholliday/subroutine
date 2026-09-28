@@ -682,13 +682,13 @@ def _conventions (
 		# handlers run on the *server*, so `directory.find()` reads the server's working
 		# directory rather than the reader's — and a narrowing to a project they have never
 		# heard of is then legible on sight instead of looking like a workspace that has decided
-		# very little.
+		# very little. **The source that answered** (`#3747`): this named the checkout even
+		# where the address had chosen, and there was no checkout at all.
 		lines += [
 			"",
-			f"**Narrowed to {chosen.project}**, from `{subroutine.directory.FILE_NAME}` in this",
-			"checkout. Anything in force elsewhere in this workspace - under another project, or",
-			"in the Inbox - is not listed above; `subroutine_list` with a `type` and a `project`",
-			"shows it.",
+			f"**Narrowed to {chosen.project}**, from {chosen.source}. Anything in force elsewhere",
+			"in this workspace - under another project, or in the Inbox - is not listed above;",
+			"`subroutine_list` with a `type` and a `project` shows it.",
 		]
 
 	drafted, more = _drafted(client, meta, workspace, chosen.project)
@@ -3671,6 +3671,10 @@ class _Checkout(typing.NamedTuple):
 	#: one thing and an instance that says another needs to know which won.
 	said: str | None
 
+	#: Where ``project`` came from, as a reader is told it - the checkout's file, or the address
+	#: (`#3747`). The conventions credited the file whichever had answered.
+	source: str | None = None
+
 
 def _checkout (
 	client: subroutine.clients.base.Client,
@@ -3728,13 +3732,19 @@ def _checkout (
 		# project 'SR' here". `#166` settled that the marker is advisory, and resolving also buys
 		# `#177`: a renamed project is followed by id.
 		projects = list(client.projects(workspace=workspace))
-		filed = subroutine.directory.resolve(marker, projects)
+		elsewhere = _elsewhere(client, marker, projects)
+		filed = None if elsewhere else subroutine.directory.resolve(marker, projects)
 
 		if filed is not None:
-			return _Checkout(filed, f"in {filed}, from {subroutine.directory.FILE_NAME}")
+			return _Checkout(
+				filed,
+				f"in {filed}, from {subroutine.directory.FILE_NAME}",
+				f"`{subroutine.directory.FILE_NAME}` in this checkout",
+			)
 
 		ignored.append(
-			f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}, "
+			elsewhere
+			or f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}, "
 			"which is not on this instance. Ignoring it."
 		)
 
@@ -3748,13 +3758,55 @@ def _checkout (
 		filed = subroutine.directory.resolve(named, projects)
 
 		if filed is not None:
-			return _Checkout(filed, " ".join([f"in {filed}, from the address", *ignored]))
+			return _Checkout(
+				filed, " ".join([f"in {filed}, from the address", *ignored]), "the address"
+			)
 
 		ignored.append(
 			f"The address names {standing.project!r}, which is not on this instance. Ignoring it."
 		)
 
 	return _Checkout(None, " ".join(ignored) or None)
+
+
+def _elsewhere (
+	client: subroutine.clients.base.Client,
+	marker: subroutine.directory.Marker,
+	projects: typing.Sequence[typing.Any],
+) -> str | None:
+	"""Return why a marker does not speak for this session's workspace, or ``None`` where it does.
+
+	**A marker names one workspace, and its project is a fact about that one** (`#3747`), which is
+	`#414`'s rule for the connection one level down. Only the session's workspace was looked in,
+	so a checkout marked for ``team``'s ``web``, in a session on ``personal``, missed the id there
+	and matched ``personal``'s own ``web`` by key - filing into it, and saying so as the checkout.
+
+	By id where the marker carries one, and by short name where it was written before it did
+	(`#317`), among the workspaces this caller can reach. A marker naming no workspace predates
+	both, and speaks for whichever answers; so, by default, does one this session's projects
+	cannot place.
+	"""
+
+	here = {str(row.workspace_id) for row in projects}
+
+	if not here or (marker.workspace is None and marker.workspace_id is None):
+		return None
+
+	if marker.workspace_id is not None:
+		ours = marker.workspace_id in here
+
+	else:
+		ours = any(
+			str(row.id) in here and row.slug == marker.workspace for row in client.me().workspaces
+		)
+
+	if ours:
+		return None
+
+	return (
+		f"{subroutine.directory.FILE_NAME} here names the workspace "
+		f"{marker.workspace or marker.workspace_id!r}, not the one this session is in. Ignoring it."
+	)
 
 
 def _added (
