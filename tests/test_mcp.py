@@ -736,6 +736,42 @@ def test_links_are_all_found_before_any_is_withdrawn (
 	)
 
 
+def test_withdrawing_a_link_withdraws_only_the_kind_it_names (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3760`: withdrawing a ``relates_to`` link withdrew a ``blocks`` between the pair too.
+
+	So the blocked item became ready, and the answer said *the link*, as though there had been one.
+	The terminal's ``unlink`` names the kind or refuses to guess, and this does the same now.
+	"""
+
+	blocker = _added(bound, "Fix the build")
+	blocked = _added(bound, "Cut the tag")
+
+	for kind in ("blocks", "relates_to"):
+		assert not _called(bound, "subroutine_link", ref=blocker, type=kind, other=blocked)[1]
+
+	guessed, failed = _called(bound, "subroutine_link", ref=blocker, other=blocked, remove=True)
+
+	assert failed, guessed
+	assert "more than one way" in guessed and "blocks, relates_to" in guessed, guessed
+
+	absent, failed = _called(
+		bound, "subroutine_link", ref=blocker, other=blocked, type="derives_from", remove=True
+	)
+
+	assert failed and "has no 'derives_from' link" in absent, absent
+	assert not _called(
+		bound, "subroutine_link", ref=blocker, other=blocked, type="relates_to", remove=True
+	)[1]
+
+	kept, failed = _called(
+		bound, "subroutine_link", ref=blocker, other=blocked, type="blocks", remove=True
+	)
+
+	assert not failed, f"the blocks link went with the relates_to one: {kept}"
+
+
 def test_an_update_that_was_half_saved_says_which_half (
 	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
 ) -> None:

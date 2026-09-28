@@ -142,6 +142,11 @@ upgrade involves.
 - **A repeat set to end on a date can be completed.** A rule with an end date - an `UNTIL`,
   which the API and `--repeat` accept - was stored, and completing or skipping one of its
   occurrences then failed with a server error. It now ends where it says.
+- **An agent withdrawing a link withdraws that link alone.** `subroutine_link` with `remove`
+  withdrew every link between the two items, whatever kind it named, so taking away a
+  *relates to* also took away a *blocks*, and the blocked item looked ready. It withdraws the
+  kind it is given now, and where two items are joined more than one way and no kind is named,
+  it says which ways rather than guessing - as the terminal's `unlink` does.
 
 ## 0.9.10 — 2026-09-26
 

@@ -4640,6 +4640,12 @@ def _linked (
 
 	# **Every pair is found before any is withdrawn** (`#3592`): one not joined, met after the
 	# first had gone, was refused as though nothing had been.
+	#
+	# **And one link to each, of the kind named** (`#3760`), as the terminal's ``unlink`` does. Every
+	# link between the pair went, of every kind, so withdrawing a ``relates_to`` took a ``blocks``
+	# with it - the blocked item became ready, and the answer said *the link*. Where the pair is
+	# joined more than one way and no kind is named, this says which ways rather than guessing.
+	named = _text(arguments, "type")
 	withdrawing = []
 
 	for ref, kind in zip(refs, kinds_near, strict=True):
@@ -4650,6 +4656,20 @@ def _linked (
 
 			if not joins:
 				raise LookupError(f"#{ref} is not joined to #{one}.")
+
+			if named is not None:
+				joins = [found for found in joins if found.link_type == named]
+
+				if not joins:
+					raise LookupError(f"#{ref} has no {named!r} link to #{one}.")
+
+			if len(joins) > 1:
+				raise LookupError(
+					f"#{ref} is joined to #{one} more than one way, so this would withdraw more than one "
+					"link. Say which with type: "
+					+ ", ".join(sorted({found.link_type for found in joins}))
+					+ "."
+				)
 
 			withdrawing.append((ref, kind, one, joins))
 
