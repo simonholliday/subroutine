@@ -406,7 +406,7 @@ export function Reading ({ reading }) {
 //: same shape — *"a project is named like `+web`"* — as do the agent tool, `/v1/meta`'s
 //: examples and the README. And a `+a/b` here would teach addressing inside the one box whose
 //: workspace is chosen silently, which is `SR#1544`.
-export const CAPTURE_HINT = "Add something - try: Book a dentist appointment tomorrow +inbox !4/3";
+export const CAPTURE_HINT = "Add something - try: Book the dojo tomorrow +inbox !4/3";
 
 //: What the same box asks for when a document is being written. A title, not a captured line:
 //: the grammar is deliberately not applied to it (`#761`).
