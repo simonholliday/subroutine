@@ -24,6 +24,10 @@ a repository - the one prerequisite here that is Claude Code's rather than ours.
 **Then start a fresh Claude Code session and tell it *"we use Subroutine now"*. That sentence is
 the setup.**
 
+---
+
+## Your agent takes it from there
+
 The skill that ships with the plugin has a section for exactly that moment, and its first
 instruction is to **ask only what cannot be undone and state the rest**. So your agent looks for
 an existing project before making one, proposes a key instead of interviewing you about it,
@@ -38,9 +42,9 @@ what follows.
 
 ### Keeping an eye on the work
 
-You will want to see what is happening, though. Run `subroutine serve`, then
-`subroutine login link` for a link that signs your browser in, and leave the browser on a second
-screen.
+You will want to see what is happening, though. Run `subroutine login link` for a link that signs
+your browser in, then `subroutine serve` - which keeps the terminal until you stop it - and open
+the link. Leave the browser on a second screen.
 
 The page refreshes itself every few seconds, so you watch your agent work as it works: items
 appearing as it files them, a card crossing the board as it claims something and starts, a

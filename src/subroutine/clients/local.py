@@ -2331,10 +2331,11 @@ class Client:
 		# no request to take a host from and that inventing "localhost and a port nobody said"
 		# would produce a link that looks right and goes nowhere. That is exactly right behind
 		# a proxy and was applied to every case, including the one the README sends every new
-		# self-hoster down: `subroutine serve`, then `subroutine login link`. **The port was
-		# said.** It is `settings.port`, beside `settings.host` — the same two settings `serve`
-		# binds to and prints back as `Serving on http://127.0.0.1:8471`. Not a guess; the
-		# fact the neighbouring command already computed.
+		# self-hoster down: `subroutine login link`, then `subroutine serve`, in that order
+		# because `serve` keeps the terminal (`#3817`). **The port was said.** It is
+		# `settings.port`, beside `settings.host` — the same two settings `serve` binds to and
+		# prints back as `Serving on http://127.0.0.1:8471`. Not a guess, and nothing has to be
+		# running: the link is made before `serve` starts.
 		#
 		# `config.browsable_url` is where the three-way rule lives, so the refusal that
 		# survives is the one that has to: bound wide with nothing configured, where the host
