@@ -27,21 +27,45 @@ import subroutine.errors
 
 EXPECTED_FIRST_LINE = 'Ready. Try: subroutine add "something to do"'
 
+#: Where a command finds everything it reads and writes: the home and the three XDG directories.
+HOMES = ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+
 
 @pytest.fixture
 def isolated_home (tmp_path: pathlib.Path) -> typing.Iterator[dict[str, str]]:
-	"""Yield an environment pointing XDG at a throwaway directory on local disk.
+	"""Yield an environment pointing the home and XDG at a throwaway directory on local disk.
 
 	Never inside the working tree: this repository lives on a network share where SQLite
 	cannot take a lock, which is the very thing ``init`` refuses to proceed against.
+
+	**The state directory too** (`SR#3787`): it holds the context and the crash reports, and
+	without it a command here read and wrote the developer's own.
 	"""
 
-	config_home = tmp_path / "config"
-	data_home = tmp_path / "data"
-	config_home.mkdir()
-	data_home.mkdir()
+	environment = {"HOME": str(tmp_path)}
 
-	yield {"XDG_CONFIG_HOME": str(config_home), "XDG_DATA_HOME": str(data_home)}
+	for variable, name in zip(HOMES[1:], ("config", "data", "state"), strict=True):
+		directory = tmp_path / name
+		directory.mkdir()
+		environment[variable] = str(directory)
+
+	yield environment
+
+
+def _child (environment: dict[str, str]) -> dict[str, str]:
+	"""Return the whole environment a command here runs in: a search path, and what it was given.
+
+	**It refuses one that leaves the developer's own directories reachable** (`SR#3787`). This
+	passed ``home`` in lower case, so the child had no ``HOME``, and the fixture set no
+	``XDG_STATE_HOME`` - so the state directory, where the context and the crash reports live,
+	fell back through the password database to the developer's own.
+	"""
+
+	missing = [name for name in HOMES if name not in environment]
+
+	assert not missing, f"a command run with no {', '.join(missing)} reaches the developer's own"
+
+	return {"PATH": "/usr/bin:/bin", **environment}
 
 
 def _run (environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -51,9 +75,34 @@ def _run (environment: dict[str, str], *arguments: str) -> subprocess.CompletedP
 		[sys.executable, "-c", "import subroutine.cli.main; subroutine.cli.main.main()", *arguments],
 		capture_output=True,
 		text=True,
-		env={"PATH": "/usr/bin:/bin", "home": str(pathlib.Path.home()), **environment},
+		env=_child(environment),
 		check=False,
 	)
+
+
+def test_a_command_run_here_reaches_none_of_the_developer_s_directories (
+	isolated_home: dict[str, str], tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3787`: every directory a command here reads or writes is this test's own.
+
+	Asked of the child, since the fault was in what the child was handed and nothing in the
+	parent could see it: the state directory resolved to the developer's.
+	"""
+
+	said = subprocess.run(
+		[
+			sys.executable,
+			"-c",
+			"import pathlib, subroutine.config as c; "
+			"print(pathlib.Path.home(), c.config_home(), c.data_home(), c.state_home(), sep='\\n')",
+		],
+		capture_output=True,
+		text=True,
+		env=_child(isolated_home),
+		check=True,
+	).stdout.splitlines()
+
+	assert said and all(pathlib.Path(one).is_relative_to(tmp_path) for one in said), said
 
 
 def test_initialising_creates_everything_a_first_task_needs (
@@ -212,10 +261,7 @@ def test_init_sets_up_in_a_home_a_url_has_to_escape (tmp_path: pathlib.Path, hom
 	stranded by the next release to carry a migration.
 	"""
 
-	environment = {
-		variable: str(tmp_path / home / variable.lower())
-		for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
-	}
+	environment = {variable: str(tmp_path / home / variable.lower()) for variable in HOMES}
 
 	for directory in environment.values():
 		pathlib.Path(directory).mkdir(parents=True)
@@ -339,7 +385,7 @@ def test_an_empty_password_pipe_is_refused (isolated_home: dict[str, str]) -> No
 		input="",
 		capture_output=True,
 		text=True,
-		env={"PATH": "/usr/bin:/bin", "home": str(pathlib.Path.home()), **isolated_home},
+		env=_child(isolated_home),
 		check=False,
 	)
 
@@ -362,7 +408,7 @@ def test_a_supplied_password_is_used (isolated_home: dict[str, str]) -> None:
 		input="a decent passphrase\n",
 		capture_output=True,
 		text=True,
-		env={"PATH": "/usr/bin:/bin", "home": str(pathlib.Path.home()), **isolated_home},
+		env=_child(isolated_home),
 		check=False,
 	)
 
