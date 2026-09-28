@@ -51,6 +51,7 @@ import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
@@ -625,13 +626,38 @@ def test_a_document_moved_and_revised_in_one_call_is_both (
 	assert "Less." in _called(bound, "subroutine_show", ref=stale)[0]
 
 
+#: A later request's refusal of each shape (`SR#3756`): a busy database's, which takes the base
+#: constructor, and three that each take one of their own.
+_REFUSED_LATER: dict[str, typing.Callable[[], subroutine.errors.SubroutineError]] = {
+	"busy": lambda: subroutine.errors.DatabaseBusy(
+		"The database was busy: another connection was writing to it.",
+		hint="This request changed nothing. Try it again - a busy database clears on its own.",
+	),
+	"narrowed": lambda: subroutine.domain.authorization.AuthorizationError(
+		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
+		permission="task:write",
+	),
+	"private": lambda: subroutine.domain.authorization.ProjectNotVisible(
+		permission="task:write", workspace_id=uuid.uuid4()
+	),
+	"unaccepted": lambda: subroutine.domain.authentication.AuthenticationError(
+		subroutine.domain.authentication.AuthenticationFailure.REVOKED, prefix="sr_abc123"
+	),
+}
+
+
+@pytest.mark.parametrize("refusal", sorted(_REFUSED_LATER))
 def test_links_made_before_a_refusal_are_named_by_it (
-	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch, refusal: str
 ) -> None:
 	"""`SR#3592`: several links are a request each, and a busy refusal spoke for all of them.
 
 	*This request changed nothing* is true of the refused link and was read as true of the call,
 	while the first link stood. Both directions, since withdrawing is a request per link too.
+
+	**Whatever the refusal** (`SR#3756`). Three take a constructor of their own, and rebuilding
+	them to say what stood raised ``TypeError`` instead - the ordinary refusal of a narrowed agent
+	credential among them, whose own advice about what is missing is kept.
 	"""
 
 	blocker = _added(bound, "Fix the build")
@@ -650,9 +676,7 @@ def test_links_made_before_a_refusal_are_named_by_it (
 			asked.append(original.__name__)
 
 			if asked.count(original.__name__) == 2:
-				raise subroutine.errors.DatabaseBusy(
-					"The database was busy: another connection was writing to it."
-				)
+				raise _REFUSED_LATER[refusal]()
 
 			return original(self, **keywords)
 
@@ -667,6 +691,12 @@ def test_links_made_before_a_refusal_are_named_by_it (
 	assert failed, made
 	assert "1 of 2 went through first" in made, made
 	assert f"#{first}" in made, made
+
+	if refusal == "narrowed":
+		assert "Use a token that includes" in made, f"the credential's own advice was lost: {made}"
+
+	if refusal == "busy":
+		assert "Try it again" not in made, f"a retry would repeat what was saved: {made}"
 
 	monkeypatch.setattr(subroutine.clients.local.Client, "link", linking)
 	assert not _called(bound, "subroutine_link", ref=blocker, type="blocks", other=second)[1]

@@ -517,6 +517,12 @@ class ServiceUnavailable(SubroutineError):
 	CODE = "service_unavailable"
 
 
+#: The refusals whose own hint is to try the same request again (`#3756`): a busy database, an
+#: instance not yet serving, and a caller going too fast. Once part of an act is saved, trying
+#: again would repeat that part, so their hint gives way to the caller's.
+_TRY_AGAIN = frozenset({429, 503})
+
+
 def after_saving (done: str, refused: SubroutineError, *, hint: str) -> SubroutineError:
 	"""Return ``refused``, opening with what earlier requests had already saved - `#3592`.
 
@@ -525,17 +531,32 @@ def after_saving (done: str, refused: SubroutineError, *, hint: str) -> Subrouti
 	act is several requests and a later one is refused, what the earlier ones saved comes first,
 	and the rest is the refusal as it came: its kind, its code and its fields.
 
-	**The hint is replaced rather than kept**, because *try it again* would now repeat what was
-	saved.
+	**The caller's hint comes first, and the refusal's own follows it unless it says to try
+	again** (`#3756`). *Try it again* would now repeat what was saved, so a busy database's goes;
+	a narrowed credential's says what is missing, and without it *ask again for the rest* was
+	advice the next request would be refused for too.
+
+	**Rebuilt through the base constructor, never the refusal's own** (`#3756`). A narrowed
+	credential's refusal, a private project's and an unaccepted token's each take a constructor of
+	their own, so calling their class with the base's arguments raised ``TypeError`` - the answer
+	named neither what stood nor what was refused. What each carries of its own comes across as
+	it was.
 	"""
 
-	return type(refused)(
+	own = refused.hint if refused.hint and refused.status not in _TRY_AGAIN else None
+	rebuilt = type(refused).__new__(type(refused))
+	rebuilt.__dict__.update(vars(refused))
+
+	SubroutineError.__init__(
+		rebuilt,
 		f"{done} {refused.detail}",
 		code=refused.code,
 		errors=refused.errors,
-		hint=hint,
+		hint=hint if own is None else f"{hint} {own}",
 		extensions=refused.extensions,
 	)
+
+	return rebuilt
 
 
 def no_instance_yet () -> "ServiceUnavailable":

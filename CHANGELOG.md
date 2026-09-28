@@ -130,6 +130,11 @@ upgrade involves.
 - **Choosing a tab or a saved view says so when the page cannot be read.** A tab, a saved view,
   *Show everything* and *None* said nothing when the instance refused the read behind them: the
   address changed and the page did not. Each now says the page could not be shown, and why.
+- **An agent refused part-way through a change is told what stood and why the rest was
+  refused.** Where one request of several was refused for a permission - the usual refusal of
+  an agent's narrowed credential - the answer was a Python error naming neither, while the
+  first part stood; and `done --because` refused the comment the same way and ended in a crash
+  report. The answer now says what was saved and gives the refusal with its own advice.
 
 ## 0.9.10 — 2026-09-26
 

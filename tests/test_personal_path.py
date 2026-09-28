@@ -47,6 +47,7 @@ import subroutine.db.models.work
 import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
+import subroutine.domain.authorization
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
@@ -13752,28 +13753,41 @@ def test_a_view_runs_in_the_workspace_it_was_saved_in (
 	assert "at home" not in worded, f"the view reached a workspace it was not saved in: {worded}"
 
 
+@pytest.mark.parametrize("narrowed", [False, True], ids=["busy", "narrowed"])
 def test_a_reason_refused_after_the_act_says_the_act_stands (
-	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	narrowed: bool,
 ) -> None:
 	"""`SR#3592`: ``done --because`` finishes the item, then writes why, as two requests.
 
 	A busy database on the second said *this request changed nothing*, the reason was lost, and a
 	retry said *Already done*. **The command it suggests is run**, since a reason is prose and a
 	shell is where it breaks.
+
+	**And a credential without ``comment:write``** (`SR#3756`), whose refusal takes a constructor
+	of its own: rebuilding it raised ``TypeError``, and the command ended in a crash report with
+	the item done and the reason lost.
 	"""
 
 	run("init")
 	run("add", "Pay the gas bill")
 
-	def busy (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
-		"""Refuse as a busy database does, whatever was asked."""
+	def refused (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Refuse as a busy database does, or as a credential without the permission does."""
+
+		if narrowed:
+			raise subroutine.domain.authorization.AuthorizationError(
+				subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
+				permission="comment:write",
+			)
 
 		raise subroutine.errors.DatabaseBusy(
 			"The database was busy: another connection was writing to it."
 		)
 
 	remarking = subroutine.clients.local.Client.remark
-	monkeypatch.setattr(subroutine.clients.local.Client, "remark", busy)
+	monkeypatch.setattr(subroutine.clients.local.Client, "remark", refused)
 
 	said = " ".join(run("done", "1", "--because", "paid it by phone", expect=1).output.split())
 
