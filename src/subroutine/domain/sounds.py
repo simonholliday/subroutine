@@ -162,9 +162,15 @@ def _composed (session: sqlalchemy.orm.Session) -> None:
 	**Nothing here may change how a failing write fails.** Asking the database anything flushes
 	what is pending first, and a flush can fail - a duplicate, a missing row - so a lookup made
 	inside the guard below would swallow the write's own error, and the commit would then report
-	a different one. So the settings are read without flushing, and only where a workspace sends
-	is the flush done here, outside the guard: the flush the commit was about to make anyway,
-	failing with its own error exactly as it would have there.
+	a different one. So the flush is done first, outside every guard: the flush the commit was
+	about to make anyway, failing with its own error exactly as it would have there.
+
+	**And nothing here may undo the write** (`#3757`). On PostgreSQL a failed statement ends the
+	whole transaction, so a read failing under the guard - a lock held past the statement timeout
+	- turned the commit into a rollback, and the guard had swallowed the reason: the request
+	answered 201 for a row that was never kept. Each guarded read runs in a savepoint now, which a
+	failure rolls back alone. That costs a SAVEPOINT and a RELEASE per workspace, on a commit that
+	records something.
 	"""
 
 	pending: list[subroutine.db.models.activity.Event] | None = session.info.pop(PENDING, None)
@@ -179,30 +185,28 @@ def _composed (session: sqlalchemy.orm.Session) -> None:
 	for event in pending:
 		by_workspace[event.workspace_id].append(event)
 
-	sending: list[tuple[list[subroutine.db.models.activity.Event], tuple[str, int, bool]]] = []
-
-	with session.no_autoflush:
-		for workspace_id, events in by_workspace.items():
-			# **One workspace's trouble is its own**: a destination that no longer reads drops
-			# that workspace's messages and leaves the commit alone.
-			with contextlib.suppress(Exception):
-				found = _destination(session, workspace_id)
-
-				if found is not None:
-					sending.append((events, found))
-
-	if not sending:
-		return
-
+	# **Before any savepoint**, since opening one flushes what is pending: inside the guard, a
+	# failing write's error would be swallowed there and the commit would report the transaction
+	# inactive instead of what went wrong.
 	session.flush()
 
-	with session.no_autoflush:
-		for events, (host, port, titles) in sending:
-			# An event this cannot describe drops its workspace's messages, and nothing else.
-			with contextlib.suppress(Exception):
-				session.info.setdefault(READY, []).extend(
-					_datagrams(session, events, host=host, port=port, titles=titles)
-				)
+	sending: list[tuple[list[subroutine.db.models.activity.Event], tuple[str, int, bool]]] = []
+
+	for workspace_id, events in by_workspace.items():
+		# **One workspace's trouble is its own**: a destination that no longer reads drops that
+		# workspace's messages and leaves the commit alone.
+		with contextlib.suppress(Exception), session.begin_nested():
+			found = _destination(session, workspace_id)
+
+			if found is not None:
+				sending.append((events, found))
+
+	for events, (host, port, titles) in sending:
+		# An event this cannot describe drops its workspace's messages, and nothing else.
+		with contextlib.suppress(Exception), session.begin_nested():
+			session.info.setdefault(READY, []).extend(
+				_datagrams(session, events, host=host, port=port, titles=titles)
+			)
 
 
 def _destination (

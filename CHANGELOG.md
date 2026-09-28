@@ -135,6 +135,10 @@ upgrade involves.
   an agent's narrowed credential - the answer was a Python error naming neither, while the
   first part stood; and `done --because` refused the comment the same way and ended in a crash
   report. The answer now says what was saved and gives the refusal with its own advice.
+- **A write on PostgreSQL is kept whatever happens while its OSC messages are prepared.** Every
+  write looks up whether its workspace sends any, and a lookup that failed there - a table
+  locked past the statement timeout, say - silently undid the write it came with, while the
+  request still answered that it had saved. Such a failure now costs the messages alone.
 
 ## 0.9.10 — 2026-09-26
 

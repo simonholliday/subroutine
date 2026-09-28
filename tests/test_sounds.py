@@ -19,13 +19,19 @@ import typing
 import uuid
 
 import pytest
+import sqlalchemy
+import sqlalchemy.engine
 import sqlalchemy.exc
 import sqlalchemy.orm
 
+import conftest
+import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.db.session
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.domain.comments
 import subroutine.domain.events
 import subroutine.domain.links
@@ -382,6 +388,85 @@ def test_a_sender_that_fails_after_the_commit_leaves_the_write_committed (
 	world.session.commit()
 
 	assert world.session.get(subroutine.db.models.work.Task, task.id) is not None
+
+
+@pytest.fixture(params=["sqlite", "postgresql"])
+def committing (
+	request: pytest.FixtureRequest, tmp_path: pathlib.Path
+) -> typing.Iterator[sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session]]:
+	"""Yield sessions on a database of their own, whose commits are real (`SR#3757`).
+
+	The suite's own session commits into a savepoint of a transaction it never ends, so a commit
+	PostgreSQL had turned into a rollback failed loudly there, where a real one passes in silence -
+	which is how the loss below went unseen by every test.
+	"""
+
+	if request.param == "sqlite":
+		url = f"sqlite:///{tmp_path / 'committing.db'}"
+		admin = None
+		name = None
+
+	else:
+		admin_url = request.getfixturevalue("postgres_url")
+		name = conftest.throwaway_name("sounds")
+		admin = sqlalchemy.create_engine(
+			sqlalchemy.engine.make_url(admin_url).set(database="postgres"), isolation_level="AUTOCOMMIT"
+		)
+
+		with admin.connect() as connection:
+			connection.execute(sqlalchemy.text(f'CREATE DATABASE "{name}"'))
+
+		url = conftest.with_database(admin_url, name)
+
+	subroutine.db.migrate.upgrade(url)
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		yield subroutine.db.session.create_session_factory(engine)
+
+	finally:
+		engine.dispose()
+
+		if admin is not None:
+			with admin.connect() as connection:
+				connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+			admin.dispose()
+
+
+def test_a_read_that_fails_while_composing_leaves_the_write (
+	committing: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3757`: on PostgreSQL a failed statement ends the transaction, and the guard hid it.
+
+	So a lookup failing while the messages were composed turned the commit into a rollback: the
+	request answered 201 with a ref for a row that was never kept. It fails here in the lookup
+	every write makes, whether or not its workspace sends, and the row has to be there after.
+	"""
+
+	with committing() as setup:
+		made = subroutine.domain.bootstrap.initialise(setup, username="si", instance_name="Test")
+		inbox_id = made.inbox.id
+		setup.commit()
+
+	def failing (session: sqlalchemy.orm.Session, _workspace_id: uuid.UUID) -> None:
+		"""Fail as a read does when the database refuses it."""
+
+		session.execute(sqlalchemy.text("SELECT * FROM no_such_table"))
+
+	monkeypatch.setattr(subroutine.domain.sounds, "_destination", failing)
+
+	with committing() as writing:
+		project = writing.get(subroutine.db.models.project.Project, inbox_id)
+
+		assert project is not None
+
+		task = subroutine.domain.tasks.create(writing, project=project, title="Kept whatever happens")
+		kept = task.id
+		writing.commit()
+
+	with committing() as reading:
+		assert reading.get(subroutine.db.models.work.Task, kept) is not None, "the write was undone"
 
 
 @pytest.mark.parametrize("sends", [True, False], ids=["sends", "sends-nothing"])
