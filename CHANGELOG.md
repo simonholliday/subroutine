@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased
+## 0.9.11 — 2026-09-28
 
 - **Subroutine now needs SQLAlchemy 2.1.1 or later**, and upgrading brings it. Two things read
   differently under it. A `database_url` of plain `postgresql://…`, which names no driver, now
