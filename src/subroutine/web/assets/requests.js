@@ -1740,6 +1740,24 @@ export function deferralOnly (values, opened) {
 /* The controls a deferral is made of: the day, and the time on it. */
 const DEFERRAL = ["snooze", "snooze_time"];
 
+function zoneRead (item) {
+	/*
+		The zone the form read an item's dates in, which every save names - `#3755`.
+
+		**`fromItem` reads every date in the item's own zone** (`#773`), and in UTC for an item
+		with none, as `calendarDay` and `localMoment` do, while a bare time sent back is read in the
+		*saver's* zone (`tasks.update`, `#1014`). So a title fixed from New York moved a London
+		11:00 appointment to 16:00 and answered 200, and the page, which draws times in the item's
+		zone, went on saying 11:00. Naming the zone keeps every date where it was, and a time the
+		reader changes lands where the form showed it.
+
+		**On every save, not only one carrying a date.** A date the form shows empty is sent as
+		`null`, which the instance counts as a date sent, so a save naming no zone relabelled an
+		undated item with the saver's - and a time added to it later was read on that clock.
+	*/
+	return (item || {}).timezone || "UTC";
+}
+
 export function edited (values, item, appliesTo = null, opened = null) {
 	/*
 		What an edit becomes on the wire — pure, and **the opposite rule from `filed`**.
@@ -1760,6 +1778,9 @@ export function edited (values, item, appliesTo = null, opened = null) {
 		answers needs `applies_to`, which a deferral is never asked for. `deferralOnly` decides it
 		against `opened`, what the form held when it opened, and never against the server's values.
 
+		**Either body names the zone its dates were read in** (`#3755`), which `zoneRead` gives: a
+		bare time is otherwise read in the saver's zone, so every save from somewhere else moved them.
+
 		**`title`, `status`, `type` and `project` are never nulled.** A task must have all four,
 		the controls always hold one, and `null` would mean *clear it* to a route that cannot.
 
@@ -1776,10 +1797,14 @@ export function edited (values, item, appliesTo = null, opened = null) {
 	};
 
 	if (!appliesTo && repeats(item) && deferralOnly(values, opened)) {
-		return { expected_version: (item || {}).version, snooze: dateSaid(said, "snooze") || null };
+		return {
+			expected_version: (item || {}).version,
+			snooze: dateSaid(said, "snooze") || null,
+			timezone: zoneRead(item),
+		};
 	}
 
-	const body = { expected_version: (item || {}).version };
+	const body = { expected_version: (item || {}).version, timezone: zoneRead(item) };
 
 	/*
 		**Which occurrences this save is for** (decision `#1249`, `#1252`). Sent only when

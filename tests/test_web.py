@@ -51,6 +51,7 @@ import subroutine.config
 import subroutine.db.mixins
 import subroutine.db.models.saved
 import subroutine.db.models.system
+import subroutine.db.models.work
 import subroutine.db.seed
 import subroutine.domain.agenda
 import subroutine.domain.authentication
@@ -5092,11 +5093,143 @@ def test_a_deferral_alone_on_a_repeating_item_is_sent_alone (tmp_path: pathlib.P
 	])
 
 	assert alone is True
-	assert sent == {"expected_version": 7, "snooze": "2026-10-02"}, sent
+	# **With the zone its day was read in** (`SR#3755`), as every body carrying a date has.
+	assert sent == {"expected_version": 7, "snooze": "2026-10-02", "timezone": "Etc/UTC"}, sent
 	assert "title" in whole, "an item that does not repeat is never asked, so its save is unchanged"
 	assert both is False, "a title changed beside it, which a series is asked about"
 	assert untouched is False, "nothing moved, so there is no deferral to send"
 	assert forgot is False, "without what the form opened with, nothing can be told apart"
+
+
+def _saved_from_elsewhere (
+	session: sqlalchemy.orm.Session,
+	tmp_path: pathlib.Path,
+	written: dict[str, str],
+	change: dict[str, str],
+	*,
+	zone: str | None = "Europe/London",
+) -> tuple[dict[str, typing.Any], dict[str, typing.Any], httpx.Response]:
+	"""Write an item in London, then save ``change`` to it through the edit form from New York.
+
+	**The form's own body, sent to the application** (`SR#3755`): ``fromItem`` fills the controls
+	from the item as the instance reports it and ``edited`` builds what a save sends, while the
+	reader's account is in New York - the zone the instance reads a bare time in. ``zone`` is put
+	in the item's column first, as a row written before a rule may hold something else there.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.user.timezone = "Europe/London"
+	session.flush()
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Dentist", **written})
+
+	assert made.status_code == 201, made.text
+
+	row = session.get(subroutine.db.models.work.Task, uuid.UUID(made.json()["id"]))
+
+	assert row is not None
+
+	row.timezone = zone
+	world.user.timezone = "America/New_York"
+	session.flush()
+
+	item = world.call("GET", f"/v1/tasks/{made.json()['ref']}").json()
+	[opened] = _views(tmp_path, [("fromItem", {"item": item})])
+	opened = {**opened, "title": item["title"]}
+	[body] = _views(
+		tmp_path, [("edited", {"item": item, "values": {**opened, **change}, "opened": opened})]
+	)
+
+	return item, body, world.call("PATCH", f"/v1/tasks/{item['ref']}", json=body)
+
+
+@pytest.mark.parametrize(
+	("written", "zone"),
+	[
+		({"starts": "2026-10-05T11:00", "ends": "2026-10-05T11:15"}, "Europe/London"),
+		({"due": "2026-10-05T17:00"}, "Europe/London"),
+		({"snooze": "2026-10-04T09:00"}, "Europe/London"),
+		({"starts": "2026-10-05", "ends": "2026-10-07"}, "Europe/London"),
+		({"starts": "2026-10-05T11:00", "ends": "2026-10-05T11:15"}, None),
+		({}, "Europe/London"),
+	],
+	ids=["an appointment", "a timed deadline", "a timed deferral", "whole days", "no zone", "no date"],
+)
+def test_a_title_fixed_from_another_zone_moves_no_date (
+	session: sqlalchemy.orm.Session,
+	tmp_path: pathlib.Path,
+	written: dict[str, str],
+	zone: str | None,
+) -> None:
+	"""`SR#3755`: fixing a typo from New York moved a London appointment five hours.
+
+	The form sends every date back on every save, as the bare wall-clock time it showed, and the
+	instance read a bare time in the saver's zone - so the save answered 200, and the page, which
+	draws times in the item's zone, went on saying 11:00. An item with no zone moved too, having
+	been shown in UTC, and one with no date was relabelled with the saver's zone - the form sends
+	its empty dates as `null`, which counts as sending them - so a time added later was read on
+	the saver's clock. Every save names the zone the form read its dates in now.
+	"""
+
+	item, body, saved = _saved_from_elsewhere(
+		session, tmp_path, written, {"title": "Dentist (typo fixed)"}, zone=zone
+	)
+
+	assert saved.status_code == 200, saved.text
+	assert body["timezone"] == (zone or "UTC"), body
+
+	after = saved.json()
+	moved = {
+		name: (item[name], after[name])
+		for name in ("starts_at", "ends_at", "due_at", "snoozed_until")
+		if after[name] != item[name]
+	}
+
+	assert moved == {}, f"a title change moved {moved}"
+	assert after["timezone"] == (zone or "UTC"), "the item was relabelled with the saver's zone"
+
+
+def test_a_time_changed_from_another_zone_lands_where_the_form_showed_it (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3755`: the form shows a London appointment on London's clock, whoever opens it.
+
+	So 12:00 typed over its 11:00 means noon in London, and it was stored at noon in New York.
+	"""
+
+	_item, _body, saved = _saved_from_elsewhere(
+		session,
+		tmp_path,
+		{"starts": "2026-10-05T11:00", "ends": "2026-10-05T11:15"},
+		{"starts_time": "12:00", "ends_time": "12:15"},
+	)
+
+	assert saved.status_code == 200, saved.text
+	assert (saved.json()["starts_at"], saved.json()["ends_at"]) == (
+		"2026-10-05T11:00:00Z", "2026-10-05T11:15:00Z"
+	), "noon as the form showed it is 11:00 UTC in London's summer time"
+
+
+def test_a_deferral_alone_from_another_zone_lands_where_the_form_showed_it (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3755`'s second site: a deferral alone on a repeating item goes by itself (`SR#3705`).
+
+	It sent its day and time with no zone either, so 09:00 typed on a London stand-up landed at
+	14:00 London, and the occurrence was relabelled New York.
+	"""
+
+	_item, body, saved = _saved_from_elsewhere(
+		session,
+		tmp_path,
+		{"starts": "2026-10-05T11:00", "recurrence": "every monday"},
+		{"snooze": "2026-10-04", "snooze_time": "09:00"},
+	)
+
+	assert set(body) == {"expected_version", "snooze", "timezone"}, body
+	assert saved.status_code == 200, saved.text
+	assert saved.json()["snoozed_until"] == "2026-10-04T08:00:00Z", saved.json()["snoozed_until"]
+	assert saved.json()["timezone"] == "Europe/London"
 
 
 def test_an_edit_clears_what_a_creation_would_omit (tmp_path: pathlib.Path) -> None:

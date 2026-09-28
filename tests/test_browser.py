@@ -3090,8 +3090,9 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 
 		assert page.locator(".asking").count() == 0, "a deferral was asked which occurrences"
 		assert deferred, f"the deferral was not saved: {written}"
-		# **The version rides along where the item has one**, and this harness's card has none.
-		assert set(deferred[0]) - {"expected_version"} == {"snooze"}, deferred
+		# **The version rides along where the item has one**, and this harness's card has none;
+		# and the zone its day was read in, as every body carrying a date has (`SR#3755`).
+		assert set(deferred[0]) - {"expected_version"} == {"snooze", "timezone"}, deferred
 
 	finally:
 		repeating[0] = False

@@ -113,6 +113,13 @@ upgrade involves.
   backup up to date. Under SQLAlchemy 2.1 the default database's address holds one too,
   wherever its path has a letter outside ASCII or a character such as `'` or `@`, as in the home
   of an account named `josé`, so this is also what lets `init` set up there.
+- **Saving an item in the browser no longer moves its dates when you are in another time
+  zone.** The edit form shows an item's dates on the item's own clock and sends every one back
+  with each save, and the instance read them on the clock of whoever saved - so a colleague in
+  New York who fixed a typo in a London appointment moved it five hours, and every one after it
+  when the item repeated, while the page went on showing the same time. The form now says which
+  clock its dates are on, so they stay where they were, and a time you change lands where the
+  form showed it.
 
 ## 0.9.10 — 2026-09-26
 

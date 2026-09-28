@@ -1760,9 +1760,11 @@ def update (
 	# instant would land inside the reader's day while rendering, which reads the stored zone
 	# (`#773`), went on naming a different one.
 	#
-	# **Only when a date actually moved.** A caller editing a title from another zone has
-	# authored no date, and rewriting the column on their way past would silently re-render
-	# every date on the task.
+	# **Only when a date is sent - changed, unchanged or `null`.** A caller editing a title from
+	# another zone through the API has authored no date, and rewriting the column on their way
+	# past would silently re-render every date on the task. The browser's edit form sends every
+	# date on every save, so it names the zone it read them in (`#3755`), and a save from there
+	# relabels nothing.
 	#
 	# The cost, which is real and pre-existing: one column serves three date fields, so
 	# re-dating one of them re-renders the other two. A per-field zone is a schema change and
