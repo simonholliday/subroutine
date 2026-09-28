@@ -562,6 +562,11 @@ def for_restore (
 	)
 
 
+#: What PostgreSQL serialises the count of live workspaces on (`#3899`): a key no other lock here
+#: takes, so a delete waits only for another delete.
+_LAST_WORKSPACE = 1_178_001
+
+
 def _refuse_removing_the_last_workspace (
 	session: sqlalchemy.orm.Session, workspace: subroutine.db.models.identity.Workspace
 ) -> None:
@@ -579,14 +584,23 @@ def _refuse_removing_the_last_workspace (
 
 	model = subroutine.db.models.identity.Workspace
 
-	# **Locked before counting** (`#1178`). Two deletes of the last two workspaces each counted
-	# the other as a survivor, and both went through. Under PostgreSQL's default isolation a
-	# count taken again after the flush still sees the other's row, so only a lock closes it:
-	# every live workspace, so the second caller waits for the first and counts what it left.
-	# SQLite has one writer, and renders no lock at all.
-	session.execute(
-		sqlalchemy.select(model.id).where(model.deleted_at.is_(None)).with_for_update()
-	).all()
+	# **One caller at a time counts what is left** (`#1178`). Two deletes of the last two
+	# workspaces each counted the other as a survivor, and both went through, so the second has to
+	# wait for the first and count what it left. **On PostgreSQL, a lock nothing else takes**
+	# (`#3899`): locking every live workspace held up filing in all of them while one was deleted,
+	# since filing writes its workspace's counter. **On SQLite, a write that changes nothing**:
+	# SQLite renders no lock for a read, and a writer there holds its one lock only from its first
+	# write, so two callers that counted first both went through.
+	if session.get_bind().dialect.name == "postgresql":
+		session.execute(sqlalchemy.select(sqlalchemy.func.pg_advisory_xact_lock(_LAST_WORKSPACE)))
+
+	else:
+		session.execute(
+			sqlalchemy.update(model)
+			.where(model.id == workspace.id)
+			.values(updated_at=model.updated_at)
+			.execution_options(synchronize_session=False)
+		)
 
 	survivors = session.scalars(
 		sqlalchemy.select(model.id).where(
@@ -991,10 +1005,17 @@ def _refuse_leaving_nobody_who_can_administer (
 
 	# **The workspace is locked before its administrators are counted** (`#1178`), so two
 	# callers each removing or demoting one of the last two cannot each count the other as
-	# staying: the second waits for the first, then counts what it left.
+	# staying: the second waits for the first, then counts what it left. **By a write that
+	# changes nothing** (`#3899`), which takes SQLite's one writer's lock where a read takes none,
+	# and on PostgreSQL the lock ``FOR NO KEY UPDATE`` takes: ``FOR UPDATE`` waited on the check a
+	# foreign key makes on the workspace, so a promotion recording its event beside a removal
+	# deadlocked with it.
 	session.execute(
-		sqlalchemy.select(place.id).where(place.id == workspace.id).with_for_update()
-	).all()
+		sqlalchemy.update(place)
+		.where(place.id == workspace.id)
+		.values(updated_at=place.updated_at)
+		.execution_options(synchronize_session=False)
+	)
 
 	# One query for every membership's permissions, not one per membership. The obvious
 	# version of this asks the database once per row and is `#39`'s N+1 on the path of a

@@ -393,17 +393,20 @@ def _refuse_deactivating_the_last_administrator (
 
 	# **Every active superuser is locked before the others are counted** (`#1178`), for the
 	# reason the workspace's own rule gives: two deactivations at once each counted the other
-	# as staying. The second waits for the first, then counts what it left.
+	# as staying. The second waits for the first, then counts what it left. **By a write that
+	# changes nothing**, for that rule's reasons too (`#3899`): SQLite takes no lock for a read,
+	# and ``FOR UPDATE`` waited on a foreign key's check where this lock does not.
 	session.execute(
-		sqlalchemy.select(model.id)
+		sqlalchemy.update(model)
 		.where(
 			model.is_superuser.is_(True),
 			model.is_active.is_(True),
 			model.is_service_account.is_(False),
 			model.deleted_at.is_(None),
 		)
-		.with_for_update()
-	).all()
+		.values(updated_at=model.updated_at)
+		.execution_options(synchronize_session=False)
+	)
 
 	others = session.scalars(
 		sqlalchemy.select(model.id).where(

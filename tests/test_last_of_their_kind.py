@@ -2,24 +2,34 @@
 
 Item ``#1178``. Each rule counted what would be left and then acted, so two callers acting at
 once each counted the other as staying: both went through, leaving the state the rule exists to
-prevent. Only a real race shows it, so these run on PostgreSQL, on connections of their own, and
-they commit - which makes each responsible for deleting everything it wrote, on every path, as
-``test_concurrent_ref_allocation_never_duplicates`` learnt. SQLite has one writer, so it has no
-race to show.
+prevent. Only a real race shows it, so these run on connections of their own, and they commit -
+which makes each responsible for deleting everything it wrote, on every path, as
+``test_concurrent_ref_allocation_never_duplicates`` learnt.
+
+**SQLite as well** (`#1178`, reopened). This said SQLite has one writer and so no race to show, and
+a writer there holds its lock only from its first write: two callers that counted first both went
+through, leaving no workspace at all. A database file of its own, since the suite's is one
+connection's. **And the locks themselves, on PostgreSQL** (`#3899`): the first ones deadlocked with a
+foreign key's check, and held up filing in every workspace while one was deleted.
 """
 
 import concurrent.futures
 import dataclasses
+import pathlib
 import time
 import typing
 import uuid
 
 import pytest
 import sqlalchemy
+import sqlalchemy.exc
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.session
+import subroutine.domain.bootstrap
+import subroutine.domain.events
+import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -42,14 +52,28 @@ class Committed:
 
 @pytest.fixture
 def committed (
-	engine: sqlalchemy.engine.Engine, postgres_url: str
+	engine: sqlalchemy.engine.Engine, request: pytest.FixtureRequest, tmp_path: pathlib.Path
 ) -> typing.Iterator[Committed]:
-	"""Yield real connections to the shared database, and delete what was made through them."""
+	"""Yield real connections to a database, and delete what was made through them.
+
+	On SQLite, a database file of this test's own, which goes with its directory; on PostgreSQL,
+	the shared one, so what the test made is deleted afterwards.
+	"""
 
 	if engine.dialect.name != "postgresql":
-		pytest.skip("SQLite serialises writers, so there is no race to show")
+		racing = subroutine.db.session.create_engine(f"sqlite:///{tmp_path / 'racing.db'}")
 
-	setup_engine = subroutine.db.session.create_engine(postgres_url)
+		try:
+			subroutine.db.session.create_all(racing)
+
+			yield Committed(sqlalchemy.orm.sessionmaker(bind=racing, expire_on_commit=False))
+
+		finally:
+			racing.dispose()
+
+		return
+
+	setup_engine = subroutine.db.session.create_engine(request.getfixturevalue("postgres_url"))
 	made = Committed(sqlalchemy.orm.sessionmaker(bind=setup_engine, expire_on_commit=False))
 
 	try:
@@ -200,3 +224,142 @@ def test_two_callers_cannot_deactivate_the_last_two_superusers (committed: Commi
 
 	with pytest.raises(subroutine.errors.ValidationError, match="only person who can administer"):
 		_two_at_once(committed.factory, leaving(one.id), leaving(two.id))
+
+
+def _only_on_postgresql (committed: Committed) -> None:
+	"""Skip a test about PostgreSQL's locks where the database is SQLite, which has none of them."""
+
+	if committed.factory.kw["bind"].dialect.name != "postgresql":
+		pytest.skip("a lock PostgreSQL takes, which SQLite has no counterpart to")
+
+
+def test_a_removal_beside_a_promotion_does_not_deadlock (committed: Committed) -> None:
+	"""`SR#3899`: the administrators' guard locked the workspace ``FOR UPDATE``, and deadlocked.
+
+	A promotion writes the membership and then records its event, whose foreign key to the
+	workspace is checked with a ``KEY SHARE`` lock, which ``FOR UPDATE`` does not let past. So a
+	removal of the member being promoted, locking the workspace between the two, waited on the
+	membership while the promotion waited on it: PostgreSQL broke the deadlock by failing one, which
+	a caller met as a 503. **The guard's lock lets a foreign key's check past now**, so the promotion
+	finishes and the removal follows it. The steps are the verification's, in the domain's order.
+	"""
+
+	_only_on_postgresql(committed)
+
+	with committed.factory() as setup:
+		founder = subroutine.domain.users.create(setup, username=_named("founder"))
+		promoted = subroutine.domain.users.create(setup, username=_named("promoted"))
+		workspace = subroutine.domain.workspaces.create(
+			setup, slug=_named("team"), title="Team", owner=founder
+		)
+		subroutine.domain.workspaces.add_member(setup, workspace, promoted, role_key="member")
+		setup.commit()
+
+	committed.users += [founder.id, promoted.id]
+	committed.workspaces.append(workspace.id)
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+	outcome: dict[str, str] = {}
+
+	with committed.factory() as promoting, committed.factory() as removing:
+		administrator = promoting.scalars(
+			sqlalchemy.select(role.id).where(role.workspace_id == workspace.id, role.key == "admin")
+		).one()
+		promoting.execute(
+			sqlalchemy.update(member)
+			.where(member.workspace_id == workspace.id, member.user_id == promoted.id)
+			.values(role_id=administrator)
+		)
+
+		losing = removing.scalars(
+			sqlalchemy.select(member).where(
+				member.workspace_id == workspace.id, member.user_id == promoted.id
+			)
+		).one()
+		subroutine.domain.workspaces._refuse_leaving_nobody_who_can_administer(
+			removing, removing.get_one(Workspace, workspace.id), losing
+		)
+
+		def promotion_records_its_event () -> None:
+			"""Record the promotion's event and commit, as ``set_member_role`` goes on to."""
+
+			try:
+				subroutine.domain.events.record(
+					promoting,
+					workspace_id=workspace.id,
+					entity_type="workspace",
+					entity_id=workspace.id,
+					action="updated",
+				)
+				promoting.commit()
+				outcome["promotion"] = "committed"
+
+			except sqlalchemy.exc.DBAPIError as failed:
+				promoting.rollback()
+				outcome["promotion"] = type(failed.orig).__name__
+
+		with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+			waiting = pool.submit(promotion_records_its_event)
+			time.sleep(0.5)
+
+			try:
+				removing.execute(sqlalchemy.delete(member).where(member.id == losing.id))
+				removing.commit()
+				outcome["removal"] = "committed"
+
+			except sqlalchemy.exc.DBAPIError as failed:
+				removing.rollback()
+				outcome["removal"] = type(failed.orig).__name__
+
+			waiting.result(timeout=30)
+
+	assert outcome == {"promotion": "committed", "removal": "committed"}, outcome
+
+
+def test_deleting_a_workspace_does_not_hold_up_filing_in_another (committed: Committed) -> None:
+	"""`SR#3899`: the last-workspace guard locked every live workspace, so filing anywhere waited.
+
+	Filing an item writes its workspace's counter, and every workspace was locked until the delete's
+	transaction ended. **A lock nothing else takes serialises the deletes instead.** Filing is given
+	a lock timeout here, so waiting at all is a failure.
+	"""
+
+	_only_on_postgresql(committed)
+
+	with committed.factory() as setup:
+		founder = subroutine.domain.users.create(setup, username=_named("founder"))
+		leaving = subroutine.domain.workspaces.create(
+			setup, slug=_named("leaving"), title="Leaving", owner=founder
+		)
+		staying = subroutine.domain.workspaces.create(
+			setup, slug=_named("staying"), title="Staying", owner=founder
+		)
+		setup.commit()
+
+	committed.users.append(founder.id)
+	committed.workspaces += [leaving.id, staying.id]
+
+	with committed.factory() as deleting:
+		subroutine.domain.workspaces.delete(deleting, deleting.get_one(Workspace, leaving.id))
+		deleting.flush()
+
+		with committed.factory() as filing:
+			filing.execute(sqlalchemy.text("SET lock_timeout = '2s'"))
+			inbox = subroutine.domain.bootstrap.inbox_for(filing, filing.get_one(Workspace, staying.id))
+
+			assert inbox is not None, "the workspace has no Inbox to file in"
+
+			try:
+				subroutine.domain.tasks.create(
+					filing, project=inbox, title="Filed while another workspace was deleted"
+				)
+				filing.flush()
+
+			except sqlalchemy.exc.OperationalError as failed:
+				pytest.fail(f"filing in another workspace waited for the delete: {failed.orig}")
+
+			finally:
+				filing.rollback()
+
+		deleting.rollback()
