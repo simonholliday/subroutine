@@ -7,6 +7,7 @@ real installation is upgraded and the schema no longer matches the code that que
 
 import datetime
 import pathlib
+import shutil
 import typing
 import unittest.mock
 import uuid
@@ -190,6 +191,121 @@ def test_head_revision_is_known () -> None:
 	"""There is at least one migration, and it can be identified without a database."""
 
 	assert subroutine.db.migrate.head_revision()
+
+
+@pytest.mark.parametrize(
+	"url",
+	[
+		"postgresql+psycopg://subroutine:p%40ss@localhost/subroutine",
+		"sqlite:////srv/caf%C3%A9/subroutine.db",
+		"sqlite:////srv/100%25/subroutine.db",
+	],
+	ids=["a password holding an escaped @", "a folder outside ASCII", "a percent sign itself"],
+)
+def test_alembic_is_handed_the_address_exactly (url: str) -> None:
+	"""A `%` in a database's URL reaches Alembic as itself (`#3745`).
+
+	Its configuration is a ConfigParser, which read the `%` of an escape as the start of an
+	interpolation and refused it, so none of these could be migrated at all.
+	"""
+
+	config = subroutine.db.migrate.build_config(url)
+
+	assert config.get_main_option("sqlalchemy.url") == url
+
+
+@pytest.fixture
+def escaped_url (
+	request: pytest.FixtureRequest, tmp_path: pathlib.Path
+) -> typing.Iterator[str]:
+	"""Yield the URL of an empty database, written with a `%` in it (`#3745`).
+
+	On SQLite the file sits in a home named with a letter outside ASCII, which the URL escapes
+	as the default database's does for an account named `josé`. On PostgreSQL the connection
+	names itself with a `%`, which the URL writes as `%25`: the shape of a password with an `@`
+	in it, without needing a role that has one.
+	"""
+
+	if request.param == "sqlite":
+		home = tmp_path / "josé"
+		home.mkdir()
+
+		yield sqlalchemy.engine.URL.create(
+			"sqlite", database=str(home / "escaped.db")
+		).render_as_string(hide_password=False)
+
+		return
+
+	admin_url = request.getfixturevalue("postgres_url")
+	database = conftest.throwaway_name("esc")
+	admin = sqlalchemy.engine.make_url(admin_url).set(database="postgres")
+	admin_engine = sqlalchemy.create_engine(admin, isolation_level="AUTOCOMMIT")
+
+	with admin_engine.connect() as connection:
+		connection.execute(sqlalchemy.text(f'CREATE DATABASE "{database}"'))
+
+	url = sqlalchemy.engine.make_url(conftest.with_database(admin_url, database))
+
+	yield url.update_query_dict({"application_name": "subroutine at 100%"}).render_as_string(
+		hide_password=False
+	)
+
+	with admin_engine.connect() as connection:
+		connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{database}"'))
+
+	admin_engine.dispose()
+
+
+@pytest.mark.parametrize("escaped_url", ["sqlite", "postgresql"], indirect=True)
+def test_a_database_whose_address_holds_a_percent_migrates (escaped_url: str) -> None:
+	"""Setup and an upgrade migrate a database whose URL escapes a character (`#3745`).
+
+	Alembic refused the `%` of the escape as bad interpolation syntax, so an account named
+	`josé` could not set up, and a password written `p%40ss` could not be upgraded.
+	"""
+
+	assert "%" in escaped_url
+
+	subroutine.db.migrate.upgrade(escaped_url)
+
+	engine = subroutine.db.session.create_engine(escaped_url)
+
+	try:
+		assert subroutine.db.migrate.is_up_to_date(engine)
+
+	finally:
+		engine.dispose()
+
+
+def test_an_installation_whose_path_holds_a_percent_can_migrate (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The migrations' own directory reaches Alembic as itself too (`#3745`).
+
+	It goes through the same ConfigParser as the address, so Subroutine installed under a path
+	such as `/opt/100%` could neither migrate nor say which schema a database was at.
+	"""
+
+	installed = tmp_path / "100%" / "migrations"
+	shutil.copytree(
+		subroutine.db.migrate.MIGRATIONS_DIRECTORY,
+		installed,
+		ignore=shutil.ignore_patterns("__pycache__"),
+	)
+
+	monkeypatch.setattr(subroutine.db.migrate, "MIGRATIONS_DIRECTORY", installed)
+
+	url = f"sqlite:///{tmp_path / 'installed.db'}"
+
+	subroutine.db.migrate.upgrade(url)
+
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		assert subroutine.db.migrate.is_up_to_date(engine)
+
+	finally:
+		engine.dispose()
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)

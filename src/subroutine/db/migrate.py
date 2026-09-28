@@ -31,13 +31,29 @@ MIGRATIONS_DIRECTORY = pathlib.Path(__file__).parent / "migrations"
 
 
 def build_config (database_url: str) -> alembic.config.Config:
-	"""Return an Alembic configuration pointed at ``database_url``."""
+	"""Return an Alembic configuration pointed at ``database_url``.
+
+	**Both values go in with every `%` doubled** (`#3745`). Alembic keeps its options in a
+	ConfigParser, which reads `%` as the start of an interpolation and refuses one that is not,
+	and a URL holds one wherever it escapes a character: a password with an `@` in it, written
+	`%40`, and since SQLAlchemy 2.1 the default database's own address for an account named
+	`josé`. So `init` and every command that migrates crashed there instead. The parser
+	hands a doubled sign back as one, so Alembic reads exactly what it was given. The
+	migrations' own directory goes through the same parser, for an installation whose path
+	holds a `%`.
+	"""
 
 	config = alembic.config.Config()
-	config.set_main_option("script_location", str(MIGRATIONS_DIRECTORY))
-	config.set_main_option("sqlalchemy.url", database_url)
+	config.set_main_option("script_location", _literal(str(MIGRATIONS_DIRECTORY)))
+	config.set_main_option("sqlalchemy.url", _literal(database_url))
 
 	return config
+
+
+def _literal (value: str) -> str:
+	"""Return ``value`` written so that Alembic's ConfigParser reads it back unchanged."""
+
+	return value.replace("%", "%%")
 
 
 def upgrade (database_url: str, revision: str = "head") -> None:

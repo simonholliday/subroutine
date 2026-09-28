@@ -107,6 +107,12 @@ upgrade involves.
   whenever somebody claimed the item under it. The version now moves only when what the item
   says changes. The agent tools' replies to a claim and to an update also say the version they
   leave the item at, so the next save needs no read first.
+- **A `%` in the database's address no longer stops setup or an upgrade.** A `database_url`
+  can hold one, such as a PostgreSQL password with an `@` in it, which a URL writes as `%40`,
+  and `init`, `db migrate` and `db upgrade` crashed on it, as did `db restore` bringing an older
+  backup up to date. Under SQLAlchemy 2.1 the default database's address holds one too,
+  wherever its path has a letter outside ASCII or a character such as `'` or `@`, as in the home
+  of an account named `josé`, so this is also what lets `init` set up there.
 
 ## 0.9.10 — 2026-09-26
 

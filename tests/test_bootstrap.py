@@ -202,6 +202,40 @@ def test_init_says_one_line_and_leaves_a_working_database (
 	assert "secret_key" in configuration.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("home", ["josé", "o'brien@example.com"])
+def test_init_sets_up_in_a_home_a_url_has_to_escape (tmp_path: pathlib.Path, home: str) -> None:
+	"""`init`, a later migration and a first task, in a home a URL escapes (`#3745`).
+
+	Under SQLAlchemy 2.1 the default database's address escapes a letter outside ASCII and such
+	characters as `'` and `@`, and Alembic's configuration refused the `%` that leaves, so `init`
+	crashed where 0.9.10 said it was ready - and an instance set up before would have been
+	stranded by the next release to carry a migration.
+	"""
+
+	environment = {
+		variable: str(tmp_path / home / variable.lower())
+		for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+	}
+
+	for directory in environment.values():
+		pathlib.Path(directory).mkdir(parents=True)
+
+	result = _run(environment, "init")
+
+	assert result.returncode == 0, result.stderr
+	assert result.stdout.strip() == EXPECTED_FIRST_LINE
+
+	migrated = _run(environment, "db", "migrate")
+
+	assert migrated.returncode == 0, migrated.stderr
+
+	added = _run(environment, "add", "Call the dentist")
+	listed = _run(environment, "list")
+
+	assert added.returncode == 0, added.stderr
+	assert "Call the dentist" in listed.stdout, listed.stderr
+
+
 def test_init_is_safe_to_run_again (isolated_home: dict[str, str]) -> None:
 	"""Containers restart; setup should not fail the second time."""
 
