@@ -21292,6 +21292,48 @@ def test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other (
 	assert not_gone is False, "a ref the documents declined was read as the project having gone"
 
 
+@pytest.mark.parametrize("word", ["type:bug", "status:done"])
+def test_a_word_only_one_kind_has_is_forgiven_by_the_other (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path, word: str
+) -> None:
+	"""`SR#3759`: every ``type:`` word threw the whole listing in the browser.
+
+	A search goes to both collections, and a task type is refused by the documents, as is a
+	status only tasks have. So the listing failed, and a saved view on one failed with no note at
+	all. **Refusals the instance really sent**, so what is forgiven is the field the route names;
+	a misspelling is refused by both, and is still thrown.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call("POST", "/v1/tasks", json={"title": "Fix the boiler", "type": "bug"})
+	tasks = world.call("GET", "/v1/tasks", params={"q": word})
+	declined = world.call("GET", "/v1/documents", params={"q": word})
+	misspelt = word.replace(":", ":x")
+	neither = [
+		world.call("GET", f"/v1/{collection}", params={"q": misspelt})
+		for collection in ("tasks", "documents")
+	]
+
+	# **And nothing wider**: a refusal about anything else is thrown though the other answered, as a
+	# sort the documents cannot take is.
+	unsorted = world.call("GET", "/v1/documents", params={"order": "priority_score"})
+
+	assert tasks.status_code == 200, tasks.text
+	assert declined.status_code == 422, declined.text
+	assert [one.status_code for one in neither] == [422, 422], [one.text for one in neither]
+	assert unsorted.status_code == 422, unsorted.text
+
+	kept, thrown, other = _views(tmp_path, [
+		("forgiven", [{"answer": tasks.json()}, {"status": 422, "problem": declined.json()}]),
+		("forgiven", [{"status": 422, "problem": one.json()} for one in neither]),
+		("forgiven", [{"answer": tasks.json()}, {"status": 422, "problem": unsorted.json()}]),
+	])
+
+	assert kept["answers"][0] == tasks.json(), kept
+	assert thrown.get("status") == 422, f"a word neither kind has was forgiven: {thrown}"
+	assert other.get("status") == 422, f"a refusal about something else was forgiven: {other}"
+
+
 def test_a_move_is_checked_against_the_version_the_form_was_opened_on (
 	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
 ) -> None:

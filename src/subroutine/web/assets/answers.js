@@ -417,15 +417,27 @@ const NOTHING_KEPT = Object.freeze({
 	page: Object.freeze({ has_more: false, next_cursor: null }),
 });
 
+/* The words a search names that only one kind of item may have - `#3759`. */
+const ONE_KIND_ONLY = ["query.type", "query.status", "query.tag"];
+
 export function namesTheOtherKind (failure) {
 	/*
-		Whether a refusal is one collection declining a ref the other keeps — `#3592`.
+		Whether a refusal is one collection declining what the other kind has — `#3592`.
 
 		**Read off the field, as the server's own fan-out reads it**: a 404 naming `id_or_ref` is
 		`parent:1` put to the documents when #1 is a task, or to the tasks when it is a document.
+
+		**And a 422 naming a type, a status or a tag** (`#3759`). Task types are refused by the
+		documents and document types by the tasks, and so are the statuses only one kind has, so
+		every `type:` word threw the whole listing - and a saved view on one, *My bugs* among them,
+		threw with no note at all. A word neither kind has is refused by both, and still thrown.
 	*/
-	return Boolean(failure && failure.status === 404 && failure.body
-		&& (failure.body.errors || []).some((one) => one.field === "id_or_ref"));
+	if (!failure || !failure.body) return false;
+
+	const named = (failure.body.errors || []).map((one) => one.field);
+
+	return (failure.status === 404 && named.includes("id_or_ref"))
+		|| (failure.status === 422 && named.some((one) => ONE_KIND_ONLY.includes(one)));
 }
 
 export function forgiven (settled) {

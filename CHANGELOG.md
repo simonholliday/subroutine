@@ -147,6 +147,11 @@ upgrade involves.
   *relates to* also took away a *blocks*, and the blocked item looked ready. It withdraws the
   kind it is given now, and where two items are joined more than one way and no kind is named,
   it says which ways rather than guessing - as the terminal's `unlink` does.
+- **The browser can search by a word only tasks or only documents have.** A search or saved
+  view naming a task type, a document type, or a status only one kind of item has - `type:bug`,
+  `status:done`, `status:draft` - failed in the browser, because the kind that has no such word
+  refused it and took the whole listing with it; a saved view on one failed with nothing on the
+  page at all. It now lists the kind that has the word, as the terminal and the agent tools do.
 
 ## 0.9.10 — 2026-09-26
 
