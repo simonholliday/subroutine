@@ -533,6 +533,24 @@ def names_its_own_day (stored: str) -> bool:
 	return "FREQ=DAILY" in stored.upper() and "INTERVAL=" not in stored.upper()
 
 
+#: A rule's ``UNTIL`` written in UTC, which RFC 5545 requires beside a start that has a zone.
+_UNTIL_IN_UTC = re.compile(r"UNTIL=(\d{8}T\d{6})Z")
+
+
+def _on_the_clock (stored: str, zone: datetime.tzinfo) -> str:
+	"""Return a rule with a UTC ``UNTIL`` rewritten on ``zone``'s clock, as its start is (`#3765`)."""
+
+	def local (found: re.Match[str]) -> str:
+		"""Return one ``UNTIL`` as the zone's clock read that instant, its year in four digits."""
+
+		instant = datetime.datetime.strptime(found[1], "%Y%m%dT%H%M%S").replace(tzinfo=datetime.UTC)
+		clock = instant.astimezone(zone)
+
+		return f"UNTIL={clock.year:04d}{clock:%m%dT%H%M%S}"
+
+	return _UNTIL_IN_UTC.sub(local, stored)
+
+
 def occurrences (
 	stored: str,
 	*,
@@ -569,7 +587,11 @@ def occurrences (
 	anchor = start.astimezone(zone).replace(tzinfo=None)
 	cursor = None if after is None else after.astimezone(zone).replace(tzinfo=None)
 
-	series = dateutil.rrule.rrulestr(f"RRULE:{stored}", dtstart=anchor)
+	# **An ``UNTIL`` in UTC is read on the clock the start is walked on** (`#3765`). The rule is
+	# walked on local wall-clock time from a start with no zone, and dateutil refuses to compare
+	# that with an ``UNTIL`` that has one - so every rule ending on a date answered 500 the moment
+	# an occurrence was completed or skipped.
+	series = dateutil.rrule.rrulestr(f"RRULE:{_on_the_clock(stored, zone)}", dtstart=anchor)
 
 	found: list[datetime.datetime] = []
 	ceiling = None if until is None else until.astimezone(zone).replace(tzinfo=None)

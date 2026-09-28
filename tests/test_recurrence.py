@@ -139,6 +139,20 @@ def test_an_exhausted_series_has_nothing_left_rather_than_failing () -> None:
 		is None
 	)
 
+	# **And ``UNTIL``, which this said it honoured and never asked** (`SR#3765`). RFC 5545 writes
+	# one in UTC beside a start with a zone, and the rule is walked on local time from a start
+	# with none, so every rule ending on a date raised - and completing an occurrence of one
+	# answered 500.
+	last = NOW + datetime.timedelta(days=2)
+	ending = f"FREQ=DAILY;UNTIL={last:%Y%m%dT%H%M%S}Z"
+	ended = subroutine.domain.recurrence.occurrences(ending, start=NOW, timezone=LONDON, limit=10)
+
+	assert ended == [NOW + datetime.timedelta(days=days) for days in range(3)], ended
+	assert (
+		subroutine.domain.recurrence.following(ending, start=NOW, after=ended[-1], timezone=LONDON)
+		is None
+	)
+
 
 def test_the_instant_asked_from_is_not_answered_with_itself () -> None:
 	""""What comes next" must not answer with the occurrence you are standing on.

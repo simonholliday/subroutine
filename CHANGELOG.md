@@ -139,6 +139,9 @@ upgrade involves.
   write looks up whether its workspace sends any, and a lookup that failed there - a table
   locked past the statement timeout, say - silently undid the write it came with, while the
   request still answered that it had saved. Such a failure now costs the messages alone.
+- **A repeat set to end on a date can be completed.** A rule with an end date - an `UNTIL`,
+  which the API and `--repeat` accept - was stored, and completing or skipping one of its
+  occurrences then failed with a server error. It now ends where it says.
 
 ## 0.9.10 — 2026-09-26
 
