@@ -2407,8 +2407,8 @@ class Client:
 		with self._opened() as (session, actor):
 			return [
 				subroutine.views.calendar(row, session=session, principal=actor)
-				for row in subroutine.domain.calendars.feeds(
-					session, actor.user, include_revoked=include_revoked
+				for row in subroutine.domain.calendars.listed(
+					session, actor, include_revoked=include_revoked
 				)
 			]
 
@@ -2462,7 +2462,7 @@ class Client:
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
 			minted = subroutine.domain.calendars.reset(
-				session, found, enabled=self.settings.calendars_enabled
+				session, found, actor=actor, enabled=self.settings.calendars_enabled
 			)
 			rendered = subroutine.views.calendar(
 				found,

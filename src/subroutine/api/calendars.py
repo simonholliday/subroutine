@@ -180,9 +180,7 @@ def listing (
 		entity="calendar",
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
-	found = subroutine.domain.calendars.feeds(
-		session, actor.user, include_revoked=include_revoked
-	)
+	found = subroutine.domain.calendars.listed(session, actor, include_revoked=include_revoked)
 
 	return subroutine.api.shaping.response(
 		subroutine.views.calendars(found, session=session, principal=actor),
@@ -212,7 +210,7 @@ def reset (
 
 	found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
 	minted = subroutine.domain.calendars.reset(
-		session, found, enabled=settings.calendars_enabled
+		session, found, actor=actor, enabled=settings.calendars_enabled
 	)
 	rendered = subroutine.views.calendar(
 		found,

@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **A credential narrowed to some projects, or pinned to one workspace, can no longer reset its
+  owner's calendar feeds or list them.** A reset hands back a working address that reads with
+  the owner's own sight, so such a credential could read everything its owner can see through
+  it. Minting one was refused already, and resetting and listing now are too.
 - **A command with a `--workspace` of its own takes `-w` as well, before the command or after
   it.** `token create`, `agent create`, `calendar create`, `user create` and `user list` ignored
   a `-w` given before them, and the refusal for a missing workspace advised exactly that `-w`,

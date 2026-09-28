@@ -210,7 +210,9 @@ def test_a_revoked_or_expired_feed_stops_working_and_a_reset_moves_the_url (
 
 	# **A reset keeps the row and moves the secret**, which is what makes it different from
 	# revoking and creating another: the scope, the audience and `last_polled_at` survive.
-	again = subroutine.domain.calendars.reset(session, feed, enabled=True)
+	again = subroutine.domain.calendars.reset(
+		session, feed, actor=subroutine.domain.authentication.Principal(user=owner), enabled=True
+	)
 	session.flush()
 
 	with pytest.raises(subroutine.errors.NotFound):
@@ -329,6 +331,59 @@ def test_a_bounded_credential_cannot_mint_a_feed (
 	)
 
 	assert made.id is not None
+
+
+def test_a_bounded_credential_can_neither_reset_nor_list_its_owners_feeds (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3891`, H-1 of the cold review of 2026-09-28: minting was refused, and a reset was not.
+
+	A credential narrowed to one project, or pinned to another workspace, listed its owner's feeds,
+	reset one, and read everything the owner can see through the new address. **Both are refused
+	now, as minting is**, and the unnarrowed credential does both.
+	"""
+
+	workspace, owner = _world(session)
+	elsewhere = subroutine.domain.workspaces.create(
+		session, slug="elsewhere", title="Elsewhere", owner=owner
+	)
+	wide = subroutine.db.models.identity.ApiToken(
+		user_id=owner.id, title="An ordinary token", token_prefix="1" * 8,
+		token_hash="1" * 64, scopes=[],
+	)
+	narrow = subroutine.db.models.identity.ApiToken(
+		user_id=owner.id, title="A narrow token", token_prefix="0" * 8,
+		token_hash="0" * 64, scopes=["task:read"],
+	)
+	pinned = subroutine.db.models.identity.ApiToken(
+		user_id=owner.id, title="A token for elsewhere", token_prefix="2" * 8,
+		token_hash="2" * 64, scopes=[], workspace_id=elsewhere.id,
+	)
+	session.add_all([wide, narrow, pinned])
+	session.flush()
+
+	owners = subroutine.domain.authentication.Principal(user=owner, token=wide)
+	made, _minted = subroutine.domain.calendars.create(
+		session, owners, workspace_id=workspace.id, title="Mine", now=NOW,
+	)
+
+	for token in (narrow, pinned):
+		bounded = subroutine.domain.authentication.Principal(user=owner, token=token)
+
+		assert bounded.narrows, f"{token.title} is not narrowed, so this proves nothing"
+
+		with pytest.raises(subroutine.errors.Forbidden, match="bounded"):
+			subroutine.domain.calendars.reset(session, made, actor=bounded, enabled=True)
+
+		with pytest.raises(subroutine.errors.Forbidden, match="bounded"):
+			subroutine.domain.calendars.listed(session, bounded)
+
+	assert [one.id for one in subroutine.domain.calendars.listed(session, owners)] == [made.id]
+
+	before = made.token_hash
+	subroutine.domain.calendars.reset(session, made, actor=owners, enabled=True)
+
+	assert made.token_hash != before, "the owner's own credential could not reset the feed"
 
 
 def test_a_feed_may_not_outlive_the_credential_that_asked_for_it (

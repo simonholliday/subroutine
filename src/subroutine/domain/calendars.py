@@ -354,6 +354,7 @@ def reset (
 	session: sqlalchemy.orm.Session,
 	feed: subroutine.db.models.identity.CalendarFeed,
 	*,
+	actor: subroutine.domain.authentication.Principal,
 	enabled: bool,
 ) -> subroutine.auth.IssuedToken:
 	"""Give a feed a new secret, so the URL somebody had stops working immediately.
@@ -365,9 +366,20 @@ def reset (
 
 	**Refused when the feature is off** (`#1068`), because a reset mints a working URL exactly
 	as :func:`issue` does. :func:`refuse_when_disabled` carries the whole argument.
+
+	**And refused to a bounded credential, as minting is** (`#3891`). The new URL reads with the
+	owner's own sight, so a credential narrowed to one project, or pinned to another workspace,
+	reset its owner's feed and read everything the owner can see through the address it was
+	handed.
 	"""
 
 	refuse_when_disabled(enabled)
+	_refuse_a_bounded_credential(
+		actor,
+		act="give a calendar feed a new address",
+		hint="A feed reads with its owner's own sight, so a new address for one would hand back "
+		"more than you presented. Use an unrestricted credential.",
+	)
 
 	minted = _mint_unused_secret(session)
 
@@ -414,6 +426,29 @@ def feeds (
 		statement = statement.where(model.revoked_at.is_(None))
 
 	return list(session.scalars(statement.order_by(model.created_at.desc())))
+
+
+def listed (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	*,
+	include_revoked: bool = False,
+) -> list[subroutine.db.models.identity.CalendarFeed]:
+	"""Return the caller's own feeds, newest first, to a credential that may see them - `#3891`.
+
+	**Refused to a bounded credential**, as minting one is: each feed names what it reads, the
+	project it follows by its title included, and a credential narrowed to one project was shown
+	the feeds for the others - and, until it was refused, could reset any of them.
+	"""
+
+	_refuse_a_bounded_credential(
+		actor,
+		act="list calendar feeds",
+		hint="A feed reads with its owner's own sight, so the list of them says what a narrower "
+		"credential may not see. Use an unrestricted credential.",
+	)
+
+	return feeds(session, actor.user, include_revoked=include_revoked)
 
 
 def mine (
@@ -758,6 +793,23 @@ def _unknown () -> subroutine.errors.NotFound:
 	return subroutine.errors.NotFound("There is no calendar at that address.")
 
 
+def _refuse_a_bounded_credential (
+	actor: subroutine.domain.authentication.Principal, *, act: str, hint: str
+) -> None:
+	"""Refuse ``act`` to a credential narrower than its owner - `#837`, and `#3891` for the rest.
+
+	A feed renders with its owner's visibility rather than with the narrowing on whatever reached
+	it (§20.1), so minting one, resetting one or listing them from a bounded credential each hands
+	back more than it presented. `is_local` is §12.1a, somebody at a terminal with the database
+	file, which no check here narrows.
+	"""
+
+	if actor.is_local or not actor.narrows:
+		return
+
+	raise subroutine.errors.Forbidden(f"A bounded credential cannot {act}.", hint=hint)
+
+
 def _refuse_a_credential_that_would_be_widened (
 	actor: subroutine.domain.authentication.Principal,
 	*,
@@ -786,14 +838,14 @@ def _refuse_a_credential_that_would_be_widened (
 	if actor.is_local:
 		return
 
-	if actor.narrows:
-		raise subroutine.errors.Forbidden(
-			"A bounded credential cannot mint a calendar feed.",
-			hint="A feed reads with its owner's own sight rather than with the narrowing on "
-			"the credential that made it, so this would hand back more than you presented. "
-			"Use an unrestricted credential, or run 'subroutine calendar create' at the "
-			"instance itself.",
-		)
+	_refuse_a_bounded_credential(
+		actor,
+		act="mint a calendar feed",
+		hint="A feed reads with its owner's own sight rather than with the narrowing on "
+		"the credential that made it, so this would hand back more than you presented. "
+		"Use an unrestricted credential, or run 'subroutine calendar create' at the "
+		"instance itself.",
+	)
 
 	# **`#356`'s rule, only in the amplifying direction.** A credential with no expiry may
 	# mint anything; one that outlives the feed is not being widened. Only a feed that would
