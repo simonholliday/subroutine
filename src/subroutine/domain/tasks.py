@@ -2341,6 +2341,39 @@ def _reshaped (
 	).instant
 
 
+def _clock_moved (
+	held: datetime.datetime,
+	*,
+	was: datetime.datetime,
+	now_holds: datetime.datetime,
+	column: str,
+	timezone: str,
+	now: datetime.datetime,
+) -> datetime.datetime | None:
+	"""Move a date on the other row of a series as ``was`` became ``now_holds``, on the clock.
+
+	**By the days and hours on the zone's clock, never by the time between them** (`#3764`).
+	Across a change of the clocks the two differ by the hour that changed: a London 09:00 weekly
+	moved from 19 to 26 October *from now on* is seven days and an hour later by the calendar, and
+	its series row, still on the summer side, took the hour with it - 10:00 from then on, and a
+	second occurrence on the 26th at the new hour. What a person moves is the time on the clock,
+	so that is what the other row takes, as :func:`_reshaped` already carries a change of shape.
+	"""
+
+	zone = subroutine.domain.dates.zone(timezone, column)
+	shift = now_holds.astimezone(zone).replace(tzinfo=None) - was.astimezone(zone).replace(tzinfo=None)
+
+	# **Naive on purpose**, for :func:`_reshaped`'s reason: ``interpret`` reads it in ``timezone``.
+	return subroutine.domain.schedule.interpret(
+		held.astimezone(zone).replace(tzinfo=None) + shift,
+		boundary=subroutine.domain.schedule.WHOLE_DAY_EDGE[column],
+		timezone=timezone,
+		now=now,
+		all_day=False,
+		field=column,
+	).instant
+
+
 def _kept_on_its_grid (
 	row: subroutine.db.models.work.Task,
 	*,
@@ -2574,6 +2607,27 @@ def _carried (
 		else ""
 	)
 
+	# **A date with a time moves by the clock, a whole day by the day** (`#3764`), on the clock
+	# of the zone the source's dates were written in.
+	clock = (
+		now_holds.get("timezone") or target.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+	)
+
+	def moved (column: str, held: datetime.datetime) -> datetime.datetime | None:
+		"""Move one of this row's dates as the source's moved."""
+
+		if now_holds.get(ALL_DAY_FLAG[column]):
+			return held + deltas[column]
+
+		return _clock_moved(
+			held,
+			was=was[column],
+			now_holds=now_holds[column],
+			column=column,
+			timezone=clock,
+			now=instant,
+		)
+
 	# The date columns written below from the source's own value, which is already in the zone
 	# being carried, as opposed to moved by a delta from this row's old value.
 	resolved: set[str] = set()
@@ -2602,7 +2656,7 @@ def _carried (
 		elif column in deltas and getattr(target, column) is not None:
 			# **Moved, not copied.** The two rows are meant to hold different dates; what they
 			# share is the shape of the move.
-			setattr(target, column, getattr(target, column) + deltas[column])
+			setattr(target, column, moved(column, getattr(target, column)))
 
 		elif (
 			column in MOVED_BY_DELTA

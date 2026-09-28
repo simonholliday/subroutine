@@ -157,6 +157,10 @@ upgrade involves.
   *Trip from 5 March 2024 to 10 March 2024* hid the trip until the next 5 March instead of
   planning it. The span is read now, and the year stays in the title and is reported, as it is
   after a single date.
+- **Moving a repeat from now on across a change of the clocks keeps its time.** Moving a London
+  09:00 weekly from before the clocks go back to after, from now on, put every later occurrence
+  an hour out - at 10:00 - and added a second one at that hour on the day it was moved to. The
+  move carries the time on the clock now.
 
 ## 0.9.10 — 2026-09-26
 

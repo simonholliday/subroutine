@@ -1485,6 +1485,47 @@ def test_from_now_on_moves_the_grid_rather_than_dragging_it_back (
 	)
 
 
+def test_a_series_moved_across_a_change_of_the_clocks_keeps_its_hour (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3764`: a London 09:00 weekly, moved from 19 to 26 October *from now on*.
+
+	The clocks go back on the 25th, so the move is seven days and an hour by the calendar, and the
+	series row - on the summer side, at 12 October - took the hour with it: every later occurrence
+	was at 10:00, and completing the 26th minted a second one that day, at 10:00. Carried on the
+	clock, the series keeps 09:00 and the next one is 2 November at 09:00.
+	"""
+
+	london = zoneinfo.ZoneInfo(LONDON)
+	monday = datetime.datetime(2026, 10, 12, 9, 0, tzinfo=london)
+	made = _repeating(session, recurrence="every monday", due=None, starts=monday)
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(session, made, now=monday)
+	live = _next_live(session, series)
+
+	assert test_schedule._instant(live.starts_at) == monday + datetime.timedelta(days=7)
+
+	subroutine.domain.tasks.update(
+		session,
+		live,
+		starts=datetime.datetime(2026, 10, 26, 9, 0, tzinfo=london),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=monday,
+	)
+	session.flush()
+
+	carried = test_schedule._instant(series.starts_at).astimezone(london)
+
+	assert carried.time() == datetime.time(9, 0), f"the series took the hour: {carried}"
+	assert live.occurrence_at == live.starts_at, "the slot was left behind"
+
+	subroutine.domain.tasks.complete(session, live, now=monday)
+	after = test_schedule._instant(_next_live(session, series).starts_at)
+
+	assert after == datetime.datetime(2026, 11, 2, 9, 0, tzinfo=london), after.astimezone(london)
+
+
 def test_lengthening_a_repeating_meeting_leaves_its_slot_where_the_start_is (
 	session: sqlalchemy.orm.Session,
 ) -> None:
