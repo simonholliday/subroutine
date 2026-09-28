@@ -66,7 +66,9 @@ upgrade involves.
   the agents' `subroutine_update` and the browser's edit form now defer the one in front of
   you without asking. `defer --from-now-on` and `--just-this-one` are still accepted, and say
   they made no difference; `applies_to` sent with a deferral alone is reported the same way
-  rather than refused.
+  rather than refused. Given the repeat itself, whose number `show` prints after *from
+  repeat*, a deferral is refused by name, and the answer names the occurrence to defer instead,
+  where it said *Deferred* and changed nothing; `skip` names the occurrence the same way.
 - **An agent's write to a served instance is filed where its checkout says.** The agents'
   tools run on the instance, so they read the server's own directory for a `.subroutine` file
   and never found the caller's: a task or document written without naming a project landed in

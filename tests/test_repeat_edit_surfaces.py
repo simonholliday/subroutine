@@ -39,6 +39,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.tasks
 import subroutine.errors
+import subroutine.mcp.protocol
 import subroutine.mcp.tools
 import subroutine.views
 
@@ -281,6 +282,123 @@ def test_the_agents_tool_says_an_answer_about_a_deferral_changed_nothing (
 	assert "applies_to changed nothing: a deferral is only ever for the occurrence" in answered, (
 		answered
 	)
+
+
+def _the_repeat_itself (instance: Instance) -> int:
+	"""Return the number of the series behind the fixture's repeating item, as ``show`` prints it."""
+
+	shown = instance.client.task(ref=instance.repeating)
+
+	assert shown is not None and shown.recurrence_template_ref is not None
+
+	return shown.recurrence_template_ref
+
+
+def test_a_deferral_given_the_repeat_itself_is_refused_naming_the_occurrence (
+	instance: Instance,
+) -> None:
+	"""`SR#3748`, decision `SR#3795`: ``show`` prints *from repeat #1*, and that number is the series.
+
+	A deferral written to the series reached nothing - the answer said *Deferred* and the
+	occurrence in front of the person stayed as it was. It is refused now, by name, and the
+	refusal says which number to defer instead: through the client every surface uses, over HTTP,
+	where the status and the field are the contract, and through the agents' tool.
+	"""
+
+	series = _the_repeat_itself(instance)
+	itself = f"#{series} is the repeat itself"
+	instead = f"Defer #{instance.repeating}, the occurrence in front of you."
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		instance.client.update(ref=series, snooze="2026-09-02")
+
+	assert itself in str(refused.value), str(refused.value)
+	assert refused.value.hint == instead
+
+	answered = api_support.call(
+		instance.application,
+		"PATCH",
+		f"/v1/tasks/{series}",
+		headers={"Authorization": f"Bearer {instance.token}"},
+		json={"snooze": "2026-09-02"},
+	)
+
+	assert answered.status_code == 422, answered.text
+	assert [error["field"] for error in answered.json()["errors"]] == ["snooze"]
+	assert instead in answered.text, answered.text
+
+	catalogue = {
+		tool.name: tool
+		for tool in subroutine.mcp.tools.catalogue(client=instance.client)
+	}
+	with pytest.raises(subroutine.errors.ValidationError) as told:
+		catalogue["subroutine_update"].call({"ref": series, "defer": "2026-09-02"})
+
+	read = subroutine.mcp.protocol._explained(told.value)
+
+	assert itself in read and instead in read, read
+
+	for ref in (series, instance.repeating):
+		row = instance.client.task(ref=ref)
+
+		assert row is not None and row.snoozed_until is None, f"#{ref} was deferred"
+
+
+def test_the_repeat_itself_saved_with_its_own_empty_deferral_is_not_refused (
+	instance: Instance,
+) -> None:
+	"""The browser's edit form sends every date on every save (`SR#3755`).
+
+	So a series edited there sends its own empty deferral back unchanged, and refusing a deferral
+	that was sent, rather than one that changes, would refuse every save of a series there.
+	"""
+
+	series = _the_repeat_itself(instance)
+	kept = instance.client.update(ref=series, snooze=None)
+
+	assert kept.snoozed_until is None
+
+
+def test_a_repeat_with_nothing_open_is_refused_saying_so (instance: Instance) -> None:
+	"""The refusal names the occurrence only when there is one to name - `SR#3748`.
+
+	A series whose rule is spent, or whose last occurrence was finished without a next one being
+	made, has none, and a hint naming a number that is not there would send the reader to nothing.
+	"""
+
+	series = _the_repeat_itself(instance)
+	shown = instance.client.task(ref=instance.repeating)
+
+	assert shown is not None
+
+	occurrence = instance.session.get(subroutine.db.models.work.Task, uuid.UUID(str(shown.id)))
+
+	assert occurrence is not None
+
+	occurrence.completed_at = NOW
+	instance.session.flush()
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		instance.client.update(ref=series, snooze="2026-09-02")
+
+	assert refused.value.hint == "It has no occurrence open to defer."
+
+
+def test_skipping_the_repeat_itself_is_refused_naming_the_occurrence (
+	instance: Instance,
+) -> None:
+	"""`SR#3748`: the other act that is only ever for one occurrence, which was refused already.
+
+	It said *That is not one of a repeating series*, which is untrue of the repeat itself.
+	"""
+
+	series = _the_repeat_itself(instance)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		instance.client.skip(ref=series)
+
+	assert f"#{series} is the repeat itself" in str(refused.value), str(refused.value)
+	assert refused.value.hint == f"Skip #{instance.repeating}, the occurrence in front of you."
 
 
 def test_an_answer_about_something_that_does_not_repeat_is_refused (

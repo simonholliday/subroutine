@@ -11282,6 +11282,28 @@ def test_a_deferral_is_never_asked_which_occurrences_it_is_for (
 	assert "--from-now-on" not in run("defer", "--help").output, "offered as though it chose"
 
 
+def test_a_deferral_given_the_repeat_itself_is_refused_and_names_the_occurrence (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3748`, decision `SR#3795`: ``show 2`` prints *from repeat #1*, and that is the series.
+
+	`defer 1` answered *Deferred until* and wrote the date to the series row, which nothing
+	reads, while the occurrence in front of the person stayed as it was.
+	"""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	refused = run("defer", "1", "today", expect=1)
+	said = " ".join(refused.output.split())
+
+	assert "#1 is the repeat itself" in said, said
+	assert "Defer #2, the occurrence in front of you." in said, said
+
+	for ref in ("1", "2"):
+		assert json.loads(run("show", ref, "--json").output)["item"]["snoozed_until"] is None
+
+
 def test_a_flag_settles_which_occurrences_an_edit_is_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

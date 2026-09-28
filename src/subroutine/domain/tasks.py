@@ -1493,6 +1493,21 @@ def update (
 		field="ends_at",
 	)
 
+	# **A deferral given the repeat itself is refused, naming the occurrence** (decision `#3795`,
+	# answering `#3748`). A deferral is only ever for the occurrence in front of you (`#3705`), and
+	# written to the series it reached nothing: `defer 3` said *Deferred* while the live row stayed
+	# as it was. **Only a change is refused**, because the browser's form sends every date on every
+	# save, and a series edited there sends its own empty deferral back unchanged.
+	if (
+		task.is_template
+		and defer is not subroutine.domain.patch.UNSET
+		and (
+			defer.instant != task.snoozed_until
+			or (defer.instant is not None and defer.is_all_day != task.snoozed_is_all_day)
+		)
+	):
+		_refuse_the_repeat_itself(session, task, act="a deferral", verb="defer", field="snooze")
+
 	# **Both ends resolved against what the task will look like** — the rule the block below
 	# states for invariant 8, and it bites harder here: a caller moving only the start of a
 	# booked fortnight would otherwise be checked against nothing, and could push the
@@ -2095,6 +2110,48 @@ def complete (
 
 
 
+def _refuse_the_repeat_itself (
+	session: sqlalchemy.orm.Session,
+	series: subroutine.db.models.work.Task,
+	*,
+	act: str,
+	verb: str,
+	field: str,
+) -> typing.NoReturn:
+	"""Refuse an act that is only ever for one occurrence, given the repeat itself - `#3748`.
+
+	**Refused by name rather than carried to the occurrence** (decision `#3795`). A series number
+	means the series to every verb - ``done`` completes the series row - so a verb that read it as
+	the occurrence would be the one exception a person had to learn. ``show`` prints that number as
+	*from repeat #3* so that a rename or a reminder can reach the series (`#1247`), which is why it
+	gets typed where the occurrence was meant: so the refusal names the occurrence, and the remedy
+	is one retype.
+	"""
+
+	itself = subroutine.domain.refs.format_ref(series.ref)
+	occurrence = live_occurrence(session, series)
+	hint = (
+		f"{verb.capitalize()} {subroutine.domain.refs.format_ref(occurrence.ref)}, the occurrence "
+		"in front of you."
+		if occurrence is not None
+		else f"It has no occurrence open to {verb}."
+	)
+
+	raise subroutine.errors.ValidationError(
+		f"{itself} is the repeat itself, and {act} is only ever for one occurrence of it.",
+		code="invalid_field_value",
+		hint=hint,
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=f"{act[0].upper()}{act[1:]} is for one occurrence, never for the repeat itself.",
+				hint=hint,
+			)
+		],
+	)
+
+
 def skip (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
@@ -2116,6 +2173,12 @@ def skip (
 	simply cancelling it — which the caller can already say, and which they should say
 	deliberately.
 	"""
+
+	# **The repeat itself is refused first, naming the occurrence** (decision `#3795`). It has no
+	# series of its own, so the refusal below would have called it *not one of a repeating
+	# series*, which is untrue of the very row the series is.
+	if task.is_template:
+		_refuse_the_repeat_itself(session, task, act="skipping", verb="skip", field="ref")
 
 	if task.recurrence_template_id is None:
 		raise subroutine.errors.ValidationError(
