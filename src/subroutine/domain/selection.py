@@ -705,6 +705,11 @@ def addressed (
 				subroutine.errors.FieldError(
 					field=field,
 					code="not_found",
+					# **The browser reads this sentence** (`#3773`): `aboutTheProject` looks in it for the
+					# key it asked for, quoted as `repr` quotes it, to tell the page's own project gone from
+					# a search naming another. A change to the quoting is caught by the test that reads
+					# this refusal off the application,
+					# `test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other`.
 					message=f"No project in {workspace.slug} answers to {wanted!r}.",
 					hint=_alternative_projects(session, statement),
 				)

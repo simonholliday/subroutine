@@ -100,6 +100,22 @@ export const DATE_FIELDS = [
 */
 export const TIMED = DATE_FIELDS.filter(([, , , time]) => time).map(([name]) => name);
 
+/*
+	**What each select showed when it was drawn** (`#3769`), keyed by the control and read once, when
+	it is attached. The add form's details are drawn only when *More* opens them, long after the form
+	itself, so the form cannot be what is keyed; and a select, not the item or the page, is what knows
+	which option it fell back to. A sub-task's project is its parent's, so the add form sends its
+	Project control beside a parent only where the reader changed it from this.
+
+	**A ref rather than a hook**, for `OPENED`'s reason below: the text harness renders a form by
+	calling it as a function, where there is no component for a hook to belong to.
+*/
+const DRAWN = new WeakMap();
+
+const drawing = (control) => {
+	if (control && !DRAWN.has(control)) DRAWN.set(control, control.value);
+};
+
 export function Fields ({
 	busy, vocabulary, projects, members, project, values, reading, onReading,
 	/* The prioritised project's address, so the dropdown can mark it (`#986`). */
@@ -156,7 +172,8 @@ export function Fields ({
 
 	const vocabularySelect = (name, label, options) => html`
 		<label><span>${label}</span>
-			<select class="field" name=${name} disabled=${busy || options.length === 0}>
+			<select class="field" name=${name} disabled=${busy || options.length === 0}
+				ref=${drawing}>
 				${options.map((one) => html`
 					<option key=${one.key} value=${one.key}
 						selected=${held[name] ? held[name] === one.key : one.chosen}>
@@ -511,12 +528,18 @@ export function Adding ({
 
 		if (form.elements.text.value.trim() === "" || busy) return;
 
+		/* **What the Project control showed when it was drawn** (`#3769`), so that `filed` sends a
+		   sub-task with its parent's project unless the reader chose another. Nothing while the
+		   details are closed, when there is no control to have chosen with. */
+		const project = form.elements.project;
+		const drawn = project && DRAWN.has(project) ? { project: DRAWN.get(project) } : null;
+
 		/* **Cleared once the write has landed, never before it** (`#927`'s M-24). This reset
 		   ran synchronously while the request was still in flight, so a 403, a 409, a 429 or a
 		   dropped connection answered *"That was not added"* over a box that had already been
 		   emptied — everything typed, gone, with nothing to retry from. `Conflict`'s own
 		   comment below calls exactly that the worst possible answer. */
-		Promise.resolve(onAdd(readForm(form), Boolean(writing))).then((landed) => {
+		Promise.resolve(onAdd(readForm(form), Boolean(writing), drawn)).then((landed) => {
 			if (landed) form.reset();
 		});
 	};

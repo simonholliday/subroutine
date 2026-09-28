@@ -1683,7 +1683,7 @@ export function asSavedView (showing, project = null) {
 		is applied at its workspace's own level, where the term can narrow.
 	*/
 	const selection = (showing && showing.selection) || {};
-	const terms = project ? [`project:${project}`] : [];
+	const terms = project ? [`${PLACE_TERM}${project}`] : [];
 
 	Object.keys(SELECTABLE).forEach((name) => {
 		const writing = SAVED_AS_TERMS[name];

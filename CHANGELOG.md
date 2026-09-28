@@ -77,7 +77,9 @@ upgrade involves.
 - **A sub-task goes where its parent is.** Added without a project, it was refused on every
   surface, because it was filed where an item with no parent would go and a sub-task has to
   share its parent's project. It takes its parent's project now, ahead of a checkout's; a
-  project named in the line still decides, and is refused if it is not the parent's.
+  project named in the line still decides, and is refused if it is not the parent's. The
+  browser's add form sends its Project control beside a parent only where the reader changed
+  it, so the project a page offers no longer turns a sub-task away.
 - **Deferring a repeating item works against a 0.9.10 instance**, which refused a deferral of
   an occurrence that did not say it was for that one.
 - **A ring of links stored before rings were refused is harmless.** An item's tree drew the
@@ -100,6 +102,9 @@ upgrade involves.
   too.** A project's page opens on its agenda, and there such an address showed the failure
   page, where the list said the project was gone, showed the whole workspace and opened the
   item. The agenda does the same now.
+- **An agenda that answers after the reader has moved on stays off the page they moved to.**
+  Choosing another view or page while an agenda was still loading could put *That could not be
+  shown* over the new one when that agenda was refused.
 - **An agenda view saved with its project in quotes is drawn on that project in the browser.**
   The server reads `project:"web"` as `web` and saved such a view, while the browser took the
   quotes as part of the name and found no project.

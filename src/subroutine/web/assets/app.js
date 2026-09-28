@@ -493,11 +493,26 @@ export function App () {
 		agendaAsked.current += 1;
 
 		const ticket = agendaAsked.current;
+		/* **Acted on only while it is still wanted** (`#3740`): the answer to the latest read, on a
+		   page still arranged as an agenda. `shown` rather than `showing`, because this runs long
+		   after the render that asked, and a blank arrangement is the agenda. **And not on an
+		   administrative page** (`#3902`), which keeps the arrangement it was reached from and reads
+		   no agenda of its own, so neither the ticket nor the arrangement moves there: the address
+		   says where the reader is, where `area` is state and lags as `showing` does. */
+		const wanted = () => ticket === agendaAsked.current
+			&& (shown.current.view || DEFAULT_VIEW) === AGENDA_VIEW
+			&& areaOf(window.location.pathname) === null;
 		let answered;
 
 		try {
 			answered = await sent(agendaRequest(slug, key));
 		} catch (failure) {
+			/* **A refusal is asked the same question first** (`#3902`). The fallback below acted on one
+			   that arrived after the reader had left, so it said the old page's project had gone on the
+			   page they had moved to and read another agenda there, and any other refusal put *That could
+			   not be shown* over it. A read nobody wants any more has nothing to say. */
+			if (!wanted()) return;
+
 			/* **A project the address names may not be there any more** (`#3775`), which `load`
 			   has answered since the first rename: the workspace is read instead, and the reason
 			   said. A project's page opens on its agenda, which had no such branch, so an address
@@ -510,13 +525,7 @@ export function App () {
 			return readAgenda(slug, null);
 		}
 
-		/* **Drawn only while it is still wanted** (`#3740`): the answer to the latest read, on a
-		   page still arranged as an agenda. `shown` rather than `showing`, because this runs long
-		   after the render that asked, and a blank arrangement is the agenda. */
-		const wanted = ticket === agendaAsked.current
-			&& (shown.current.view || DEFAULT_VIEW) === AGENDA_VIEW;
-
-		if (!wanted) return;
+		if (!wanted()) return;
 
 		setAgenda(agendaBuckets(answered));
 		setUnscheduled(
@@ -2136,7 +2145,7 @@ export function App () {
 		return null;
 	}, [assigning, workspace]);
 
-	const add = useCallback(async (values, asDocument) => {
+	const add = useCallback(async (values, asDocument, drawn = null) => {
 		/* **The reload afterwards keeps the filter the reader is looking at.** Without
 		   `project` declared below, adding an item inside a project answered by replacing the
 		   list with the whole workspace — the same stale closure as the poll, reached by a
@@ -2144,7 +2153,9 @@ export function App () {
 
 		   `values` is every named control on the form, raw; `filed` decides what is worth
 		   sending and is pure, which is where `#756`'s only real rule lives — an untouched
-		   control gives an empty string, and this endpoint refuses those by name. */
+		   control gives an empty string, and this endpoint refuses those by name. `drawn` is what the
+		   Project control showed when the form's details were drawn (`#3769`), so that `filed` can
+		   tell a project the reader chose from the one the page offered. */
 
 		/* **Refused before anything is written**, the same check `saving` makes below and for the
 		   same reason — `#2201`, `#2280`. `filed` sends `parent_task_id` only when `parentRef`
@@ -2169,7 +2180,7 @@ export function App () {
 			   which is what that box is called on the other side. */
 			const made = await sent(asDocument
 				? documentRequest({ ...values, title: values.text }, null, workspace)
-				: addRequest(values, workspace));
+				: addRequest(values, workspace, drawn));
 
 			/* **The number and title are a way to what was just made** (`#3566`), opened the way a
 			   row opens one and in the workspace it was written to. */
@@ -2301,13 +2312,16 @@ export function App () {
 		two fields only a task carries.
 	*/
 	const save = useCallback((values, opened = null) => {
-		if (!open || !repeats(open.item)) return saving(values, null);
+		/* **What the form opened with goes on to every save** (`#3774`). `edited` reads it to tell a
+		   day the reader emptied from one the form opened without, and only a deferral's save was
+		   handed it, so an emptied Until day still borrowed the start's day on every other. */
+		if (!open || !repeats(open.item)) return saving(values, null, opened);
 
 		/* **A deferral alone is never asked about** (`#3705`, Simon's decision on `#1308`): it is
 		   about the occurrence in front of you whatever the answer, and `edited` sends it alone. */
 		if (deferralOnly(values, opened)) return saving(values, null, opened);
 
-		setAsking({ what: "this change", run: (appliesTo) => saving(values, appliesTo) });
+		setAsking({ what: "this change", run: (appliesTo) => saving(values, appliesTo, opened) });
 
 		return null;
 	}, [open, saving]);

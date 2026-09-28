@@ -480,7 +480,7 @@ export function aboutTheProject (failure, key) {
 		project it could not find, which is what tells the two apart.
 	*/
 	return Boolean(failure && failure.status === 404 && failure.body
-		&& (failure.body.errors || []).some((one) => ["query.project", "project"].includes(one.field)
+		&& (failure.body.errors || []).some((one) => one.field === "query.project"
 			&& String(one.message || "").includes(`'${key}'`)));
 }
 

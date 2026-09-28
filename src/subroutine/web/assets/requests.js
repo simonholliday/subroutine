@@ -1352,7 +1352,7 @@ export function prioritiseRequest (project, slug) {
 	};
 }
 
-export function addRequest (values, slug) {
+export function addRequest (values, slug, drawn = null) {
 	/*
 		The workspace goes *in* the body because that is where this endpoint takes it — the only
 		write here that does.
@@ -1366,7 +1366,7 @@ export function addRequest (values, slug) {
 		assembled elsewhere would leave the one function with a rule in it — the one that decides
 		what is worth sending — checked only against a body written by hand in a test.
 	*/
-	return { path: "/tasks", method: "POST", body: filed(values, slug) };
+	return { path: "/tasks", method: "POST", body: filed(values, slug, drawn) };
 }
 
 /*
@@ -1441,7 +1441,7 @@ function dateSaid (said, name, borrows = true) {
 	return withTime(day, said(`${name}_time`));
 }
 
-export function filed (values, slug) {
+export function filed (values, slug, drawn = null) {
 	/*
 		What a form submission becomes on the wire — pure, so the rule above is checkable.
 
@@ -1477,7 +1477,17 @@ export function filed (values, slug) {
 		if (parentRef(said(name)) !== null) body.parent_task_id = String(parentRef(said(name)));
 	});
 
+	/* **A sub-task's project is its parent's** (`#3769`), and the Project control always holds one,
+	   the page's own or the Inbox, so sending it beside a parent refused every sub-task of an item
+	   filed anywhere else. It goes only where the reader changed it from what it showed when it
+	   was drawn; the instance takes the parent's otherwise, and one the reader did choose is still
+	   sent, and refused by name if it is not the parent's. */
+	const offered = body.parent_task_id !== undefined && drawn !== null
+		&& said("project") === drawn.project;
+
 	SAID_AS_WRITTEN.forEach((name) => {
+		if (name === "project" && offered) return;
+
 		const value = TIMED.includes(name)
 			? dateSaid(said, name)
 			: said(name);

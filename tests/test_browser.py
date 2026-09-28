@@ -911,6 +911,13 @@ CARD: dict[str, typing.Any] = {
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
+#: **An end for the repeating card** (`SR#3774`), because an Until day is only worth emptying on
+#: an item that has one: a London item from 11:00 on 5 October to 13:00 on the 6th.
+SPANNING: dict[str, typing.Any] = {
+	"timezone": "Europe/London", "starts_is_all_day": False,
+	"starts_at": "2026-10-05T10:00:00Z", "ends_at": "2026-10-06T12:00:00Z",
+}
+
 #: What an item's links answer — `#970`. Three ends, because the claim is that a reader can tell
 #: them apart without opening any of them: an unfinished blocker, a finished one, and a link that
 #: is not a blocker at all and so counts towards nothing.
@@ -1296,7 +1303,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 					# which is what `app.repeats` reads and what `views.repeats` reads at the
 					# other end. A rule or a description would not do: those are reported on
 					# both rows, and only this one says *there is another row*.
-					dict(CARD, recurrence_template_ref=7) if repeating[0] else CARD
+					dict(CARD, recurrence_template_ref=7, **SPANNING) if repeating[0] else CARD
 				) if re.fullmatch(r"v1/tasks/\d+", wanted)
 				# **The collection, and only the collection.** `startswith` also matched every
 				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
@@ -3056,6 +3063,11 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 	written — which is the half a page that asked *and wrote anyway* would pass without — the
 	second that the answer reached the wire, and the third that the item is what the write is
 	about.
+
+	**And an emptied Until day clears the end** (`SR#3774`), folded in as `SR#3705`'s deferral was,
+	because this already opens the form and saves from it. The card has an end, and emptying its
+	day is a save `edited` reads against what the form opened with, which `save` handed on only to
+	a deferral until M-21 of the cold review of 2026-09-28 found it.
 	"""
 
 	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating, *_ = running
@@ -3112,6 +3124,27 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 		# **The version rides along where the item has one**, and this harness's card has none;
 		# and the zone its day was read in, as every body carrying a date has (`SR#3755`).
 		assert set(deferred[0]) - {"expected_version"} == {"snooze", "timezone"}, deferred
+
+		# **And an emptied Until day clears the end** (`SR#3774`): unfixed, `edited` read this save
+		# as one from a form that opened with no end, and lent the emptied day the start's.
+		page.click(".detail button.edit")
+		page.wait_for_selector(".detail form.editing input[name=ends]", timeout=10_000)
+
+		assert page.input_value(".detail form.editing input[name=ends]") == "2026-10-06", (
+			"the card's end never reached the form, so emptying it would prove nothing"
+		)
+
+		written.clear()
+		page.fill(".detail form.editing input[name=ends]", "")
+		page.click(".detail form.editing button[type='submit']")
+		page.click(".asking button:text('Just this one')")
+		_until(page, lambda: any(one[0] == "PATCH" for one in written))
+
+		cleared = [json.loads(one[2] or "{}") for one in written if one[0] == "PATCH"]
+
+		assert cleared and "ends" in cleared[0] and cleared[0]["ends"] is None, (
+			f"emptying the Until day did not clear the end: {cleared}"
+		)
 
 	finally:
 		repeating[0] = False
@@ -3771,9 +3804,13 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	rather than a mirror, and *every month on the 30th* against *every 30 days* is the pair
 	whose difference does not show until February. A phrase it cannot read has to say so where
 	somebody can still change it, which is the `catch` and a different path through `App`.
+
+	**And a sub-task goes with its parent** (`SR#3769`), folded in because this opens the details.
+	What the Project control showed when it was drawn is recorded by the form, which only a
+	browser draws, and a parent sent with the Inbox beside it is refused by the instance.
 	"""
 
-	opened, _written, _refusing, *_ = running
+	opened, written, _refusing, *_ = running
 	page = opened("/projects")
 
 	page.click(".adding .more")
@@ -3799,6 +3836,23 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	assert "every day" in refused, (
 		f"a phrase this cannot read must name the shapes that work: {refused!r}. A reader stuck "
 		f"on wording needs an example rather than a complaint."
+	)
+
+	# **And a sub-task goes with its parent** (`SR#3769`): the Project control holds the Inbox here
+	# whatever the reader meant, so beside a parent it goes only where they changed it.
+	page.fill(".repeats input[name=recurrence]", "")
+	page.fill(".adding input[name=parent]", "42")
+	page.fill(".adding input[name=text]", "Write the release notes")
+	written.clear()
+	page.press(".adding input[name=text]", "Enter")
+	_until(page, lambda: any(one[:2] == ("POST", "v1/tasks") for one in written))
+
+	bodies = [json.loads(one[2] or "{}") for one in written if one[:2] == ("POST", "v1/tasks")]
+
+	assert bodies and bodies[0].get("parent_task_id") == "42", f"no sub-task was sent: {written}"
+	assert "project" not in bodies[0], (
+		f"the project the form offered went beside the parent, where the instance refuses one that "
+		f"is not the parent's: {bodies[0]}"
 	)
 
 	page.close()
@@ -5287,6 +5341,10 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	report; the list, which drew the board's rows, because leaving an agenda still loading was
 	not counted as leaving; Back, which asked that the same way; and a newer read overtaken by an
 	older one, which drew the workspace's agenda under a project's address.
+
+	**And a refusal, on a page that reads no agenda** (`SR#3902`): the fallback for a project that
+	has gone acted on a refusal that arrived after the reader had gone to the journal, which keeps
+	the arrangement it was reached from, so neither the ticket nor the arrangement noticed.
 	"""
 
 	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
@@ -5538,6 +5596,34 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 
 	assert not lands(lambda: "Overtaken in flight" in page.inner_text(".listing.agenda")), (
 		f"the workspace's agenda answered after the project's and was drawn at {page.url}"
+	)
+
+	# And a project's agenda refused once the reader has gone to the journal says nothing there
+	# and reads nothing more. Unfixed, its note said the project had gone, on the journal, and the
+	# workspace's agenda was read under it.
+	page.evaluate(
+		"() => { history.pushState({}, '', '/projects/subroutine/ui'); "
+		"window.dispatchEvent(new PopStateEvent('popstate')); }"
+	)
+	asked(1)
+	page.evaluate(
+		"() => { history.pushState({}, '', '/projects/-/journal'); "
+		"window.dispatchEvent(new PopStateEvent('popstate')); }"
+	)
+	page.wait_for_selector("select[aria-label='Where to look']", timeout=10_000)
+	held.pop().fulfill(
+		status=404,
+		content_type="application/problem+json",
+		body=json.dumps({
+			"type": "about:blank", "title": "Not found", "status": 404, "code": "not_found",
+			"detail": "There is no project 'subroutine/ui' here.",
+			"errors": [{"field": "query.project", "code": "not_found",
+				"message": "No project in projects answers to 'subroutine/ui'.", "hint": None}],
+		}),
+	)
+
+	assert not lands(lambda: bool(held) or "any more" in page.inner_text("body")), (
+		f"a project's agenda refused after the reader had left acted on {page.url}"
 	)
 
 	page.close()

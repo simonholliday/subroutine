@@ -9398,7 +9398,7 @@ def test_a_project_that_is_gone_does_not_take_the_page_with_it () -> None:
 
 
 def test_an_agenda_address_naming_a_project_gone_still_opens_its_item (
-	tmp_path: pathlib.Path,
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path,
 ) -> None:
 	"""`SR#3775`: a project's page opens on its agenda, and the agenda had no fallback.
 
@@ -9408,21 +9408,30 @@ def test_an_agenda_address_naming_a_project_gone_still_opens_its_item (
 	and never opened #42, where the same address with `?view=list` did.
 
 	**Driven through a mount**, because the fallback is inside `App`, and the arrival reads the
-	agenda and the item together, so one refusal failed both. The refusal has the shape
-	``test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other`` holds
-	`aboutTheProject` to, against the one the instance really sends.
+	agenda and the item together, so one refusal failed both.
+
+	**The instance's own refusal, and what the fallback reads after it** (`SR#3903`). The refusal
+	was written here and the re-read was asked only to leave the project out, so removing
+	`setProject(null)`, or re-reading every workspace's agenda, both passed. So the re-read has to
+	name the page's workspace, and a poll after it must not ask for the project again.
 	"""
 
-	refused = {
-		"type": "about:blank", "title": "Not found", "status": 404,
-		"detail": "There is no project 'gone' here.", "code": "not_found",
-		"errors": [{"field": "query.project", "code": "not_found",
-			"message": "No project in projects answers to 'gone'.", "hint": None}],
-	}
+	world = test_api_tasks._world(session)
+	refused = world.call(
+		"GET", "/v1/agenda", params={"workspace_id": world.workspace.slug, "project": "gone"}
+	)
+
+	assert refused.status_code == 404, refused.text
+
 	driven = _driven(
 		tmp_path,
 		pathname="/projects/gone/42",
-		answers={"project=gone": refused, **_open_item(tmp_path)},
+		answers={
+			"project=gone": refused.json(), **_open_item(tmp_path),
+			"changes?newest": _feed([_event(7)]),
+			"changes?since": _feed([_event(7), _event(8, ref=99)]),
+		},
+		ticks=1,
 	)
 	agendas = [one["path"] for one in driven["asked"] if "/agenda" in one["path"]]
 
@@ -9432,6 +9441,40 @@ def test_an_agenda_address_naming_a_project_gone_still_opens_its_item (
 	assert agendas and "project=gone" in agendas[0], agendas
 	assert len(agendas) > 1 and not any("project=gone" in path for path in agendas[1:]), (
 		f"the agenda was not read again for the whole workspace: {agendas}"
+	)
+	assert "workspace_id=projects" in agendas[1], (
+		f"the fallback read an agenda other than the page's workspace's: {agendas}"
+	)
+	assert len(agendas) > 2, f"the poll read no agenda, so it cannot ask for the project again: {agendas}"
+
+
+def test_an_agenda_read_is_acted_on_only_while_the_reader_is_still_there () -> None:
+	"""`SR#3902`: the fallback above acted on a refusal that came after the reader had left.
+
+	Arriving at a project whose name has gone and leaving before its agenda answered, the refusal
+	still said the old project had gone, on the page the reader had moved to, and read another
+	agenda there. **The answer and the refusal ask one question**: the latest read, on a page still
+	arranged as an agenda, and not an administrative page, which keeps the arrangement it was
+	reached from and reads no agenda of its own.
+
+	Source-level for `App`, for `SR#640`'s reason. The administrative page, the one way out that
+	neither the ticket nor the arrangement notices, is driven in a real browser by
+	``test_the_rows_a_page_shows_come_from_the_workspace_its_address_names``.
+	"""
+
+	app = _without_comments(_our_source())
+	opens, closes = _braced(app, "const readAgenda = useCallback(")
+	body = app[opens:closes]
+	caught = body[body.index("catch (failure)"):]
+
+	assert "areaOf(window.location.pathname) === null" in body, (
+		"an agenda read no longer asks whether the reader is on an administrative page"
+	)
+	assert body.count("if (!wanted()) return;") == 2, (
+		"the answer and the refusal no longer both ask whether the read is still wanted"
+	)
+	assert caught.index("if (!wanted()) return;") < caught.index("aboutTheProject("), (
+		"a refusal is acted on before anything asks whether the reader is still there"
 	)
 
 
@@ -11546,7 +11589,7 @@ def _views (
 			: name === "listingAddress" ? app.listingAddress(argument)
 			: name === "pageTitle" ? app.pageTitle(argument)
 			: name === "titlesByPath" ? app.titlesByPath(argument)
-			: name === "filed" ? app.filed(argument.values, argument.slug)
+			: name === "filed" ? app.filed(argument.values, argument.slug, argument.drawn)
 			: name === "offered"
 				? app.offered(
 					argument.vocabulary, argument.kind, argument.hidden, argument.keep
@@ -14505,6 +14548,34 @@ def test_emptying_the_until_day_clears_the_end_rather_than_moving_it (
 	)
 
 
+def test_every_save_hands_on_what_the_form_opened_with () -> None:
+	"""`SR#3774` again, M-21 of the cold review of 2026-09-28: the fix above never reached the page.
+
+	`edited` was given what the form opened with and read it rightly, and the test above held it
+	to that. But `save` in `App` handed it on only to a deferral's save, so every other save reached
+	`edited` with nothing, and an emptied Until day still borrowed the start's day. The test called
+	the function the way the page never did.
+
+	**Source-level for `save` itself**, for `SR#640`'s reason: `tests/dom.js` cannot submit a form.
+	Every `saving` it calls ends with `opened`, and there are at least three, so a scan that finds
+	nothing cannot pass. A repeating item's save is driven in a real browser by
+	``test_a_repeating_item_is_asked_about_before_anything_is_written``.
+	"""
+
+	app = _without_comments(_our_source())
+	opens, closes = _braced(app, "const save = useCallback(")
+	calls = re.findall(r"\bsaving\(([^()]*)\)", app[opens:closes])
+
+	assert len(calls) >= 3, f"expected the three saves `save` makes, found {calls}"
+
+	dropped = [one for one in calls if one.split(",")[-1].strip() != "opened"]
+
+	assert not dropped, (
+		f"`save` calls `saving` without what the form opened with: {dropped}, so `edited` reads an "
+		f"emptied Until day as one the form opened without and lends it the start's day"
+	)
+
+
 def test_the_item_page_shows_a_span_as_one_fact (tmp_path: pathlib.Path) -> None:
 	"""`SR#1238`: *14 to 28 August* is what somebody wrote, and one row is what they read back.
 
@@ -15972,6 +16043,56 @@ def test_a_repeat_and_its_anchor_travel_together_or_not_at_all (
 
 	assert together["recurrence"] == "every 3 days"
 	assert together["recurrence_anchor"] == "completion"
+
+
+def test_a_sub_task_goes_with_its_parent_unless_the_reader_chose_a_project (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3769`: the add form sent its Project control beside a parent, and the instance refused it.
+
+	A sub-task shares its parent's project, and the instance takes the parent's where none is sent.
+	But the form's Project control always holds one, the page's own or the Inbox, so every sub-task
+	added under an item in another project was refused. **Beside a parent the control goes only
+	where the reader changed it** from what it showed when the form's details were drawn: one the
+	reader chose is still sent, and refused if it is not the parent's.
+
+	**Driven against a real instance**, because the claim is about what it does with the body. What
+	the control showed is recorded by the form, which only a browser draws, so
+	``test_a_written_repeat_is_read_back_before_it_is_committed_to`` submits one there.
+	"""
+
+	world = test_api_tasks._world(session)
+	made = world.call("POST", "/v1/projects", json={"key": "web", "title": "The website rebuild"})
+
+	assert made.status_code == 201, made.text
+
+	parent = world.call(
+		"POST", "/v1/tasks", json={"title": "Rebuild the website", "project": "web"}
+	).json()["ref"]
+	slug = world.workspace.slug
+	values = {"text": "Write the copy", "parent": str(parent), "project": "inbox"}
+	drawn = {"project": "inbox"}
+
+	kept, chosen, unparented, undrawn = _views(tmp_path, [
+		("filed", {"slug": slug, "values": values, "drawn": drawn}),
+		("filed", {"slug": slug, "values": {**values, "project": "web"}, "drawn": drawn}),
+		("filed", {"slug": slug, "values": {**values, "parent": ""}, "drawn": drawn}),
+		("filed", {"slug": slug, "values": values}),
+	])
+
+	assert "project" not in kept, f"the project the form offered went beside the parent: {kept}"
+	assert chosen["project"] == "web", f"a project the reader chose was left out: {chosen}"
+	assert unparented["project"] == "inbox", f"an item with no parent lost its project: {unparented}"
+	assert undrawn["project"] == "inbox", f"a form with no details drawn lost its project: {undrawn}"
+
+	filed = world.call("POST", "/v1/tasks", json=kept)
+	refused = world.call("POST", "/v1/tasks", json=undrawn)
+
+	assert filed.status_code == 201, filed.text
+	assert filed.json()["project_key"] == "web", filed.json()
+	assert refused.status_code == 422, (
+		f"the body the form sent before was not refused, so this proves nothing: {refused.text}"
+	)
 
 
 def test_clearing_the_repeat_box_stops_the_series (tmp_path: pathlib.Path) -> None:

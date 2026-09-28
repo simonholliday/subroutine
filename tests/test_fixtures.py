@@ -835,11 +835,10 @@ def test_the_sqlite_schema_keeps_the_key_postgresql_adds_by_alter (tmp_path: pat
 	postgresql = sqlalchemy.create_mock_engine(
 		sqlalchemy.engine.make_url("postgresql+psycopg://"), lambda *_statement, **_options: None
 	)
-	subroutine.db.base.Base.metadata.create_all(postgresql, checkfirst=False)
-
 	engine = sqlalchemy.create_engine(f"sqlite:///{tmp_path / 'after-postgresql.db'}")
 
 	try:
+		subroutine.db.base.Base.metadata.create_all(postgresql, checkfirst=False)
 		subroutine.db.session.create_all(engine)
 
 		with engine.connect() as connection:
@@ -847,6 +846,14 @@ def test_the_sqlite_schema_keeps_the_key_postgresql_adds_by_alter (tmp_path: pat
 
 	finally:
 		engine.dispose()
+
+		# **The mark is this test's to take off** (`SR#3903`), not the code under test's: were
+		# `create_all` to stop clearing it, every SQLite test after this one would build its schema
+		# without the key, and fail for a reason nowhere near it.
+		for table in subroutine.db.base.Base.metadata.tables.values():
+			for constraint in table.foreign_key_constraints:
+				if constraint.use_alter:
+					constraint._create_rule = None
 
 	assert ("project", "prioritised_project_id") in [(key[2], key[3]) for key in keys], (
 		f"SQLite's workspace table has no key on prioritised_project_id after PostgreSQL's schema "
