@@ -89,7 +89,8 @@ stays on the item for whichever agent picks the work up next - including one tha
 for a month.
 
 **Several projects that have to agree.** Work in one project can block work in another, and a
-decision taken in one can bind all of them. That is not hypothetical here: see
+decision recorded in one can govern work in any of them: whoever picks that work up is shown the
+decision before starting. That is not hypothetical here: see
 [It runs on itself](#it-runs-on-itself) below.
 
 **A record of everything, in plain words.** A journal of what happened over any period, by
@@ -154,8 +155,9 @@ instrument definitions. A finding filed in one of them reads
 > *the two device matchers already disagree on exact-match precedence*
 
 which is the kind of thing nobody notices until two agents working in two repositories both
-think they are right. It was found, written down and settled in one place, and both projects
-inherited the answer.
+think they are right. It was found and written down once, and the remedy planned in the same
+place: one table of test cases for both products' suites to run, so the next disagreement fails
+a build rather than waiting to be noticed.
 
 ## What it actually is
 

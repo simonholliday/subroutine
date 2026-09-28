@@ -9771,7 +9771,7 @@ def register (
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the agenda as JSON."),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", help="Stop if any connection cannot be reached or refuses."
 		),
 	) -> None:
 		"""Show what you are doing today, or what another day looks like.
@@ -9842,7 +9842,7 @@ def register (
 			False, "--merged", help="One list rather than a group per connection."
 		),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", help="Stop if any connection cannot be reached or refuses."
 		),
 		order: str = typer.Option(
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
@@ -9918,7 +9918,7 @@ def register (
 			False, "--merged", help="One list rather than a group per connection."
 		),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", help="Stop if any connection cannot be reached or refuses."
 		),
 		order: str = typer.Option(
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
@@ -9993,7 +9993,7 @@ def register (
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the entries as JSON."),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", help="Stop if any connection cannot be reached or refuses."
 		),
 	) -> None:
 		"""What happened over a period, with who did it and what they said.
@@ -10045,7 +10045,7 @@ def register (
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the events as JSON."),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", help="Stop if any connection cannot be reached or refuses."
 		),
 	) -> None:
 		"""What has changed, oldest first - the question to ask after time away.
@@ -10750,7 +10750,7 @@ def register (
 	def whoami (
 		json_output: bool = typer.Option(False, "--json", help="Print the answer as JSON."),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", help="Stop if any connection cannot be reached or refuses."
 		),
 	) -> None:
 		"""Which account this machine is acting as, and what it is allowed to do.

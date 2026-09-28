@@ -620,9 +620,11 @@ def update_link_type (
 	return kind
 
 
-#: The link categories whose rules are checked where a link is made, and nowhere after - `#3596`.
-#: ``gating`` holds work up and refuses a ring of itself; ``counting`` is drawn only from a
-#: milestone and counts toward it.
+#: The link categories a relation may not move into or out of while links use it, because their
+#: rules are checked where a link is made and nowhere after - `#3596`. ``gating`` holds work up
+#: and refuses a ring of itself; ``counting`` is drawn only from a milestone and counts toward
+#: it. ``ordering`` refuses a ring where a link is made too, and a move into it is not yet
+#: refused while its links hold one (`#3811`).
 _CHECKED_WHEN_LINKED = frozenset(
 	{subroutine.domain.readiness.GATING, subroutine.domain.milestones.COUNTING}
 )

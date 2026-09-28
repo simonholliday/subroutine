@@ -570,14 +570,14 @@ def _refuse_a_loop (
 	target: End,
 	link_type: subroutine.db.models.vocabulary.LinkType,
 ) -> None:
-	"""Refuse a ``blocks`` link that would close a ring, naming the chain that closes it.
+	"""Refuse a link saying which of a pair comes first where it would close a ring, naming it.
 
 	**Because a ring is silent.** ``A blocks B blocks A`` leaves both items permanently
 	un-ready with nothing anywhere saying why: each is correctly reported as blocked, each
 	blocker is correctly reported as unfinished, and the only way out is for somebody to
-	notice by hand that the work cannot start. ``errors.py`` has described
-	``cycle_detected`` as covering "a chain of blocking links" since the registry was
-	written, and nothing produced one — a refusal published and never raised.
+	notice by hand that the work cannot start. ``errors.py`` described ``cycle_detected`` as
+	covering "a chain of blocking links" from the day the registry was written, and nothing
+	produced one — a refusal published and never raised.
 
 	**Anything that asserts which of a pair comes first**, which is :data:`SEQUENCING` and
 	:data:`SUPERSEDING`. ``relates_to`` and ``documents`` describe a pair rather than ordering

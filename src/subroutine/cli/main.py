@@ -2453,7 +2453,9 @@ def agent_create (
 	Run it in the directory Claude Code is opened in: it writes the credential into that
 	directory's .claude/settings.local.json, under this connection's variable, makes the
 	repository ignore that file, and prints nothing secret - so an agent can run it for you
-	without ever seeing the credential. A session started there afterwards acts as the agent.
+	without ever seeing the credential. A session started there afterwards acts as the agent -
+	in its tools too where they reach this connection, and a plugin naming none reaches this
+	machine's default.
 	Under 'subroutine-remote' it covers the shell only: that plugin's tools present its one
 	token in every project, until the directory is switched to the 'subroutine' plugin, which
 	it says how to do.

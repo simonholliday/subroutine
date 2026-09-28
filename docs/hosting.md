@@ -1176,9 +1176,11 @@ order:
 5. `credentials.toml` - the **agent's** token where one is stored and this is an agent's
    process, and yours otherwise
 
-The first wins. Step 5 is where the two of you stop sharing a name, because it is the only step
-that can tell you apart: you are the same account, in the same directory, reading the same
-files, and the one thing that differs is the environment each process was started in.
+The first wins. Steps 1, 2 and 5 are where the two of you stop sharing a name, because they are
+the steps that can tell you apart: you are the same account, in the same directory, reading the
+same files, and the one thing that differs is the environment each process was started in.
+`--here` puts the agent's token in step 1's variable, set where Claude Code starts a process in
+that directory; the plugin's field is step 2; and `--store` is step 5.
 
 **How it knows.** An editor sets a variable on every process it starts and on nothing above
 itself - `CLAUDECODE` for Claude Code, which is the shipped default. A connection can name a

@@ -83,6 +83,11 @@ upgrade involves.
 - **A ring of links stored before rings were refused is harmless.** An item's tree drew the
   item again below itself and counted it, and sending one of the ring's links again was
   refused as a cycle; the tree marks the item as drawn above, and the link is answered.
+- **A page left on a second screen keeps up with an agent's work.** The browser checked for
+  changes every five seconds only while somebody used the page, and every thirty once it had
+  gone two minutes untouched - which is how a page on a second screen is left. A change
+  arriving counts as activity now, so the faster pace holds while work is landing, and the
+  page still slows down after two quiet minutes.
 
 ## 0.9.11 — 2026-09-28
 

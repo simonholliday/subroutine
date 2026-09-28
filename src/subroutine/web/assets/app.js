@@ -1157,6 +1157,10 @@ export function App () {
 	   near miss. */
 	const owed = useRef(false);
 
+	/* **When the poll last found a change** (`#3824`), which the cadence counts as activity
+	   beside a touch: a page watched while an agent works is not a page nobody is using. */
+	const arrived = useRef(0);
+
 	useEffect(() => {
 		/*
 			**Two inputs, one answer**: whether the tab is in front, and when somebody last
@@ -1186,7 +1190,7 @@ export function App () {
 
 			if (hidden) owed.current = true;
 
-			setAttention(cadence(hidden, Date.now() - touched));
+			setAttention(cadence(hidden, Date.now() - touched, Date.now() - arrived.current));
 		};
 
 		const stirred = () => {
@@ -1292,6 +1296,16 @@ export function App () {
 				if (fresh.length === 0) return;
 
 				since.current = fresh[fresh.length - 1].seq;
+
+				/* **Changes arriving are somebody working** (`#3824`, decision `#3838`), so
+				   the busy cadence holds while work lands, and relaxes after `ATTENTIVE_MS`
+				   with neither this nor a touch. A value the effect already holds changes
+				   nothing, so a page already busy keeps its timer. */
+				arrived.current = Date.now();
+
+				const away = globalThis.document?.visibilityState === "hidden";
+
+				setAttention(cadence(away, Infinity, 0));
 
 				/* **The open item first, because it is what the reader is looking at** (`#657`).
 				   `held` rather than `open` for the reason `since` is a ref: this callback is

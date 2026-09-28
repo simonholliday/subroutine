@@ -31,8 +31,9 @@ export const HORIZON_DAYS = 7;
 	The three cadences a poll runs at — `#1850`, and `#445` §3 specified them long before any
 	of this existed.
 
-	`BUSY_POLL_MS` while somebody is working, `IDLE_POLL_MS` once a visible tab has gone
-	`ATTENTIVE_MS` untouched, and **nothing at all while it is hidden** — a timer torn down
+	`BUSY_POLL_MS` while somebody is working or changes are arriving (`#3824`), `IDLE_POLL_MS`
+	once a visible tab has gone `ATTENTIVE_MS` with neither, and **nothing at all while it is
+	hidden** — a timer torn down
 	rather than one that fires and returns, because a timer that fires is throttled in a
 	background tab and not stopped.
 

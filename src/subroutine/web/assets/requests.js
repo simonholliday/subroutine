@@ -9,11 +9,16 @@
 
 	**Hidden beats idle**, and the order matters: a tab put away while somebody was typing is
 	still a tab nobody is looking at.
+
+	**And a change arriving is activity too** (`#3824`, decision `#3838`): `quietFor` is how long
+	since the poll last found one. A page on a second screen beside an agent is watched rather
+	than touched, so on `idleFor` alone it slowed down two minutes in and showed the agent's work
+	up to thirty seconds late, where the README promises every few. Busy while either is recent.
 */
-export function cadence (hidden, idleFor) {
+export function cadence (hidden, idleFor, quietFor = Infinity) {
 	if (hidden) return null;
 
-	return idleFor < ATTENTIVE_MS ? BUSY_POLL_MS : IDLE_POLL_MS;
+	return Math.min(idleFor, quietFor) < ATTENTIVE_MS ? BUSY_POLL_MS : IDLE_POLL_MS;
 }
 
 /*

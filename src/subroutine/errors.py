@@ -148,7 +148,8 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Cycle detected",
 			"The change would make something its own ancestor, in a project tree, a task "
 			"hierarchy, or a chain of links that say which of a pair comes first - the "
-			"blocking ones, and the one that says a document replaces another - or would make a "
+			"blocking ones, the ones that set an order, and the one that says a document replaces "
+			"another - or would make a "
 			"milestone include itself.",
 		),
 		_define(

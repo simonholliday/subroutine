@@ -8065,7 +8065,7 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "pageMark" ? app.PAGE_MARK
 			: name === "areas" ? app.AREAS
 			: name === "showsWork" ? app.showsWork(argument.area)
-			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor)
+			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor, argument.quietFor)
 			: name === "narrowingTo" ? app.narrowingTo(argument.address, argument.showing)
 			: name === "reloaded" ? (() => {{
 				const written = app.withShowing(argument.path, argument.arranged);
@@ -16249,6 +16249,34 @@ def test_a_hidden_tab_polls_not_at_all_and_an_idle_one_backs_off (
 		f"a hidden tab was still given a cadence, so the timer stays up and the point of the "
 		f"item is lost: {away}, {gone}"
 	)
+
+
+def test_a_page_watched_while_work_arrives_keeps_the_busy_cadence (tmp_path: pathlib.Path) -> None:
+	"""`SR#3824`, decision `SR#3838`: a second screen is watched, not touched.
+
+	The README tells a reader to leave the page on a second screen, and says it refreshes every
+	few seconds; left untouched for two minutes it asked every thirty. **A change arriving counts
+	as activity now**: busy while work lands, idle after two minutes with neither, and nothing
+	while the tab is hidden, which still beats both.
+
+	**And the page is asked whether it records arrivals**, source-level for `SR#640`'s reason:
+	the poll is inside `App`, where the mount cannot drive a change arriving.
+	"""
+
+	untouched = 6 * 60 * 60 * 1000
+	asked = _addressing(tmp_path, [
+		("cadence", {"hidden": False, "idleFor": untouched, "quietFor": 0}),
+		("cadence", {"hidden": False, "idleFor": untouched, "quietFor": 119000}),
+		("cadence", {"hidden": False, "idleFor": untouched, "quietFor": 120000}),
+		("cadence", {"hidden": True, "idleFor": 0, "quietFor": 0}),
+	])
+
+	assert asked == [5000, 5000, 30000, None], asked
+
+	app = _without_comments(_our_source())
+
+	assert "arrived.current = Date.now()" in app, "the poll no longer counts a change as activity"
+	assert "Date.now() - arrived.current" in app, "the cadence no longer reads when one arrived"
 
 
 def test_a_board_says_how_it_is_ordered_and_lets_a_reader_change_it (

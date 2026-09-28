@@ -200,7 +200,10 @@ and `subroutine whoami`, run in the agent's shell, should both name the agent. W
 `subroutine` plugin's tools are acting with the token in its field, `subroutine_whoami` says so
 in a line of its own - that is what a sign-out would take - so give the project an agent of its
 own with `--here` first. With no such line and both naming the agent, nothing a sign-out removes
-is holding either. An older plugin or program gives no such line either way - an older plugin
+is holding either - under the `subroutine` plugin, the only one that prints that line. **Under
+`subroutine-remote` the field is always what the tools act with**, so a sign-out always empties
+it, and every call is refused with a 401 until the token is entered again. An older plugin or
+program gives no such line either way - an older plugin
 passes its field as `SUBROUTINE_TOKEN`, which a shell may export too, so nothing can tell which
 of them answered. There, run `subroutine connections` in the agent's shell: if it names
 `SUBROUTINE_TOKEN_<CONNECTION>`, the project's own agent answers the tools as well, since that

@@ -1269,7 +1269,7 @@ def _tools (
 						"type": "string",
 						"description": (
 							"If it repeats: 'this_one', or 'from_now_on' for every one after "
-							"it too. Required then, refused otherwise."
+							"it too. Required then, except to defer; refused otherwise."
 						),
 					},
 					# **The surface where the other writer is never in the room** (`#1696`,
