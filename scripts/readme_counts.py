@@ -103,13 +103,15 @@ def holdings (client: subroutine.clients.base.Client, workspace: str) -> Holding
 	"""Count one workspace's open items, the projects they are in, and its documents by type."""
 
 	caller = client.me().user
-	unfinished = _every(client, "/v1/tasks", workspace=workspace, fields="ref,project_key")
+	unfinished = _every(client, "/v1/tasks", workspace=workspace, fields="ref,project_path")
 	documents = _every(client, "/v1/documents", workspace=workspace, fields="ref,type_label")
 
 	return Holdings(
 		who=f"{caller.username} ({'an agent' if caller.is_service_account else 'a person'})",
 		open_items=len(unfinished),
-		projects=len({row["project_key"] for row in unfinished}),
+		# **By the whole address, never the key** (`#3778`): a key is unique only among its
+		# siblings, so `web/docs` and `app/docs` were one project and the README's figure came out low.
+		projects=len({row["project_path"] for row in unfinished}),
 		documents=collections.Counter(str(row["type_label"]) for row in documents),
 	)
 
@@ -118,19 +120,27 @@ def written (counted: Commits, held: Holdings) -> list[str]:
 	"""Return the figures worded as the README words them, to paste.
 
 	Each kind of document is named by its label, made plural by adding an *s*, which is right
-	for every type this instance has; a person reads the line before it is pasted.
+	for every type this instance has; a person reads the line before it is pasted. **With no
+	documents, the count alone** (`#3778`): there is no last kind to join with *and*, and asking
+	for one raised.
 	"""
 
 	kinds = [
 		f"{count:,} {label.lower()}{'' if count == 1 else 's'}"
 		for label, count in sorted(held.documents.items(), key=lambda pair: (-pair[1], pair[0]))
 	]
-	listed = kinds[0] if len(kinds) == 1 else f"{', '.join(kinds[:-1])} and {kinds[-1]}"
+	documents = f"{sum(held.documents.values()):,} written-up documents"
+
+	if len(kinds) == 1:
+		documents += f" - {kinds[0]}"
+
+	elif kinds:
+		documents += f" - {', '.join(kinds[:-1])} and {kinds[-1]}"
 
 	return [
 		f"{counted.citing:,} of the {counted.total:,} commits since then",
 		f"{held.open_items:,} open items across {held.projects:,} projects",
-		f"{sum(held.documents.values()):,} written-up documents - {listed}",
+		documents,
 	]
 
 

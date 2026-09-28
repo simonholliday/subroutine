@@ -100,6 +100,18 @@ def test_the_figures_are_worded_as_the_readme_words_them (counts: types.ModuleTy
 	]
 
 
+def test_a_workspace_with_no_documents_is_worded_without_a_list (
+	counts: types.ModuleType,
+) -> None:
+	"""`SR#3778`: with no documents at all, the wording asked for the last of an empty list."""
+
+	held = counts.Holdings(
+		who="keanu (a person)", open_items=3, projects=2, documents=collections.Counter()
+	)
+
+	assert counts.written(counts.Commits(citing=5, total=6), held)[-1] == "0 written-up documents"
+
+
 @pytest.mark.parametrize(
 	("day", "written"),
 	[
@@ -125,7 +137,11 @@ def test_a_day_is_written_as_the_readme_writes_it (
 
 
 def test_a_workspace_is_counted_across_every_page (counts: types.ModuleType) -> None:
-	"""Open items across two pages, the projects they are in, and documents by their label."""
+	"""Open items across two pages, the projects they are in, and documents by their label.
+
+	**A project by its whole address** (`SR#3778`): the two here share the key ``docs``, and were
+	counted as one.
+	"""
 
 	instance = _Instance(tasks_total=3)
 	held = counts.holdings(typing.cast(subroutine.clients.base.Client, instance), "projects")
@@ -184,12 +200,19 @@ class _Instance:
 
 			return _page([{"ref": 10 + n, "type_label": one} for n, one in enumerate(labels)], 3)
 
+		# **Both fields, as a stand-in that answered only the one asked for could not show** a
+		# script counting the wrong one: the key would be missing rather than miscounted (`SR#3778`).
 		if "cursor" not in query:
-			rows = [{"ref": 1, "project_key": "subsample"}, {"ref": 2, "project_key": "subnet"}]
+			rows = [
+				{"ref": 1, "project_key": "docs", "project_path": "web/docs"},
+				{"ref": 2, "project_key": "docs", "project_path": "app/docs"},
+			]
 
 			return _page(rows, self.tasks_total, following="next")
 
-		return _page([{"ref": 3, "project_key": "subsample"}], self.tasks_total)
+		return _page(
+			[{"ref": 3, "project_key": "docs", "project_path": "web/docs"}], self.tasks_total
+		)
 
 
 def _page (
