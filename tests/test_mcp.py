@@ -7849,6 +7849,41 @@ def _nowhere (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> subrou
 	return settings
 
 
+def test_a_connection_that_cannot_be_reached_is_said_at_the_handshake (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3906`, M-15 of the cold review of 2026-09-28: the agent's tools vanished without a word.
+
+	``subroutine mcp`` naming a connection that does not exist, or one with no token, raised before
+	the first message was read, so the process exited with its one sentence on standard error, which
+	a client does not show. **Every message is answered with the sentence now, ``initialize``
+	included**, as a failure reaching the instance mid-session already was.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.connections, "roster", lambda settings: _roster("local", "work", default="local")
+	)
+	lines = (
+		'{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}\n'
+		'{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}\n'
+	)
+
+	for connection, said in (("nosuch", "no connection called 'nosuch'"), ("work", "has no token")):
+		outgoing = io.StringIO()
+
+		subroutine.mcp.relay.run(
+			io.StringIO(lines),
+			outgoing,
+			connection=connection,
+			settings=subroutine.config.Settings(dev_mode=True),
+		)
+
+		answers = [json.loads(line) for line in outgoing.getvalue().splitlines() if line.strip()]
+
+		assert [one["id"] for one in answers] == [1, 2], (connection, answers)
+		assert all(said in one["error"]["message"] for one in answers), (connection, answers)
+
+
 def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -10631,6 +10666,36 @@ def test_the_agents_project_listing_stays_one_row_per_project (
 	assert not failed, listed
 	assert len([line for line in listed.splitlines() if line.strip()]) == 2, listed
 	assert "First paragraph. Second paragraph." in listed, listed
+
+
+def test_the_agents_project_listing_cuts_its_summaries_rather_than_its_projects (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3905`, L-10 of the cold review of 2026-09-28: the listing grew without a bound.
+
+	Reading every project rather than one page made the answer as long as the workspace: 300
+	projects with long summaries were 276,000 characters, spent in one call. **Every project is
+	still listed**, since dropping rows was the silent cut that was removed; the summaries share what
+	is left of a bound, and the answer says so.
+	"""
+
+	summary = "What this project is for, written out at the length somebody might. " * 13
+
+	for number in range(24):
+		_called(
+			bound,
+			"subroutine_call_api",
+			method="POST",
+			path="/v1/projects",
+			body={"key": f"p{number:02d}", "title": f"Project {number}", "description": summary},
+		)
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert all(f"p{number:02d}" in listed for number in range(24)), listed
+	assert len(listed) <= subroutine.mcp.tools.PROJECTS_LISTED_WHOLE + 200, len(listed)
+	assert "summaries cut so the list fits one answer" in listed, listed[-300:]
 
 
 def test_the_agents_project_listing_drops_the_column_when_nothing_is_described (

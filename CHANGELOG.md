@@ -14,6 +14,16 @@ upgrade involves.
 
 ## Unreleased
 
+- **An agent's tools say why their connection cannot be reached.** `subroutine mcp` naming a
+  connection that does not exist, or one with no token, exited before the handshake with its
+  reason where no client shows it, so the tools were simply missing. It now answers every
+  message, the first included, with that reason.
+- **`token create --store` and `connections add --url` check what they write.** A name no
+  connection could have, such as *My Laptop*, and an address whose port is not a number up to
+  65535, each broke every command after them. Both are refused now, before anything is minted
+  or stored, and a capital in a name is lower-cased as it is everywhere else.
+- **`serve` on a port already in use says so and starts nothing**, where it announced its
+  address and then printed uvicorn's own error.
 - **A credential narrowed to some projects, or pinned to one workspace, can no longer reset its
   owner's calendar feeds or list them.** A reset hands back a working address that reads with
   the owner's own sight, so such a credential could read everything its owner can see through
@@ -80,7 +90,8 @@ upgrade involves.
 - **Projects after the fiftieth can be found.** A lookup read one page of projects, so a
   checkout marked for a later one filed into the Inbox, `?project=` in an address could not
   name it, and `use --here --project` answered that it did not exist. `project list` and
-  `subroutine_project` stopped at fifty too, without saying so. They read every project now.
+  `subroutine_project` stopped at fifty too, without saying so. They read every project now,
+  and the agents' listing cuts its summaries, saying so, rather than grow past a few pages.
 - **A sub-task goes where its parent is.** Added without a project, it was refused on every
   surface, because it was filed where an item with no parent would go and a sub-task has to
   share its parent's project. It takes its parent's project now, ahead of a checkout's; a

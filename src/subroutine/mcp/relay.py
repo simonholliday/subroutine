@@ -807,8 +807,30 @@ def run (
 
 	resolved = settings or subroutine.config.load_settings()
 	roster = subroutine.connections.roster(resolved)
-	chosen = roster.require(connection or roster.default)
 
-	subroutine.mcp.protocol.relay(
-		answering(chosen, roster, resolved, workspace=workspace), incoming, outgoing
-	)
+	# **A connection that cannot be reached is said at the handshake, and on every message after**
+	# (`#3906`). Naming one that does not exist, or one with no token, raised here, before the
+	# first message was read: the process exited with its one sentence on standard error, which a
+	# client does not show, and the agent's tools were simply absent. A failure reaching the
+	# instance mid-session was already answered this way.
+	try:
+		chosen = roster.require(connection or roster.default)
+		answer = answering(chosen, roster, resolved, workspace=workspace)
+
+	except subroutine.errors.SubroutineError as failure:
+		answer = _refusing(failure)
+
+	subroutine.mcp.protocol.relay(answer, incoming, outgoing)
+
+
+def _refusing (
+	failure: subroutine.errors.SubroutineError,
+) -> typing.Callable[[str], dict[str, typing.Any] | None]:
+	"""Return something that answers every message with why the instance cannot be reached."""
+
+	def answer (raw: str) -> dict[str, typing.Any] | None:
+		"""Refuse one message, ``initialize`` included, in the sentence the failure carries."""
+
+		return _refused(raw, failure.detail, failure.hint)
+
+	return answer

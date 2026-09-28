@@ -128,6 +128,17 @@ class Client:
 			# (`#3584`).
 			raise subroutine.credentials.unsendable(connection.name) from None
 
+		except httpx.InvalidURL:
+			# **An address no request can be made to is this connection's failure alone** (`#3907`),
+			# refused as a connection's failure is, so the others in a listing still answer. The
+			# address is checked where it is written, and this is for one that was not.
+			raise subroutine.errors.ValidationError(
+				f"Connection {connection.name!r} has an address no request can be made to: "
+				f"{connection.url}.",
+				code="invalid_field_value",
+				hint=f"Put its url right in the [connections.{connection.name}] table of config.toml.",
+			) from None
+
 		# **What this instance last said it was running** — `#250`. Recorded as responses go
 		# past rather than fetched, because the call that needs it is the one that just failed:
 		# a body this client could not read is still a body that says which release wrote it.

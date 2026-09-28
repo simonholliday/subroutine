@@ -4735,6 +4735,24 @@ def _after_some (
 	)
 
 
+#: How long the agent's project listing may run before summaries are cut (`#3905`): sixteen
+#: projects with summaries at the stored limit, which is what it was sized for while it could
+#: not grow past a page.
+PROJECTS_LISTED_WHOLE = 16_000
+
+#: A summary shorter than this says too little to be worth its line, so past it they go.
+_SHORTEST_SUMMARY = 20
+
+
+def _cut (said: str, room: int | None) -> str:
+	"""Return ``said`` cut to ``room`` characters, with an ellipsis where anything went."""
+
+	if room is None or len(said) <= room:
+		return said
+
+	return f"{said[:room].rstrip()}…"
+
+
 def _projected (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
@@ -4785,17 +4803,38 @@ def _projected (
 		# like it did this work turned out to be dead.
 		titles = max((len(row.title) for row in rows if row.description), default=0)
 
-		return "\n".join(
-			(
-				f"{'  ' * row.depth}{row.key}".ljust(width)
-				+ f"  {row.title.ljust(titles)}"
-				+ (
-					f"  {subroutine.domain.text.one_line(row.description)}"
-					if row.description
-					else ""
-				)
-			).rstrip()
-			for row in rows
+		def listed (room: int | None) -> str:
+			"""Return the tree, with each summary cut to ``room`` characters where one is given."""
+
+			return "\n".join(
+				(
+					f"{'  ' * row.depth}{row.key}".ljust(width)
+					+ f"  {row.title.ljust(titles)}"
+					+ (
+						f"  {_cut(subroutine.domain.text.one_line(row.description), room)}"
+						if row.description and room != 0
+						else ""
+					)
+				).rstrip()
+				for row in rows
+			)
+
+		whole = listed(None)
+
+		if len(whole) <= PROJECTS_LISTED_WHOLE:
+			return whole
+
+		# **Every project, and summaries cut to fit** (`#3905`). Reading every project rather than
+		# one page (`#3767`) made the answer unbounded: 300 projects with long summaries were 276,000
+		# characters, spent in one call on context an agent needs for its work. No row is dropped,
+		# which would be the silent cut that was removed; the summaries share what is left, and the
+		# answer says so.
+		described = sum(1 for row in rows if row.description)
+		room = max(0, (PROJECTS_LISTED_WHOLE - len(listed(0))) // max(described, 1) - 3)
+
+		return (
+			f"{listed(room if room >= _SHORTEST_SUMMARY else 0)}\n"
+			f"(All {len(rows)} projects, with their summaries cut so the list fits one answer.)"
 		)
 
 	title = _text(arguments, "title")

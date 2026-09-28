@@ -11,10 +11,12 @@ import contextlib
 import copy
 import dataclasses
 import datetime
+import errno
 import getpass
 import pathlib
 import re
 import shutil
+import socket
 import sys
 import tomllib
 import traceback
@@ -818,6 +820,8 @@ def serve (
 	column = max((len(surface.path) for surface in surfaces), default=0)
 	bound = f"http://{shown}:{listening}"
 
+	_refuse_a_port_in_use(where, listening)
+
 	_say(f"Serving on {bound}")
 
 	# **Where somebody else reaches it, when that is not where it bound** (`#793`). The lines
@@ -922,6 +926,35 @@ def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> No
 		"  Warning: cors_origins is '*', so any page on any site can read and write as "
 		"anybody signed in who visits it. Name the origins that need it, or empty the list."
 	)
+
+
+def _refuse_a_port_in_use (host: str, port: int) -> None:
+	"""Refuse to serve where something is listening already - `#3911`.
+
+	uvicorn meets a taken port only when it binds, by which time ``serve`` has said the address
+	is serving and named what is on it: then came uvicorn's own error, and an exit code of its own.
+	**Asked by binding and letting go**, as uvicorn binds, reusing an address a closed server left
+	waiting, so only a listener is found; one that takes the port in the moment between still meets
+	uvicorn's error, which is the case this cannot close.
+	"""
+
+	family = socket.AF_INET6 if ":" in host else socket.AF_INET
+
+	with socket.socket(family, socket.SOCK_STREAM) as probe:
+		probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+		try:
+			probe.bind((host, port))
+
+		except OSError as taken:
+			if taken.errno != errno.EADDRINUSE:
+				raise
+
+			_stop(
+				f"Port {port} is already in use, so nothing was started.",
+				"Another 'subroutine serve' may be running there. Stop it, or pass --port to "
+				"serve on another.",
+			)
 
 
 def _refuse_public_bind (
@@ -2124,6 +2157,16 @@ def token_create (
 	target = store.strip()
 
 	if target:
+		# **A name a connection could have, before anything is minted** (`#3907`). ``My Laptop``
+		# was written as ``[My Laptop]``, which no TOML reader accepts, so every command after it
+		# failed; and ``Work`` as ``[Work]``, which no connection reads. A capital is lower-cased,
+		# as everywhere a connection is named.
+		try:
+			target = subroutine.connections.check_name(target)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
 		_refuse_unusable_credentials_file(target)
 
 	with _administering() as client:

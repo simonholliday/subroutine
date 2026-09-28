@@ -154,6 +154,28 @@ def test_the_same_workspace_named_twice_is_not_a_disagreement (two: Run) -> None
 	assert "in beta" in two("-w", "Beta", "agent", "create", "web", "--workspace", "beta").output
 
 
+def test_two_spellings_of_one_workspace_agree_and_two_workspaces_do_not () -> None:
+	"""`SR#3904`, L-10 of the cold review of 2026-09-28: the two were compared by letter case alone.
+
+	``maße`` casefolds to ``masse``, so a token meant for one workspace was made for the other
+	without a word, while ``My Team`` beside ``my-team`` - one workspace, as the program reads it -
+	was refused as two. **Compared as the program resolves a workspace.**
+	"""
+
+	def named (before: str, after: str) -> str:
+		"""Return what ``-w before`` and ``--workspace after`` settle on."""
+
+		return subroutine.cli.personal.workspace_named(
+			after, subroutine.cli.personal.Selected(workspace=before)
+		)
+
+	assert named("My Team", "my-team") == "my-team"
+	assert named("Beta", "beta") == "beta"
+
+	with pytest.raises(subroutine.errors.ValidationError, match="two different workspaces"):
+		named("maße", "masse")
+
+
 def test_calendar_create_takes_w_before_it_and_after_it (two: Run) -> None:
 	"""``#3814``: the calendar check that could not be started, in both spellings."""
 

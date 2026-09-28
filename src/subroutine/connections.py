@@ -368,7 +368,8 @@ def check_url (value: str) -> str:
 	raise subroutine.errors.ValidationError(
 		f"{value!r} is not an address this can reach.",
 		code="invalid_field_value",
-		hint="It needs a scheme and a host, as in 'https://tasks.example.com'.",
+		hint="It needs a scheme and a host, and any port a number up to 65535, as in "
+		"'https://tasks.example.com'.",
 	)
 
 
@@ -476,6 +477,16 @@ def _trimmed_url (value: str) -> str | None:
 	parsed = urllib.parse.urlsplit(text)
 
 	if parsed.scheme not in SCHEMES or not parsed.netloc:
+		return None
+
+	# **A port is a number no larger than 65535** (`#3907`). ``urlsplit`` checks nothing about
+	# one until it is asked, so ``http://127.0.0.1:abc`` was stored, and every command after it
+	# ended in a crash report from the client that could not be built for it. Read for the refusal
+	# it raises, and nothing else.
+	try:
+		_ = parsed.port
+
+	except ValueError:
 		return None
 
 	return text

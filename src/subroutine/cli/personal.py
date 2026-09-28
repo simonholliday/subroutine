@@ -76,6 +76,7 @@ import subroutine.domain.settings
 import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.verifications
+import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.fanout
 import subroutine.installations
@@ -195,7 +196,13 @@ def workspace_named (own: str, selected: Selected, *, command: str | None = None
 	if command is not None:
 		selected.command = command
 
-	if after and before and after.casefold() != before.casefold():
+	# **One workspace however it is spelled, as the program reads one** (`#3904`): lower case,
+	# and a hyphen for what is not a letter or a digit. ``casefold`` let ``maße`` pass as
+	# ``masse``, a workspace of its own, and refused ``My Team`` beside ``my-team``.
+	if after and before and (
+		subroutine.domain.workspaces.normalize_slug(after)
+		!= subroutine.domain.workspaces.normalize_slug(before)
+	):
 		raise subroutine.errors.ValidationError(
 			f"'-w {before}' and '--workspace {after}' name two different workspaces.",
 			code="invalid_field_value",

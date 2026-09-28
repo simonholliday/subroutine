@@ -482,6 +482,8 @@ def test_serve_builds_the_application_from_the_address_it_actually_binds (
 
 	monkeypatch.setattr(subroutine.api.app, "create_app", _capture)
 	monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: built.update(uvicorn=kwargs))
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_unusable_storage", lambda settings: None)
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_public_bind", lambda *a, **k: None)
 	monkeypatch.setattr(subroutine.cli.main, "_database_is_absent", lambda settings: False)
@@ -519,6 +521,8 @@ def test_serve_does_not_let_uvicorn_read_the_forwarded_header (
 
 	monkeypatch.setattr(subroutine.api.app, "create_app", lambda *, settings: object())
 	monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: seen.update(kwargs))
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_unusable_storage", lambda settings: None)
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_public_bind", lambda *a, **k: None)
 	monkeypatch.setattr(subroutine.cli.main, "_database_is_absent", lambda settings: False)

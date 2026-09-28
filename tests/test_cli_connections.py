@@ -43,6 +43,7 @@ import subroutine.claude_code
 import subroutine.cli.main
 import subroutine.cli.output
 import subroutine.cli.personal
+import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
@@ -69,9 +70,10 @@ STARTUP_TIMEOUT_SECONDS = 20.0
 #: How many ports to try before deciding the machine, rather than a race, is the problem.
 PORT_ATTEMPTS = 5
 
-#: What a server prints when something else bound the port between choosing it and starting.
-#: Matched on the sentence rather than the number, which is errno 98 here and 48 on macOS.
-PORT_TAKEN = "address already in use"
+#: What a server prints when something else bound the port between choosing it and starting:
+#: ``serve``'s own refusal (`SR#3911`), or uvicorn's where the port went in the moment after it
+#: asked. Matched on the words rather than the number, which is errno 98 here and 48 on macOS.
+PORT_TAKEN = "already in use"
 
 
 @pytest.fixture
@@ -1360,6 +1362,36 @@ def test_a_name_that_could_not_be_an_address_is_refused (
 	assert "connections." not in _configured(home)
 
 
+@pytest.mark.parametrize("port", ["abc", "99999"])
+def test_an_address_whose_port_is_not_one_is_refused (
+	port: str,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3907`, M-17 (b): ``connections add --url http://127.0.0.1:abc`` was stored.
+
+	Every command after it then ended in a crash report from the client that could not be built.
+	**Refused where it is written**, as an address with no host is; and a connection holding one all
+	the same fails alone, so the others in a listing still answer.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	refused = run(
+		"connections", "add", "bad", "--url", f"http://127.0.0.1:{port}", "--no-check",
+		input="sr_placeholder\n", expect=1,
+	)
+
+	assert "not an address this can reach" in refused.output, refused.output
+	assert "connections.bad" not in _configured(home)
+
+	held = subroutine.connections.Connection(name="bad", url=f"http://127.0.0.1:{port}")
+
+	if port == "abc":
+		with pytest.raises(subroutine.errors.ValidationError, match="no request can be made to"):
+			subroutine.clients.http.Client(held, token="sr_placeholder")
+
+
 def test_a_name_typed_in_capitals_is_the_name_in_lower_case (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
@@ -1496,6 +1528,28 @@ def test_serve_refuses_a_non_loopback_bind_without_tls (
 	assert "public_url" in result.output
 
 
+def test_serve_on_a_port_in_use_says_so_before_anything_is_announced (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3911`: ``serve`` announced its address, and then printed uvicorn's own error.
+
+	uvicorn meets a taken port only when it binds, after the lines saying the address is serving.
+	**Asked before anything is announced**, and refused in this program's words.
+	"""
+
+	run("init")
+
+	with socket.socket() as held:
+		held.bind(("127.0.0.1", 0))
+		held.listen()
+		port = held.getsockname()[1]
+
+		refused = run("serve", "--port", str(port), expect=1)
+
+	assert f"Port {port} is already in use" in refused.output, refused.output
+	assert "Serving on" not in refused.output, refused.output
+
+
 def test_serve_refuses_a_public_url_that_is_not_an_address (
 	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
@@ -1588,6 +1642,8 @@ def test_serve_starts_in_dev_mode_with_no_signing_key (
 		started.update(given)
 
 	monkeypatch.setattr("uvicorn.run", instead_of_listening)
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
 
 	run("serve")
 
@@ -1618,6 +1674,8 @@ def test_serving_bounds_how_long_a_stopping_server_waits (
 		passed.update(given)
 
 	monkeypatch.setattr("uvicorn.run", instead_of_listening)
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
 
 	run("serve")
 
@@ -1651,6 +1709,8 @@ def test_starting_a_server_says_every_transport_it_just_started (
 	run("init")
 
 	monkeypatch.setattr("uvicorn.run", lambda app, **given: None)
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
 
 	printed = run("serve").output
 
@@ -1689,6 +1749,8 @@ def test_a_proxied_instance_names_the_address_that_reaches_it (
 	declare(home, '\npublic_url = "https://tasks.example.com"\n')
 
 	monkeypatch.setattr("uvicorn.run", lambda app, **given: None)
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
 
 	printed = run("serve", "--host", "0.0.0.0").output
 
@@ -1815,6 +1877,30 @@ def test_a_token_can_be_stored_against_a_connection_on_request (
 		"work": subroutine.credentials.Stored(token=secret)
 	}
 	assert subroutine.credentials.permission_warning() is None
+
+
+def test_a_token_is_stored_only_under_a_name_a_connection_could_have (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3907`, M-17 (a) of the cold review of 2026-09-28: ``--store "My Laptop"`` broke everything.
+
+	It wrote ``[My Laptop]`` into the credentials file, which no TOML reader accepts, so every
+	command after it failed; and ``--store Work`` wrote ``[Work]``, which no connection reads.
+	**The name is checked as ``connections add`` checks one, before anything is minted.**
+	"""
+
+	run("init")
+
+	refused = run("token", "create", "--store", "My Laptop", expect=1)
+
+	assert "cannot be a connection name" in refused.output, refused.output
+	assert "sr_" not in refused.output, "a token was minted before its name was refused"
+	assert subroutine.credentials.read_file() == {}
+
+	stored = run("token", "create", "--store", "Work")
+	secret = next(word for word in stored.output.split() if word.startswith("sr_"))
+
+	assert subroutine.credentials.read_file() == {"work": subroutine.credentials.Stored(token=secret)}
 
 
 def test_a_service_account_is_created_with_a_role_it_can_work_with (
