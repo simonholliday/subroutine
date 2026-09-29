@@ -218,6 +218,36 @@ def test_it_stops_where_the_caller_says_and_says_so (world: test_api_tasks.World
 	assert body["has_more"] is False
 
 
+def test_a_rule_naming_two_days_of_the_month_works_everywhere_a_rule_is_read (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#3923`: *the 1st and the 15th* is an ordinary rule, and it answered 500 on every write.
+
+	Every write path reads a rule back as a sentence, and that read took a list for one number.
+	So each place a repeat is filed, listed, completed, expanded or checked is asked here.
+	"""
+
+	rule = "FREQ=MONTHLY;BYMONTHDAY=1,15"
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Pay rent", "due": "2026-10-01", "recurrence": rule}
+	)
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	checked = world.call("POST", "/v1/recurrence/parse", json={"text": rule})
+	answers = {
+		"listed": world.call("GET", "/v1/tasks").status_code,
+		"agenda": world.call("GET", "/v1/agenda").status_code,
+		"expanded": world.call("GET", f"/v1/tasks/{ref}/occurrences").status_code,
+		"checked": checked.status_code,
+		"completed": world.call("POST", f"/v1/tasks/{ref}/complete").status_code,
+	}
+
+	assert all(200 <= status < 300 for status in answers.values()), answers
+	assert checked.json()["description"] == "every month, on the 1st and 15th", checked.json()
+
+
 def test_asking_something_that_does_not_repeat_is_refused_by_name (
 	world: test_api_tasks.World,
 ) -> None:

@@ -35,6 +35,9 @@ upgrade involves.
   a comment asked for `comment:write` in the item's project, and editing and deleting asked only
   who wrote it, so a token scoped to reading, or one that may write only in another project,
   rewrote and deleted its owner's comments.
+- **A repeat naming two days, such as the 1st and 15th of the month, works.** Every write of
+  such a rule answered 500, since reading it back as a sentence took the list for one number. It
+  reads *every month, on the 1st and 15th* now.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

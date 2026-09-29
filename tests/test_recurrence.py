@@ -318,6 +318,9 @@ DESCRIBED: tuple[tuple[str, str], ...] = (
 	("FREQ=MONTHLY;BYDAY=-1TH", "every month, on the last Thursday"),
 	("FREQ=YEARLY;BYMONTH=8;BYMONTHDAY=19", "every year, on 19 August"),
 	("FREQ=WEEKLY;BYDAY=FR;COUNT=3", "every Friday, 3 times"),
+	# **Lists, which are ordinary rules** (`SR#3923`): each answered 500 on every write.
+	("FREQ=MONTHLY;BYMONTHDAY=1,15", "every month, on the 1st and 15th"),
+	("FREQ=YEARLY;BYMONTH=1,7;BYMONTHDAY=1", "every year, on 1 January and July"),
 )
 
 

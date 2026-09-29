@@ -773,13 +773,19 @@ def describe (stored: str, *, anchor: str | None = None) -> str:
 	elif "BYDAY" in parts:
 		said = f"{said}, on {_described_weekdays(parts['BYDAY'])}"
 
+	# **Each of these may be a list** (`#3923`) - the 1st and the 15th, January and July - which
+	# is an ordinary rule, and reading one as a single number answered 500 on every write.
 	if "BYMONTH" in parts and "BYMONTHDAY" in parts:
 		names = {number: name for name, number in _MONTHS.items() if len(name) > 3}
-		month = names.get(int(parts["BYMONTH"]), parts["BYMONTH"]).title()
-		said = f"{said}, on {int(parts['BYMONTHDAY'])} {month}"
+		months = " and ".join(
+			names.get(one, str(one)).title() for one in _numbers(parts["BYMONTH"])
+		)
+		days = " and ".join(str(one) for one in _numbers(parts["BYMONTHDAY"]))
+		said = f"{said}, on {days} {months}"
 
 	elif "BYMONTHDAY" in parts:
-		said = f"{said}, on the {_ordinal(int(parts['BYMONTHDAY']))}"
+		days = " and ".join(_ordinal(one) for one in _numbers(parts["BYMONTHDAY"]))
+		said = f"{said}, on the {days}"
 
 	if "COUNT" in parts:
 		said = f"{said}, {int(parts['COUNT'])} times"
@@ -791,6 +797,12 @@ def describe (stored: str, *, anchor: str | None = None) -> str:
 		said = f"{said}, {_MEASURED_FROM_COMPLETION}"
 
 	return said
+
+
+def _numbers (setting: str) -> list[int]:
+	"""Return a part of a rule that may list several numbers - ``1,15`` - as those numbers."""
+
+	return [int(one) for one in setting.split(",")]
 
 
 def _ordinal (number: int) -> str:
