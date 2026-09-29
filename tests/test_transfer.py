@@ -7,14 +7,17 @@ to carry data *between* them.
 """
 
 import pathlib
+import types
 import typing
 import uuid
 
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
+import typer.testing
 
 import conftest
+import subroutine.cli.main
 import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.session
@@ -109,6 +112,36 @@ def _counts (url: str) -> dict[str, int]:
 
 	finally:
 		engine.dispose()
+
+
+def test_the_address_to_paste_is_printed_without_its_password (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: printed whole, two lines after it was masked.
+
+	The line a person pastes into ``config.toml`` carried the target's password into the terminal
+	and whatever logs it. **Masked there too**, with a word on putting the password back. The copy
+	itself is stood in for: what is under test is the last three lines.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	runner = typer.testing.CliRunner()
+
+	assert runner.invoke(subroutine.cli.main.app, ["init"]).exit_code == 0
+
+	monkeypatch.setattr(
+		subroutine.db.transfer, "copy_into", lambda _source, _target: types.SimpleNamespace(rows=12)
+	)
+	monkeypatch.setattr(subroutine.db.transfer, "summarise", lambda _copied: [])
+
+	target = "postgresql+psycopg://keanu:red-pill@db.metacortex.example/subroutine"
+	done = runner.invoke(subroutine.cli.main.app, ["db", "copy", "--to", target])
+
+	assert done.exit_code == 0, done.output
+	assert "red-pill" not in done.output, done.output
+	assert "with the password you gave" in done.output, done.output
 
 
 def test_an_instance_moves_from_sqlite_to_postgresql (

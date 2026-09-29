@@ -166,6 +166,14 @@ upgrade involves.
   left edge and ran past the bottom, and it no longer comes back marked as open after the last
   view was forgotten from inside it. **And every project is offered**: the project picker and
   the settings pages read the first two hundred and stopped.
+- **A mistake in the configuration is said once, and the warning about a setting nothing reads
+  names the right profile's file.** One bad value was printed five times above the help, and
+  with `--profile` the warning named the default instance's file. `default_connection` is read
+  whatever its case, as every other connection name is, and its refusal is said once.
+- **`subroutine doctor` changes nothing**: it made the data and backup directories it was
+  asked about. **`db copy` prints the address to paste without its password**, and
+  **`user create` with a role the workspace has not got says the account was made** and how to
+  finish, where a retry answered that the name was taken.
 
 ## 0.9.12 — 2026-09-29
 

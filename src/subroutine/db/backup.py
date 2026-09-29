@@ -195,8 +195,12 @@ class Backup:
 		return self.path.name
 
 
-def directory (settings: subroutine.config.Settings) -> pathlib.Path:
+def directory (settings: subroutine.config.Settings, *, create: bool = True) -> pathlib.Path:
 	"""Return the directory holding this instance's backups, creating it if needed.
+
+	**Not created where ``create`` is false** (`#3936`), for a caller that only looks:
+	``subroutine doctor``, documented to change nothing, made the data directory and this one,
+	which made its own *is not there* answer unreachable.
 
 	``settings`` is here to say **where**, never *what kind* — the backend is always asked of the
 	engine (see ``_is_sqlite``). Keeping those two questions apart is what stopped ``VACUUM
@@ -213,6 +217,9 @@ def directory (settings: subroutine.config.Settings) -> pathlib.Path:
 		if configured
 		else subroutine.config.data_home() / DIRECTORY_NAME
 	)
+
+	if not create:
+		return path
 
 	try:
 		path.mkdir(parents=True, exist_ok=True)

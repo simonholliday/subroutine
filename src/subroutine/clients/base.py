@@ -1813,18 +1813,12 @@ class Client(typing.Protocol):
 		right behaviour for a script that has just read the row and the wrong one for a form
 		somebody left open. Only the caller knows which it is.
 
-		**Two surfaces deliberately do not offer it, and the reasons are different.** The
-		command line does not, because a person typing `subroutine update 42 --title x` has
-		read the item in a previous command and the version they would quote is already stale
-		by however long they spent thinking — an argument that is right only when pasted from a
-		script one line earlier. `doc edit` is the one place with a real collision (two sessions
-		revising one conclusion) and it is `#842`'s problem rather than this one, since that
-		command is a whole-body replace.
-
-		**MCP does not, because claims already answer it better** (`#350`). Two agents on one
-		ranked listing is the concurrency this product actually has, and a lease says *somebody
-		has this* before the work starts, where a version clash says *you lost* after it. A tool
-		argument would also spend bytes from §21.2's budget on the weaker of the two answers.
+		**Every surface offers it now** (`#3936`): the command line as ``--expected-version``,
+		and the agent tools as ``expected_version``. This said the two left it out deliberately,
+		and the reasons it gave are still the reasons to reach for it sparingly: a person quoting
+		a version read a while ago is quoting one already stale, and two agents on one listing
+		are better served by a claim (`#350`), which says *somebody has this* before the work
+		starts where a version clash says *you lost* after it.
 		"""
 
 	def discard (

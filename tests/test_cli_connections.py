@@ -2760,8 +2760,8 @@ def test_an_administrative_refusal_names_the_file_the_bad_credential_is_in (
 	"""`#199`. `#175`'s fix reached the item commands and not the ones beside them.
 
 	`domain.local.principal` takes a `token_source` so a refusal can name where the credential
-	came from; `clients/local.py` passed it and `cli/main._operator` — which serves `token
-	create`, `token list` and `token revoke` — did not. So an unusable token in
+	came from; `clients/local.py` passed it and the administrative path that then served `token
+	create`, `token list` and `token revoke` did not (it went with `SR#3936`). So an unusable token in
 	`credentials.toml` produced "the token supplied could not be used" and a remedy that goes in
 	a circle: issuing another does not remove the one in the file refusing every command.
 
@@ -5532,6 +5532,26 @@ def test_a_refusal_beside_other_connections_keeps_its_fields_and_leaves_its_hint
 	)
 
 	assert "Check that the instance is running." in alone, alone
+
+
+def test_a_bad_setting_is_printed_in_one_sentence (home: pathlib.Path) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: the sentence was printed twice.
+
+	A setting that cannot be used is refused as *<file> cannot be used: <why>*, and the why is
+	its one field's message as well, which only a terminal prints beside the detail. **Said
+	once**: a lone field line saying nothing the detail does not is left out, as one equal to
+	it already was. Read off the real refusal, so a change to its wording is measured too.
+	"""
+
+	declare(home, 'default_connection = "wrok"\n')
+
+	with pytest.raises(subroutine.errors.SubroutineError) as raised:
+		subroutine.connections.roster(subroutine.config.load_settings())
+
+	printed = _refusal_as_printed(raised.value)
+
+	assert printed.count("'wrok'") == 1, printed
+	assert "default_connection" in printed, f"the setting is not named:\n{printed}"
 
 
 def test_a_field_the_terminal_has_no_word_for_keeps_the_one_it_was_given () -> None:

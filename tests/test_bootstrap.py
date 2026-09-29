@@ -80,6 +80,49 @@ def _run (environment: dict[str, str], *arguments: str) -> subprocess.CompletedP
 	)
 
 
+def test_a_setting_that_cannot_be_read_is_said_once (isolated_home: dict[str, str]) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: said five times, all above ``Usage``.
+
+	Five commands ask, as they are registered, whether they are worth showing, and each asked
+	through the terminal's own reading of the configuration, which says what is wrong with it.
+	**Asked quietly**, so the command that runs says it once. A subprocess, because registering
+	happens when the program is imported, which in this process was long ago.
+	"""
+
+	ran = _run({**isolated_home, "SUBROUTINE_DEFAULT_PAGE_SIZE": "lots"}, "list")
+	said = ran.stdout + ran.stderr
+
+	assert ran.returncode != 0, said
+	assert said.count("A configuration value could not be used") == 1, said
+
+
+def test_an_unknown_setting_is_warned_about_in_the_profile_s_own_file (
+	isolated_home: dict[str, str],
+) -> None:
+	"""`SR#3936`: under ``--profile`` the warning named the default instance's file.
+
+	It was said while the commands were registered, before ``--profile`` had been read, so a
+	misspelt ``protected`` in the profile's own file - the setting that makes the destructive
+	commands ask first - was never warned about, and one in the default file was. **Said by the
+	command that runs, for its profile.**
+	"""
+
+	made = _run(isolated_home, "--profile", "scratch", "init")
+
+	assert made.returncode == 0, made.stdout + made.stderr
+
+	[scratch] = [
+		one
+		for one in pathlib.Path(isolated_home["XDG_CONFIG_HOME"]).rglob("config.toml")
+		if "scratch" in one.parts
+	]
+	scratch.write_text("protectd = true\n" + scratch.read_text(encoding="utf-8"), encoding="utf-8")
+
+	ran = _run(isolated_home, "--profile", "scratch", "list")
+
+	assert "protectd" in ran.stderr and str(scratch) in ran.stderr, ran.stderr
+
+
 def test_a_command_run_here_reaches_none_of_the_developer_s_directories (
 	isolated_home: dict[str, str], tmp_path: pathlib.Path
 ) -> None:

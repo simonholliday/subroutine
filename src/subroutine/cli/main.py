@@ -44,19 +44,14 @@ import subroutine.context
 import subroutine.credentials
 import subroutine.db.backup
 import subroutine.db.migrate
-import subroutine.db.models.identity
 import subroutine.db.session
 import subroutine.db.transfer
 import subroutine.db.types
 import subroutine.diagnosis
 import subroutine.directory
-import subroutine.domain.authentication
 import subroutine.domain.bootstrap
-import subroutine.domain.local
 import subroutine.domain.profiles
-import subroutine.domain.schedule
 import subroutine.domain.tokens
-import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.installations
 import subroutine.releases
@@ -391,7 +386,12 @@ def _printed (error: subroutine.errors.SubroutineError, *, connection: str | Non
 		#
 		# **Only when it is the only one.** With several fields, naming each is the whole
 		# value of the list, however much any one of them repeats.
-		said = len(fields) == 1 and field.message in (error.detail, hint)
+		#
+		# **And already *in* the detail, not only equal to it** (`#3936`). A bad setting in
+		# ``config.toml`` is refused as *<file> cannot be used: <why>*, with the why as its one
+		# field's message, so the sentence was printed twice; the detail keeps it, since every
+		# other surface prints only that.
+		said = len(fields) == 1 and (field.message in error.detail or field.message == hint)
 
 		if not said:
 			_err.print(subroutine.cli.output.plain(f"  {field.field}: {field.message}"), markup=False, highlight=False)
@@ -488,7 +488,16 @@ def _settings () -> subroutine.config.Settings:
 	if not _said_unknown_settings:
 		_said_unknown_settings = True
 
-		for line in subroutine.config.describe_unknown_settings():
+		# **A file that is not TOML names no settings, and is refused just below** (`#3936`).
+		# Reading it here raised through the command as a crash; nothing saw it while the commands
+		# being registered read the configuration first and swallowed what went wrong.
+		try:
+			unknown = subroutine.config.describe_unknown_settings()
+
+		except tomllib.TOMLDecodeError:
+			unknown = []
+
+		for line in unknown:
 			_warn(line)
 
 	try:
@@ -1360,8 +1369,15 @@ def database_copy (
 	_say("")
 	_say(f"Copied {copied.rows:,} rows, and read them back to check.")
 	_say("")
+	# **Masked, as it was two lines up** (`#3936`). The line to paste printed the password in
+	# full, into a terminal's scrollback and whatever logs it; the password is the one given.
+	shown = safe_url(to)
+
 	_say("Nothing has changed here yet. To start using the copy, set in config.toml:")
-	_say(f'  database_url = "{to}"')
+	_say(f'  database_url = "{shown}"')
+
+	if shown != to:
+		_say("with the password you gave where the stars are.")
 
 
 @database_app.command("current")
@@ -2078,12 +2094,6 @@ def _profile_is_protected (name: str) -> bool:
 		subroutine.config.use_profile(was)
 
 
-#: The role a new service account is given in the workspace it is made for. ``contributor``
-#: reads everything and writes tasks and comments, and cannot restructure projects — which is
-#: the right starting authority for an agent, and is narrowable further by the token's own
-#: scopes (docs/design.md §7.3).
-
-
 def _shaped_by_profile (
 	profile: str,
 	*,
@@ -2318,35 +2328,6 @@ def token_create (
 			f"client's name for this instance in capitals, or add it to "
 			f"{subroutine.credentials.credentials_file_path()}."
 		)
-
-
-def _expiry (
-	written: str, settings: subroutine.config.Settings
-) -> datetime.datetime | None:
-	"""Read ``--expires`` as the last instant of the day it names, or ``None``.
-
-	The same grammar every other date in this program takes, resolved in the instance's own
-	zone — a credential belongs to the installation rather than to whoever happens to be
-	typing, and §6.5's chain has nothing narrower to offer here: an administrative command
-	has no task and no workspace to inherit from.
-	"""
-
-	if not written.strip():
-		return None
-
-	try:
-		moment = subroutine.domain.schedule.interpret(
-			written.strip(),
-			boundary=subroutine.domain.schedule.Boundary.END,
-			timezone=settings.default_timezone,
-			now=subroutine.db.types.utcnow(),
-			field="expires",
-		)
-
-	except subroutine.errors.SubroutineError as error:
-		_fail(error)
-
-	return moment.instant
 
 
 @token_app.command("list")
@@ -3489,110 +3470,6 @@ def _administering () -> typing.Iterator[subroutine.clients.base.Client]:
 
 	except subroutine.errors.SubroutineError as error:
 		_fail(error)
-
-
-def _operator (
-	session: sqlalchemy.orm.Session, settings: subroutine.config.Settings
-) -> subroutine.domain.authentication.Principal:
-	"""Return who is running an administrative command, honouring a presented token.
-
-	**The token is not optional here, and leaving it out was a privilege escalation.** §12.1a
-	says the check runs in local mode exactly as it runs over HTTP; this path resolved the
-	principal with no token at all, so an agent holding a credential scoped to `task:read`
-	could not add a task and *could* mint itself an unrestricted one — because it was
-	authorised as the sole human, which after `init` is a superuser. The scoping refusal was
-	correct, well-worded, and bypassable by the command next to it.
-
-	The token is resolved the way every other connection's is (§12.3a), so `SUBROUTINE_TOKEN`,
-	`token_env`, `token_command` and `credentials.toml` all behave here as they do elsewhere.
-
-	**And the refusal says which of those it came from** (`#199`). `#175` gave `local.principal`
-	a `token_source` for exactly that, `clients/local.py` passes it, and this call site did not —
-	so an unusable credential in `credentials.toml` told an operator "the token supplied could
-	not be used" and offered to issue another, which does not remove the one in the file that is
-	refusing every command. It is the ordinary command beside this one that named the file, and
-	§12.4 makes these the commands that have to work when the ordinary ones do not.
-	"""
-
-	roster = subroutine.connections.roster(settings)
-	local = roster.find(subroutine.connections.LOCAL_NAME)
-
-	# `local` can be turned off (§13.7), in which case there is no local credential to read
-	# and an administrative command still operates on this database.
-	resolved = (
-		subroutine.credentials.Resolved(token=None, source="nowhere")
-		if local is None
-		else subroutine.credentials.resolve(local, default_connection=roster.default)
-	)
-
-	return subroutine.domain.local.principal(
-		session,
-		token=resolved.token,
-		local_user=settings.local_user,
-		token_source=resolved.source,
-	)
-
-
-def _pinned_workspace (
-	session: sqlalchemy.orm.Session,
-	user: subroutine.db.models.identity.User,
-	workspace: str,
-) -> subroutine.db.models.identity.Workspace | None:
-	"""Return the workspace a token is pinned to, or ``None`` for all of them.
-
-	**Never pinned by default** (docs/design.md §7.4, §13.7). A presented token should give the
-	access it gives locally; narrowing a credential to shorten an address, or because one
-	workspace is the common case, is letting a convenience dictate the access model.
-	"""
-
-	wanted = workspace.strip()
-
-	if not wanted:
-		return None
-
-	model = subroutine.db.models.identity.Workspace
-	found = session.scalars(
-		sqlalchemy.select(model).where(
-			model.slug == subroutine.domain.workspaces.normalize_slug(wanted),
-			model.deleted_at.is_(None),
-		)
-	).one_or_none()
-
-	if found is None:
-		_stop(
-			f"There is no workspace called {wanted!r} here.",
-			"Run 'subroutine use' to see which one you are in.",
-		)
-
-	return found
-
-
-def _sole_workspace (
-	session: sqlalchemy.orm.Session,
-) -> subroutine.db.models.identity.Workspace:
-	"""Return the only workspace, or refuse because a new account needs a home."""
-
-	model = subroutine.db.models.identity.Workspace
-	found = list(
-		session.scalars(
-			sqlalchemy.select(model)
-			.where(model.deleted_at.is_(None))
-			.order_by(model.created_at)
-			.limit(2)
-		)
-	)
-
-	if len(found) == 1:
-		return found[0]
-
-	if not found:
-		_stop("There are no workspaces here.", "Run 'subroutine init' first.")
-
-	_stop(
-		"There is more than one workspace, so a new service account needs to be told which "
-		"one it works in.",
-		f"Pass --workspace, one of: {', '.join(item.slug for item in found)}.",
-	)
 
 
 def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:

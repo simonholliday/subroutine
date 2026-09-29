@@ -56,6 +56,20 @@ def _named (
 	raise AssertionError(f"nothing reported {area!r}; got {_areas(findings)}")
 
 
+def test_the_doctor_makes_nothing_it_looks_at (home: pathlib.Path) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: documented to change nothing, it made two.
+
+	Asking where backups go made the backup directory, and the data directory with it, so its
+	own *is not there* answer could never be given, on the fresh machine it is most run on.
+	**Looked at, not made.**
+	"""
+
+	found = subroutine.diagnosis.examine(subroutine.config.Settings())
+
+	assert not subroutine.config.data_home().exists(), "the doctor made the data directory"
+	assert "is not there" in _named(found, "backups").detail, _named(found, "backups")
+
+
 class TestWhatItLooksAt:
 	"""The shape of the report, on a machine where nothing is wrong."""
 

@@ -9091,6 +9091,26 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 					f"{role.strip() or ONBOARDING_ROLE} --workspace {joining}'.",
 				)
 
+			except subroutine.errors.SubroutineError as refused:
+				# **And any other refusal of the joining says the account was made** (`#3936`). A role
+				# the workspace has not got was printed on its own, so nobody was told the account
+				# existed, and running the command again answered that the name was taken. No read of a
+				# workspace's roles exists to ask before creating, so the answer says what stood.
+				roles = next((one.hint for one in refused.errors if one.field == "role" and one.hint), None)
+
+				program.stop(
+					f"Created {created.username}, and did not add them to {joining}: {refused.detail}",
+					" ".join(
+						one
+						for one in (
+							roles,
+							f"Finish with 'subroutine user add {created.username} --role <role> "
+							f"--workspace {joining}'.",
+						)
+						if one
+					),
+				)
+
 			handed, unmade = _handed_over(
 				where,
 				world.settings,
@@ -14538,10 +14558,17 @@ def _worth_showing (
 	before any of them, so it reads a file and never opens a database. If the configuration
 	cannot be read it returns ``True`` — a visible command is a smaller mistake than a hidden
 	one, and the command itself explains a broken file far better than its absence would.
+
+	**Read quietly, never through the terminal's own loader** (`#3936`). That one says what is
+	wrong with the configuration, and this runs once for each of five commands as they are
+	registered: one bad value was printed five times above ``Usage``, and the warning about a
+	setting nobody reads was said here - before ``--profile`` had been read - so it named the
+	default instance's file and never the profile's. ``settings`` is kept for the caller's sake
+	and not called.
 	"""
 
 	try:
-		return len(subroutine.connections.roster(settings())) > 1
+		return len(subroutine.connections.roster(subroutine.config.load_settings())) > 1
 
 	except Exception:
 		return True

@@ -240,6 +240,27 @@ def test_the_last_administrator_cannot_be_removed (
 	assert "administer" in refused.output
 
 
+def test_a_role_the_workspace_has_not_got_says_the_account_was_made (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: only the refusal was printed.
+
+	``user create alice --role admn`` made the account and then refused the role, in two requests,
+	and said only the second, so running it again answered that the name was taken. **The answer
+	says what stood, the roles there are, and the command that finishes.**
+	"""
+
+	run("init", "--workspace", "Acme", "--username", "owner")
+
+	refused = run("user", "create", "alice", "--role", "admn", expect=1)
+
+	assert "Created alice" in refused.output, refused.output
+	assert "subroutine user add alice --role <role> --workspace acme" in refused.output, (
+		refused.output
+	)
+	assert "admin" in refused.output, "the roles there are were not named"
+
+
 def test_somebody_already_in_a_workspace_can_be_moved_to_another_role (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

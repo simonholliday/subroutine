@@ -560,8 +560,10 @@ def _default_name (
 
 	wanted = (settings.default_connection if settings is not None else None) or LOCAL_NAME
 
-	if wanted in names:
-		return wanted
+	# **Folded as every other connection name is** (`#3936`), which `find` and `check_name`
+	# already do: ``default_connection = "Work"`` beside ``[connections.work]`` was refused.
+	if wanted.strip().lower() in names:
+		return wanted.strip().lower()
 
 	if wanted != LOCAL_NAME:
 		raise _refusal(

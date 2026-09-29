@@ -260,6 +260,21 @@ def test_a_default_naming_nothing_is_refused (config_home: pathlib.Path) -> None
 	assert raised.value.errors[0].field == "default_connection"
 
 
+def test_a_default_is_read_whatever_its_case (config_home: pathlib.Path) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: ``"Work"`` beside ``[connections.work]``.
+
+	Every other connection name is folded to lower case where it is read, and this one was
+	compared as written, so it was refused as naming nothing.
+	"""
+
+	written(
+		config_home,
+		'default_connection = "Work"\n\n[connections.work]\nurl = "https://x.example.com"\n',
+	)
+
+	assert roster().default == "work"
+
+
 def test_an_unknown_connection_is_a_refusal_naming_the_known_ones (
 	config_home: pathlib.Path,
 ) -> None:

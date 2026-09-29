@@ -419,7 +419,7 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 	"""
 
 	try:
-		where = subroutine.db.backup.directory(settings)
+		where = subroutine.db.backup.directory(settings, create=False)
 
 	except subroutine.errors.SubroutineError as broken:
 		return [Finding(area="backups", detail=str(broken), ok=False)]
