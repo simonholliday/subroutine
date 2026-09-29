@@ -414,13 +414,23 @@ def test_a_deferral_given_with_a_new_repeat_goes_on_its_first_occurrence (
 	A deferral sent with a new repeat was written onto the series row, where nothing reads it, so the
 	item showed at once. **It goes on the first occurrence, the one handed back**, and the series
 	carries none.
+
+	**Due three days out** (`SR#3987`): *every day* names its own day, so with no deadline the first
+	one was due at the end of today, and from 21:00 UTC a deferral three hours on fell after it and
+	was refused - a test that failed for three hours of every day.
 	"""
 
+	due = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=3)).date().isoformat()
 	made = api_support.call(
 		instance.application,
 		"POST",
 		"/v1/tasks",
-		json={"title": "Water the plants", "recurrence": "every day", "snooze": "now+3h"},
+		json={
+			"title": "Water the plants",
+			"recurrence": "every day",
+			"snooze": "now+3h",
+			"due": due,
+		},
 		headers={"authorization": f"Bearer {instance.token}"},
 	)
 
