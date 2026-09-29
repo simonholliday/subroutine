@@ -232,8 +232,6 @@ def refuse_to_stop_including (
 	if not included:
 		return
 
-	noun = "item" if included == 1 else "items"
-
 	raise subroutine.errors.ValidationError(
 		f"{subroutine.domain.refs.format_ref(task.ref)} includes other work, so it cannot stop "
 		"being a milestone.",
@@ -243,9 +241,10 @@ def refuse_to_stop_including (
 			subroutine.errors.FieldError(
 				field="type",
 				code="invalid_field_value",
-				message=(
-					f"`type` cannot become {becoming.key!r} while it includes {included} {noun}."
-				),
+				# **No count** (`#3934`). This one was of every link, so it told a reader how much
+				# of the milestone's work they could not see, and counted work in the trash or
+				# withdrawn, which the milestone's own progress leaves out.
+				message=f"`type` cannot become {becoming.key!r} while it includes other work.",
 			)
 		],
 	)

@@ -95,6 +95,24 @@ class Resolver(typing.Protocol):
 		"""Return the principal this credential names, or ``None`` if it is not present."""
 
 
+def _a_scheme_refused (scheme: str) -> str:
+	"""Say why the first word of an ``Authorization`` header was refused, never quoting it.
+
+	**It was quoted as a scheme's name** (`#3934`), and a token sent without ``Bearer`` in front
+	is its own first word: the 401 carried a live secret back, in a body an agent keeps in its
+	transcript. So nothing of it is quoted, and a token of this instance's own shape is named
+	for what it is, since that is the mistake it nearly always is.
+	"""
+
+	if not scheme:
+		return "The Authorization header could not be read."
+
+	if scheme.startswith(f"{subroutine.auth.TOKEN_SCHEME}_"):
+		return f"The Authorization header holds a token with nothing before it, where {BEARER_SCHEME} goes."
+
+	return "This API does not accept that authentication scheme."
+
+
 def from_bearer_token (
 	session: sqlalchemy.orm.Session,
 	request: starlette.requests.Request,
@@ -112,10 +130,7 @@ def from_bearer_token (
 
 	if scheme.lower() != BEARER_SCHEME.lower():
 		raise subroutine.errors.Unauthenticated(
-			f"This API does not accept the {scheme!r} authentication scheme."
-			if scheme
-			else "The Authorization header could not be read.",
-			hint=f"Send 'Authorization: {BEARER_SCHEME} sr_…'.",
+			_a_scheme_refused(scheme), hint=f"Send 'Authorization: {BEARER_SCHEME} sr_…'."
 		)
 
 	# **Nothing after the scheme is not a guess at anybody's token**, so it is named rather than

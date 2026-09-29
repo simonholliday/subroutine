@@ -30,6 +30,7 @@ import subroutine.domain.patch
 import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.text
+import subroutine.domain.users
 import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
@@ -187,6 +188,13 @@ def create (
 		normalized_key,
 		parent_id=None if parent is None else parent.id,
 	)
+
+	# **A member of the workspace, and so somebody at all** (`#3934`). An id naming nobody reached
+	# the foreign key as a 500, and one naming an account outside the workspace was taken: a
+	# private project made so was invisible to whoever made it. `users.member` is the question
+	# a task's assignee and a document's owner are already asked.
+	if owner_id is not None:
+		subroutine.domain.users.member(session, workspace_id, str(owner_id), field="owner_id")
 
 	project = subroutine.db.models.project.Project(
 		id=subroutine.db.types.new_uuid(),
@@ -399,20 +407,12 @@ def update (
 			],
 		)
 
+	# **Membership, not existence** (`#3934`): an account outside the workspace was taken here too,
+	# handing a project to somebody who could not see it.
 	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
-		owner = session.get(subroutine.db.models.identity.User, owner_id)
-
-		if owner is None:
-			raise subroutine.errors.ValidationError(
-				"That owner does not exist.",
-				errors=[
-					subroutine.errors.FieldError(
-						field="owner_id",
-						code="not_found",
-						message=f"No user with id {owner_id}.",
-					)
-				],
-			)
+		subroutine.domain.users.member(
+			session, project.workspace_id, str(owner_id), field="owner_id"
+		)
 
 	# Resolved here rather than in the assignment pass, because a key that names no status
 	# must refuse before anything has been assigned — the rule this function's docstring

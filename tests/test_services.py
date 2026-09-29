@@ -642,6 +642,11 @@ def test_creating_a_project_makes_its_owner_a_member_of_it (
 
 	workspace = _workspace(session)
 	owner = _founder(session)
+
+	# **A member of the workspace, which an owner has to be since `SR#3934`**: one from outside it
+	# was taken, and a private project made so was hidden from whoever made it.
+	subroutine.domain.workspaces.add_member(session, workspace, owner, role_key="member")
+
 	project = _project(session, workspace, owner_id=owner.id, visibility="private")
 
 	model = subroutine.db.models.project.ProjectMember

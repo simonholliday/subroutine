@@ -200,7 +200,7 @@ def resolve (
 	reachable = subroutine.domain.workspaces.readable(session, actor)
 
 	for found in reachable:
-		if found.slug == wanted or str(found.id) == wanted:
+		if _names(found, wanted):
 			return found
 
 	administered = _for_an_administrator(session, actor, wanted)
@@ -247,10 +247,21 @@ def _for_an_administrator (
 	statement = sqlalchemy.select(model).where(model.deleted_at.is_(None))
 
 	for found in session.scalars(statement):
-		if found.slug == wanted or str(found.id) == wanted:
+		if _names(found, wanted):
 			return found
 
 	return None
+
+
+def _names (found: subroutine.db.models.identity.Workspace, wanted: str) -> bool:
+	"""Say whether a written id or short name is this workspace's, as ``selection`` reads one.
+
+	**Normalised, as every other door normalises a short name** (`#3934`). This compared the text
+	as written, so ``/v1/workspaces/PROJECTS`` read and changed the workspace through
+	``selection.workspace`` while its ``/members`` and a ``DELETE`` of it answered 404.
+	"""
+
+	return found.slug == subroutine.domain.workspaces.normalize_slug(wanted) or str(found.id) == wanted
 
 
 @router.post("", status_code=201, summary="Create a workspace")

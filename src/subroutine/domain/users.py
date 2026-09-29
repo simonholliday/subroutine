@@ -151,6 +151,11 @@ def create (
 		responsible_user_id=responsible_user_id,
 	)
 
+	# **Checked as `set_timezone` checks it** (`#3934`): an account made with a zone nothing knows
+	# was accepted, and its agenda then answered 422 about a zone its owner could not have set.
+	if timezone is not None:
+		subroutine.domain.dates.zone(timezone)
+
 	user = subroutine.db.models.identity.User(
 		username=name,
 		username_normalized=normalize(name),

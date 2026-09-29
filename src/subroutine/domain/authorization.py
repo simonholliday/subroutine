@@ -252,9 +252,11 @@ def explain (
 
 	title, granted = role
 	scopes = principal.scopes
-	narrowed = bool(scopes) or principal.project_scope is not None or (
-		principal.pinned_workspace_id is not None
-	)
+	# **The one definition, asked rather than worked out again** (`#3934`). This spelled out three
+	# of the four axes by hand and never learned the fourth, `project_write_scope`, so `/v1/me`
+	# called a write-set-only credential not narrowed in each workspace while its own
+	# `credential.narrows` said it was, and `/v1/tokens` agreed with the second.
+	narrowed = principal.narrows
 
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
 	candidates = granted if not scopes else granted & frozenset(scopes)

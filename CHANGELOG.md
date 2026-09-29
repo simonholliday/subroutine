@@ -88,6 +88,17 @@ upgrade involves.
   was refused whole, because a tag cannot hold a comma; it is filed as written now, with a
   note carrying the tag rule's own advice. A tag longer than 128 characters is left the same
   way.
+- **Seven smaller gaps in who may do what are closed.** A token sent without `Bearer` in front
+  is no longer quoted back whole in the refusal, which put a live secret into a body an agent
+  keeps. `/v1/me` calls a credential narrowed only in the projects it may write narrowed in
+  every workspace, as the rest of its answer and `/v1/tokens` already did. A milestone refused
+  a new type no longer says how many items it includes, a count of work the reader may not see
+  and of work in the trash. `local_user` naming an agent whose person has left is refused, as
+  the agent's own token is. A workspace's short name written in capitals reaches its members
+  and its deletion, as it already reached its record. An account cannot be made with a time
+  zone nothing knows. And a project's owner must be a member of its workspace, when the project
+  is made and when it is handed over: an id naming nobody was a 500, and an account outside the
+  workspace was taken, so a private project made that way was hidden from whoever made it.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

@@ -34,6 +34,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -157,7 +158,12 @@ def _named (
 	**Deactivated accounts are refused**, matching :func:`_sole` and the token path. This
 	was the odd one out: it filtered only ``deleted_at``, so somebody could leave, have
 	their account deactivated, and a ``local_user`` line left in a configuration file would
-	go on working. Three ways to become a principal, and they now agree.
+	go on working.
+
+	**And an agent nobody active answers for** (`#3934`), which is the half of the token path
+	this still missed: an agent whose person had left kept working here while its own token was
+	refused. Asked of :func:`subroutine.domain.accountability.can_act`, the rule
+	authentication asks, so the three ways to become a principal now agree.
 	"""
 
 	model = subroutine.db.models.identity.User
@@ -176,6 +182,14 @@ def _named (
 			f"There is no account called {username!r} in this database, or it is no longer "
 			"active.",
 			hint=_candidates_hint(session),
+		)
+
+	if not subroutine.domain.accountability.can_act(session, found):
+		raise subroutine.errors.Unauthenticated(
+			f"{found.username} is an agent that nobody active answers for any more, so it cannot "
+			"act.",
+			hint="Set 'local_user' to an account that can act, or ask an administrator to hand "
+			"the agent to somebody who can.",
 		)
 
 	return subroutine.domain.authentication.Principal(
