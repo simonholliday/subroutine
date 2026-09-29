@@ -1532,6 +1532,80 @@ def test_a_series_moved_across_a_change_of_the_clocks_keeps_its_hour (
 	assert after == datetime.datetime(2026, 11, 2, 9, 0, tzinfo=london), after.astimezone(london)
 
 
+def test_a_timed_slot_moved_with_its_series_across_a_clock_change_stays_on_the_grid (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3975`: the timed half of `SR#3930`, found while building it.
+
+	A London 09:00 weekly anchored on 19 October, its first occurrence done, so the live one is
+	the 26th. The series is moved *from now on* to 2 November: the occurrence keeps its own date,
+	which is decision `SR#1249` §3, and its slot follows the series' grid (`SR#1340`). The slot was
+	moved by the series' delta - fourteen days and the hour the clocks went back - so it landed at
+	10:00 on 9 November, where the new rule produces 09:00, and the feed's ``EXDATE`` for it
+	excluded nothing. **Moved on the clock**, as the series' own date is (`SR#3764`), it lands on
+	the grid.
+	"""
+
+	london = zoneinfo.ZoneInfo(LONDON)
+	monday = datetime.datetime(2026, 10, 19, 9, 0, tzinfo=london)
+	made = _repeating(session, recurrence="every monday", due=None, starts=monday)
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(session, made, now=monday)
+	live = _next_live(session, series)
+	waiting = datetime.datetime(2026, 10, 26, 9, 0, tzinfo=london)
+
+	assert test_schedule._instant(live.starts_at) == waiting
+
+	subroutine.domain.tasks.update(
+		session,
+		series,
+		starts=datetime.datetime(2026, 11, 2, 9, 0, tzinfo=london),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=monday,
+	)
+	session.flush()
+
+	assert test_schedule._instant(live.starts_at) == waiting, "the occurrence's own date moved"
+
+	slot = test_schedule._instant(live.occurrence_at).astimezone(london)
+
+	assert (slot.date(), slot.time()) == (datetime.date(2026, 11, 9), datetime.time(9, 0)), (
+		f"the slot left the series' grid: {slot}"
+	)
+
+
+def test_an_edit_that_moves_no_date_leaves_a_timed_slot_where_it_was (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3975`: a slot is moved on the clock only where the column it tracks moved.
+
+	Every edit carried *from now on* reaches the slot, a new title included, with that column
+	moved by nothing. Read back through the clock, nothing is not always nothing: 01:30 on the
+	night the clocks go back happens twice, and a clock time read back is the first of them, an
+	hour early. **A move of nothing leaves the slot alone**, as adding a delta of nothing did.
+	"""
+
+	second = datetime.datetime(2026, 10, 25, 1, 30, tzinfo=datetime.UTC)
+	made = _repeating(session, recurrence="every day", due=None, starts=second)
+
+	# **Set here, since expansion never mints the second 01:30** (`SR#3977`). The delta this
+	# replaced could leave a slot there, so a row can hold one.
+	made.starts_at = made.occurrence_at = second
+	session.flush()
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		title="Feed the cat",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.occurrence_at == second, f"a new title moved the slot to {made.occurrence_at}"
+
+
 def test_lengthening_a_repeating_meeting_leaves_its_slot_where_the_start_is (
 	session: sqlalchemy.orm.Session,
 ) -> None:

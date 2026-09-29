@@ -2526,8 +2526,10 @@ def _kept_on_its_grid (
 	row: subroutine.db.models.work.Task,
 	*,
 	before: dict[str, typing.Any],
-	deltas: dict[str, datetime.timedelta],
+	was: dict[str, typing.Any],
+	now_holds: dict[str, typing.Any],
 	timezone: str,
+	clock: str,
 	now: datetime.datetime,
 ) -> None:
 	"""Move a row's slot with the one date column it is a slot on (`#1302`).
@@ -2538,6 +2540,14 @@ def _kept_on_its_grid (
 	:func:`~subroutine.domain.calendars._is_on_its_grid` then read a row nobody had touched as
 	one somebody had rescheduled by hand — so the feed drew the event twice and excluded a time
 	the rule never emits.
+
+	**It moves as the column moves** (`#3975`): by days where the slot is a whole day, and on
+	the clock where it has a time, as :func:`_clock_moved` moves the date itself. So ``was`` and
+	``now_holds`` are the source row before and after, not their difference: a London series
+	moved from 19 October to 2 November at 09:00 is fourteen days and the hour the clocks went
+	back, and a slot on 26 October, already past the change, took the hour and landed at 10:00,
+	where the new rule produces 09:00. ``clock`` is the zone the source's dates were written in,
+	and ``timezone`` the one this row's are held in.
 
 	**A column that did not move leaves the slot alone**, which is the ordinary case for a
 	series carrying both a start and a deadline.
@@ -2559,6 +2569,7 @@ def _kept_on_its_grid (
 	if row.occurrence_at is None:
 		return
 
+	deltas = _deltas(was, now_holds)
 	tracked = grid_field(row)
 	was_tracked = grid_field_for(before.get("due_at"))
 
@@ -2571,8 +2582,16 @@ def _kept_on_its_grid (
 				row.occurrence_at, deltas[tracked], column=tracked, timezone=timezone, now=now
 			)
 
-		else:
-			row.occurrence_at += deltas[tracked]
+		# A move of nothing leaves the slot as it is, rather than re-reading its clock time.
+		elif deltas[tracked]:
+			row.occurrence_at = _clock_moved(
+				row.occurrence_at,
+				was=was[tracked],
+				now_holds=now_holds[tracked],
+				column=tracked,
+				timezone=clock,
+				now=now,
+			)
 
 		return
 
@@ -2902,7 +2921,15 @@ def _carried (
 	# leaving it behind would make a series shifting an hour look like every occurrence being
 	# individually rescheduled — and the feed would emit an ``EXDATE`` for a slot nothing had
 	# left. Read after the loop, so the column asked about is the one the row holds *now*.
-	_kept_on_its_grid(target, before=before, deltas=deltas, timezone=held_in, now=instant)
+	_kept_on_its_grid(
+		target,
+		before=before,
+		was=was,
+		now_holds=now_holds,
+		timezone=held_in,
+		clock=clock,
+		now=instant,
+	)
 
 	# **A zone carried is a zone this row's dates have to be on** (`#1293`). The loop relabels the
 	# row and moves its dates by whole days, so a series re-dated in London carried *Europe/London*
@@ -2979,11 +3006,15 @@ def _applied_to_the_series (
 	#
 	# ``was`` is this row's own before, so it is the grid test :func:`_kept_on_its_grid` needs.
 	# **In the zone the row is in now**: `update` has already moved its dates onto it.
+	zone = task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+
 	_kept_on_its_grid(
 		task,
 		before=was,
-		deltas=_deltas(was, now_holds),
-		timezone=task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE,
+		was=was,
+		now_holds=now_holds,
+		timezone=zone,
+		clock=zone,
 		now=instant,
 	)
 	session.flush()

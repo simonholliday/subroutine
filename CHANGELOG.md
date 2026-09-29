@@ -126,6 +126,11 @@ upgrade involves.
   after moving to a live project or another page, and goes now. And an *Until* time earlier than
   the start's, given no day of its own, ends the next day - *21:00 until 01:00* - where it took
   the start's day and was refused as finishing before it starts.
+- **A series moved from now on across a clock change keeps its waiting occurrence on its
+  grid.** A weekly 09:00 series moved from October into November, past the clocks going back,
+  left the occurrence it had already made standing for 10:00 that week, where the series is at
+  09:00. A subscribed calendar then showed a 09:00 that week which nothing would ever offer as
+  work.
 
 ## 0.9.12 — 2026-09-29
 
