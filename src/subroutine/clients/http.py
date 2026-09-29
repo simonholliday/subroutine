@@ -18,6 +18,7 @@ results it did get.
 """
 
 import datetime
+import sys
 import types
 import typing
 import urllib.parse
@@ -51,6 +52,11 @@ Parsed = typing.TypeVar("Parsed", bound=pydantic.BaseModel)
 #: hand back and never should: offering one would be a second way to page a feed that already
 #: says where it got to, and the two would be free to disagree about which end of a page they
 #: name.
+#: How many rows *every row* is asked as, for a collection a caller must read to the end - an
+#: item's comments (`#3928`). The instance caps each page at its own ``max_page_size`` and says
+#: when there is more, so this bounds nothing but the loop that follows the cursor.
+EVERY = sys.maxsize
+
 BY_CURSOR = "cursor"
 BY_SEQ = "since"
 
@@ -938,15 +944,23 @@ class Client:
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Comment]:
-		"""Return one item's record of what happened, oldest first."""
+		"""Return one item's record of what happened, oldest first - all of it.
 
-		body = self._json(
-			"GET",
-			f"/v1/{_plural(entity_type)}/{ref}/comments",
-			params=_given(workspace_id=workspace),
+		**Every page, as the local client returns every row** (`#3928`). One page was read and
+		the rest ignored, so on an item with 55 comments ``show`` printed the first fifty as
+		the latest, and ``uncomment`` could not find the one it was pointed at.
+		"""
+
+		asking = _given(workspace_id=workspace)
+
+		return self._collected(
+			subroutine.views.Comment,
+			self._json("GET", f"/v1/{_plural(entity_type)}/{ref}/comments", params=asking),
+			endpoint="comments",
+			path=f"/v1/{_plural(entity_type)}/{ref}/comments",
+			params=list(asking.items()),
+			wanted=EVERY,
 		)
-
-		return self._collected(subroutine.views.Comment, body, endpoint="comments")
 
 	def history (
 		self,

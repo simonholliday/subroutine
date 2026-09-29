@@ -50,6 +50,9 @@ upgrade involves.
   out in the reader's time zone, so a London series on Mondays at 00:30, read from New York,
   listed Tuesdays and lost its first Monday. The reader's zone still decides what *until
   August* means to them.
+- **Over a remote connection, `show` and `uncomment` see all of an item's comments.** They read
+  the first fifty, so an item commented on all day showed an old comment as its latest, and one
+  past the fiftieth could not be withdrawn.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

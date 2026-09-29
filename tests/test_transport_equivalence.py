@@ -2304,6 +2304,34 @@ def test_both_expand_a_repeat_in_its_own_zone_rather_than_the_readers (pair: Pai
 		] == expected, (type(client).__module__, read.occurrences)
 
 
+def test_both_read_every_comment_on_a_long_record (pair: Pair) -> None:
+	"""`SR#3928`: over HTTP an item's record was one page long, fifty comments at most.
+
+	**So a remote reader was shown the wrong latest comments and not told**, and one past the
+	fiftieth could not be withdrawn, by its words or by its id. Fifty-five, which is two pages at
+	the default size, read the same both ways, and the last withdrawn over HTTP.
+	"""
+
+	task = make(pair, "Keep the release notes current")
+	acting = subroutine.domain.authentication.Principal(user=pair.user)
+
+	for number in range(1, 56):
+		subroutine.domain.comments.create(
+			pair.session, entity_type="task", entity_id=task.id, body=f"Note {number}", actor=acting
+		)
+
+	pair.session.flush()
+	written = [f"Note {number}" for number in range(1, 56)]
+
+	for client in pair.both():
+		assert [one.body for one in client.comments(ref=task.ref)] == written, type(client).__module__
+
+	last = pair.remote.comments(ref=task.ref)[-1]
+	pair.remote.uncomment(ref=task.ref, comment_id=str(last.id))
+
+	assert [one.body for one in pair.local.comments(ref=task.ref)] == written[:-1]
+
+
 #: Every call ``subroutine show`` makes, by name. **Four rather than one, and that is the whole
 #: point of this guard**: `#700` and `#921` were both a ref that ``task()`` resolved on both
 #: transports and a *sub-resource* refused on one — so a check that asked only for the item
