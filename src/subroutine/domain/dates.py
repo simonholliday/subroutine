@@ -638,7 +638,10 @@ def zone (timezone: str, field: str = "timezone") -> zoneinfo.ZoneInfo:
 	try:
 		return zoneinfo.ZoneInfo(timezone)
 
-	except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+	# **`OSError` too** (`#3933`): a name longer than a filename is looked for as a file, and the
+	# system refuses the path before the zone database is asked - a 500 on every surface that
+	# takes a zone.
+	except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
 		raise subroutine.errors.ValidationError(
 			f"{timezone!r} is not a timezone this system knows.",
 			code="invalid_field_value",

@@ -77,7 +77,10 @@ def parse (value: int | str, *, field: str = "estimate") -> int:
 	if not text:
 		raise _invalid(value, field, "A duration cannot be empty.")
 
-	if text.isdigit():
+	# **Decimal digits, which is what `int` reads** (`#3933`). `str.isdigit` is also true of `²`
+	# and `①`, which `int` refuses, so an estimate of `²` was a 500 where `2x` is refused by name.
+	# `\d` is the decimal ones, as :data:`_TERM` reads them.
+	if re.fullmatch(r"\d+", text):
 		return _checked(int(text), value, field)
 
 	return _checked(_sum_terms(text, value, field), value, field)

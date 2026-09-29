@@ -4062,6 +4062,14 @@ class Client:
 			if held is not None:
 				raise held from None
 
+			# **Before the branch below, a fourth time** (`#3933`). A NUL PostgreSQL would not
+			# bind is a refusal of what was sent, and was answered *could not be read* under
+			# advice to check the database was reachable, about a database that had answered.
+			refused = subroutine.db.failures.unreadable(error)
+
+			if refused is not None:
+				raise refused from None
+
 			if self.settings.has_no_instance_yet():
 				# The connection's label is already printed in front of this, so naming it again
 				# would read "Local: local has no…". The generic message below does exactly

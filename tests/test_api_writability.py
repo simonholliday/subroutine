@@ -1345,6 +1345,11 @@ NOT_A_FIELD_A_CALLER_SENDS = {
 		"refuse_unknown` names the parameter itself, so this refusal is never the one an HTTP "
 		"caller meets."
 	),
+	"instance_name": (
+		"`init --instance-name` at a terminal, which names the installation before any endpoint "
+		"exists. `PATCH /v1/instance` takes it as `name` and refuses it under that name "
+		"(`SR#3933`)."
+	),
 	"local_user": (
 		"A key in `config.toml`, not a field in anything. Local mode is the path with no "
 		"request at all (§12.4), so there is nothing for a caller to send and the message "

@@ -488,7 +488,44 @@ def _number_predicate (
 	except ValueError:
 		raise _unreadable(field, value, NUMBER) from None
 
+	# **Held to what the column can hold** (`#3933`). Bound as it was, a number past it was a
+	# 500 - from 40000 on PostgreSQL, whose ``smallint`` refuses it, and from 2**63 on both - where
+	# SQLite answered 200 for everything short of that. A rank is 1 to 5, so no answer is lost.
+	lowest, highest = _held_by(column)
+
+	if not lowest <= number <= highest:
+		raise subroutine.errors.ValidationError(
+			f"{value!r} is outside what {field} can hold.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"{field!r} compares whole numbers from {lowest} to {highest}.",
+				)
+			],
+		)
+
 	return OPERATORS[operator](column, number)
+
+
+def _held_by (column: typing.Any) -> tuple[int, int]:
+	"""Return the smallest and largest whole number a column can hold, read off its type.
+
+	**Read rather than written down beside each property**, so a count filtered as a
+	:data:`NUMBER` later is held to its own column's range without anybody remembering to say
+	it. ``SmallInteger`` and ``BigInteger`` are both kinds of ``Integer`` to SQLAlchemy, so the
+	narrower two are asked first.
+	"""
+
+	kind = column.type
+
+	if isinstance(kind, sqlalchemy.SmallInteger):
+		return -(2**15), 2**15 - 1
+
+	if isinstance(kind, sqlalchemy.BigInteger):
+		return -(2**63), 2**63 - 1
+
+	return -(2**31), 2**31 - 1
 
 
 #: A whole number a person chose — `importance` and `urgency` (§6.3), and later a count.

@@ -119,6 +119,27 @@ def refuse_a_reference (name: str) -> None:
 	)
 
 
+def checked (name: str) -> str:
+	"""Return a tag's name as it would be stored, or refuse it by name, making nothing.
+
+	**Split out of :func:`ensure`, which also creates rows** (`#3933`), so quick capture can ask
+	whether a name is one before taking it out of a title, as it asks ``dates`` whether a day is
+	one. ``Ship it #ops,web`` was refused whole, where capture's rule is that a token it cannot
+	use stays in the title and says why.
+	"""
+
+	cleaned = subroutine.domain.text.fit(
+		subroutine.domain.text.require(name, field="tags", label="tag"),
+		field="tags",
+		limit=MAX_NAME_LENGTH,
+		label="tag",
+	)
+
+	refuse_a_reference(normalize(cleaned))
+
+	return cleaned
+
+
 def ensure (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -136,16 +157,9 @@ def ensure (
 	wanted: dict[str, str] = {}
 
 	for name in names:
-		cleaned = subroutine.domain.text.fit(
-			subroutine.domain.text.require(name, field="tags", label="tag"),
-			field="tags",
-			limit=MAX_NAME_LENGTH,
-			label="tag",
-		)
-		key = normalize(cleaned)
+		cleaned = checked(name)
 
-		refuse_a_reference(key)
-		wanted.setdefault(key, cleaned)
+		wanted.setdefault(normalize(cleaned), cleaned)
 
 	if not wanted:
 		return []

@@ -64,6 +64,7 @@ import starlette.requests
 import subroutine.api.filters
 import subroutine.api.security
 import subroutine.domain.filtering
+import subroutine.domain.text
 import subroutine.errors
 
 #: Routes that answer whatever they are asked, keyed ``"METHOD path"`` with the reason —
@@ -327,15 +328,54 @@ def _takes_many (annotation: typing.Any) -> bool:
 	return isinstance(origin, type) and issubclass(origin, collections.abc.Sequence) and origin is not str
 
 
+#: Query parameters that are a line somebody typed, which this refuses nothing in - `#3933`.
+#:
+#: **``q``'s grammar refuses nothing, by its own rule** (:func:`subroutine.domain.grammar.read`):
+#: words are searched for, and a term it cannot read is searched for too and reported. So a NUL
+#: in a word finds nothing, as the rest of the awkward text a URL can carry does, and a NUL in a
+#: term (``q=tag:%00``, a 500 on PostgreSQL) is one of the terms it cannot read.
+READ_AS_TYPED = frozenset({"q"})
+
+
+def refuse_unreadable (request: starlette.requests.Request) -> None:
+	"""Refuse a query or path value carrying a character no text here can hold - `#3933`.
+
+	**A NUL was a 500 on PostgreSQL and an answer on SQLite**: ``?tag=%00``, ``?type``,
+	``?status``, ``?project``, ``?assignee``, ``/v1/changes?actor`` and a path such as
+	``/v1/users/%00`` each reached a query PostgreSQL refuses to bind, where SQLite said nothing
+	was called that. Refused here, by name, before any of them is read - except in
+	:data:`READ_AS_TYPED`, whose own grammar answers for what it holds.
+
+	**The rule every stored text keeps** (:func:`subroutine.domain.text.readable`), so a value
+	that could never have been stored is never asked about either. A credential in the query
+	is not this function's to report, for :func:`_asked_about`'s reason.
+	"""
+
+	if _excused(request):
+		return
+
+	for name, value in [*request.query_params.multi_items(), *request.path_params.items()]:
+		if (
+			name.lower() in subroutine.api.security.CREDENTIAL_PARAMETERS
+			or name in READ_AS_TYPED
+			or not isinstance(value, str)
+		):
+			continue
+
+		subroutine.domain.text.readable(value, field=name)
+
+
 def _asked_once_and_by_name (request: starlette.requests.Request) -> None:
-	"""Both refusals, in the order that gives the better message.
+	"""The refusals of what was asked, in the order that gives the better message.
 
 	A name that is unknown *and* repeated is a typo rather than an ambiguity, so
-	:func:`refuse_unknown` answers first and says what the endpoint accepts.
+	:func:`refuse_unknown` answers first and says what the endpoint accepts. What a value holds
+	is asked last, once the names are known to be ones this route reads.
 	"""
 
 	refuse_unknown(request)
 	refuse_repeated(request)
+	refuse_unreadable(request)
 
 
 #: Declared on every collection endpoint and on the agenda. A dependency rather than a call in

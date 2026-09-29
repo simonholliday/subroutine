@@ -526,6 +526,11 @@ WATERMARK = datetime.timedelta(seconds=1)
 #: be told it by a literal nobody had connected to the column it describes.
 FIRST_SEQ = 1
 
+#: The highest ``seq`` the column can hold - it is a 64-bit integer on both backends - and so
+#: the highest a cursor or a bound can name (`#3933`). Past it the value could not even be
+#: bound: both backends answered 500 for ``since=2**63``.
+LAST_SEQ = 2**63 - 1
+
 
 def feed (
 	principal: subroutine.domain.authentication.Principal,
@@ -701,6 +706,9 @@ def refuse_a_bound_that_names_nothing (before: int | None) -> None:
 	over two transports, and ``since=0`` is the recorded case of exactly that (`#309`).
 	"""
 
+	if before is not None and before > LAST_SEQ:
+		raise _past_the_last_seq("before", before)
+
 	if before is None or before > FIRST_SEQ:
 		return
 
@@ -762,6 +770,9 @@ def refuse_unusable_cursor (
 	if since is None:
 		return
 
+	if since > LAST_SEQ:
+		raise _past_the_last_seq("since", since)
+
 	if since < FIRST_SEQ:
 		raise subroutine.errors.ValidationError(
 			f"'since' is a seq and the first one is {FIRST_SEQ}, so {since} names nothing.",
@@ -775,6 +786,22 @@ def refuse_unusable_cursor (
 				)
 			],
 		)
+
+
+def _past_the_last_seq (field: str, asked: int) -> subroutine.errors.ValidationError:
+	"""Refuse a ``seq`` larger than any the column can hold - `#3933`."""
+
+	return subroutine.errors.ValidationError(
+		f"{field!r} is a seq, and {asked} is larger than any seq can be.",
+		code="invalid_field_value",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=f"A seq is a whole number from {FIRST_SEQ} to {LAST_SEQ}.",
+			)
+		],
+	)
 
 
 class Described(typing.NamedTuple):

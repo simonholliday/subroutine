@@ -42,6 +42,7 @@ import typing
 
 import subroutine.domain.filtering
 import subroutine.domain.selection
+import subroutine.domain.text
 
 #: What separates a field from its value in the written form. Not :data:`filtering.SEPARATOR`,
 #: which separates a field from its *operator* in the dotted form — two punctuation marks doing
@@ -314,6 +315,16 @@ def _resolved (
 
 	if not value:
 		return (name, value, f"{token!r} was searched for as text: it names no value.")
+
+	# **A value no text can hold is a term that cannot be read** (`#3933`), and so text to search
+	# for, like the rest here: `q=tag:%00` compiled to a lookup PostgreSQL would not bind, a 500
+	# there where SQLite found no tag called that.
+	if any(one in subroutine.domain.text.CONTROL_CHARACTERS for one in value):
+		return (
+			name,
+			value,
+			f"{token!r} was searched for as text: its value holds a character that is not text.",
+		)
 
 	return (name, value, None)
 

@@ -72,6 +72,22 @@ upgrade involves.
   naming the setting. Each of those ended in a crash report. `document create` without `--body`
   reads standard input only when something is piped, so it no longer waits for ever under an
   agent's shell.
+- **Odd values are refused by name, where each answered 500 or was stored on SQLite only.** An
+  agenda looking millions of days ahead, or reaching 31 December 9999 west of UTC; a rank filter
+  past what a rank can hold, such as `importance.gt=40000`; a change-feed `since` or `before`
+  past the largest sequence number; a zone name longer than a filename; an estimate of `²`; a
+  status position past two billion; and a cursor holding a character that is not ASCII each
+  answered 500 on one backend or both. A NUL in a listing's filter or in an address, or in a
+  task's assignee, project, type or status, was a 500 on PostgreSQL, and an agent's tools
+  reported it as the database failing, with advice to check that it could be reached. A NUL in a
+  tag's description or in a verification's summary or excerpt, and an instance name longer than
+  255 characters, were stored on SQLite and a 500 on PostgreSQL. Each is refused now, saying
+  what was wrong. An agenda can no longer be built for the calendar's last day, which no clock
+  east of UTC can show.
+- **Quick capture leaves a tag it cannot make in the title, and says why.** `Ship it #ops,web`
+  was refused whole, because a tag cannot hold a comma; it is filed as written now, with a
+  note carrying the tag rule's own advice. A tag longer than 128 characters is left the same
+  way.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

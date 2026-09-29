@@ -26,6 +26,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
 
@@ -169,6 +170,10 @@ def _within (value: str | None, *, limit: int, field: str) -> str | None:
 
 	if not cleaned:
 		return None
+
+	# **And held to the rule every text is** (`#3933`): a NUL in a summary or an excerpt was
+	# stored by SQLite and a 500 on PostgreSQL. Both are taken from whoever records the check.
+	subroutine.domain.text.readable(cleaned, field=field)
 
 	if len(cleaned) <= limit:
 		return cleaned

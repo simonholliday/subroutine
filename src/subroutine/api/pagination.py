@@ -234,6 +234,12 @@ def decode (
 	already produces rather than a new branch reporting a new thing.
 	"""
 
+	# **A cursor this instance issued is ASCII, so one that is not was never issued** (`#3933`).
+	# Asked first because both halves reached a 500: `_sign` encodes the body as ASCII, and
+	# `hmac.compare_digest` refuses to compare a string holding anything else.
+	if not cursor.isascii():
+		raise _unusable()
+
 	body, separator, signature = cursor.partition(_SEPARATOR)
 
 	if not separator or not hmac.compare_digest(signature, _sign(secret, body, collection)):

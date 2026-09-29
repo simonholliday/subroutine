@@ -53,12 +53,14 @@ import subroutine.domain.authentication
 import subroutine.domain.calendars
 import subroutine.domain.comments
 import subroutine.domain.documents
+import subroutine.domain.instances
 import subroutine.domain.projects
 import subroutine.domain.saved
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.users
+import subroutine.domain.verifications
 import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -199,6 +201,47 @@ def _tag_name (world: test_api_tasks.World, value: str) -> object:
 	return subroutine.domain.tags.ensure(
 		world.session, workspace_id=world.workspace.id, names=[value]
 	)
+
+
+def _instance_name (world: test_api_tasks.World, value: str) -> object:
+	"""Call the installation ``value`` - `SR#3933`, which found it excused as written once by
+	``init`` two releases after ``PATCH /v1/instance`` began writing it."""
+
+	return subroutine.domain.instances.update(world.session, name=value)
+
+
+def _tag_description (world: test_api_tasks.World, value: str) -> object:
+	"""Declare a tag described as ``value`` - `SR#3933`."""
+
+	return subroutine.domain.vocabulary.create_tag(
+		world.session,
+		workspace_id=world.workspace.id,
+		name=f"t{uuid.uuid4().hex[:8]}",
+		description=value,
+	)
+
+
+def _verification (field: str) -> Driver:
+	"""Return a driver that records a check with ``value`` in one of the two things it says -
+	`SR#3933`."""
+
+	def driver (world: test_api_tasks.World, value: str) -> object:
+		"""Record a check whose ``field`` is ``value``."""
+
+		task = subroutine.domain.tasks.create(
+			world.session, project=_a_project(world), title="Fine"
+		)
+		world.session.flush()
+
+		return subroutine.domain.verifications.record(
+			world.session,
+			task,
+			passed=True,
+			summary=value if field == "summary" else None,
+			output_excerpt=value if field == "output_excerpt" else None,
+		)
+
+	return driver
 
 
 def _user (field: str) -> Driver:
@@ -348,6 +391,10 @@ DRIVEN: dict[str, tuple[Driver, str]] = {
 	"api_token.title": (_token_title, "title"),
 	"calendar_feed.title": (_feed_title, "title"),
 	"document.title": (_document_title, "title"),
+	# **Driven, where it was excused as written once by `init`** - `SR#3933`. `PATCH /v1/instance`
+	# has written it since `#1669`, and 300 characters were stored by SQLite and a 500 on
+	# PostgreSQL. The excuse had outlived its own reason by two releases.
+	"instance.name": (_instance_name, "name"),
 	"link_type.inverse_title": (_link_type("inverse_title"), "inverse_title"),
 	"link_type.key": (_link_type("key"), "key"),
 	"link_type.title": (_link_type("title"), "title"),
@@ -395,7 +442,6 @@ NOT_TYPED: dict[str, str] = {
 	"event.entity_type": "a discriminator this code writes, from a fixed set",
 	"event.subject_b_type": "a discriminator this code writes, from a fixed set",
 	"event.subject_type": "a discriminator this code writes, from a fixed set",
-	"instance.name": "written once by init, from a flag the operator owns",
 	"instance.timezone": "a zone name, checked against the zone database",
 	"item_type.category": "one of a fixed set, refused by name",
 	"item_type.entity_type": "a discriminator this code writes, from a fixed set",
@@ -457,16 +503,19 @@ PROSE: dict[str, tuple[Driver, str]] = {
 	"saved_view.q": (_saved_view("q"), "q"),
 	"task.description": (_task_description, "description"),
 	"workspace.description": (_workspace_description, "description"),
+	# **All three were excused as nobody's typing, and all three are** - `SR#3933`. `POST
+	# /v1/tags` takes a description and `POST .../verifications` a summary and an excerpt, each
+	# from whoever calls it, so a NUL in any was stored by SQLite and a 500 on PostgreSQL.
+	"tag.description": (_tag_description, "description"),
+	"verification.output_excerpt": (_verification("output_excerpt"), "output_excerpt"),
+	"verification.summary": (_verification("summary"), "summary"),
 }
 
 
 #: The unbounded text columns nobody types into, and why each is not driven above.
 NOT_PROSE: dict[str, str] = {
 	"role.description": "seeded; no writer takes one from a caller",
-	"tag.description": "no writer takes one from a caller, on any surface",
 	"user.password_hash": "a hash computed here; what somebody typed is never stored",
-	"verification.output_excerpt": "captured from a command this code ran",
-	"verification.summary": "written here from what a run produced",
 }
 
 
@@ -670,6 +719,13 @@ EDITED: dict[str, typing.Callable[[test_api_tasks.World, str], object]] = {
 	),
 	"workspace.description": lambda world, value: subroutine.domain.workspaces.update(
 		world.session, world.workspace, description=value, actor=_principal(world)
+	),
+	"tag.description": lambda world, value: subroutine.domain.vocabulary.update_tag(
+		world.session,
+		subroutine.domain.tags.ensure(
+			world.session, workspace_id=world.workspace.id, names=[f"t{uuid.uuid4().hex[:8]}"]
+		)[0],
+		description=value,
 	),
 }
 

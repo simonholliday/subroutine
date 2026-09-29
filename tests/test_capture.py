@@ -963,6 +963,30 @@ def test_a_hash_is_a_tag_unless_it_is_entirely_digits (
 
 
 @pytest.mark.parametrize(
+	("text", "left", "said"),
+	[
+		("Ship it #ops,web", "#ops,web", "Use a hyphen - 'ops-web' rather than 'ops,web'"),
+		(f"Tidy the shed #{'a' * 129}", f"#{'a' * 129}", "a tag is limited to 128 characters"),
+	],
+	ids=["a-comma", "too-long"],
+)
+def test_a_tag_that_cannot_be_made_stays_in_the_title_and_says_why (
+	text: str, left: str, said: str
+) -> None:
+	"""`SR#3933`: ``Ship it #ops,web`` was refused whole when it was filed, where this grammar's
+	rule is that a token it cannot use stays in the title and is reported. The note gives the
+	tag rule's own reason.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == text
+	assert captured.tags == ()
+	assert captured.unparsed == (left,)
+	assert said in (subroutine.domain.capture.explain(captured.unparsed) or "")
+
+
+@pytest.mark.parametrize(
 	("text", "planned"),
 	[
 		# Last token: a plan.

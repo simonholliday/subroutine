@@ -25,6 +25,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.dates
 import subroutine.domain.patch
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
 
@@ -33,6 +34,11 @@ def get (session: sqlalchemy.orm.Session) -> subroutine.db.models.system.Instanc
 	"""Return this installation's row, or ``None`` if it has never been initialised."""
 
 	return session.scalars(sqlalchemy.select(subroutine.db.models.system.Instance)).one_or_none()
+
+
+#: The longest name an installation can have: its column's width (`#3933`), which was held by
+#: nothing, so 300 characters were stored by SQLite and a 500 on PostgreSQL.
+MAX_NAME_LENGTH = 255
 
 
 def establish (
@@ -50,7 +56,10 @@ def establish (
 	if existing is not None:
 		return existing, False
 
-	instance = subroutine.db.models.system.Instance(name=name, timezone=timezone)
+	instance = subroutine.db.models.system.Instance(
+		name=subroutine.domain.text.fit(name, field="instance_name", limit=MAX_NAME_LENGTH),
+		timezone=timezone,
+	)
 	session.add(instance)
 	session.flush()
 
@@ -126,7 +135,7 @@ def update (
 				],
 			)
 
-		instance.name = wanted
+		instance.name = subroutine.domain.text.fit(wanted, field="name", limit=MAX_NAME_LENGTH)
 
 	if subroutine.domain.patch.is_set(timezone):
 		# Null for the same reason as the name above (`SR#2295`), and named separately because

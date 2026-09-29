@@ -13,6 +13,10 @@ Somebody's data in an agent's context is the part that decides this is not merel
 precisely about not reading twice.
 """
 
+import typing
+
+import sqlalchemy.exc
+
 import subroutine.errors
 
 #: What PostgreSQL calls each way of giving up, and what this instance tells the caller it was
@@ -129,6 +133,55 @@ def busy (
 		f"The database was busy: {said}.{took}",
 		hint="This request changed nothing. Try it again - a busy database clears on its own.",
 	)
+
+
+def unreadable (exception: BaseException) -> subroutine.errors.ValidationError | None:
+	"""Return the refusal for a value PostgreSQL would not bind because it holds a NUL, or
+	``None`` for anything else - `#3933`.
+
+	**The backstop, for every door a name can come through.** The HTTP query and path are
+	refused by name before anything is read (:func:`subroutine.api.query.refuse_unreadable`), and
+	stored text by the rule each writer keeps. A name to look something up by is neither: a
+	task's assignee, project, type or status in a body, or any of them from an agent's tool,
+	reached a query PostgreSQL would not bind - a 500 over HTTP, and to an agent *could not be
+	read*, under advice to check the database was reachable, which asserted a cause nobody had
+	established. SQLite binds one and answers that nothing is called that.
+
+	**Keyed on the values bound rather than on the driver's message**, for this module's own
+	reason: the statement was refused as data, and one of its parameters holds a NUL, which no
+	text column on this backend can. The field cannot be named from here, so the refusal says
+	what was in it instead.
+	"""
+
+	if not isinstance(exception, sqlalchemy.exc.DataError) or not _holds_a_nul(
+		getattr(exception, "params", None)
+	):
+		return None
+
+	return subroutine.errors.ValidationError(
+		"Something sent contains a NUL character (U+0000), which is not text anybody can read.",
+		code="invalid_field_value",
+		hint="Remove it and send the value again.",
+	)
+
+
+def _holds_a_nul (bound: typing.Any) -> bool:
+	"""Say whether any value bound to a statement is text holding a NUL.
+
+	A statement is bound with a mapping, a sequence of them for ``executemany``, or a tuple, so
+	this walks whichever arrived.
+	"""
+
+	if isinstance(bound, str):
+		return "\x00" in bound
+
+	if isinstance(bound, dict):
+		return any(_holds_a_nul(value) for value in bound.values())
+
+	if isinstance(bound, (list, tuple)):
+		return any(_holds_a_nul(value) for value in bound)
+
+	return False
 
 
 def _primary (name: str) -> str:

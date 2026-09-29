@@ -645,6 +645,11 @@ def _explained (failure: BaseException, tool: Tool | None = None) -> str:
 			# prevent, for a condition that clears by itself.
 			stopped = subroutine.db.failures.busy(failure)
 
+		if stopped is None:
+			# **A value PostgreSQL would not bind** (`#3933`), a refusal of what was sent rather
+			# than a failure of the database, and the parameters stay out of the answer.
+			stopped = subroutine.db.failures.unreadable(failure)
+
 		if stopped is not None:
 			return _explained(stopped, tool)
 

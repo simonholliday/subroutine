@@ -72,6 +72,33 @@ MAX_LABEL_LENGTH = 128
 _APPENDED = 1000
 
 
+#: The positions a status may sort at: its column is a 32-bit integer on both backends.
+POSITIONS = range(-(2**31), 2**31)
+
+
+def _refuse_a_position_that_is_not_one (position: int) -> int:
+	"""Return a status's position, or refuse one its column cannot hold - `#3933`.
+
+	**2**40 was stored by SQLite and a 500 on PostgreSQL**, whose ``integer`` stops at 2**31 - 1,
+	on the create and on the edit alike.
+	"""
+
+	if position in POSITIONS:
+		return position
+
+	raise subroutine.errors.ValidationError(
+		f"{position!r} is not somewhere a status can sort.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="position",
+				code="invalid_field_value",
+				message=f"A position is a whole number from {POSITIONS.start} to "
+				f"{POSITIONS.stop - 1}.",
+			)
+		],
+	)
+
+
 def _refuse_a_key_that_is_not_one (key: str, *, field: str) -> str:
 	"""Return the key, or refuse a shape that cannot be sent back.
 
@@ -333,7 +360,7 @@ def create_status (
 		label=_refuse_a_label_that_is_not_one(label, field="label"),
 		category=category,
 		is_default=is_default,
-		position=_APPENDED if position is None else position,
+		position=_APPENDED if position is None else _refuse_a_position_that_is_not_one(position),
 	)
 
 	session.add(status)
@@ -392,7 +419,7 @@ def update_status (
 		status.label = _refuse_a_label_that_is_not_one(label, field="label")
 
 	if position is not subroutine.domain.patch.UNSET:
-		status.position = position
+		status.position = _refuse_a_position_that_is_not_one(position)
 
 	if is_default is not subroutine.domain.patch.UNSET:
 		if not is_default and status.is_default:
@@ -777,7 +804,7 @@ def create_tag (
 	tag = subroutine.domain.tags.ensure(session, workspace_id=workspace_id, names=[name])[0]
 
 	if description is not None:
-		tag.description = description.strip() or None
+		tag.description = subroutine.domain.text.summary(description.strip() or None)
 
 	session.flush()
 
@@ -844,8 +871,12 @@ def update_tag (
 		tag.name = cleaned
 		tag.name_normalized = normalized
 
+	# **Held to what every description is held to** (`#3933`), a paragraph saying what a thing
+	# is for: a NUL here was stored by SQLite and a 500 on PostgreSQL, on create as on edit.
 	if description is not subroutine.domain.patch.UNSET:
-		tag.description = None if description is None else description.strip() or None
+		tag.description = subroutine.domain.text.summary(
+			None if description is None else description.strip() or None
+		)
 
 	session.flush()
 

@@ -29,6 +29,7 @@ import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.recurrence
 import subroutine.domain.schedule
+import subroutine.domain.tags
 import subroutine.errors
 
 #: Which field a leading word assigns to (docs/design.md §6.13's table).
@@ -651,7 +652,8 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# Sorted by asking `_EVERY`, which is the pattern that put the repeat here in the first
 	# place, rather than by a second description of what a repeat looks like.
 	said = [one for one in unparsed if one.startswith("+")]
-	rest = [one for one in unparsed if not one.startswith("+")]
+	tagged = [one for one in unparsed if one.startswith("#")]
+	rest = [one for one in unparsed if not one.startswith(("+", "#"))]
 	every = [one for one in rest if _EVERY.match(one)]
 	over = [one for one in rest if not _EVERY.match(one)]
 
@@ -889,6 +891,10 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 			f"after a day, as in 'Dentist on Monday at 2pm'."
 		)
 
+	# **A tag this would not make, in the words of the rule that refused it** (`#3933`), one at a
+	# time because the reasons differ: a comma, or a name longer than a tag can be.
+	clauses.extend(f"Left as written: {one} - {_why_not_a_tag(one[1:])}" for one in tagged)
+
 	if said:
 		clauses.append(
 			f"Left as written: {', '.join(said)} - a project is named like '+web': letters and "
@@ -896,6 +902,27 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		)
 
 	return " ".join(clauses)
+
+
+def _why_not_a_tag (name: str) -> str:
+	"""Return why a ``#name`` capture left in the title is not a tag, as the tag's rule says it.
+
+	**Asked of :func:`subroutine.domain.tags.checked` again rather than carried beside the
+	token**, which is :class:`Capture`'s rule for ``unparsed``: the reason is read back off the
+	token by asking the function that refused it.
+	"""
+
+	try:
+		subroutine.domain.tags.checked(name.lower())
+
+	except subroutine.errors.SubroutineError as refused:
+		said = refused.errors[0] if refused.errors else None
+		reason = refused.detail if said is None else said.message
+		hint = refused.hint if said is None or said.hint is None else said.hint
+
+		return " ".join(part for part in (f"{reason[:1].lower()}{reason[1:]}", hint) if part)
+
+	return "a tag is written like '#web'."
 
 
 #: **Which years a written year may be**, as the notes say it (`#3809`) - from the window's own
@@ -1176,7 +1203,7 @@ def parse (
 		text, claimed, reserved, fields, unparsed, placed, today=today, now=now, timezone=timezone
 	)
 
-	_collect_sigils(text, claimed, reserved, fields, tags)
+	_collect_sigils(text, claimed, reserved, fields, tags, unparsed)
 
 	# **Before the bare day, and that ordering is the whole fix** (`#797`). `_collect_bare_days`
 	# searches the line with claimed spans blanked out, so a time claimed here turns
@@ -1497,6 +1524,7 @@ def _collect_sigils (
 	reserved: list[tuple[int, int]],
 	fields: dict[str, typing.Any],
 	tags: list[str],
+	unparsed: list[str],
 ) -> None:
 	"""Consume ``#tag``, ``@name``, ``!3``, ``~15m`` and ``+KEY``."""
 
@@ -1508,6 +1536,18 @@ def _collect_sigils (
 			# claimed, so `Fix #12` keeps its number in the title and the mention index
 			# picks it up from there (docs/design.md §6.15).
 			if name.isdigit():
+				continue
+
+			# **Asked of the rule that would refuse it, and left in the title where it would**
+			# (`#3933`), as a day is asked of `dates`. `Ship it #ops,web` was refused whole at
+			# the create, since a comma cannot be in a tag - where this grammar's rule is that a
+			# token it cannot use stays where it was written and is reported.
+			try:
+				subroutine.domain.tags.checked(name)
+
+			except subroutine.errors.SubroutineError:
+				unparsed.append(match.group(0))
+
 				continue
 
 			# `#a #b #a` is one person typing quickly, not three tags. `tags.ensure` would

@@ -40,6 +40,7 @@ import subroutine.domain.ordering
 import subroutine.domain.readiness
 import subroutine.domain.schedule
 import subroutine.domain.scoping
+import subroutine.errors
 
 #: How many undated tasks the agenda shows before it stops. A person with two hundred
 #: captured-and-forgotten tasks does not want all of them every morning; they want the
@@ -507,8 +508,8 @@ def build (
 	day = date or subroutine.domain.schedule.local_date(now, timezone)
 	model = subroutine.db.models.work.Task
 
-	day_start = _boundary(day, timezone, end=False)
-	day_end = _boundary(day, timezone, end=True)
+	day_start = _within_the_calendar(day, timezone, end=False, field="date", asked=f"for {day}")
+	day_end = _within_the_calendar(day, timezone, end=True, field="date", asked=f"for {day}")
 
 	# **Resolved once, before anything is built** (`#986`, decision `#982`). One project per
 	# workspace may be prioritised, and its subtree's ranked work rises inside its band. The
@@ -595,9 +596,17 @@ def build (
 	# **The look-ahead, resolved before the buckets so that `upcoming` is a predicate like the
 	# rest of them.** ``None`` means no window was asked for, which is the API's default, and
 	# that bucket is then empty rather than absent — the section still exists, it holds nothing.
-	horizon_day = None if horizon_days is None else day + datetime.timedelta(days=horizon_days)
+	horizon_day = None if horizon_days is None else _ahead(day, horizon_days)
 	horizon = (
-		None if horizon_day is None else _boundary(horizon_day, timezone, end=True)
+		None
+		if horizon_day is None
+		else _within_the_calendar(
+			horizon_day,
+			timezone,
+			end=True,
+			field="horizon_days",
+			asked=f"looking {horizon_days:,} days ahead from {day}",
+		)
 	)
 
 	# **A project that is not running keeps its dated work on the agenda and loses this
@@ -1416,6 +1425,62 @@ def _edge (
 		),
 		(whole_day, _boundary(day, timezone, end=end)),
 		else_=reader,
+	)
+
+
+def _ahead (day: datetime.date, days: int) -> datetime.date:
+	"""Return the day ``days`` after ``day``, or refuse a look-ahead past the calendar's end.
+
+	**A refusal where there was a 500** (`#3933`): four million days from today is beyond the
+	last day a date can hold, and :class:`datetime.timedelta` refuses a span of more than a
+	billion days before any date is reached.
+	"""
+
+	try:
+		return day + datetime.timedelta(days=days)
+
+	except OverflowError:
+		raise _off_the_calendar("horizon_days", f"looking {days:,} days ahead from {day}") from None
+
+
+def _within_the_calendar (
+	day: datetime.date, timezone: str, *, end: bool, field: str, asked: str
+) -> datetime.datetime:
+	"""Return one edge of a local day as UTC, refusing a day too near the calendar's first or last.
+
+	**Asked of every clock rather than the reader's alone** (`#3933`), which is the rule an
+	item's own dates keep (`#3766`). The end of 31 December 9999 in Los Angeles is in the year
+	10000 in UTC, so an agenda for that day - or one looking ahead onto it - raised
+	``OverflowError`` as a 500. And the window is compared with whole-day rows written in other
+	zones, so a day every clock can show is the one this can build on whoever wrote them.
+	"""
+
+	try:
+		edge = _boundary(day, timezone, end=end)
+
+	except OverflowError:
+		raise _off_the_calendar(field, asked) from None
+
+	if subroutine.domain.schedule.off_the_calendar(edge) is not None:
+		raise _off_the_calendar(field, asked)
+
+	return edge
+
+
+def _off_the_calendar (field: str, asked: str) -> subroutine.errors.ValidationError:
+	"""Refuse an agenda whose window reaches a moment some clock could not show - `#3933`."""
+
+	said = subroutine.domain.schedule.OFF_THE_CALENDAR
+
+	return subroutine.errors.ValidationError(
+		f"An agenda {asked} reaches a moment too near the calendar's first or last day.",
+		code="invalid_field_value",
+		hint="Ask about a nearer day, or look fewer days ahead.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field, code="invalid_field_value", message=f"{said[0].upper()}{said[1:]}."
+			)
+		],
 	)
 
 

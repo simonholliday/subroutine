@@ -341,7 +341,7 @@ def interpret (
 	# **A whole day's edge has to be on every clock too** (`#3766`). It is snapped to its first or
 	# last moment where the writer is, so *9999-12-31* as a deadline in New York ends in the year
 	# 10000 in UTC, and in London ends where a reader fourteen hours east cannot show it.
-	if _off_the_calendar(snapped) is not None:
+	if off_the_calendar(snapped) is not None:
 		shown = value.isoformat() if isinstance(value, datetime.date) else value
 
 		raise _invalid(shown, field, f"{OFF_THE_CALENDAR[0].upper()}{OFF_THE_CALENDAR[1:]}.")
@@ -990,7 +990,7 @@ def beyond_every_clock (
 		return None
 
 	if moment.tzinfo is not None:
-		return _outside_the_offsets(moment) or _off_the_calendar(moment)
+		return _outside_the_offsets(moment) or off_the_calendar(moment)
 
 	whole_day = _DATE_ONLY.match(written.strip()) is not None
 	last = moment.replace(hour=23, minute=59, second=59, microsecond=999_999)
@@ -998,11 +998,11 @@ def beyond_every_clock (
 	if timezone is not None:
 		edge = last if whole_day and boundary is Boundary.END else moment
 
-		return _off_the_calendar(edge.replace(tzinfo=subroutine.domain.dates.zone(timezone)))
+		return off_the_calendar(edge.replace(tzinfo=subroutine.domain.dates.zone(timezone)))
 
 	for edge in [moment, last] if whole_day else [moment]:
 		for offset in (EARLIEST_OFFSET, LATEST_OFFSET):
-			why = _off_the_calendar(edge.replace(tzinfo=datetime.timezone(offset)))
+			why = off_the_calendar(edge.replace(tzinfo=datetime.timezone(offset)))
 
 			if why is not None:
 				return why
@@ -1021,8 +1021,11 @@ def _outside_the_offsets (moment: datetime.datetime) -> str | None:
 	return OFFSET_RANGE
 
 
-def _off_the_calendar (moment: datetime.datetime) -> str | None:
-	"""Return :data:`OFF_THE_CALENDAR` where some clock could not show a moment."""
+def off_the_calendar (moment: datetime.datetime) -> str | None:
+	"""Return :data:`OFF_THE_CALENDAR` where some clock could not show a moment.
+
+	**Public for the agenda** (`#3933`), whose window is held to the rule an item's dates keep.
+	"""
 
 	try:
 		for offset in (EARLIEST_OFFSET, LATEST_OFFSET):
@@ -1067,7 +1070,7 @@ def _to_instant (
 	# still sit outside that range, in its local mean time before it kept a standard one:
 	# *1800-06-01T12:00* in Anchorage, fourteen hours ahead of UTC then, was refused for an offset
 	# nobody wrote.
-	why = (_outside_the_offsets(found[0]) if offered else None) or _off_the_calendar(found[0])
+	why = (_outside_the_offsets(found[0]) if offered else None) or off_the_calendar(found[0])
 
 	if why is not None:
 		shown = value.isoformat() if isinstance(value, datetime.date) else value

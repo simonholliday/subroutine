@@ -314,6 +314,24 @@ def handle_a_request_that_did_not_finish (
 	return respond(request, answer)
 
 
+def handle_a_value_the_database_would_not_take (
+	request: starlette.requests.Request, exception: Exception
+) -> starlette.responses.Response:
+	"""Refuse a value PostgreSQL would not bind, rather than report a bug - `#3933`.
+
+	:func:`subroutine.db.failures.unreadable` decides, and anything it does not recognise is
+	handed on unchanged, as :func:`handle_a_request_that_did_not_finish` hands on what it does
+	not recognise.
+	"""
+
+	answer = subroutine.db.failures.unreadable(exception)
+
+	if answer is None:
+		return handle_unexpected_error(request, exception)
+
+	return respond(request, answer)
+
+
 def handle_unexpected_error (
 	request: starlette.requests.Request, exception: Exception
 ) -> starlette.responses.Response:
@@ -361,6 +379,9 @@ def install (application: fastapi.FastAPI) -> None:
 	)
 	application.add_exception_handler(
 		sqlalchemy.exc.OperationalError, handle_a_request_that_did_not_finish
+	)
+	application.add_exception_handler(
+		sqlalchemy.exc.DataError, handle_a_value_the_database_would_not_take
 	)
 
 	# The catch-all. Registered last for readability only — Starlette keys handlers by
