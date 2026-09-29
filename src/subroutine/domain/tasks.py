@@ -1158,6 +1158,17 @@ def create (
 			],
 		)
 
+	# **A deferral given with the repeat is for its first occurrence** (decision `#3915`, M-11 of
+	# the cold review of 2026-09-28): the one handed back, in front of the person. Written on the
+	# series row it was read by nothing, and the item showed at once. Each later occurrence starts
+	# clear, since :func:`materialise` never carries one (`#3705`).
+	if task.snoozed_until is not None:
+		first.snoozed_until = task.snoozed_until
+		first.snoozed_is_all_day = task.snoozed_is_all_day
+		task.snoozed_until = None
+		task.snoozed_is_all_day = False
+		session.flush()
+
 	return first
 
 

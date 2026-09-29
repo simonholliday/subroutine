@@ -395,6 +395,35 @@ def test_a_deferral_on_the_repeat_itself_can_be_cleared_or_sent_back (
 	assert cleared.snoozed_until is None, cleared
 
 
+def test_a_deferral_given_with_a_new_repeat_goes_on_its_first_occurrence (
+	instance: Instance,
+) -> None:
+	"""`SR#3898`'s create half, decided by `#3915` (M-11 of the cold review of 2026-09-28).
+
+	A deferral sent with a new repeat was written onto the series row, where nothing reads it, so the
+	item showed at once. **It goes on the first occurrence, the one handed back**, and the series
+	carries none.
+	"""
+
+	made = api_support.call(
+		instance.application,
+		"POST",
+		"/v1/tasks",
+		json={"title": "Water the plants", "recurrence": "every day", "snooze": "now+3h"},
+		headers={"authorization": f"Bearer {instance.token}"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	first = made.json()
+
+	assert first["snoozed_until"] is not None, "the occurrence handed back is not deferred"
+
+	series = instance.client.task(ref=first["recurrence_template_ref"])
+
+	assert series is not None and series.snoozed_until is None, "the series row was deferred"
+
+
 def test_a_repeat_with_nothing_open_is_refused_saying_so (instance: Instance) -> None:
 	"""The refusal names the occurrence only when there is one to name - `SR#3748`.
 

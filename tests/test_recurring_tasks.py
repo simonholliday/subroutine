@@ -838,7 +838,10 @@ def test_a_snooze_is_not_carried_into_the_next_occurrence (
 	)
 	template = _template(session, first)
 
-	assert template.snoozed_until is not None, "the fixture did not snooze anything"
+	# **On the first occurrence since `SR#3898`** (decision `SR#3915`), the one it was given for,
+	# and never on the series row, which nothing reads.
+	assert first.snoozed_until is not None, "the fixture did not snooze anything"
+	assert template.snoozed_until is None, "the series row was deferred"
 
 	subroutine.domain.tasks.complete(session, first, now=NOW)
 

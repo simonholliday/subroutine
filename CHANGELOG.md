@@ -14,6 +14,9 @@ upgrade involves.
 
 ## Unreleased
 
+- **A deferral given with a new repeat defers its first occurrence.** An item made with a repeat
+  and a deferral in one request showed at once, since the deferral went on the repeat itself,
+  where nothing reads it. It goes on the first occurrence now, the one the request answers with.
 - **A narrowed credential cannot act on its owner's account.** A token given only the read
   scopes, or narrowed to some projects or pinned to one workspace, could revoke its owner's
   calendar feed, sign its owner out of every browser, and revoke its owner's other tokens,
