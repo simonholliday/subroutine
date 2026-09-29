@@ -821,7 +821,7 @@ breath.
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine user create keanu --name "Keanu Reeves" --email keanu@example.com
   Created keanu
-  keanu is now member in acme
+  keanu is now a member of acme
   Local commands will go on acting as laurence.
 
   They cannot get in yet. Either of these hands it over, and both is fine:
@@ -925,7 +925,7 @@ are two decisions:
 
 ```console
 $ subroutine user role keanu admin
-keanu is now admin in acme
+keanu is now an admin of acme
 ```
 
 It moves an existing member and turns down somebody who is not one yet, pointing at `user add` -
@@ -1953,7 +1953,7 @@ deciding the remedy:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine agenda
-  Nothing could be read.
+  Nothing could be opened.
   Local: This database is at schema 233f898a2bee, and this build expects 58c81c09d101.
     Run 'subroutine db upgrade' - it backs up first, then migrates.
 ```

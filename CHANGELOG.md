@@ -61,6 +61,17 @@ upgrade involves.
   the hours in the move rather than the days, so a London series on Mondays moved from October
   into November landed on the Sunday, and the occurrence after the moved one came round on that
   same Monday again.
+- **The terminal's first-run messages say what happened, and three crash reports and a hang are
+  gone.** `init --workspace <name>` on an instance that already has its first workspace says the
+  name was not used and how to make another workspace, where it said nothing. Failing to open
+  anything says *Nothing could be opened.*, since a write meets it as well as a read. The
+  missing-driver hint names `uv tool install 'subroutine[postgres]'` as well as pip, and
+  `user create` says *is now a member of*. `init` where the system cannot say who is running it
+  asks for `--username`; `doc edit` says so when the editor quits without saving, is not
+  installed or has an unbalanced quote; and a `token_command` with an unbalanced quote is refused
+  naming the setting. Each of those ended in a crash report. `document create` without `--body`
+  reads standard input only when something is piped, so it no longer waits for ever under an
+  agent's shell.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

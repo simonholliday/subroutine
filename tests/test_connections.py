@@ -551,6 +551,21 @@ def test_a_missing_token_command_says_it_is_not_installed (config_home: pathlib.
 	assert "not installed" in raised.value.detail
 
 
+def test_a_token_command_with_an_unbalanced_quote_is_refused_by_name (
+	config_home: pathlib.Path,
+) -> None:
+	"""`SR#3932`: ``shlex.split`` refused it before anything ran, and every command that needed
+	the token ended in a crash report."""
+
+	with pytest.raises(subroutine.errors.Unauthenticated) as raised:
+		subroutine.credentials.resolve(
+			connection(token_command="pass show 'work/subroutine"), default_connection="local"
+		)
+
+	assert "cannot be read as a command" in raised.value.detail, raised.value.detail
+	assert "token_command" in (raised.value.hint or ""), raised.value.hint
+
+
 def test_a_silent_token_command_is_refused (config_home: pathlib.Path) -> None:
 	"""Succeeding while printing nothing would present as an empty bearer token."""
 

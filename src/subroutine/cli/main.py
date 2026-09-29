@@ -569,13 +569,37 @@ _show_today, _selected = subroutine.cli.personal.register(
 )
 
 
+def _system_username () -> str:
+	"""Return who this system says is running the command, or refuse asking for ``--username``.
+
+	**A refusal rather than a crash report** (`#3932`). ``getpass.getuser`` falls back to the
+	password database, and in a container run with a user id it has no entry for, and with
+	neither ``LOGNAME`` nor ``USER`` set, that raises - ``KeyError`` before Python 3.13 and
+	``OSError`` from it.
+	"""
+
+	try:
+		return getpass.getuser()
+
+	except (KeyError, OSError):
+		_stop(
+			"This system does not say who is running this, so the first account has no name.",
+			"Name it: subroutine init --username <name>",
+		)
+
+
+#: What `init` calls the first workspace when nobody says - and so how it tells a name somebody
+#: gave from its own default, for an instance that already has one (`#3932`).
+_FIRST_WORKSPACE = "Projects"
+
+
 @app.command()
 def init (
 	username: str = typer.Option(
 		"", "--username", help="Who you are. Defaults to your system username."
 	),
 	workspace: str = typer.Option(
-		"Projects", "--workspace", help="What to call your first workspace."
+		_FIRST_WORKSPACE, "--workspace", help="What to call your first workspace."
 	),
 	instance_name: str = typer.Option(
 		"", "--instance-name", help="What to call this installation. Defaults to the hostname."
@@ -628,7 +652,7 @@ def init (
 			try:
 				result = subroutine.domain.bootstrap.initialise(
 					session,
-					username=username or getpass.getuser(),
+					username=username or _system_username(),
 					instance_name=instance_name or _default_instance_name(),
 					workspace_title=workspace,
 					password=password,
@@ -649,6 +673,15 @@ def init (
 
 			if not result.created:
 				_say("Already set up. Try: subroutine add \"something to do\"")
+
+				# **Said rather than dropped** (`#3932`): a workspace asked for by name on an
+				# instance that has its first one already was ignored without a word.
+				if workspace != _FIRST_WORKSPACE:
+					_say(
+						f"'--workspace {workspace}' was not used, because this instance already "
+						"has its first workspace. To make another: subroutine workspace create "
+						"<short-name> <title>"
+					)
 
 				return
 

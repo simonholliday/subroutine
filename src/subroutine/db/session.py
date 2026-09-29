@@ -136,9 +136,13 @@ def _refuse_a_backend_with_no_driver (
 
 	raise subroutine.errors.ServiceUnavailable(
 		f"This installation has no {backend} driver: {missing.name} is not installed.",
+		# **Both ways in** (`#3932`): the README installs with uv, whose environment pip cannot
+		# reach, so naming pip alone told most readers a command that changes nothing.
 		hint=(
-			f"Install it with \"pip install 'subroutine[{extra}]'\", or point 'database_url' "
-			f"at a 'sqlite:///…' path. 'subroutine config show' says where that setting is."
+			f"Install it the way Subroutine was installed: \"uv tool install "
+			f"'subroutine[{extra}]'\", or \"pip install 'subroutine[{extra}]'\" in its "
+			f"environment. Or point 'database_url' at a 'sqlite:///…' path. 'subroutine config "
+			f"show' says where that setting is."
 		),
 	)
 

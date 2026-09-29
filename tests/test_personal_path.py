@@ -12,6 +12,7 @@ directory, the local-mode principal, and the numbering that makes ``done 1`` wor
 
 import ast
 import datetime
+import getpass
 import inspect
 import json
 import os
@@ -175,6 +176,55 @@ def test_an_instance_nobody_created_says_so_and_names_the_one_command (
 
 	# And the wrong remedy is gone rather than merely joined by the right one.
 	assert "database_url" not in refused.output
+
+	# **Not *Nothing could be read* before a write** (`SR#3932`): the line is said before any
+	# command's verb is known, so it names neither.
+	assert "Nothing could be opened." in refused.output, refused.output
+
+
+def test_init_on_an_instance_already_set_up_says_the_workspace_asked_for_was_not_made (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3932`: ``--workspace`` on an instance that has its first workspace was dropped
+	without a word, and ``init`` answered *Already set up* with exit 0.
+
+	**With the positive twin**: ``init`` again with nothing asked of it says nothing about one.
+	"""
+
+	run("init")
+	again = " ".join(run("init", "--workspace", "Other").output.split())
+
+	assert "'--workspace Other' was not used" in again, again
+	assert "subroutine workspace create" in again, again
+	assert "was not used" not in run("init").output
+
+
+@pytest.mark.parametrize(
+	"failure",
+	[KeyError("getpwuid(): uid not found: 4242"), OSError("No username set in the environment")],
+	ids=["before-python-3.13", "from-python-3.13"],
+)
+def test_init_with_nobody_the_system_can_name_asks_for_a_username (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	failure: Exception,
+) -> None:
+	"""`SR#3932`: a container run with a user id the password database has no entry for, and
+	with neither ``LOGNAME`` nor ``USER`` set, ended ``init`` in a crash report.
+	"""
+
+	def nobody () -> str:
+		"""Fail as ``getpass.getuser`` does there: ``KeyError`` before Python 3.13, ``OSError``
+		from it."""
+
+		raise failure
+
+	monkeypatch.setattr(getpass, "getuser", nobody)
+
+	refused = run("init", expect=1)
+
+	assert "--username" in refused.output, refused.output
+	assert "should not have" not in refused.output
 
 
 def test_the_four_command_personal_test (
@@ -5900,13 +5950,18 @@ def test_a_document_can_be_written_from_the_cli (
 
 def test_a_document_body_can_be_piped_in (
 	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	"""Which is how anybody writes more than a sentence at a terminal, and how an agent does.
 
 	``--body`` wins when both are given: an argument somebody typed is more deliberate than a
 	stream they may not have realised was open.
+
+	**Told a pipe is attached**, since ``CliRunner``'s stream is not one, and only a pipe or a
+	file is read (`SR#3932`).
 	"""
 
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
 	run("init")
 	run("doc", "create", "Review findings", input="Three findings.\nNone found by reading.\n")
 
@@ -5919,6 +5974,24 @@ def test_a_document_body_can_be_piped_in (
 
 	assert "This one." in shown
 	assert "Not this one." not in shown
+
+
+def test_a_document_is_not_given_a_body_from_input_nobody_piped (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3932`: anything that was not a terminal was read to the end for a body, and under an
+	agent's shell standard input is a socket, so ``document create`` waited there for ever.
+
+	**Only what was piped is read now**: a socket, ``/dev/null`` and a terminal are not, so the
+	input here is left where it is.
+	"""
+
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: False)
+	run("init")
+	run("doc", "create", "A conclusion", input="Never read.\n")
+
+	assert "Never read." not in run("show", "1").output
 
 
 def test_a_body_of_a_single_hyphen_reads_what_was_piped_rather_than_storing_it (
@@ -8562,6 +8635,40 @@ def test_revising_a_document_says_what_to_do_when_no_editor_is_set (
 
 	assert "editor" in refused.output
 	assert "--body" in refused.output
+
+
+@pytest.mark.parametrize(
+	("editor", "said"),
+	[
+		("false", "The editor stopped without saving, so nothing was changed."),
+		("subroutine-no-such-editor", "The editor could not be started"),
+		("vim 'unclosed", "The editor could not be started"),
+	],
+	ids=["quits-without-saving", "not-installed", "an-unbalanced-quote"],
+)
+def test_an_editor_that_cannot_finish_is_refused_in_a_sentence (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	editor: str,
+	said: str,
+) -> None:
+	"""`SR#3932`: each of these ended ``doc edit`` in a crash report - an editor that quits
+	without saving exits non-zero, as vim's ``:cq`` does; one that is not installed is not
+	found; and a setting with an unbalanced quote cannot be split into a command.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+	monkeypatch.setenv("EDITOR", editor)
+	monkeypatch.delenv("VISUAL", raising=False)
+	terminal = _NoInput()
+	terminal.stdin = _ATerminal()
+	monkeypatch.setattr(subroutine.cli.personal, "sys", terminal)
+
+	refused = run("doc", "edit", "1", expect=1)
+
+	assert said in " ".join(refused.output.split()), refused.output
+	assert "Before." in run("show", "1").output
 
 
 def test_editing_a_task_by_number_says_it_is_a_task (

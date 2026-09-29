@@ -407,6 +407,15 @@ def _from_command (connection: subroutine.connections.Connection) -> str:
 			hint=f"Check 'token_command' in {subroutine.config.config_file_path()}.",
 		) from None
 
+	# **An unbalanced quote is refused before anything runs** (`#3932`), by `shlex.split`,
+	# and reached every command as a crash report.
+	except ValueError as error:
+		raise subroutine.errors.Unauthenticated(
+			f"Connection {connection.name!r} gets its token from {command!r}, which cannot be "
+			f"read as a command: {error}.",
+			hint=f"Check the quotes in 'token_command' in {subroutine.config.config_file_path()}.",
+		) from None
+
 	if completed.returncode != 0:
 		# The helper's own message is the useful part — "gpg: decryption failed" says what
 		# to do, and "the command failed" does not. Its *output* is not printed, because that

@@ -151,7 +151,7 @@ def test_a_directory_too_big_to_read_whole_still_keeps_the_operators_list (
 
 	created = run("user", "create", "thomas").output
 
-	assert "is now member in acme" in created, created
+	assert "is now a member of acme" in created, created
 	assert "go on acting as" in created, created
 
 	run("add", "Buy milk")
@@ -256,7 +256,7 @@ def test_somebody_already_in_a_workspace_can_be_moved_to_another_role (
 
 	moved = run("user", "role", "thomas", "admin")
 
-	assert "thomas is now admin in acme" in moved.output
+	assert "thomas is now an admin of acme" in moved.output
 	assert "admin" in run("user", "list", "--workspace", "acme").output
 
 
@@ -588,7 +588,7 @@ def test_a_new_account_joins_the_only_workspace_without_being_asked (
 
 	created = run("user", "create", "thomas").output
 
-	assert "thomas is now member in acme" in created
+	assert "thomas is now a member of acme" in created
 
 
 def test_a_new_account_takes_the_ordinary_role_unless_one_is_named (
@@ -598,8 +598,8 @@ def test_a_new_account_takes_the_ordinary_role_unless_one_is_named (
 
 	run("init", "--workspace", "Acme")
 
-	assert "is now member in acme" in run("user", "create", "thomas").output
-	assert "is now viewer in acme" in run("user", "create", "kim", "--role", "viewer").output
+	assert "is now a member of acme" in run("user", "create", "thomas").output
+	assert "is now a viewer of acme" in run("user", "create", "kim", "--role", "viewer").output
 
 
 def test_a_new_account_needs_a_named_workspace_when_there_are_several (
@@ -655,7 +655,7 @@ def test_a_second_thing_in_one_command_still_knows_who_is_asking (
 
 	run("init", "--workspace", "Acme")
 
-	assert "is now member in acme" in run("user", "create", "thomas").output
+	assert "is now a member of acme" in run("user", "create", "thomas").output
 	assert "acme" in run("whoami").output
 
 
@@ -871,7 +871,7 @@ def test_user_add_still_puts_somebody_in_a_second_workspace (
 
 	joined = run("user", "add", "thomas", "--role", "viewer", "--workspace", "clients").output
 
-	assert "thomas is now viewer in clients" in joined
+	assert "thomas is now a viewer of clients" in joined
 
 
 def test_both_secrets_say_which_they_are (

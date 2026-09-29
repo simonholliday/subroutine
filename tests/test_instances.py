@@ -1679,6 +1679,8 @@ def test_a_supported_backend_with_no_driver_names_what_installs_it (
 	assert "no postgresql driver" in refused.output
 	assert "psycopg is not installed" in refused.output
 	assert "subroutine[postgres]" in refused.output
+	# **And the way the README installs it** (`SR#3932`), whose environment pip cannot reach.
+	assert "uv tool install 'subroutine[postgres]'" in " ".join(refused.output.split())
 
 	# **The half that is the finding.** The message it replaced was the crash report, which
 	# tells a reader to open an issue about their own configuration.

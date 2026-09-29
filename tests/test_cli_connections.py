@@ -889,7 +889,7 @@ def test_when_nothing_can_be_reached_the_reason_is_still_printed (
 	# **And not "could not be reached"**, which asserts a cause as confidently as the hint did.
 	# This connection was reached; it is unusable. The original wording is still right for the
 	# case it was written for — having nothing to ask in the first place.
-	assert "Nothing could be read." in result.output
+	assert "Nothing could be opened." in result.output
 	assert "could not be reached" not in result.output
 
 

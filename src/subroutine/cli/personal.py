@@ -807,13 +807,14 @@ class Program:
 					if failure.error.hint is not None:
 						reasons.append(f"  {failure.error.hint}")
 
-				# **"Nothing could be read", not "no connection could be reached"**, once there
+				# **"Nothing could be opened", not "no connection could be reached"**, once there
 				# are reasons to print. A database at the wrong schema *was* reached — it is the
 				# wrong shape — and the old line asserted a cause as confidently as the hint
 				# did. The original wording is still right for the case it was written for,
-				# which is having nothing to ask in the first place.
+				# which is having nothing to ask in the first place. And not "read" (`#3932`),
+				# because a write meets this first too.
 				self.stop(
-					"Nothing could be read." if reasons else "No connection could be reached.",
+					"Nothing could be opened." if reasons else "No connection could be reached.",
 					"\n".join(reasons)
 					if reasons
 					else "Run 'subroutine connections' to see what is configured.",
@@ -4960,10 +4961,30 @@ def _in_an_editor (program: Program, current: str) -> str:
 		path = pathlib.Path(handle.name)
 
 	try:
-		# `shlex.split`, so `EDITOR="code --wait"` works — an editor setting carrying
-		# arguments is ordinary, and treating the whole string as a filename would look
-		# for a program with a space in its name.
-		subprocess.run([*shlex.split(chosen), str(path)], check=True)
+		try:
+			# `shlex.split`, so `EDITOR="code --wait"` works — an editor setting carrying
+			# arguments is ordinary, and treating the whole string as a filename would look
+			# for a program with a space in its name.
+			subprocess.run([*shlex.split(chosen), str(path)], check=True)
+
+		# **Each of these was a crash report** (`#3932`): an editor that quits without saving -
+		# vim's `:cq` - exits non-zero, one that is not installed is not found, and a setting
+		# with an unbalanced quote cannot be split into a command at all.
+		except subprocess.CalledProcessError:
+			program.fail(
+				subroutine.errors.ValidationError(
+					"The editor stopped without saving, so nothing was changed.",
+					hint="Open it again, or pass --body.",
+				)
+			)
+
+		except (FileNotFoundError, ValueError):
+			program.fail(
+				subroutine.errors.ValidationError(
+					f"The editor could not be started: {chosen!r} is not a program this can run.",
+					hint="Set $VISUAL or $EDITOR to an editor that is installed, or pass --body.",
+				)
+			)
 
 		return path.read_text(encoding="utf-8")
 
@@ -5745,7 +5766,7 @@ def _stop_if_nothing_answered (gathered: subroutine.fanout.Gathered[typing.Any])
 	matches*, *Nothing due today*, and a tip to add something.
 
 	**The rule opening the connections already keeps, one request later.** Where none can be
-	reached, :meth:`Program.opened` stops with *Nothing could be read.* and exit 1; this gives the
+	reached, :meth:`Program.opened` stops with *Nothing could be opened.* and exit 1; this gives the
 	same answer where they were reached and then refused the read, so a script meets one exit
 	status for both. **A partial answer is unchanged**: the rows that came, a line naming each
 	connection that did not, exit 0, and ``--strict`` for a script that would rather stop.
@@ -7473,7 +7494,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		# to give, which is the worst possible way for a first attempt to go.
 		# `#2106`: read before `.strip()`, because the whole argument is the sentinel.
 		given = _text_or_standard_input(program, body, "--body")
-		written = given.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
+		# **Only what was piped** (`#3932`): under an agent's shell standard input is a socket,
+		# which is not a terminal either, and reading it waited for ever.
+		written = given.strip() or (sys.stdin.read().strip() if _something_was_piped() else None)
 
 		with program.opened() as world:
 			where = world.writing_to()
@@ -9086,7 +9109,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		if joined is not None:
 			program.say(
-				f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}"
+				f"{joined.user.username} is now {_a_role(joined.role)} of {joined.workspace.slug}"
 			)
 
 		if settled is not None:
@@ -9219,7 +9242,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 				workspace=_workspace_named_or_fail(program, workspace) or _writing_workspace(world),
 			)
 
-			program.say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
+			program.say(f"{joined.user.username} is now {_a_role(joined.role)} of {joined.workspace.slug}")
 
 	@user_app.command("role")
 	def user_role (
@@ -9255,7 +9278,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# **The role they now hold, not the move.** What it was before is on the event,
 			# which is where a change of this kind is read — a line in a terminal is a
 			# confirmation rather than the record.
-			program.say(f"{moved.user.username} is now {moved.role} in {moved.workspace.slug}")
+			program.say(f"{moved.user.username} is now {_a_role(moved.role)} of {moved.workspace.slug}")
 
 	@user_app.command("deactivate")
 	def user_deactivate (
@@ -11641,6 +11664,13 @@ def _a_terminal_is_attached () -> bool:
 	"""
 
 	return sys.stdin.isatty()
+
+
+def _a_role (role: str) -> str:
+	"""Return a role as a sentence names it: *a member*, *an owner* (`#3932`, which read *is now
+	member in projects*)."""
+
+	return f"{'an' if role[:1].lower() in 'aeiou' else 'a'} {role}"
 
 
 def _something_was_piped () -> bool:
