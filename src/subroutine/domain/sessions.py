@@ -371,6 +371,17 @@ def sign_out_everywhere (
 
 	_refuse_administering_somebody_else(actor, user, doing="sign out")
 
+	# **Not by a bounded credential, of its own owner either** (decision `#3914`, M-4 (e) of the
+	# cold review of 2026-09-28): a token given only the read scopes signed its owner out of every
+	# browser, since this act names no permission a scope could leave out.
+	if actor is not None and actor.user.id == user.id:
+		subroutine.domain.authentication.refuse_a_bounded_credential(
+			actor,
+			act="sign its owner out everywhere",
+			hint="Signing out everywhere is an act on the account itself, which a narrowed credential "
+			"does not take. Use an unrestricted credential, or sign out from a signed-in browser.",
+		)
+
 	moment = now if now is not None else subroutine.db.types.utcnow()
 
 	links = subroutine.db.models.identity.LoginLink
@@ -465,14 +476,14 @@ def _refuse_a_credential_that_would_be_widened (
 	if actor is None or actor.is_local:
 		return
 
-	if actor.narrows:
-		raise subroutine.errors.Forbidden(
-			"A bounded credential cannot mint a sign-in link.",
-			hint="A browser session carries no scopes, no project scope and no workspace "
-			"pin, so signing in with one would hand back more authority than the "
-			"credential you presented. Use an unrestricted credential, or run "
-			"'subroutine login link' at the instance itself.",
-		)
+	subroutine.domain.authentication.refuse_a_bounded_credential(
+		actor,
+		act="mint a sign-in link",
+		hint="A browser session carries no scopes, no project scope and no workspace "
+		"pin, so signing in with one would hand back more authority than the "
+		"credential you presented. Use an unrestricted credential, or run "
+		"'subroutine login link' at the instance itself.",
+	)
 
 	expires_at = actor.expires_at
 

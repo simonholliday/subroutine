@@ -517,6 +517,24 @@ def narrowing (
 	)
 
 
+def refuse_a_bounded_credential (actor: Principal | None, *, act: str, hint: str) -> None:
+	"""Refuse ``act`` to a credential narrower than its owner - `#837`, `#3891`, decision `#3914`.
+
+	**One rule, asked at every door where a bounded credential would hand back more than it
+	presented or administer its owner's account**: minting a sign-in link or a calendar feed,
+	resetting, listing or revoking a feed, signing its owner out everywhere, and revoking its
+	owner's other credentials. A credential issued to read could otherwise lock its owner out.
+
+	``None`` and :attr:`Principal.is_local` are §12.1a, somebody at a terminal with the database
+	file, which no check here narrows.
+	"""
+
+	if actor is None or actor.is_local or not actor.narrows:
+		return
+
+	raise subroutine.errors.Forbidden(f"A bounded credential cannot {act}.", hint=hint)
+
+
 def _refuse_amplification (
 	session: sqlalchemy.orm.Session,
 	actor: Principal,

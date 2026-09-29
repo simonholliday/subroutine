@@ -374,7 +374,7 @@ def reset (
 	"""
 
 	refuse_when_disabled(enabled)
-	_refuse_a_bounded_credential(
+	subroutine.domain.authentication.refuse_a_bounded_credential(
 		actor,
 		act="give a calendar feed a new address",
 		hint="A feed reads with its owner's own sight, so a new address for one would hand back "
@@ -393,9 +393,21 @@ def revoke (
 	session: sqlalchemy.orm.Session,
 	feed: subroutine.db.models.identity.CalendarFeed,
 	*,
+	actor: subroutine.domain.authentication.Principal,
 	now: datetime.datetime | None = None,
 ) -> None:
-	"""Stop a feed for good. Repeating it is not an error and does not move the date."""
+	"""Stop a feed for good. Repeating it is not an error and does not move the date.
+
+	**Refused to a bounded credential, as a reset is** (decision `#3914`): stopping its owner's
+	feed is an act on the owner's account, which a credential issued to read does not take.
+	"""
+
+	subroutine.domain.authentication.refuse_a_bounded_credential(
+		actor,
+		act="revoke a calendar feed",
+		hint="Revoking a feed is an act on its owner's account, which a narrowed credential does not "
+		"take. Use an unrestricted credential.",
+	)
 
 	if feed.revoked_at is None:
 		feed.revoked_at = now if now is not None else subroutine.db.types.utcnow()
@@ -441,7 +453,7 @@ def listed (
 	the feeds for the others - and, until it was refused, could reset any of them.
 	"""
 
-	_refuse_a_bounded_credential(
+	subroutine.domain.authentication.refuse_a_bounded_credential(
 		actor,
 		act="list calendar feeds",
 		hint="A feed reads with its owner's own sight, so the list of them says what a narrower "
@@ -793,23 +805,6 @@ def _unknown () -> subroutine.errors.NotFound:
 	return subroutine.errors.NotFound("There is no calendar at that address.")
 
 
-def _refuse_a_bounded_credential (
-	actor: subroutine.domain.authentication.Principal, *, act: str, hint: str
-) -> None:
-	"""Refuse ``act`` to a credential narrower than its owner - `#837`, and `#3891` for the rest.
-
-	A feed renders with its owner's visibility rather than with the narrowing on whatever reached
-	it (§20.1), so minting one, resetting one or listing them from a bounded credential each hands
-	back more than it presented. `is_local` is §12.1a, somebody at a terminal with the database
-	file, which no check here narrows.
-	"""
-
-	if actor.is_local or not actor.narrows:
-		return
-
-	raise subroutine.errors.Forbidden(f"A bounded credential cannot {act}.", hint=hint)
-
-
 def _refuse_a_credential_that_would_be_widened (
 	actor: subroutine.domain.authentication.Principal,
 	*,
@@ -838,7 +833,7 @@ def _refuse_a_credential_that_would_be_widened (
 	if actor.is_local:
 		return
 
-	_refuse_a_bounded_credential(
+	subroutine.domain.authentication.refuse_a_bounded_credential(
 		actor,
 		act="mint a calendar feed",
 		hint="A feed reads with its owner's own sight rather than with the narrowing on "

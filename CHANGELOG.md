@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **A narrowed credential cannot act on its owner's account.** A token given only the read
+  scopes, or narrowed to some projects or pinned to one workspace, could revoke its owner's
+  calendar feed, sign its owner out of every browser, and revoke its owner's other tokens,
+  including the unrestricted one. All three are refused now, as resetting and listing feeds
+  already were, and a narrowed token may still revoke itself.
 - **A checkout's `.subroutine` file is read one way by the terminal and by the agent's tools.**
   A file naming its workspace as it is shown, *Projects*, or with an id gone stale beside a name
   that matches, or naming the connection by a teammate's name for it, filed the agent's work in

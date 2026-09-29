@@ -276,6 +276,39 @@ def test_revoking_stops_it_working_on_the_next_request (world: World) -> None:
 	assert again.json()["revoked_at"] == revoked.json()["revoked_at"]
 
 
+def test_a_bounded_credential_revokes_itself_and_none_of_its_owners_others (
+	world: World,
+) -> None:
+	"""`SR#3891`, NEW-1 of the verification of the cold review of 2026-09-28, decided by `#3914`.
+
+	A token given only the read scopes revoked its owner's unrestricted one, which then answered
+	401. **Refused, and the other goes on working**; revoking itself still works, since a
+	credential that cannot end itself is worse.
+	"""
+
+	main = world.call("POST", "/v1/tokens", json={"title": "The owner's own"}).json()
+	bounded = world.call(
+		"POST", "/v1/tokens", json={"title": "Read only", "scopes": ["task:read"]}
+	).json()
+	holding = {"authorization": f"Bearer {bounded['token']}"}
+	owning = {"authorization": f"Bearer {main['token']}"}
+
+	refused = api_support.call(
+		world.application, "DELETE", f"/v1/tokens/{main['prefix']}", headers=holding
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert "bounded credential" in refused.json()["detail"]
+	assert api_support.call(world.application, "GET", "/v1/me", headers=owning).status_code == 200
+
+	itself = api_support.call(
+		world.application, "DELETE", f"/v1/tokens/{bounded['prefix']}", headers=holding
+	)
+
+	assert itself.status_code == 200, itself.text
+	assert api_support.call(world.application, "GET", "/v1/me", headers=holding).status_code == 401
+
+
 def test_a_credential_that_is_nothing_to_do_with_you_is_not_there (world: World) -> None:
 	"""Absent rather than forbidden, so this endpoint discloses nothing a listing would not.
 

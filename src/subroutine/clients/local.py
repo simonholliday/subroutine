@@ -2486,7 +2486,7 @@ class Client:
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
 
-			subroutine.domain.calendars.revoke(session, found)
+			subroutine.domain.calendars.revoke(session, found, actor=actor)
 
 			return subroutine.views.calendar(found, session=session, principal=actor)
 

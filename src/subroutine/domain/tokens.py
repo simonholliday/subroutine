@@ -132,6 +132,17 @@ def revoke (
 			"instance administrator may revoke it."
 		)
 
+	# **A bounded credential revokes itself and none of its owner's others** (decision `#3914`,
+	# the verification's NEW-1 of `#3884`): a token given only the read scopes revoked its owner's
+	# unrestricted one, which then answered 401. Other people's credentials are M-4 (a), `#3812`.
+	if actor is not None and _its_owners_other(actor, token):
+		subroutine.domain.authentication.refuse_a_bounded_credential(
+			actor,
+			act="revoke its owner's other credentials",
+			hint="A narrowed credential may revoke itself and nothing else of its owner's, since "
+			"revoking the others could lock the owner out. Use an unrestricted credential.",
+		)
+
 	subroutine.domain.authentication.revoke_token(token, at=now)
 	session.flush()
 
@@ -150,6 +161,17 @@ def _may_administer_credentials (actor: subroutine.domain.authentication.Princip
 		return False
 
 	return True
+
+
+def _its_owners_other (
+	actor: subroutine.domain.authentication.Principal, token: subroutine.db.models.identity.ApiToken
+) -> bool:
+	"""Whether that credential is one of this principal's owner's, other than the one presented."""
+
+	if actor.token is not None and actor.token.id == token.id:
+		return False
+
+	return token.user_id == actor.user.id or token.created_by == actor.user.id
 
 
 def _may_revoke (

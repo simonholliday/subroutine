@@ -1495,6 +1495,52 @@ def test_a_credential_the_session_would_outlive_cannot_mint_a_link (
 	assert "outlive" in answer.json()["detail"]
 
 
+@pytest.mark.parametrize(("axis", "narrowing"), NARROWINGS, ids=[one[0] for one in NARROWINGS])
+def test_a_narrowed_credential_cannot_sign_its_owner_out_everywhere (
+	session: sqlalchemy.orm.Session,
+	setup: Setup,
+	axis: str,
+	narrowing: dict[str, typing.Any],
+) -> None:
+	"""`SR#3891`, M-4 (e) of the cold review of 2026-09-28, decided by `#3914`.
+
+	A token given only the read scopes signed its owner out of every browser, since signing out
+	names no permission a scope could leave out. **Refused on every axis, and the browser stays
+	signed in**; an unrestricted credential still signs its owner out.
+	"""
+
+	_link, spent = subroutine.domain.sessions.mint_link(session, user=setup.user)
+	_opened, cookie = subroutine.domain.sessions.redeem(session, spent)
+	_row, secret = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="A bounded token", **narrowing
+	)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		headers={"Authorization": f"Bearer {secret.value.get_secret_value()}"},
+	)
+
+	assert answer.status_code == 403, f"{axis} did not stop its owner being signed out"
+	assert "bounded credential" in answer.json()["detail"]
+	assert subroutine.domain.sessions.authenticate(session, cookie).user.id == setup.user.id
+
+	_row, wide = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="An ordinary token"
+	)
+
+	ended = api_support.call(
+		setup.application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		headers={"Authorization": f"Bearer {wide.value.get_secret_value()}"},
+	)
+
+	assert ended.status_code == 200, ended.text
+	assert ended.json()["sessions_ended"] == 1
+
+
 def test_an_unrestricted_credential_still_mints_a_link (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:

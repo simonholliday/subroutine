@@ -57,6 +57,12 @@ ASKING: dict[str, str] = {
 		"Signing out names what the caller is holding instead, so this asks "
 		"*which kind of credential is this* in order to write a useful hint. `#248`."
 	),
+	"domain/tokens.py": (
+		"`_its_owners_other` asks whether the credential being revoked is the one presented, "
+		"because a narrowed credential may revoke itself and none of its owner's others "
+		"(decision `#3914`). Only an API token can be the row being revoked, so a session or a "
+		"feed presented is never it, and this is an identity question rather than an absence."
+	),
 }
 
 
