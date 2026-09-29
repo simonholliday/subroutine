@@ -283,7 +283,7 @@ specified and not built - named here because a tool that overstates itself waste
 | Sign-in links, revocable from the command line | **Built** |
 | MCP over stdio (`subroutine mcp`) and over HTTP (`POST /mcp`) | **Built** |
 | Two Claude Code plugins - one local, one needing nothing installed | **Built** |
-| `subroutine setup claude` - a hook that gives back what an agent is still holding | **Built** |
+| `subroutine setup claude` - a hook that gives back what an agent is still holding, wherever `subroutine` is on the `PATH` | **Built** |
 | Multiple connections merged into one agenda | **Built** |
 | The agenda as the browser's front page | **Built** |
 | Settings for you, a workspace, a project and the installation, in the browser | **Built** |
@@ -328,7 +328,8 @@ These five are moving to the guide.
 
 ## A few commands worth knowing
 
-`subroutine help` lists them all and `subroutine explain dates` covers the ideas behind them.
+`subroutine help` lists the everyday commands and `subroutine explain dates` covers the ideas
+behind them.
 
 ```console
 $ subroutine add "call the dentist tomorrow at 2pm"

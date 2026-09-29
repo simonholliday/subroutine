@@ -203,6 +203,14 @@ upgrade involves.
   spoke of signing in by email, which nothing sends; and `user transfer` said only a person
   could take an agent on, where an agent whose chain ends at a person may. `explain dates`,
   `explain estimates` and `explain scripting` printed Markdown's asterisks.
+- **`protected = true` written below a `[connections.…]` table is named on every command**, with
+  the setting it would have been. TOML files it inside the table, where it protected nothing:
+  `db restore` replaced a database without asking and `config show` said *protected False*.
+- **`setup claude` says when its hook would find nothing to run**: it runs `subroutine` by name,
+  and gives nothing back where that is not on the `PATH`.
+- The hosting and connecting guides and the README no longer name `upgrade` alone, promise a
+  calendar refresh every quarter of an hour, say the remote plugin asks for its address and
+  token, or say `help` lists every command.
 
 ## 0.9.12 — 2026-09-29
 

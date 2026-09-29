@@ -30,6 +30,7 @@ import operator
 import os
 import pathlib
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -8902,6 +8903,16 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 
 			program.say(f"  {file.name} does not name the project. One line worth adding:")
 			program.say(f"    {line.strip()}")
+
+		# **And whether the hook can find the program** (`#3944`). It runs ``subroutine`` by name
+		# and gives up quietly where that is not on the ``PATH`` - the plugin's own ``uvx``
+		# arrangement installs nothing there - so a checkout wired that way gave nothing back.
+		if shutil.which("subroutine") is None:
+			program.warn(
+				"'subroutine' is not on this PATH, so the hook will find nothing to run and give "
+				"nothing back. Install it where a new session can find it - 'uv tool install "
+				"subroutine' does."
+			)
 
 		# **What this cannot check, said out loud** (`#236` again, and the item's own rule).
 		# Whether the harness reads this file, and whether it runs the hook, is only provable

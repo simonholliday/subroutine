@@ -2380,6 +2380,14 @@ _PROSE_PAGES: tuple[pathlib.Path, ...] = (
 )
 
 
+#: **A registered name that only points at its replacement is not a command a page may name**
+#: (`SR#3944`). ``upgrade`` and ``today`` answer with the command that replaced them and exit 2,
+#: kept so that a hand still typing them is told - so a page naming either sends its reader to a
+#: refusal. Registered, which is why the guard below counted them as commands until the
+#: verification of 2026-09-28 appended *run `subroutine upgrade`* to the README and it passed.
+_POINTERS = frozenset({"upgrade", "today"})
+
+
 def test_every_command_named_in_prose_exists () -> None:
 	"""The console blocks are run; the sentences around them were read by nothing.
 
@@ -2397,7 +2405,16 @@ def test_every_command_named_in_prose_exists () -> None:
 		command.name or (command.callback.__name__ if command.callback else "")
 		for command in subroutine.cli.main.app.registered_commands
 	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+	hidden = {
+		command.name for command in subroutine.cli.main.app.registered_commands if command.hidden
+	}
 
+	# **And the list's entries still point somewhere**, or it excuses a name that no longer needs it.
+	assert hidden >= _POINTERS, (
+		f"these are no longer hidden pointers, so the list can lose them: {sorted(_POINTERS - hidden)}"
+	)
+
+	registered -= _POINTERS
 	named: dict[str, set[str]] = {}
 
 	for page in _PROSE_PAGES:

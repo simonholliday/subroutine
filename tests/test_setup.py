@@ -183,6 +183,37 @@ def test_it_writes_a_session_end_hook_and_says_what_it_cannot_check (
 	assert "Nothing here can confirm" in written, written
 
 
+def test_it_says_when_the_hook_would_find_nothing_to_run (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: a hook that runs nothing, said by nobody.
+
+	The hook runs ``subroutine`` by name and gives up quietly where it is not on the ``PATH``,
+	which is the plugin's own ``uvx`` arrangement, so a checkout wired that way gave nothing back
+	while the command said *Wired*. **Said where the program cannot be found, and only there.**
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	found = home / "found"
+	found.mkdir()
+	program = found / "subroutine"
+	program.write_text("#!/bin/sh\n", encoding="utf-8")
+	program.chmod(0o755)
+
+	monkeypatch.setenv("PATH", str(home / "nowhere"))
+	unfound = " ".join(run("setup", "claude", "--yes").output.split())
+
+	(home / ".claude" / "settings.json").unlink()
+	monkeypatch.setenv("PATH", str(found))
+	wired = " ".join(run("setup", "claude", "--yes").output.split())
+
+	assert "not on this PATH" in unfound, unfound
+	assert "not on this PATH" not in wired, wired
+
+
 def test_running_it_twice_changes_nothing (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

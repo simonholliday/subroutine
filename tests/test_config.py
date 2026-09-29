@@ -433,6 +433,31 @@ def test_a_connection_table_is_not_reported_as_an_ignored_setting (
 	assert reported["protectd"] == "protected"
 
 
+def test_an_instance_setting_inside_a_connection_s_table_is_named (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: ``protected = true`` below a table.
+
+	TOML files every key after a ``[connections.work]`` header in that table, so ``protected``
+	written beneath one set nothing: ``db restore`` then replaced the database with no ``--yes``,
+	and ``config show`` said *protected False*, neither with a word. **Named, with the setting it
+	would have been**, so every command says so - ``db restore`` among them.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+	written = subroutine.config.config_file_path()
+	written.parent.mkdir(parents=True, exist_ok=True)
+	written.write_text(
+		'[connections.work]\nurl = "https://tasks.example.com"\nprotected = true\n',
+		encoding="utf-8",
+	)
+
+	reported = dict(subroutine.config.unknown_settings())
+
+	assert reported == {"connections.work.protected": "protected"}, reported
+
+
 def test_a_loopback_instance_can_say_where_a_browser_reaches_it () -> None:
 	"""`#1007`. The bind is the whole truth when nothing off the machine can reach it.
 

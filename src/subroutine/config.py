@@ -622,6 +622,22 @@ def unknown_settings () -> list[tuple[str, str | None]]:
 			nearest = difflib.get_close_matches(key, inner, n=1, cutoff=0.7)
 			found.append((f"releases.{key}", f"releases.{nearest[0]}" if nearest else None))
 
+	# **And a setting of the instance written inside a connection's table** (`#3944`). TOML files
+	# every key after a ``[connections.work]`` header in that table, so ``protected = true``
+	# written below one set nothing: ``db restore`` replaced a database without asking, and
+	# ``config show`` said *protected False*, neither with a word. The connection's own keys are
+	# ``subroutine.connections``' to check, and this names only the instance's.
+	connections = written.get("connections")
+
+	if isinstance(connections, dict):
+		for name, table in connections.items():
+			if not isinstance(table, dict):
+				continue
+
+			for key in table:
+				if key in Settings.model_fields:
+					found.append((f"connections.{name}.{key}", key))
+
 	return found
 
 

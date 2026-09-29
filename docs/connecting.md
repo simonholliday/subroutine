@@ -778,8 +778,9 @@ subroutine calendar create "My work"
 ```
 
 That prints one address ending `.ics`. Paste it into whatever you keep your diary in, under
-whatever it calls *subscribe to a calendar* or *add by URL*. From then on it updates on its own,
-every quarter of an hour or so, and you never touch it again.
+whatever it calls *subscribe to a calendar* or *add by URL*. From then on your calendar
+application fetches it on its own schedule - this asks for no more often than every quarter of
+an hour, and some applications take hours - and you never touch it again.
 
 **Make it with a credential nothing narrows.** A feed reads with its owner's own sight rather
 than with the narrowing on the credential that made it, so one narrowed to a project, to some

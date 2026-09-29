@@ -185,7 +185,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
 | `releases` | not set | A table. `[releases]` with `check = true` lets this instance ask which versions have been released, at most once a day and only while somebody signed in is using it - never on an idle instance, and never because a calendar app polled a feed. Asking fetches the project's published list of releases, which tells whoever serves that file that an instance exists at this address, so it is off unless you turn it on. What it finds is said in this instance's log, to its administrators in the browser, and by `subroutine whoami` - see [Upgrading](#upgrading) |
 | `backup_keep_upgrades` | `3` | How many pre-upgrade rollback points survive. Counts those alone - never your routine backups, which go only when `db backup --keep N` asks |
-| `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
+| `protected` | `false` | Marks an instance whose data is real, so `db restore`, `db upgrade` and `profile destroy` refuse without `--yes` |
 | `default_connection` | `local` | Which instance a write goes to when the command did not say |
 | `local_user` | unset | Which account to act as when the database holds more than one and nobody logged in |
 | `default_timezone` | the machine's | The last word in the timezone chain, when no user, workspace or instance says |
@@ -1392,8 +1392,9 @@ URL:   https://subroutine.example.com/mcp
 Token: sr_…
 ```
 
-**The easiest thing to tell them is to install the plugin**, which asks for exactly those two
-things and carries the working practice as well:
+**The easiest thing to tell them is to install the plugin**, which has a field for each of those
+two things - filled in once with `/plugin` in a terminal session, as
+[docs/connecting.md](connecting.md) walks through - and carries the working practice as well:
 
 ```console
 $ claude plugin marketplace add simonholliday/subroutine
@@ -1671,6 +1672,10 @@ agreement before touching it:
 protected = true
 ```
 
+Put it at the top of `config.toml`, above any `[connections.…]` table: TOML files every key
+after a table's header into that table, where `protected` protects nothing. A setting of the
+instance written there is named on every command, `db restore` included.
+
 A setting Subroutine does not recognise is named on every command rather than ignored, with
 the nearest real one suggested. `protectd = true` is not a protected instance and never was;
 before, nothing said so.
@@ -1870,7 +1875,7 @@ installed it, cannot do it safely while running, and is worse at it than your pa
 ```
 
 **Those three variables are not decoration, and this step is the one place leaving them off
-fails quietly.** `upgrade` acts on a *database*, and it finds that database through
+fails quietly.** `db upgrade` acts on a *database*, and it finds that database through
 configuration - so without them it reads *your* `config.toml` rather than the service's, finds
 whatever database that names, and reports on the wrong one. It will look like it worked. They
 are the same three the unit sets and the same three [`init`](#first-run-and-what-it-writes) was
@@ -1960,7 +1965,7 @@ deciding the remedy:
 
 A database *newer* than the software is refused the other way - update the software, because
 there is no downgrade. **The administrative commands are deliberately outside the check**:
-`db current`, `db backup`, `db backups`, `db restore` and `upgrade` itself all keep working
+`db current`, `db backup`, `db backups`, `db restore` and `db upgrade` itself all keep working
 while it is firing, because they are what you reach for once it does.
 
 `curl localhost:8471/readyz` makes the same comparison for the served path and has always done
