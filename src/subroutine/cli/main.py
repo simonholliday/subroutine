@@ -2227,7 +2227,10 @@ def token_create (
 
 	else:
 		_say(
-			f"Give it to a client as {subroutine.credentials.DEFAULT_VARIABLE}, or add it to "
+			# **The variable a client reads for this instance** (`#3910`): a bare one belongs to its
+			# default connection, which on a machine with a list of its own is not this instance.
+			f"Give it to a client as {subroutine.credentials.DEFAULT_VARIABLE}_<CONNECTION>, the "
+			f"client's name for this instance in capitals, or add it to "
 			f"{subroutine.credentials.credentials_file_path()}."
 		)
 

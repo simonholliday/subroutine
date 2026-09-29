@@ -1245,7 +1245,7 @@ def create_from_text (
 			)
 			if captured.project_key is None
 			else subroutine.domain.selection.addressed(
-				session, actor, workspace, captured.project_key, field="project"
+				session, actor, workspace, captured.project_key, field="project", nameable=True
 			)
 		)
 

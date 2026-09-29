@@ -1324,6 +1324,12 @@ READ_SCOPE_WAIVERS = {
 		"discloses nothing they do not already hold — and enforcing there stopped a narrowed "
 		"credential running `whoami` at all (`#930`)."
 	),
+	"domain/selection.py": (
+		"`_nameable` resolves a project the caller *named* - to file in, move to or narrow a read "
+		"by - and lists nothing. An agent given `task:read` and `task:write`, as the hosting guide "
+		"recommends, could file nothing in a project (`#3909`). The list of projects stays behind "
+		"`project:read`, and a miss names no projects to a credential without it."
+	),
 	"domain/scoping.py": (
 		"`prioritised_projects` applies an ordering and names the project it favoured; nobody "
 		"asked it for a listing. Enforcing there meant one `project prioritise` answered 403 "

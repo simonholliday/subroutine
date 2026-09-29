@@ -169,7 +169,7 @@ def signin (
 	**Both of those are about the path that redeems, and the confirmation page is not it.**
 	That page is a 200 carrying the link in its own URL, so it stays in the address bar and in
 	the history - a deliberate trade, since it does not spend the link. Its referrer is closed separately, by
-	:func:`_ask_before_switching` sending ``no-referrer``.
+	:func:`_ask_before_switching` sending ``strict-origin``.
 	* **Access log: yes**, in full. :mod:`subroutine.api.logs` keeps it out of the one this
 	  process writes; an operator's proxy is theirs, and ``docs/hosting.md`` says so.
 
@@ -339,13 +339,19 @@ def _ask_before_switching (
 	token this instance minted, and a username is constrained where it is created. Escaping is
 	what keeps that true if either of those stops being true somewhere else.
 
-	**``no-referrer`` on this page alone** (`#927`'s M-27). The instance sends ``same-origin``
+	**``strict-origin`` on this page alone** (`#927`'s M-27). The instance sends ``same-origin``
 	everywhere, which is right for the app — an item's address is in the URL and the footer
 	links off-site — and this is the one page whose *own* URL carries a live credential. Under
 	``same-origin`` the stylesheet request above would carry it in a ``Referer``; it goes to
 	this instance, so the exposure is to our own access log rather than to a stranger, and
 	``api/logs`` redacts that one. Narrowed anyway, because a header that need not carry a
 	secret should not.
+
+	**The origin and nothing more, rather than nothing** (`#3908`). ``no-referrer`` made the
+	browser send the form below with ``Origin: null``, and the cookie path refuses a write it
+	cannot place (`#3833`), so *Continue as …* ended in raw JSON. ``strict-origin`` sends every
+	request's ``Referer`` and the form's ``Origin`` as the bare origin, which the check accepts
+	and which carries no link.
 
 	**What stays is the address bar and the history entry**, and that is `#803`'s trade rather
 	than an oversight: the page deliberately does not spend the link, so *stay as you are*
@@ -356,7 +362,7 @@ def _ask_before_switching (
 	now = html.escape(becoming.username)
 
 	return starlette.responses.HTMLResponse(
-		headers={"Referrer-Policy": "no-referrer"},
+		headers={"Referrer-Policy": "strict-origin"},
 		content=f"""<!doctype html>
 <html lang="en">
 <head>

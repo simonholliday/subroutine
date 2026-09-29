@@ -688,6 +688,50 @@ def test_a_write_lands_on_the_connection_the_address_named (
 	assert "Pay the gas bill" in after, "and the local one was not touched"
 
 
+def test_delete_and_restore_act_on_the_connection_the_address_named (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#3892`, H-2 of the cold review of 2026-09-28: they acted on this machine's item.
+
+	``delete work/acme/1`` put the local #1 in the trash and said it had deleted the remote one, by
+	its address and with the local title, and ``restore`` did the same. **Each acts where the
+	address points**, as ``done`` always has.
+	"""
+
+	run("delete", "work/acme/1")
+
+	listed = run("ls").output
+
+	assert "Fix the deploy script" not in listed, "the remote task was not deleted"
+	assert "Pay the gas bill" in listed, "this machine's task was deleted in its place"
+
+	run("restore", "work/acme/1")
+
+	assert "Fix the deploy script" in run("ls").output, "the remote task was not restored"
+
+
+def test_a_link_or_a_part_across_two_connections_is_refused_by_name (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#3892`: the far end was sent as its number alone, and read beside the near end.
+
+	So ``link work/acme/1 blocks 1`` joined the remote #1 to the remote item numbered 1 - itself,
+	or whatever wore the number - where the person meant this machine's #1. **Refused by name, and
+	nothing written**, since a link and a part each join two items in one workspace.
+	"""
+
+	for command in (
+		("link", "work/acme/1", "blocks", "1"),
+		("unlink", "work/acme/1", "1"),
+		("move", "work/acme/1", "--under", "1"),
+	):
+		refused = run(*command, expect=1)
+
+		assert "are in different connections" in refused.output, (command, refused.output)
+
+	assert "Blocked by" not in run("show", "work/acme/1").output
+
+
 def test_use_changes_what_a_bare_number_means_and_not_what_can_be_seen (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

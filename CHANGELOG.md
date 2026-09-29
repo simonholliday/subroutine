@@ -14,6 +14,25 @@ upgrade involves.
 
 ## Unreleased
 
+- **`delete`, `restore`, `link`, `unlink` and `move` act on the item the address names.** Given
+  an address on another connection, `delete` and `restore` acted on this machine's item with
+  the same number, and said they had acted on the one named; and an item named in another
+  workspace or connection was read, as the second end of a link or the parent of a move, as
+  whatever wore its number beside the first. `delete` and `restore` go where the address points
+  now, and a link or a move across two workspaces is refused by name, since each joins two
+  items in one.
+- **Continuing as another account from a sign-in link works in the browser.** The confirmation
+  page told the browser to send its form with no origin, which the instance refuses, so
+  *Continue as …* ended in raw JSON. It sends the origin now, and still never the link.
+- **An agent given `task:read` and `task:write` can file in a project.** Naming the project it
+  files in, moves to or narrows a listing by needed `project:read` too, so an agent made as the
+  hosting guide recommends could file nothing in one. Asking for the list of projects still
+  needs `project:read`, and a project named wrongly is refused without listing the others.
+- **The guides no longer send a reader the wrong way**: `subroutine use work/<workspace>`
+  where they said `subroutine use work`, which is refused; the connection's own
+  `SUBROUTINE_TOKEN_WORK` where they offered a bare `SUBROUTINE_TOKEN`; the desktop and web
+  apps named as needing a sign-in flow that is not built yet; and pipx named as serving the
+  terminal, since the plugin needs uv either way.
 - **An agent's tools say why their connection cannot be reached.** `subroutine mcp` naming a
   connection that does not exist, or one with no token, exited before the handshake with its
   reason where no client shows it, so the tools were simply missing. It now answers every

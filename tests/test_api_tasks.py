@@ -5764,3 +5764,52 @@ def test_a_captured_deadline_at_the_calendars_end_is_left_in_the_title (world: W
 	assert made.status_code == 201, made.text
 	assert made.json()["title"] == "Deliver by 9999-12-31", made.json()
 	assert made.json()["due_at"] is None, made.json()
+
+
+def test_an_agent_that_may_write_tasks_can_file_in_a_project_it_names (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3909`, M-23 of the cold review of 2026-09-28: the hosting guide's agent could file nothing.
+
+	``task:read`` and ``task:write``, narrowed to a project or not, were refused every create naming
+	a project - by ``project``, by ``+key``, or by the default a narrowed credential files to -
+	because resolving the project it named asked for ``project:read``, which gates asking *for*
+	projects. **A project named on the way to something else resolves without it**; asking for one
+	still needs it, and a wrong name is refused without naming the others.
+	"""
+
+	world = _world(session)
+	web = world.call(
+		"POST", "/v1/projects", json={"key": "web", "title": "The website rebuild"}
+	).json()
+
+	for scope in (None, [web["id"]]):
+		_row, issued = subroutine.domain.authentication.issue_token(
+			session,
+			user=world.user,
+			title="An agent",
+			scopes=["task:read", "task:write"],
+			project_scope=scope,
+		)
+		session.flush()
+
+		agent = world._replace(secret=issued.value.get_secret_value())
+		named = agent.call("POST", "/v1/tasks", json={"title": "Fix the header", "project": "web"})
+		captured = agent.call("POST", "/v1/tasks", json={"text": "Fix the footer +web"})
+
+		assert named.status_code == 201, (scope, named.text)
+		assert captured.status_code == 201, (scope, captured.text)
+		assert {named.json()["project_key"], captured.json()["project_key"]} == {"web"}
+
+		if scope is not None:
+			defaulted = agent.call("POST", "/v1/tasks", json={"title": "Fix the logo"})
+
+			assert defaulted.status_code == 201, defaulted.text
+			assert defaulted.json()["project_key"] == "web", defaulted.json()
+
+	asked = agent.call("GET", "/v1/projects/web")
+	missed = agent.call("POST", "/v1/tasks", json={"title": "Lost", "project": "nosuch"})
+
+	assert asked.status_code == 403, "asking for a project no longer needs project:read"
+	assert missed.status_code == 404, missed.text
+	assert "web" not in missed.json()["errors"][0]["hint"], missed.text

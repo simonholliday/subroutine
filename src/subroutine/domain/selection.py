@@ -330,12 +330,16 @@ def project (
 	Narrowed by :func:`subroutine.domain.scoping.readable_projects`, so a private project
 	somebody is not a member of is *not found* rather than forbidden, and a token's project
 	scope narrows this exactly as it narrows a listing.
+
+	**A project the caller names, never a list of them** (`#3909`): resolving where to file,
+	move or narrow to asks nothing of a credential's ``project:read``, which gates asking *for*
+	projects. See :func:`_nameable`.
 	"""
 
 	if wanted is None:
-		return _files_where(session, actor, workspace)
+		return _files_where(session, actor, workspace, nameable=True)
 
-	return addressed(session, actor, workspace, wanted, field="project")
+	return addressed(session, actor, workspace, wanted, field="project", nameable=True)
 
 
 def project_to_share (
@@ -609,6 +613,7 @@ def addressed (
 	*,
 	field: str,
 	include_deleted: bool = False,
+	nameable: bool = False,
 ) -> subroutine.db.models.project.Project:
 	"""Find the one project this names — by id, by whole address, or by bare name.
 
@@ -639,6 +644,9 @@ def addressed (
 	``actor`` is ``None`` for the unauthenticated internal caller — bootstrap and the tests —
 	which holds no credential and so is narrowed by none of this (§12.1a). It is the one case
 	``readable_projects`` cannot express, since it has no principal to be handed.
+
+	``nameable`` is for a caller naming a project on the way to something else - filing,
+	moving, narrowing a read - rather than asking for the project (`#3909`): :func:`_nameable`.
 	"""
 
 	model = subroutine.db.models.project.Project
@@ -648,16 +656,21 @@ def addressed (
 		model.workspace_id == workspace.id,
 		sqlalchemy.true() if include_deleted else model.deleted_at.is_(None),
 	)
-	statement = (
-		through
-		if actor is None
-		else subroutine.domain.scoping.readable_projects(
+	if actor is None:
+		statement = through
+
+	elif nameable:
+		statement = _nameable(
+			actor, workspace_ids=[workspace.id], include_deleted=include_deleted, include_archived=True
+		)
+
+	else:
+		statement = subroutine.domain.scoping.readable_projects(
 			actor,
 			workspace_ids=[workspace.id],
 			include_deleted=include_deleted,
 			include_archived=True,
 		)
-	)
 
 	# A key and an id are told apart by whether the text parses as one, rather than by a
 	# flag: §5.2 makes a key start with a letter, so the two spaces cannot overlap.
@@ -711,7 +724,7 @@ def addressed (
 					# this refusal off the application,
 					# `test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other`.
 					message=f"No project in {workspace.slug} answers to {wanted!r}.",
-					hint=_alternative_projects(session, statement),
+					hint=_alternative_projects(session, statement, actor),
 				)
 			],
 		)
@@ -789,7 +802,11 @@ def _a_workspace_read_as_a_project (
 	)
 
 
-def _alternative_projects (session: sqlalchemy.orm.Session, statement: typing.Any) -> str:
+def _alternative_projects (
+	session: sqlalchemy.orm.Session,
+	statement: typing.Any,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> str:
 	"""Say what the caller could have meant, in the form they would have to type.
 
 	**Addresses rather than bare keys**, because a key stopped being unique (`#957`): a list
@@ -810,10 +827,20 @@ def _alternative_projects (session: sqlalchemy.orm.Session, statement: typing.An
 	new one*.
 
 	Only on the refusal path, so the extra read costs nothing anybody is waiting on.
+
+	**And none to a credential that may not list them** (`#3909`), which reaches this now that a
+	project it names resolves without ``project:read``: the list would be the listing that
+	permission gates.
 	"""
 
-	rows = list(session.scalars(statement))
 	making = "Make one with 'subroutine project create'."
+
+	if actor is not None and subroutine.domain.authorization.outside_token_scope(
+		actor, subroutine.permissions.PROJECT_READ
+	):
+		return f"This credential cannot list projects, so none are named here. {making}"
+
+	rows = list(session.scalars(statement))
 
 	if not rows:
 		return f"There are no projects here you can see. {making}"
@@ -933,6 +960,8 @@ def _files_where (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	nameable: bool = False,
 ) -> typing.Any:
 	"""Return where a caller who named no project means, which is not always the Inbox.
 
@@ -983,7 +1012,7 @@ def _files_where (
 	# it is *allowed* at the check cannot come apart.
 	writes = actor.project_write_scope
 	pointed = writes if writes is not None else actor.project_scope
-	candidates = _named_within(session, actor, workspace, pointed)
+	candidates = _named_within(session, actor, workspace, pointed, nameable=nameable)
 
 	if len(candidates) == 1:
 		return candidates[0]
@@ -1054,6 +1083,8 @@ def _named_within (
 	actor: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
 	identifiers: typing.Sequence[str] | None,
+	*,
+	nameable: bool = False,
 ) -> list[typing.Any]:
 	"""Return the projects a restricted credential is pointed at inside one workspace.
 
@@ -1071,13 +1102,40 @@ def _named_within (
 
 	model = subroutine.db.models.project.Project
 	wanted = [uuid.UUID(item) for item in identifiers]
-
-	return list(
-		session.scalars(
-			subroutine.domain.scoping.readable_projects(
-				actor, workspace_ids=[workspace.id], include_archived=True
-			).where(model.id.in_(wanted))
+	statement = (
+		_nameable(actor, workspace_ids=[workspace.id], include_archived=True)
+		if nameable
+		else subroutine.domain.scoping.readable_projects(
+			actor, workspace_ids=[workspace.id], include_archived=True
 		)
+	)
+
+	return list(session.scalars(statement.where(model.id.in_(wanted))))
+
+
+def _nameable (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	include_deleted: bool = False,
+	include_archived: bool = False,
+) -> sqlalchemy.Select[subroutine.db.models.project.Project]:
+	"""Return the projects a caller may name - to file in, move to or narrow a read by - `#3909`.
+
+	**Without asking for ``project:read``**, which gates asking *for* projects. An agent given
+	``task:read`` and ``task:write``, as the hosting guide recommends, could file nothing in a
+	project: resolving the one it named went through the listing's check, which is `#930`'s rule
+	refusing a caller who never asked to see a project. Every other narrowing still applies -
+	what the caller may see, and the credential's project scope - so nothing is reached that was
+	not, and a miss names no projects to it (:func:`_alternative_projects`).
+	"""
+
+	return subroutine.domain.scoping.readable_projects(
+		principal,
+		workspace_ids=workspace_ids,
+		include_deleted=include_deleted,
+		include_archived=include_archived,
+		enforce_read_scope=False,
 	)
 
 

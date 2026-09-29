@@ -1077,8 +1077,12 @@ def test_a_link_for_somebody_else_asks_instead_of_switching (
 	# request would arrive with a live credential in its `Referer`. That goes to this instance
 	# rather than to a stranger, and `api/logs` redacts it — a header that need not carry a
 	# secret should still not.
-	assert answer.headers["Referrer-Policy"] == "no-referrer", (
-		"the page whose own URL is a credential is the one page that must send no referrer"
+	#
+	# **The origin and nothing more** (`SR#3908`): `no-referrer` made the browser send the page's
+	# own form with `Origin: null`, which the cookie path refuses, so *Continue as …* ended in raw
+	# JSON. `strict-origin` sends the origin, which the check accepts, and never the path.
+	assert answer.headers["Referrer-Policy"] == "strict-origin", (
+		"the page whose own URL is a credential must send its origin and never its path"
 	)
 
 

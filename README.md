@@ -191,8 +191,9 @@ can read it, and should before its first write.
 The four commands above are the whole install. Three things are worth knowing once you are past
 them, and none is needed on day one.
 
-**No uv?** Its installer is one line and needs no Python, or `pipx install subroutine` does the
-same job. If the shell cannot find `subroutine` afterwards, `uv tool update-shell` fixes it, and
+**No uv?** Its installer is one line and needs no Python. `pipx install subroutine` gives you
+the `subroutine` command as well, but the Claude Code plugin starts through uv, so it needs uv
+either way. If the shell cannot find `subroutine` afterwards, `uv tool update-shell` fixes it, and
 you will need a fresh terminal.
 
 **Give each project's agent an account of its own** - ask your agent to, or run

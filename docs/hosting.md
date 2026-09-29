@@ -1095,8 +1095,8 @@ Give an agent a machine identity of its own and only the permissions it needs:
   sr_d9fb02fa_UxzFqMe7i_NGb_eXRbOAsVhcm5_O-4pphVO6JhPe494
 
   That is the only time it is shown. Store it now.
-  Give it to a client as SUBROUTINE_TOKEN, or add it to
-  /var/lib/subroutine/config/subroutine/credentials.toml.
+  Give it to a client as SUBROUTINE_TOKEN_<CONNECTION>, the client's name for this
+  instance in capitals, or add it to /var/lib/subroutine/config/subroutine/credentials.toml.
 ```
 
 What that buys, checked against a running instance:
@@ -1286,8 +1286,10 @@ $ pass show work/subroutine | subroutine connections add work --url http://127.0
 
 **Tokens live in their own file and never in `config.toml`**, so that a configuration
 file can be copied, committed or pasted into a bug report without taking a credential with it.
-`credentials.toml` is written `chmod 600`. If your shell already has `SUBROUTINE_TOKEN` set,
-that is another way in and needs no file.
+`credentials.toml` is written `chmod 600`. `SUBROUTINE_TOKEN_WORK` set in your shell - the
+connection's name in capitals - is another way in and needs no file. A bare `SUBROUTINE_TOKEN`
+belongs to whichever connection is the default, which is `local` on a machine with a list of its
+own.
 
 **It is not `secret_key`,** which is the only thing in `config.toml` that looks like a
 credential and is the wrong one. Every instance writes its own at `init` - the server has one
@@ -1344,8 +1346,8 @@ connection and workspace for anything that needs them. Whatever it prints is wha
 back, which is the point: a bare number beside an item on somebody else's server would be an
 invitation to act on the wrong one.
 
-`subroutine use work` changes which connection a *write* goes to - `subroutine add` and the
-rest. It never changes what you can see: reads always span everything reachable, which is what
+`subroutine use work/<workspace>` changes which connection and workspace a *write* goes to -
+`subroutine add` and the rest. It never changes what you can see: reads always span everything reachable, which is what
 makes switching safe.
 
 If a connection cannot be reached, the rest of the list still prints and one line says which
@@ -1430,8 +1432,9 @@ pinned to one is what actually narrows access.
 
 **The endpoint needs the instance to be reachable from wherever the agent runs.** Claude Code
 connects from the user's own machine, so a LAN address or a VPN-only host is fine. The Claude
-desktop and web clients connect from Anthropic's servers instead, which means a publicly
-reachable address - see [A reverse proxy](#a-reverse-proxy).
+desktop and web apps add a server as a connector instead, which reaches it from Anthropic's
+servers and needs a sign-in flow Subroutine does not offer yet, so publishing the instance does
+not bring them in - see [Claude on the web](connecting.md#claude-on-the-web).
 
 `GET` on the endpoint answers `405`, which is correct rather than a fault: this server has
 nothing to send that a client did not ask for, so there is no event stream to hold open. A

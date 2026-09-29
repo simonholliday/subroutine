@@ -10643,9 +10643,9 @@ def register (
 
 		with program.opened() as world:
 			located = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="restore")
-			where = world.writing_to()
 
-			back = where.client.undiscard(
+			# On the connection the address named, as ``delete`` now is (`#3892`).
+			back = _require_connection(program, world, located.connection).undiscard(
 				ref=located.ref,
 				entity_type=located.entity_type,
 				workspace=located.workspace,
@@ -11360,9 +11360,11 @@ def _discarded (program: Program, world: World, *, which: str) -> None:
 	"""
 
 	located = _locate(program, world, which, kinds=ANY_ITEM, verb="delete")
-	where = world.writing_to()
 
-	gone = where.client.discard(
+	# **On the connection the address named** (`#3892`), as ``done`` has always acted: this wrote
+	# to the current one, so ``delete work/acme/1`` put this machine's #1 in the trash and said it
+	# had deleted the remote one, by its address and with the local title.
+	gone = _require_connection(program, world, located.connection).discard(
 		ref=located.ref,
 		entity_type=located.entity_type,
 		workspace=located.workspace,
@@ -12730,6 +12732,8 @@ def _moved_under (program: Program, *, which: str, under: str, top: bool) -> Non
 					"A task is part of a task, and a document is part of a document.",
 				)
 
+			_refuse_another_place(program, world, located, beneath, joining="a part")
+
 			parent = beneath.item.ref
 
 		changed = client.move(
@@ -12946,11 +12950,16 @@ def _joined (
 		_locate(program, world, one, kinds=ANY_ITEM, verb="link")
 		for one in _several(program, other)
 	]
-	where = world.writing_to()
 
 	for source in near:
 		for target in far:
-			made = where.client.link(
+			_refuse_another_place(program, world, source, target, joining="a link")
+
+	for source in near:
+		client = _require_connection(program, world, source.connection)
+
+		for target in far:
+			made = client.link(
 				ref=source.ref,
 				link_type=relation,
 				target=target.ref,
@@ -12972,6 +12981,31 @@ def _joined (
 		program.console,
 		f"subroutine show {_typeable(world, near[0].connection, near[0].item)}",
 		"see everything it is joined to",
+	)
+
+
+def _refuse_another_place (
+	program: Program, world: World, near: Located, far: Located, *, joining: str
+) -> None:
+	"""Refuse two items in different places, where the act joins them - `#3892`.
+
+	A link and a part join two items in one workspace, and the far end was sent as its number
+	alone, so an end named in another connection or workspace was read as whatever wears that
+	number beside the near end: ``link acme/1 blocks projects/2`` linked acme's #1 to acme's #2,
+	and ``unlink`` withdrew the same wrong one. **Compared by where each item is**, not by how its
+	workspace was typed, so ``ACME/1`` and ``acme/2`` are one workspace.
+	"""
+
+	if near.connection == far.connection and near.item.workspace_id == far.item.workspace_id:
+		return
+
+	apart = "connections" if near.connection != far.connection else "workspaces"
+
+	program.stop(
+		f"{world.address_of_located(near)} and {world.address_of_located(far)} are in different "
+		f"{apart}, and {joining} joins two items in one workspace.",
+		"A number alone is read in the workspace you are using, not in the first item's - name "
+		"the second by the first one's address to mean it there.",
 	)
 
 
@@ -13044,9 +13078,12 @@ def _unjoined (
 		_locate(program, world, one, kinds=ANY_ITEM, verb="unlink")
 		for one in _several(program, other)
 	]
-	where = world.writing_to()
 
-	held = where.client.links(
+	for target in far:
+		_refuse_another_place(program, world, near, target, joining="a link")
+
+	client = _require_connection(program, world, near.connection)
+	held = client.links(
 		ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
 	)
 	joins = {
@@ -13125,7 +13162,7 @@ def _unjoined (
 
 	for target in far:
 		for one in joins[target.ref]:
-			where.client.unlink(
+			client.unlink(
 				ref=near.ref,
 				link_id=str(one.id),
 				entity_type=near.entity_type,
