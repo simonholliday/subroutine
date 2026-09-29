@@ -160,7 +160,8 @@ upgrade involves.
 - **An address naming a project that has since been renamed opens its item on the agenda
   too.** A project's page opens on its agenda, and there such an address showed the failure
   page, where the list said the project was gone, showed the whole workspace and opened the
-  item. The agenda does the same now.
+  item. The agenda does the same now, and both leave the old name out of the address, so a
+  reload goes straight to the workspace rather than asking for the project again.
 - **A line to capture is limited to 1,000 characters**, five times a title's limit, and a
   longer one is refused before it is read. Reading one took seconds to minutes, holding a worker
   and a database connection all the while, before its title was refused anyway.

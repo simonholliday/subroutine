@@ -468,6 +468,32 @@ export function App () {
 		turned();
 	}, [showing, turned]);
 
+	const dropProjectFromAddress = useCallback((key) => {
+		/*
+			**An address naming a project that has gone stops naming it** (`#3917`, decision `#3916`),
+			for both fallbacks below: replaced in place, so a reload or Back draws the page already
+			fallen back to rather than asking for the project again and waiting for its 404. Everything
+			before an item's number is decoration (`#638`), so the workspace and the number still name
+			the item, and the query keeps the arrangement.
+
+			**Only while the address still names that project**: a refusal can arrive after the reader
+			has moved on, and must not rewrite where they went. **And not through `go`**, whose
+			`turned` would close a form the reader has open: this is the page already drawn, so
+			`drawnFor` moves with the address rather than reading it as a new one.
+		*/
+		const place = parseAddress(window.location.pathname);
+
+		if (!place || place.project !== key) return;
+
+		const path = listingAddress({ workspace: place.workspace })
+			+ (place.ref === null ? "" : `/${place.ref}`);
+
+		drawnFor.current = path;
+		window.history.replaceState(
+			window.history.state, "", path + window.location.search + (window.location.hash || "")
+		);
+	}, []);
+
 	/*
 		**Which agenda read is the latest** - `#3740`, Simon's report: *board* sometimes showed a
 		single column at full width, and a reload put it right.
@@ -521,6 +547,7 @@ export function App () {
 
 			setNote({ text: projectGone(key), tone: "bad" });
 			setProject(null);
+			dropProjectFromAddress(key);
 
 			return readAgenda(slug, null);
 		}
@@ -594,11 +621,16 @@ export function App () {
 				So the filter is dropped and the workspace is read instead, with the reason said
 				out loud. Only for the filter: a 404 with no project asked for is a different
 				fact and belongs to the caller.
+
+				**And the address stops naming the project** (`#3917`, decision `#3916`). The argument
+				above is for falling back rather than failing, not for keeping the dead segment, which
+				the item's number does not need: kept, every reload asked for the project again.
 			*/
 			if (!key || !aboutTheProject(failure, key)) throw failure;
 
 			setNote({ text: projectGone(key), tone: "bad" });
 			setProject(null);
+			dropProjectFromAddress(key);
 
 			return load(slug, null, after);
 		}

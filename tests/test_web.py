@@ -9448,6 +9448,62 @@ def test_an_agenda_address_naming_a_project_gone_still_opens_its_item (
 	assert len(agendas) > 2, f"the poll read no agenda, so it cannot ask for the project again: {agendas}"
 
 
+@pytest.mark.parametrize(
+	("pathname", "search", "left"),
+	[
+		("/projects/gone/42", "", "/projects/42"),
+		("/projects/gone", "", "/projects"),
+		("/projects/gone", "?view=list", "/projects?view=list"),
+	],
+	ids=["the agenda, with an item open", "the agenda", "the list"],
+)
+def test_an_address_naming_a_project_gone_drops_it_in_place (
+	session: sqlalchemy.orm.Session,
+	tmp_path: pathlib.Path,
+	pathname: str,
+	search: str,
+	left: str,
+) -> None:
+	"""`SR#3917`, L-11.3 of the cold review of 2026-09-28, decided by `SR#3916`.
+
+	Both fallbacks read the whole workspace and said why, and left the address naming the gone
+	project, so every reload or Back asked for it again and waited for its 404. **The address is
+	replaced without the project**, keeping an item's number and the arrangement, and never pushed,
+	so Back leaves rather than returning to the dead address.
+
+	The item has a project of its own, so the address its page writes for itself, which names that
+	project, cannot pass for the one the fallback writes.
+	"""
+
+	world = test_api_tasks._world(session)
+	refused = world.call(
+		"GET", "/v1/agenda", params={"workspace_id": world.workspace.slug, "project": "gone"}
+	)
+
+	assert refused.status_code == 404, refused.text
+
+	driven = _driven(
+		tmp_path,
+		pathname=pathname,
+		search=search,
+		answers={
+			"project=gone": refused.json(),
+			"/v1/tasks/42/links": NOTHING,
+			"/v1/tasks/42/comments": NOTHING,
+			"/v1/tasks/42": {
+				"ref": 42, "kind": "task", "workspace_id": "w1", "version": 1, "title": "Open",
+				"status_category": "todo", "project_key": "inbox", "project_path": "inbox",
+			},
+		},
+	)
+
+	assert "There is no project called gone here any more" in driven["said"], driven["said"]
+	assert {"how": "replace", "to": left} in driven["written"], driven["written"]
+	assert not any(
+		one["how"] == "push" and "gone" in one["to"] for one in driven["written"]
+	), driven["written"]
+
+
 def test_an_agenda_read_is_acted_on_only_while_the_reader_is_still_there () -> None:
 	"""`SR#3902`: the fallback above acted on a refusal that came after the reader had left.
 
