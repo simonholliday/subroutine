@@ -97,10 +97,15 @@ ANNOUNCERS = tuple(
 #: it has to compare version strings.
 RELEASES = ROOT / "docs" / "releases.json"
 
-#: What a version may look like. Deliberately narrow: three numbers, optionally a pre-release
-#: suffix. A tag is not the place to discover that somebody typed `v0.1.3` or `0.1` — the first
-#: would produce `vv0.1.3` and the second a version PyPI sorts in a way nobody expects.
-VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?$")
+#: What a version may look like. Deliberately narrow: three numbers. A tag is not the place to
+#: discover that somebody typed `v0.1.3` or `0.1` — the first would produce `vv0.1.3` and the
+#: second a version PyPI sorts in a way nobody expects.
+#:
+#: **And no pre-release** (`#3940`), which this used to allow. Its suffix cannot be ordered
+#: against the tags or the manifests, so both of those refusals were skipped without a word,
+#: and the tag it made failed the release's own check that the tag names the build, after it
+#: was pushed: `1.0.0-rc1` against PEP 440's `1.0.0rc1`.
+VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
 #: The heading this promotes. **An `Unreleased` section has to already exist**, which is the
 #: point rather than a limitation: it means the changelog was written while the work was fresh,

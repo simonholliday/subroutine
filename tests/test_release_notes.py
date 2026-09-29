@@ -220,11 +220,16 @@ def test_a_release_that_does_not_move_the_schema_needs_no_notice (
 	monkeypatch: pytest.MonkeyPatch,
 	capsys: pytest.CaptureFixture[str],
 ) -> None:
-	"""Otherwise the notice appears on every release and stops being read."""
+	"""Otherwise the notice appears on every release and stops being read.
+
+	**Checked from a commit after the tag** (`SR#3940`), since the tag compared against is the one
+	before the commit checked, and at the tag itself there is none.
+	"""
 
 	monkeypatch.chdir(repository)
 	_add_migration(repository, "aaaaaaaaaaaa", None, check.VERSIONS)
 	_git(repository, "tag", "v0.1.0")
+	_git(repository, "commit", "--allow-empty", "-m", "the next release, with no migration")
 
 	monkeypatch.setattr(
 		check.subroutine.db.migrate, "head_revision", lambda: "aaaaaaaaaaaa"
@@ -255,6 +260,28 @@ def _prepare (
 		check.subroutine.db.migrate, "head_revision", lambda: "bbbbbbbbbbbb"
 	)
 	monkeypatch.setattr(check, "CHANGELOG", pathlib.Path("CHANGELOG.md"))
+
+
+def test_the_tag_compared_against_is_the_one_before_the_commit_checked (
+	repository: pathlib.Path, check: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3940`, L-8 of the cold review of 2026-09-28: run at its tag, a release met itself.
+
+	``git describe`` answered HEAD's own tag on the release commit, so the release job compared
+	the release with itself and could not fail. **The tag before HEAD**: the previous release on a
+	tagged commit, and the newest tag on any other.
+	"""
+
+	_git(repository, "tag", "v0.1.0")
+	_git(repository, "commit", "--allow-empty", "-m", "the next release")
+	_git(repository, "tag", "v0.2.0")
+	monkeypatch.chdir(repository)
+
+	assert check._most_recent_tag() == "v0.1.0", "the release was compared with itself"
+
+	_git(repository, "commit", "--allow-empty", "-m", "work after it")
+
+	assert check._most_recent_tag() == "v0.2.0"
 
 
 def test_the_check_passes_on_this_repository_as_it_stands (

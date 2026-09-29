@@ -284,16 +284,37 @@ def _candidates (
 		if entry in found or not entry.is_symlink():
 			continue
 
+		# **A link round a loop is skipped, not a crash** (`#3940`): ``resolve`` raises
+		# ``RuntimeError`` for one before Python 3.13 and ``OSError`` from it.
 		try:
 			pointed = entry.resolve()
 
-		except OSError:
+		except (OSError, RuntimeError):
 			continue
 
 		if tools in pointed.parents:
 			found.append(entry)
 
 	return found
+
+
+def _a_script_of_ours (path: pathlib.Path) -> bool:
+	"""Say whether a file at one of this program's names is the script its own install wrote.
+
+	**Anything else is a stranger's** (`#3940`), which :func:`_executable` has always said and held
+	only for a link: a regular file of the name was taken whatever it held, which on a real machine
+	reaches ``/usr/local/bin``. An install writes a short script whose first lines import this
+	package, so that is what is read.
+	"""
+
+	try:
+		with path.open("rb") as opened:
+			head = opened.read(1024)
+
+	except OSError:
+		return False
+
+	return head.startswith(b"#!") and f"from {subroutine.config.APPLICATION_NAME}.".encode() in head
 
 
 def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
@@ -328,9 +349,21 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 			if not binary.exists() and not binary.is_symlink():
 				continue
 
-			target = binary.resolve() if binary.is_symlink() else binary
+			try:
+				target = binary.resolve() if binary.is_symlink() else binary
 
-			if tools in target.parents or target == binary:
+			except (OSError, RuntimeError):
+				steps.append(Step(
+					"executable",
+					str(binary),
+					"SKIPPED",
+					detail="a link that leads round a loop rather than to a program",
+					by_hand=f"rm {shlex.quote(str(binary))}",
+				))
+
+				continue
+
+			if tools in target.parents or (target == binary and _a_script_of_ours(binary)):
 				steps.append(_remove(binary, kind="executable", dry_run=dry_run))
 
 				continue
@@ -339,7 +372,11 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 				"executable",
 				str(binary),
 				"SKIPPED",
-				detail=f"points at {target}, which this tool did not install",
+				detail=(
+					f"points at {target}, which this tool did not install"
+					if target != binary
+					else "a file this program's install did not write"
+				),
 				by_hand=f"rm {shlex.quote(str(binary))}",
 			))
 
@@ -493,6 +530,16 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 	return steps
 
 
+def _inside (path: pathlib.Path, root: pathlib.Path) -> bool:
+	"""Say whether ``path`` is ``root`` or beneath it, once both are resolved; a loop is outside."""
+
+	try:
+		return path.resolve().is_relative_to(root.resolve())
+
+	except (OSError, RuntimeError):
+		return False
+
+
 def _things_nobody_else_may_decide (
 	settings: typing.Any,
 	connections: typing.Sequence[tuple[str, str]],
@@ -541,8 +588,9 @@ def _things_nobody_else_may_decide (
 			# **Compared against the data root this run computed** (`#1349`), not against one
 			# read from the environment a second time: a run pointed at a scratch home would
 			# otherwise measure a backup directory against the *real* data root and report it
-			# as outside when it was inside, or the reverse.
-			if not str(where).startswith(str(data)):
+			# as outside when it was inside, or the reverse. **As paths, not as strings** (`#3940`):
+			# `subroutine-backups` begins with `subroutine`, and was counted as inside it.
+			if not _inside(where, data):
 				steps.append(Step(
 					"backups",
 					str(where),
@@ -805,17 +853,28 @@ def main (
 	# its report while removing the scratch one, which is the one line of the report somebody
 	# reads most carefully. One root, two readers.
 	database = dict(roots)["data"] / f"{subroutine.config.APPLICATION_NAME}.db"
+	size = database.stat().st_size if database.exists() else None
+	removals = [_remove(path, kind=kind, dry_run=options.dry_run) for kind, path in roots]
 
-	if database.exists():
+	# **Said from what is left, once the data directory has been tried** (`#3940`). It was said as
+	# removed before anything was, so a data directory that could not be removed was reported as
+	# FAILED under a line saying the database in it had gone.
+	if size is not None:
+		gone = options.dry_run or not database.exists()
+
 		steps.append(Step(
 			"database",
 			str(database),
-			"would remove" if options.dry_run else "removed",
-			detail=f"{database.stat().st_size:,} bytes, with the data directory below",
+			("would remove" if options.dry_run else "removed") if gone else "FAILED",
+			detail=(
+				f"{size:,} bytes, with the data directory below"
+				if gone
+				else "still there, since the data directory below could not be removed"
+			),
+			by_hand="" if gone else f"rm {shlex.quote(str(database))}",
 		))
 
-	for kind, path in roots:
-		steps.append(_remove(path, kind=kind, dry_run=options.dry_run))
+	steps.extend(removals)
 
 	steps.extend(_executable(home, dry_run=options.dry_run))
 	steps.extend(_claude(home, dry_run=options.dry_run))

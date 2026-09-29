@@ -833,6 +833,127 @@ def test_a_deep_clean_removes_every_name_the_package_installs_under (
 	assert not left, f"the clean left {left} behind, and the next install will refuse"
 
 
+def _outcomes (printed: str, kind: str) -> list[str]:
+	"""Return the outcome on each line of a clean's report about one kind of thing."""
+
+	return [
+		parts[0]
+		for parts in (line.split() for line in printed.splitlines())
+		if len(parts) > 2 and parts[1] == kind
+	]
+
+
+def test_a_backup_directory_beside_the_data_directory_is_outside_it (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#3940`, L-8 of the cold review of 2026-09-28: compared as strings, it counted as inside.
+
+	``subroutine-backups`` begins with ``subroutine``, so a backup directory beside the data
+	directory was taken to be inside it, and was neither removed with it nor reported. **Compared
+	as paths**, it is reported as outside, with the command that removes it.
+	"""
+
+	made = _installed()
+	data = subroutine.config.data_home()
+	beside = data.parent / f"{data.name}-backups"
+	beside.mkdir()
+	made["config"].write_text(
+		f"backup_directory = {str(beside)!r}\n[connections.local]\nenabled = true\n",
+		encoding="utf-8",
+	)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert _outcomes(printed, "backups") == ["SKIPPED"], printed
+	assert beside.exists(), "a backup directory outside the data directory was removed"
+
+
+def test_a_database_the_clean_could_not_remove_is_not_said_to_be_gone (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3940`: the database was reported removed before anything had been tried.
+
+	So a data directory that could not be removed was reported as FAILED under a line saying the
+	database in it had gone. **Said from what is left**, once the directory has been tried.
+	"""
+
+	made = _installed()
+	data = subroutine.config.data_home()
+	removing = shutil.rmtree
+
+	def refusing (path: typing.Any, *arguments: typing.Any, **options: typing.Any) -> None:
+		"""Refuse the data directory, as a permission would, and remove anything else."""
+
+		if pathlib.Path(path) == data:
+			raise PermissionError(13, "Permission denied", str(path))
+
+		removing(path, *arguments, **options)
+
+	monkeypatch.setattr(shutil, "rmtree", refusing)
+	deep_clean.main(["--yes"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert made["database"].exists()
+	assert _outcomes(printed, "database") == ["FAILED"], printed
+
+
+def test_a_file_at_the_program_s_name_is_taken_only_when_its_install_wrote_it (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#3940`: any regular file named after the program was removed, whatever it held.
+
+	*Anything else is a stranger*, the clean says, and held that for a link only, so on a real
+	machine a file of the name in ``/usr/local/bin`` would go. **The script an install writes is
+	taken, and anything else is reported and left.**
+	"""
+
+	_installed()
+
+	binaries = tmp_path / ".local" / "bin"
+	binaries.mkdir(parents=True)
+	ours, stranger = (binaries / name for name in _declared_names()[:2])
+	ours.write_text(
+		"#!/usr/bin/python3\nimport sys\nfrom subroutine.cli.main import main\nsys.exit(main())\n",
+		encoding="utf-8",
+	)
+	stranger.write_text("#!/bin/sh\necho something else\n", encoding="utf-8")
+
+	deep_clean.main(["--yes"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert not ours.exists(), "the script an install wrote was left behind"
+	assert stranger.exists(), "a file this program's install did not write was removed"
+	assert "a file this program's install did not write" in printed, printed
+
+
+def test_a_link_round_a_loop_is_reported_rather_than_ending_the_clean (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#3940`: a link leading round a loop ended the run, where it should have been left.
+
+	``resolve`` raises ``RuntimeError`` for one before Python 3.13 and ``OSError`` from it, and
+	only the second was caught, and only for a name the package does not declare. **Both are
+	caught, at a declared name and at any other**, and the one at the program's name is reported.
+	"""
+
+	_installed()
+
+	binaries = tmp_path / ".local" / "bin"
+	binaries.mkdir(parents=True)
+	declared = binaries / subroutine.config.APPLICATION_NAME
+	other = binaries / "something-else"
+
+	for looping in (declared, other):
+		looping.symlink_to(looping)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert declared.is_symlink() and other.is_symlink()
+	assert "round a loop" in printed, printed
+
+
 def test_the_names_a_clean_looks_for_come_from_the_package () -> None:
 	"""Derived rather than listed, so a third console script is covered on the day it ships.
 

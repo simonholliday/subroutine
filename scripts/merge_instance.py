@@ -42,6 +42,7 @@ no custom vocabulary — were beliefs rather than measurements when it was writt
 """
 
 import argparse
+import collections
 import dataclasses
 import sys
 import typing
@@ -419,15 +420,21 @@ def _project_map (
 			)
 		)
 	}
-	ours_by_key = {
-		row.key: row.id
-		for row in target.execute(
-			sqlalchemy.select(project.c.id, project.c.key).where(project.c.workspace_id == ours)
+	# **Live projects only, and every one a key names** (`#3940`). This took the trash too, and the
+	# last row read for a key won, so items could land in a deleted project; and since `#957` a key
+	# is unique only among siblings, so two live projects under different parents can share one.
+	ours_by_key: dict[str, list[uuid.UUID]] = collections.defaultdict(list)
+
+	for row in target.execute(
+		sqlalchemy.select(project.c.id, project.c.key).where(
+			project.c.workspace_id == ours, project.c.deleted_at.is_(None)
 		)
-	}
+	):
+		ours_by_key[row.key].append(row.id)
 
 	mapped: dict[uuid.UUID, uuid.UUID] = {}
 	missing: list[str] = []
+	ambiguous: list[str] = []
 
 	for identifier in sorted(used, key=str):
 		key = theirs_by_id.get(identifier)
@@ -437,14 +444,26 @@ def _project_map (
 
 			continue
 
-		landing = ours_by_key.get(given.get(str(key), str(key)))
+		wanted = given.get(str(key), str(key))
+		landing = ours_by_key.get(wanted, [])
 
-		if landing is None:
-			missing.append(f"{key} -> {given.get(str(key), str(key))!r}, which the target has not")
+		if not landing:
+			missing.append(f"{key} -> {wanted!r}, which the target has not")
 
 			continue
 
-		mapped[identifier] = landing
+		if len(landing) > 1:
+			ambiguous.append(f"{key} -> {wanted!r}, which names {len(landing)} projects there")
+
+			continue
+
+		mapped[identifier] = landing[0]
+
+	if ambiguous:
+		raise Refused(
+			f"these projects hold items and land on a key the target holds more than once: "
+			f"{'; '.join(ambiguous)}. Rename one of the target's projects so the key names one."
+		)
 
 	if missing:
 		raise Refused(

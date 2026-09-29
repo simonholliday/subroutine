@@ -7,8 +7,10 @@ signs in with a link made before the server starts, and photographs each view in
 with Playwright, the browser the test suite already drives. The instance is deleted afterwards.
 
 **Isolated the way a probe is** (``#3601``): the program runs with an environment built here and
-nothing inherited, so no credential, configuration or ``.subroutine`` marker of the machine it
-runs on can reach the demo, and the demo cannot reach anything else.
+nothing inherited, so no credential or configuration of the machine it runs on can reach the
+demo, and the demo cannot reach anything else. **A ``.subroutine`` marker is the exception**
+(``#3940``): the program looks for one from where it runs up to ``/``, so a run is refused where
+one sits above the demo's home.
 
 **Dates are counted from the day it runs**, so the agenda holds something overdue, something
 due soon and something later whenever the pictures are retaken - which is before any tag that
@@ -22,6 +24,7 @@ Usage, from the checkout, for the pictures the README shows::
 """
 
 import argparse
+import contextlib
 import dataclasses
 import datetime
 import json
@@ -38,8 +41,11 @@ import time
 import typing
 import urllib.error
 import urllib.request
+import zoneinfo
 
 import playwright.sync_api
+
+import subroutine.directory
 
 #: The example company and its one project (decision ``#3728``): the workspace is `metacortex`
 #: in an address and MetaCortex wherever a reader sees its name.
@@ -211,7 +217,7 @@ class Demo:
 	def run (self, *arguments: str) -> str:
 		"""Run the program in the demo, from its home, and return what it printed."""
 
-		# From the demo's home, so no `.subroutine` marker is found on the way up.
+		# From the demo's home, which `main` has made sure has no `.subroutine` marker above it.
 		ran = subprocess.run(
 			[self.program, *arguments],
 			cwd=self.root / "home",
@@ -325,17 +331,29 @@ def _serve (demo: Demo) -> subprocess.Popen[bytes]:
 	log.close()
 	deadline = time.monotonic() + 30
 
-	while time.monotonic() < deadline:
-		try:
-			with urllib.request.urlopen(f"http://127.0.0.1:{demo.port}/healthz", timeout=2):
-				return server
+	# **Stopped here on any way out but an answer** (`#3940`): ``main`` holds the server only once
+	# this returns, so a Ctrl-C during the wait left it running while its home was deleted. A
+	# health check that timed out is one more try, like a refused connection.
+	try:
+		while time.monotonic() < deadline:
+			try:
+				with urllib.request.urlopen(f"http://127.0.0.1:{demo.port}/healthz", timeout=2):
+					return server
 
-		except (urllib.error.URLError, ConnectionError):
-			time.sleep(0.25)
+			except (urllib.error.URLError, ConnectionError, TimeoutError):
+				time.sleep(0.25)
+
+	except BaseException:
+		_stop(server)
+
+		raise
 
 	_stop(server)
 
-	raise SystemExit(f"The demo's server did not answer; its log is {demo.root / 'serve.log'}.")
+	# **The log's end in the message** (`#3940`), since ``main`` deletes the directory it is in.
+	said = (demo.root / "serve.log").read_text(encoding="utf-8", errors="replace")[-2000:]
+
+	raise SystemExit(f"The demo's server did not answer. The end of its log:\n{said}")
 
 
 def _stop (server: subprocess.Popen[bytes]) -> None:
@@ -343,7 +361,17 @@ def _stop (server: subprocess.Popen[bytes]) -> None:
 
 	if server.poll() is None:
 		os.killpg(server.pid, signal.SIGTERM)
-		server.wait(timeout=15)
+
+		# **A server that will not stop is killed** (`#3940`). Waiting raised inside ``main``'s
+		# ``finally``, which hid the real error, skipped removing the demo and left it running.
+		try:
+			server.wait(timeout=15)
+
+		except subprocess.TimeoutExpired:
+			with contextlib.suppress(ProcessLookupError):
+				os.killpg(server.pid, signal.SIGKILL)
+
+			server.wait()
 
 
 def photograph (
@@ -413,13 +441,28 @@ def main (argv: list[str] | None = None) -> int:
 	root = pathlib.Path(tempfile.mkdtemp(prefix="readme-shots-"))
 	demo = Demo(root, _free_port())
 	server: subprocess.Popen[bytes] | None = None
+	placed: list[pathlib.Path] = []
 
 	try:
-		refs = build(demo, datetime.date.today())
+		_refuse_a_marker_above(root / "home")
+
+		# **The day in London** (`#3940`), where the demo and the browser keep their days: the host's
+		# own clock put every due-in-N item a day out near midnight on a host elsewhere.
+		refs = build(demo, datetime.datetime.now(zoneinfo.ZoneInfo("Europe/London")).date())
 		link = _sign_in_link(demo)
 		server = _serve(demo)
 		names = tuple(VIEWS) if arguments.every_view else README_VIEWS
-		taken = photograph(f"http://127.0.0.1:{demo.port}", link, refs, arguments.out.resolve(), names)
+
+		# **Taken beside the demo, and moved only once nothing failed** (`#3940`): photographed
+		# straight into the README's directory, a run the browser reported errors in had already
+		# replaced the pictures.
+		shot = root / "pictures"
+		shot.mkdir()
+		taken = photograph(f"http://127.0.0.1:{demo.port}", link, refs, shot, names)
+		out = arguments.out.resolve()
+
+		for picture in taken:
+			placed.append(pathlib.Path(shutil.move(str(picture), str(out / picture.name))))
 
 	finally:
 		if server is not None:
@@ -431,10 +474,26 @@ def main (argv: list[str] | None = None) -> int:
 		else:
 			shutil.rmtree(root, ignore_errors=True)
 
-	for picture in taken:
+	for picture in placed:
 		print(picture)
 
 	return 0
+
+
+def _refuse_a_marker_above (home: pathlib.Path) -> None:
+	"""Stop before building where a ``.subroutine`` marker sits at or above the demo's home.
+
+	The program looks for one from where it runs up to ``/`` (`#3940`), so one in the temporary
+	directory, or above it, would file the demo's items into that project instead.
+	"""
+
+	found = subroutine.directory.find(home)
+
+	if found is not None:
+		raise SystemExit(
+			f"A .subroutine marker at or above {home} would file the demo into its project: "
+			f"{found.path}. Move it, or set TMPDIR to a directory with none above it."
+		)
 
 
 if __name__ == "__main__":

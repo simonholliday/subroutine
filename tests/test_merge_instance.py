@@ -8,6 +8,7 @@ they cannot get back, is exactly the code where a rehearsal has to prove somethi
 interesting property here is about two databases disagreeing and no unit test can hold that.
 """
 
+import datetime
 import pathlib
 import sys
 import typing
@@ -113,8 +114,10 @@ def _add (
 	return identifier
 
 
-def _project (url: str, key: str) -> None:
-	"""Add a project to an instance."""
+def _project (
+	url: str, key: str, *, parent: uuid.UUID | None = None, trashed: bool = False
+) -> uuid.UUID:
+	"""Add a project to an instance, under ``parent`` or in the trash if asked, and return its id."""
 
 	engine = subroutine.db.session.create_engine(url)
 
@@ -134,12 +137,17 @@ def _project (url: str, key: str) -> None:
 			connection.execute(
 				sqlalchemy.insert(tables["project"]).values(
 					id=identifier, workspace_id=workspace, key=key, title=key,
-					status_id=status, path=f"/{identifier}/", depth=0, visibility="public",
+					status_id=status, visibility="public", parent_id=parent,
+					path=f"/{parent}/{identifier}/" if parent else f"/{identifier}/",
+					depth=1 if parent else 0,
+					deleted_at=datetime.datetime.now(datetime.UTC) if trashed else None,
 				)
 			)
 
 	finally:
 		engine.dispose()
+
+	return identifier
 
 
 @pytest.fixture
@@ -386,6 +394,53 @@ def test_a_project_holding_items_and_no_map_stops_the_run (tmp_path: pathlib.Pat
 	merge_instance.merge(
 		source, target, "ours", projects={"notes": "oli-notes"}, users={}, commit=True
 	)
+
+
+def test_items_land_in_the_live_project_a_key_names_and_never_in_the_trash (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3940`, L-8 of the cold review of 2026-09-28: the target's projects were read with the trash.
+
+	The last project read for a key won, so a key that a deleted project also held could put the
+	merged items in the trash. **Only live projects are landings.**
+	"""
+
+	source = _instance(tmp_path / "theirs.db", "theirs", "oli")
+	target = _instance(tmp_path / "ours.db", "ours", "oli")
+
+	_project(source, "notes")
+	merged = _add(source, title="How the build works", ref=1, project="notes")
+	live = _project(target, "notes")
+	_project(target, "notes", trashed=True)
+
+	merge_instance.merge(source, target, "ours", projects={}, users={}, commit=True)
+
+	task = subroutine.db.base.Base.metadata.tables["task"]
+	[landed] = _rows(target, sqlalchemy.select(task.c.project_id).where(task.c.id == merged))
+
+	assert landed.project_id == live, "the merged item landed in a project in the trash"
+
+
+def test_a_key_the_target_holds_twice_stops_the_run (tmp_path: pathlib.Path) -> None:
+	"""`SR#3940`: since `SR#957` a key is unique only among siblings, and the last one read won.
+
+	Two live projects under different parents can share a key, and a merge chose one without a
+	word. **Refused, naming the key**, so somebody decides.
+	"""
+
+	source = _instance(tmp_path / "theirs.db", "theirs", "oli")
+	target = _instance(tmp_path / "ours.db", "ours", "oli")
+
+	_project(source, "notes")
+	_add(source, title="How the build works", ref=1, project="notes")
+
+	for parent in ("home", "work"):
+		_project(target, "notes", parent=_project(target, parent))
+
+	with pytest.raises(merge_instance.Refused) as refused:
+		merge_instance.merge(source, target, "ours", projects={}, users={}, commit=True)
+
+	assert "more than once" in str(refused.value) and "notes" in str(refused.value), refused.value
 
 
 def test_a_word_the_target_has_not_agreed_stops_the_run (tmp_path: pathlib.Path) -> None:

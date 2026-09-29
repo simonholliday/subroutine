@@ -7,12 +7,19 @@ one. Running the script needs a browser and most of a minute, so it is run by ha
 that changes the browser (decision ``#3830``), and these read it rather than run it.
 """
 
+import datetime
 import importlib.util
 import pathlib
 import re
+import signal
+import subprocess
 import types
+import typing
+import zoneinfo
 
 import pytest
+
+import subroutine.directory
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -44,6 +51,128 @@ def shots () -> types.ModuleType:
 	spec.loader.exec_module(module)
 
 	return module
+
+
+def test_a_server_that_will_not_stop_is_killed (
+	shots: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3940`, L-10 of the cold review of 2026-09-28: waiting for it raised in main's ``finally``.
+
+	That hid the error the run met, skipped removing the demo, and left the server running.
+	**Asked to stop, then killed**, by its own process group.
+	"""
+
+	sent: list[int] = []
+
+	class Stubborn:
+		"""A server that outlives any wait with a time limit."""
+
+		pid = 4242
+
+		def poll (self) -> None:
+			"""Still running."""
+
+		def wait (self, timeout: float | None = None) -> int:
+			"""Outlive a limited wait, and end once killed."""
+
+			if timeout is not None:
+				raise subprocess.TimeoutExpired("serve", timeout)
+
+			return -signal.SIGKILL
+
+	monkeypatch.setattr(shots.os, "killpg", lambda _group, sent_now: sent.append(sent_now))
+	shots._stop(Stubborn())
+
+	assert sent == [signal.SIGTERM, signal.SIGKILL], sent
+
+
+def test_the_pictures_reach_their_directory_only_from_a_run_with_no_errors (
+	shots: types.ModuleType, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3940`: taken straight into the README's directory, before any error was looked at.
+
+	**Taken beside the demo and moved once nothing failed**, and with the day counted in London,
+	where the demo and the browser keep theirs, rather than on the host's clock.
+	"""
+
+	days: list[datetime.date] = []
+
+	def taking (failing: bool) -> typing.Callable[..., list[pathlib.Path]]:
+		"""Return a stand-in for ``photograph`` that takes one picture, and then fails if told to."""
+
+		def photograph (
+			_base: str, _link: str, _refs: object, out: pathlib.Path, _names: object
+		) -> list[pathlib.Path]:
+			"""Take one picture into ``out``."""
+
+			picture = out / "agenda-light.png"
+			picture.write_bytes(b"a picture")
+
+			if failing:
+				raise SystemExit("The browser reported errors while taking them:\nboom")
+
+			return [picture]
+
+		return photograph
+
+	monkeypatch.setattr(shots.tempfile, "tempdir", str(tmp_path))
+	def building (_demo: object, today: datetime.date) -> dict[str, int]:
+		"""Record the day the demo is built for, and build nothing."""
+
+		days.append(today)
+
+		return {}
+
+	monkeypatch.setattr(shots, "build", building)
+	monkeypatch.setattr(shots, "_sign_in_link", lambda _demo: "http://127.0.0.1/link")
+	monkeypatch.setattr(shots, "_serve", lambda _demo: None)
+	out = tmp_path / "images"
+
+	monkeypatch.setattr(shots, "photograph", taking(failing=True))
+
+	with pytest.raises(SystemExit):
+		shots.main([str(out)])
+
+	assert list(out.iterdir()) == [], "a run the browser reported errors in replaced the pictures"
+
+	before = datetime.datetime.now(zoneinfo.ZoneInfo("Europe/London")).date()
+	monkeypatch.setattr(shots, "photograph", taking(failing=False))
+
+	assert shots.main([str(out)]) == 0
+	assert [one.name for one in out.iterdir()] == ["agenda-light.png"]
+
+	after = datetime.datetime.now(zoneinfo.ZoneInfo("Europe/London")).date()
+
+	assert days[-1] in {before, after}, f"the demo was dated {days[-1]}, and London is on {before}"
+
+
+def test_a_marker_above_the_demo_stops_the_run_before_anything_is_built (
+	shots: types.ModuleType, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3940`: the program looks for a marker from the demo's home all the way up to ``/``.
+
+	So one in the temporary directory, or above it, would file the demo's items into its project,
+	and the script said nothing could reach the demo. **Refused before anything is built.**
+	"""
+
+	subroutine.directory.write(tmp_path, workspace="elsewhere", project="theirs")
+	built: list[object] = []
+
+	monkeypatch.setattr(shots.tempfile, "tempdir", str(tmp_path))
+	def building (demo: object, _today: datetime.date) -> dict[str, int]:
+		"""Record that the demo was built, which it must not be."""
+
+		built.append(demo)
+
+		return {}
+
+	monkeypatch.setattr(shots, "build", building)
+
+	with pytest.raises(SystemExit) as refused:
+		shots.main([str(tmp_path / "images")])
+
+	assert ".subroutine" in str(refused.value), refused.value
+	assert built == [], "the demo was built under a marker naming another project"
 
 
 def _retired_in (text: str) -> list[str]:

@@ -221,15 +221,16 @@ def test_a_dry_run_changes_nothing (
 	[
 		("v0.1.1", "is not a version"),
 		("0.1", "is not a version"),
+		("1.0.0-rc1", "is not a version"),
 		("0.1.0", "already exists"),
 		("0.0.9", "not ahead of"),
 	],
-	ids=["a leading v", "two numbers", "a tag that exists", "going backwards"],
+	ids=["a leading v", "two numbers", "a pre-release", "a tag that exists", "going backwards"],
 )
 def test_a_release_that_is_not_the_next_one_is_refused (
 	cut: typing.Callable[..., subprocess.CompletedProcess[str]], version: str, expected: str
 ) -> None:
-	"""Four ways of naming the wrong release, each refused by name rather than by exception.
+	"""Five ways of naming the wrong release, each refused by name rather than by exception.
 
 	`v0.1.1` is the interesting one: it would have produced a `vv0.1.1` tag, which is not a
 	thing hatch-vcs matches — so the release would have built a development version and PyPI

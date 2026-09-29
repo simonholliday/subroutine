@@ -220,10 +220,15 @@ def _head_at (ref: str) -> str:
 
 
 def _most_recent_tag () -> str | None:
-	"""Return the newest tag reachable from HEAD, or ``None`` if there are none yet."""
+	"""Return the newest tag before HEAD, or ``None`` if there are none yet.
+
+	**Before HEAD, not at it** (`#3940`). Run at a release's own tag, ``git describe`` answered that
+	tag, so the release job compared the release with itself and could not fail. From HEAD's parent
+	it is the release before on a tagged commit, and the newest tag on any other.
+	"""
 
 	found = subprocess.run(
-		["git", "describe", "--tags", "--abbrev=0"],
+		["git", "describe", "--tags", "--abbrev=0", "HEAD^"],
 		capture_output=True,
 		text=True,
 		check=False,

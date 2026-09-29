@@ -72,6 +72,21 @@ def main () -> int:
 	flagged: list[str] = []
 	unknown: list[str] = []
 
+	# **Refused where the package itself is not installed** (`#3940`). Its requirements are read
+	# from the installed metadata, so without it the closure was empty, and this said every
+	# runtime dependency was permissively licensed, having looked at none.
+	try:
+		importlib.metadata.distribution(ROOT)
+
+	except importlib.metadata.PackageNotFoundError:
+		print(
+			f"{ROOT} is not installed in this interpreter, so its dependencies cannot be read. "
+			f"Install it here - pip install -e . - and run this again.",
+			file=sys.stderr,
+		)
+
+		return 1
+
 	for name in sorted(_closure(ROOT)):
 		licences = _licences(name)
 		shown = ", ".join(licences) if licences else "UNKNOWN"
@@ -263,7 +278,9 @@ def _licences (name: str) -> list[str]:
 		if str(classifier).startswith("License ::"):
 			found.append(str(classifier).split("::")[-1].strip())
 
-	return sorted(set(found))
+	# **`UNKNOWN` is what a package says when it says nothing** (`#3940`), and read as a licence it
+	# was judged permissive, where declaring nothing is reported as unknown.
+	return sorted({one for one in found if one.upper() != "UNKNOWN"})
 
 
 if __name__ == "__main__":
