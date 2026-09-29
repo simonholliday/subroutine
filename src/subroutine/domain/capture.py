@@ -410,6 +410,24 @@ _A_WRITTEN_DAY = re.compile(rf"{_STARTS_A_WORD}(?:{_WRITTEN_DAY})(?![\w'])", re.
 #: **A weekday anywhere in a phrase** (`#3766`), for the note on a span that names one.
 _A_WEEKDAY = re.compile(rf"{_STARTS_A_WORD}(?:{_WEEKDAY_ALTERNATION})(?![\w'])", re.IGNORECASE)
 
+#: **A day that is not read, written anywhere** (`#3896`): a date or a weekday with no word in
+#: front saying what it is, or a ``today`` that is not last. What a time left as written is
+#: carried with, so the note can say the day is why.
+_A_DAY_UNREAD = re.compile(
+	rf"{_STARTS_A_WORD}(?:{_WRITTEN_DAY}|{_WEEKDAY_ALTERNATION}|{'|'.join(BARE_PLANNED_WORDS)})"
+	r"(?![\w'])",
+	re.IGNORECASE,
+)
+
+#: The same, closing a token: a time written before its day, as in *at 3pm 2 October*.
+_A_DAY_LAST = re.compile(
+	rf"(?:{_WRITTEN_DAY}|{_WEEKDAY_ALTERNATION}|{'|'.join(BARE_PLANNED_WORDS)})(?![\w'])\s*$",
+	re.IGNORECASE,
+)
+
+#: **A time written after 'at'** (`#3896`), which a note must never tell to be written after 'at'.
+_AFTER_AT = re.compile(r"at\s", re.IGNORECASE)
+
 #: What a time-shaped thing that could not be read is called back to the writer. Named here
 #: rather than inline so the refusal and the test cannot drift.
 _TIME_LOOKS_LIKE = re.compile(
@@ -668,6 +686,9 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		if one not in spans and one not in clocked and one not in hours
 		and subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
 		and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
+		# **Not a weekday carried with the time beside it** (`#3896`), which is a day that was not
+		# read rather than two that disagree.
+		and _TIME_LOOKS_LIKE.search(one) is None
 	]
 	# **And a range, which is a third thing to be told** (`#675`). A range reaches here only
 	# when nothing could hold it - beside a deadline, beside a span already read, or beside a
@@ -703,11 +724,32 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		and one not in yeared
 		and subroutine.domain.dates.is_written_date(one)
 	]
-	timed = [
+	# **And a time carried with a day that was not read** (`#3896`), told apart by the day at
+	# either end of it. On its own it was told *a time is read after 'at'*, on a line where it was.
+	unread = [
 		one for one in over
 		if one not in contradicted and one not in spans and one not in clocked
 		and one not in hours and one not in ranges and one not in dateless
 		and one not in unclocked and one not in yeared
+		and _TIME_LOOKS_LIKE.search(one) is not None
+		and (_A_DAY_UNREAD.match(one) is not None or _A_DAY_LAST.search(one) is not None)
+	]
+	# **And any other time written after 'at'** (`#3896`), which the sentence below told to be
+	# written after 'at'. What stopped it is the day it needed - one not set, a span, one with a time
+	# already - or a time no clock shows, and which is the reader's to know, not this sentence's.
+	after_at = [
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and one not in ranges and one not in dateless
+		and one not in unclocked and one not in yeared and one not in unread
+		and _AFTER_AT.match(one) is not None
+	]
+	timed = [
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and one not in ranges and one not in dateless
+		and one not in unclocked and one not in yeared and one not in unread
+		and one not in after_at
 	]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
@@ -819,6 +861,22 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		clauses.append(
 			f"Left as written: {', '.join(dateless)} - the calendar has no such day, so nothing "
 			f"was set."
+		)
+
+	if unread:
+		clauses.append(
+			f"Left as written: {', '.join(unread)} - a time is set on the day written with it, and "
+			f"that day was not read: a date or a weekday is read after 'on', 'by' or 'from', as in "
+			f"'Dentist on Monday at 2pm', and 'today' or 'tomorrow' at the end of a line."
+		)
+
+	if after_at:
+		# **Listed as conditions**, like a span's, since which of them failed is not this sentence's
+		# to know, and the one it used to give - *after 'at'* - was met.
+		clauses.append(
+			f"Left as written: {', '.join(after_at)} - a time after 'at' needs to be one a clock shows, "
+			f"and a day to go on that has no time yet: the day the line names, where that day was set "
+			f"and is not a span, or today where the line names none."
 		)
 
 	if timed:
@@ -1133,18 +1191,19 @@ def parse (
 	# a span, a date or a bare day, and the comparison is between two days.
 	_counted_from_when_it_begins(fields, deadline, now=now, timezone=timezone)
 
+	unread_day = (
+		bool(_UNREAD_DAY.search(_blanked(text, claimed)))
+		or _an_unread_date(text, claimed, reserved)
+		# **A date left whole for its year is a day the writer named too** (`#3809`).
+		or bool(hidden)
+	)
 	used = _apply_time(
 		fields,
 		None if clock is None else clock.at,
 		until=None if clock is None else clock.until,
 		beside=None if clock is None else _beside(text, clock.span, placed, claimed),
 		today=today,
-		unread_day=(
-			bool(_UNREAD_DAY.search(_blanked(text, claimed)))
-			or _an_unread_date(text, claimed, reserved)
-			# **A date left whole for its year is a day the writer named too** (`#3809`).
-			or bool(hidden)
-		),
+		unread_day=unread_day,
 		now=now,
 		timezone=timezone,
 	)
@@ -1157,7 +1216,10 @@ def parse (
 	# the outcome this module exists to make impossible.
 	if clock is not None and not used:
 		claimed.remove(clock.span)
-		unparsed.append(text[clock.span[0]:clock.span[1]])
+		# **With the day that stopped it, where a day did** (`#3896`), wherever the line wrote it.
+		unparsed.append(
+			_with_its_day(text, clock.span, [*claimed, *reserved], near=not unread_day)
+		)
 
 	# **A repeat is read only where nothing unclaimed follows it** (`#1401`), which is §6.13's
 	# existing rule for a bare ``today`` applied to the grammar that shipped after it — see
@@ -1732,9 +1794,51 @@ def _collect_times (
 	# twice. One scan over what is left is the whole rule.
 	for match in _TIME_LOOKS_LIKE.finditer(text):
 		if not _overlaps(match.span(), claimed) and not _overlaps(match.span(), reserved):
-			unparsed.append(match.group(0))
+			# **With a day written straight against it**, which is the day it was written for and
+			# was not read (`#3896`): *Dentist 2 Oct 3pm* was told a time is read straight after
+			# a day, about a time straight after one.
+			unparsed.append(_with_its_day(text, match.span(), [*claimed, *reserved], near=True))
 
 	return found
+
+
+def _with_its_day (
+	text: str, span: tuple[int, int], taken: typing.Sequence[tuple[int, int]], *, near: bool
+) -> str:
+	"""Return a time left as written together with the unread day it was written for - `#3896`.
+
+	*Dentist 2 October at 3pm* sets nothing (decision `#3836`), and the note on the time alone
+	said a time is read after 'at', on a line where it is. **Carried with its day**, the note can
+	say what happened instead: the day was not read, so neither was the time on it. The words run
+	from one to the other as written, so the token is still what the title holds.
+
+	``near`` asks only for a day written straight against the time, where nothing says a day is
+	why it was left; otherwise the nearest day before it, or after it where none comes before.
+	"""
+
+	blanked = _blanked(text, taken)
+	# **Not a day with its word in front**, which was read, or reported on its own for a reason of its
+	# own - *on 31 April* is a date there is not, and its note says so.
+	prefaced = [match.span() for match in _DATED.finditer(blanked)]
+	days = [
+		match.span()
+		for match in _A_DAY_UNREAD.finditer(blanked)
+		if not _overlaps(match.span(), prefaced)
+	]
+	before = [
+		day for day in days if day[1] <= span[0] and not (near and blanked[day[1]:span[0]].strip())
+	]
+	after = [
+		day for day in days if day[0] >= span[1] and not (near and blanked[span[1]:day[0]].strip())
+	]
+
+	if before:
+		return text[max(before)[0]:span[1]]
+
+	if after:
+		return text[span[0]:min(after)[1]]
+
+	return text[span[0]:span[1]]
 
 
 def _named_day (value: typing.Any, *, now: datetime.datetime, timezone: str) -> datetime.date | None:

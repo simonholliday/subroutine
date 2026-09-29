@@ -98,8 +98,11 @@ upgrade involves.
   as though nothing had been. Only a busy database said so before.
 - **A time beside a date written without *on* sets nothing, and says so.** *Dentist 2 October
   at 3pm* was an appointment today at 15:00, with *2 October* left in the title and nothing
-  said. The time now stays in the title with the note on how a time is read, as it already did
-  beside a bare weekday. *Dentist on 2 October at 3pm* is read as before.
+  said. The time now stays in the title, and the note names the day with it and says that
+  day was not read, since a date or a weekday is read after *on*, *by* or *from*; beside a
+  bare weekday the note says the same. *Dentist on 2 October at 3pm* is read as before. And a
+  time after *at* left as written for any other reason, such as a day the calendar has not or
+  a second time on the line, is no longer told that a time is read after *at*.
 - **Four digits after a written date are always its year, and one outside the years read
   leaves the date unread.** *File the return by 31 January 2024* was due on 31 January 2027,
   with *2024* left in the title and called a time. A year from last year to fifty years ahead

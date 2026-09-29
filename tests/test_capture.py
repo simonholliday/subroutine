@@ -1505,13 +1505,14 @@ LEAVES_A_TIME = (
 	("Email Bob re: 3pm", "3pm"),
 	# A bare weekday is not read, so there is no day to attach a time to. Inventing *today*
 	# here set a start that contradicted the word `Monday` printed beside it.
-	("Dentist appointment Monday 14:00", "14:00"),
+	# **Reported with its day since `SR#3896`**, so the note can say the day is why.
+	("Dentist appointment Monday 14:00", "Monday 14:00"),
 	# **The one that reaches the give-back**, and the reason this list is not just the four
 	# obvious shapes. `at` signals a time, so the span is claimed before anybody knows whether
 	# it can be placed — and `Monday` is unread, so it cannot. Without giving the claim back
 	# the title loses `at 14:00` and nothing reports it. Every other row here is refused
 	# earlier, so none of them exercises that path at all.
-	("Dentist appointment Monday at 14:00", "at 14:00"),
+	("Dentist appointment Monday at 14:00", "Monday at 14:00"),
 	# A range names an end, and an end has nowhere to go (`#798`).
 	("Meeting 14:00-15:00", "14:00"),
 	# Not a time at all.
@@ -2540,17 +2541,19 @@ def test_a_span_with_a_year_that_is_not_read_is_left_whole (line: str) -> None:
 @pytest.mark.parametrize(
 	("line", "left"),
 	[
-		("Dentist 2 October at 3pm", "at 3pm"),
-		("Dentist October 2 at 3pm", "at 3pm"),
-		("Dentist 2nd October at 3pm", "at 3pm"),
-		("Dentist 2 October 2027 at 3pm", "at 3pm"),
-		("Dentist at 3pm 2 October", "at 3pm"),
-		("Dentist 2026-10-02 at 3pm", "at 3pm"),
-		("Dentist 2 October at 3pm-4pm", "at 3pm-4pm"),
-		# **A date left whole for its year is a day the writer named too** (`SR#3809`).
+		# **Each with the day it was written for, since `SR#3896`**, so the note can say it.
+		("Dentist 2 October at 3pm", "2 October at 3pm"),
+		("Dentist October 2 at 3pm", "October 2 at 3pm"),
+		("Dentist 2nd October at 3pm", "2nd October at 3pm"),
+		("Dentist 2 October 2027 at 3pm", "2 October 2027 at 3pm"),
+		("Dentist at 3pm 2 October", "at 3pm 2 October"),
+		("Dentist 2026-10-02 at 3pm", "2026-10-02 at 3pm"),
+		("Dentist 2 October at 3pm-4pm", "2 October at 3pm-4pm"),
+		# **A date left whole for its year is a day the writer named too** (`SR#3809`), and its own
+		# note says why, so the time goes alone.
 		("Dentist 5 March 2024 at 3pm", "at 3pm"),
 		# **And prose**: a date used in a sentence stops the time as well, the weekday rule's trade.
-		("Review the 2 October release notes at 3pm", "at 3pm"),
+		("Review the 2 October release notes at 3pm", "2 October release notes at 3pm"),
 	],
 )
 def test_a_time_beside_a_date_with_no_preposition_sets_nothing (line: str, left: str) -> None:
@@ -2567,6 +2570,70 @@ def test_a_time_beside_a_date_with_no_preposition_sets_nothing (line: str, left:
 	assert (read.starts_at, read.ends_at, read.due, read.snooze) == (None, None, None, None), read
 	assert read.title == line, read.title
 	assert left in read.unparsed, read.unparsed
+
+
+@pytest.mark.parametrize(
+	("line", "left"),
+	[
+		("Dentist 2 October at 3pm", "2 October at 3pm"),
+		("Dentist 2nd October at 15:00", "2nd October at 15:00"),
+		("Dentist October 2 at 3pm", "October 2 at 3pm"),
+		("Review the 2 October release notes at 3pm", "2 October release notes at 3pm"),
+		("Dentist Monday at 2pm", "Monday at 2pm"),
+		("Dentist 2 Oct 3pm", "2 Oct 3pm"),
+	],
+)
+def test_the_note_on_a_time_beside_an_unread_day_names_the_day (line: str, left: str) -> None:
+	"""`SR#3896`, M-12 of the cold review of 2026-09-28: the note contradicted the line.
+
+	For *Dentist 2 October at 3pm* it said *a time is read after 'at'*, about a time written after
+	'at'; beside a weekday and beside a time with no 'at' it said the same. The time was left
+	because the day beside it was not read, so **it is reported with its day, and the note says
+	that the day is why**.
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert left in read.unparsed, read.unparsed
+	assert "that day was not read" in said, said
+	assert "a time is read after 'at'" not in said, said
+
+
+@pytest.mark.parametrize(
+	"line",
+	[
+		"Dentist on 31 April at 3pm",
+		"Dentist 5 March 2024 at 3pm",
+		"Call Bob at 3pm and at 4pm",
+		"Dentist by 2026-10-02T17:00 at 3pm",
+		"Holiday from 1 October to 3 October, call at 3pm",
+		"Dentist at 25:00",
+	],
+)
+def test_a_time_written_after_at_is_never_told_to_be (line: str) -> None:
+	"""`SR#3896`: the same sentence, wherever else a time after 'at' was left as written.
+
+	A day the calendar has not, a date left whole for its year, a second time, a deadline with a
+	time of its own, a span of whole days and a time no clock shows each left the time as written,
+	and the note told it to be written after 'at'. **It says what a time after 'at' needs instead**,
+	as conditions, since which of them failed is the reader's to know.
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert any(one.lower().startswith("at ") for one in read.unparsed), read.unparsed
+	assert "a time is read after 'at'" not in said, said
+	assert "a time after 'at' needs to be one a clock shows" in said, said
+
+
+def test_a_bare_time_is_still_told_how_a_time_is_read () -> None:
+	"""`SR#3896`: *Email Bob re: 3pm* is told the rule, and rightly, since it has no 'at'."""
+
+	said = subroutine.domain.capture.explain(_parse("Email Bob re: 3pm").unparsed) or ""
+
+	assert "a time is read after 'at', or straight after a day" in said, said
 
 
 def test_a_time_beside_a_date_with_its_preposition_is_still_read () -> None:
