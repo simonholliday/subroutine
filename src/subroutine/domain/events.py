@@ -724,7 +724,10 @@ def refuse_unusable_cursor (
 	since: int | None,
 	workspace_ids: typing.Sequence[uuid.UUID],
 ) -> None:
-	"""Refuse a cursor that names nothing, or one pointing further back than this instance holds.
+	"""Refuse a cursor that names nothing - and, once events are pruned, one below what is held.
+
+	``session`` and ``workspace_ids`` are what the second refusal will read, and are taken now
+	so that neither caller changes when it arrives.
 
 	**Two refusals, and they must be in that order** (`#309`). ``since`` is a ``seq`` and the
 	first one is 1, so ``since=0`` names nothing — and, read as a cursor, it is below every
@@ -743,18 +746,17 @@ def refuse_unusable_cursor (
 	everything pruned in between — the one failure a feed must never have, because it looks
 	exactly like nothing having happened.
 
-	**Nothing prunes yet, and there is deliberately no setting saying otherwise.** An
-	``events_retention_days`` was declared and read by nothing until `#187` removed it, on
-	`#133`'s rule that a setting for an unbuilt feature belongs with the feature. `#251` is the
-	pruning; the floor below cannot move until something moves it.
+	**Nothing prunes yet, so nothing is refused as expired** (`#3929`). The refusal asked
+	whether ``since`` fell below the lowest ``seq`` held, and that cannot tell *pruned* from
+	*never written*: ``seq`` is one sequence for the whole instance, so narrowing to one
+	workspace put its lowest well above 1, and on PostgreSQL a sequence has gaps by
+	construction - one rolled-back first write is enough. So ``since=1``, which the refusal above
+	tells a caller to send, was answered *Events before seq 8 are no longer held* by an instance
+	that had never pruned anything.
 
-	**The expiry test is "did events below this point exist and go", not "is this old".** A
-	caller resuming from seq 5 on an instance that still holds seq 1 is simply behind, and
-	behind is what the feed is for.
-
-	**That half is still unreachable, and honestly so.** Nothing prunes yet (`#251`), so the
-	oldest surviving event is the first one ever written and no *legal* cursor can fall below
-	it. The path is built and tested by deleting rows, and goes live the day retention does.
+	**It comes back with the pruning, `#251`**, which records the highest ``seq`` it has pruned:
+	a cursor below that is expired, which is right under gaps and under narrowing, and one read.
+	That is also `#133`'s rule, that a control for an unbuilt feature belongs with the feature.
 	"""
 
 	if since is None:
@@ -773,22 +775,6 @@ def refuse_unusable_cursor (
 				)
 			],
 		)
-
-	model = subroutine.db.models.activity.Event
-	oldest = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.min(model.seq)).where(
-			model.workspace_id.in_(workspace_ids)
-		)
-	)
-
-	if oldest is None or since >= oldest:
-		return
-
-	raise subroutine.errors.CursorExpired(
-		f"Events before seq {oldest} are no longer held, so what happened since {since} "
-		f"cannot be reported in full.",
-		hint="Ask again without 'since' to resync from the oldest event still kept.",
-	)
 
 
 class Described(typing.NamedTuple):

@@ -850,21 +850,35 @@ def test_an_actor_filter_reaches_a_credential_that_wrote_nothing (
 	assert not (nobody & alone), "a row cannot be both attributed and unattributed"
 
 
-def test_a_cursor_below_what_is_still_held_is_refused (
+def test_an_instance_that_has_pruned_nothing_never_calls_a_cursor_expired (
 	world: test_api_tasks.World,
 ) -> None:
-	"""``410 cursor_expired`` — the one failure a feed must never have silently (§5.11).
+	"""`SR#3929`: *events before seq 8 are no longer held*, from an instance that had pruned nothing.
 
-	A page that quietly omits everything pruned between the cursor and the oldest surviving
-	event looks exactly like nothing having happened, which is the belief this endpoint exists
-	to prevent.
-
-	**Unreachable in production today**, because nothing prunes (`#251`); the rows are deleted
-	here to exercise the path before the feature that will produce it.
+	``seq`` is one sequence for the whole instance, so narrowing to a second workspace put its
+	lowest well above 1 - and ``since=1`` is what the refusal of ``since=0`` tells a caller to
+	send. On PostgreSQL a sequence has gaps by construction, which a rolled-back first write
+	leaves; the oldest rows are deleted here to stand for one, which is how the refusal used to be
+	tested, and it cannot tell that from pruning. **Nothing prunes yet, so nothing is expired**:
+	`#251` brings the refusal back with a record of the highest ``seq`` it pruned.
 	"""
 
-	world.call("POST", "/v1/tasks", json={"title": "Long ago"})
+	world.call("POST", "/v1/tasks", json={"title": "Filed in the first workspace"})
+	team = world.call("POST", "/v1/workspaces", json={"slug": "team", "title": "Team"})
+
+	assert team.status_code == 201, team.text
+
+	filed = world.call(
+		"POST", "/v1/tasks", json={"title": "Filed in the second", "workspace_id": "team"}
+	)
+
+	assert filed.status_code == 201, filed.text
+
 	_settled(world.session)
+
+	narrowed = _feed(world, since=1, workspace_id="team")
+
+	assert any(item["entity_type"] == "task" for item in narrowed), narrowed
 
 	model = subroutine.db.models.activity.Event
 	oldest = world.session.scalar(sqlalchemy.select(sqlalchemy.func.min(model.seq)))
@@ -874,10 +888,7 @@ def test_a_cursor_below_what_is_still_held_is_refused (
 	world.session.execute(sqlalchemy.delete(model).where(model.seq <= oldest + 1))
 	world.session.flush()
 
-	answered = world.call("GET", "/v1/changes", params={"since": oldest})
-
-	assert answered.status_code == 410
-	assert answered.json()["code"] == "cursor_expired"
+	assert _feed(world, since=1), "the events after the gap were not reported"
 
 
 @pytest.fixture

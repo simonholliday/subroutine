@@ -53,6 +53,10 @@ upgrade involves.
 - **Over a remote connection, `show` and `uncomment` see all of an item's comments.** They read
   the first fifty, so an item commented on all day showed an old comment as its latest, and one
   past the fiftieth could not be withdrawn.
+- **The change feed no longer says events were pruned on an instance that has pruned nothing.**
+  `since=1` answered 410 once a second workspace existed, and on PostgreSQL whenever the
+  sequence had a gap, which one rolled-back write leaves. Nothing prunes yet, so nothing is
+  refused as expired; the refusal returns with the pruning, measured against what it pruned.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

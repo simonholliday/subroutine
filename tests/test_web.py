@@ -9809,9 +9809,8 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	assert journal.status_code == 200, journal.text
 	assert journal.json()["page"]["next_cursor"], "the task's journal has one entry and no cursor"
 
-	# **A real seq, read rather than invented.** A literal `1` is below the oldest event the
-	# shared PostgreSQL database still holds — earlier tests roll back and leave a gap in the
-	# sequence — and is correctly refused with `410 cursor_expired`.
+	# **A real seq, read rather than invented**: the one a reader resuming from the newest event
+	# would hold.
 	#
 	# Read from the table rather than from the feed, because `GET /v1/changes` carries a
 	# deliberate `now() - 1s` watermark (§5.11a): `seq` is allocated at insert and becomes
