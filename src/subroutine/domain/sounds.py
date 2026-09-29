@@ -29,6 +29,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.event
 import sqlalchemy.orm
+import sqlalchemy.orm.util
 
 import subroutine.config
 import subroutine.db.models.activity
@@ -209,9 +210,12 @@ def _composed (session: sqlalchemy.orm.Session) -> None:
 	**And nothing here may undo the write** (`#3757`). On PostgreSQL a failed statement ends the
 	whole transaction, so a read failing under the guard - a lock held past the statement timeout
 	- turned the commit into a rollback, and the guard had swallowed the reason: the request
-	answered 201 for a row that was never kept. Each guarded read runs in a savepoint now, which a
-	failure rolls back alone. That costs a SAVEPOINT and a RELEASE per workspace, on a commit that
-	records something.
+	answered 201 for a row that was never kept. Each guarded read that reaches the database runs
+	in a savepoint, which a failure rolls back alone.
+
+	**A savepoint only where one is needed** (`#3938`): a workspace the write already holds is
+	asked where it sends without one, since that asks the database nothing, so a commit pays a
+	SAVEPOINT and a RELEASE for each workspace that sends, and for one it had not loaded.
 	"""
 
 	pending: list[subroutine.db.models.activity.Event] | None = session.info.pop(PENDING, None)
@@ -241,7 +245,7 @@ def _composed (session: sqlalchemy.orm.Session) -> None:
 	for workspace_id, events in by_workspace.items():
 		# **One workspace's trouble is its own**: a destination that no longer reads drops that
 		# workspace's messages and leaves the commit alone.
-		with contextlib.suppress(Exception), session.begin_nested():
+		with contextlib.suppress(Exception), _guarded(session, workspace_id):
 			found = _destination(session, workspace_id)
 
 			if found is not None:
@@ -253,6 +257,27 @@ def _composed (session: sqlalchemy.orm.Session) -> None:
 			session.info.setdefault(READY, []).extend(
 				_datagrams(session, events, host=host, port=port, titles=titles)
 			)
+
+
+def _guarded (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
+) -> typing.ContextManager[typing.Any]:
+	"""Return a savepoint to ask about a workspace in, or nothing where asking reaches no database.
+
+	**Nothing where the session already holds the workspace with its settings read** (`#3938`),
+	which is the ordinary case - the write loaded it - and asks the database nothing, so there is
+	nothing to fail. Called inside the guard that swallows a failure, so opening the savepoint is
+	under it too.
+	"""
+
+	held = session.identity_map.get(
+		sqlalchemy.orm.util.identity_key(subroutine.db.models.identity.Workspace, workspace_id)
+	)
+
+	if held is not None and "settings" not in sqlalchemy.inspect(held).unloaded:
+		return contextlib.nullcontext()
+
+	return session.begin_nested()
 
 
 def _destination (
@@ -479,11 +504,18 @@ def _who (session: sqlalchemy.orm.Session, event: subroutine.db.models.activity.
 def _sent (session: sqlalchemy.orm.Session) -> None:
 	"""After a commit: hand what it composed to the sender, and return at once.
 
+	**After the real commit only** (`#3938`). SQLAlchemy calls this as each savepoint is released
+	too, and composing opens savepoints, so each workspace's datagrams went as its savepoint was
+	released - before the transaction had committed, and even when the commit then failed.
+
 	**Nothing here may raise**, because the write has already committed: an error out of this
 	hook would come out of ``commit()`` itself, and tell whoever made a write that has happened
 	that it failed. A sender that cannot even start - a process out of threads, say - loses these
 	messages and nothing else.
 	"""
+
+	if session.in_nested_transaction():
+		return
 
 	ready: list[tuple[str, int, bytes]] | None = session.info.pop(READY, None)
 
@@ -501,7 +533,16 @@ def _sent (session: sqlalchemy.orm.Session) -> None:
 
 
 def _forgotten (session: sqlalchemy.orm.Session, previous_transaction: typing.Any) -> None:
-	"""After a rollback: what the rolled-back writes would have said is not said."""
+	"""After a rollback: what the rolled-back writes would have said is not said.
+
+	**Not after a savepoint's** (`#3938`): composing opens one per workspace that sends, so one
+	workspace's failure rolled back its own savepoint and forgot every other workspace's datagrams
+	with it. Composing is the only thing in the program that opens a savepoint, so no event is
+	recorded inside one to be forgotten.
+	"""
+
+	if previous_transaction.nested:
+		return
 
 	session.info.pop(PENDING, None)
 	session.info.pop(READY, None)

@@ -132,7 +132,7 @@ class Sender:
 		self._lock = threading.Lock()
 		self._thread: threading.Thread | None = None
 		self._leaving = False
-		self._known: dict[tuple[str, int], tuple[float, int, typing.Any]] = {}
+		self._known: dict[tuple[str, int], tuple[float, tuple[int, typing.Any] | None]] = {}
 		self._sockets: dict[int, socket.socket] = {}
 
 	def send (self, host: str, port: int, datagrams: typing.Iterable[bytes]) -> None:
@@ -160,14 +160,20 @@ class Sender:
 			time.sleep(0.005)
 
 	def _started (self) -> None:
-		"""Start the thread that sends, once, and have a finishing command give it a moment."""
+		"""Start the thread that sends, once, and have a finishing command give it a moment.
+
+		**Kept only once it has started** (`#3938`): one that failed to start - a process out of
+		threads - was kept all the same, so nothing was sent again until a restart. The next
+		datagram now tries again.
+		"""
 
 		with self._lock:
 			if self._thread is not None:
 				return
 
-			self._thread = threading.Thread(target=self._run, name="subroutine-osc", daemon=True)
-			self._thread.start()
+			thread = threading.Thread(target=self._run, name="subroutine-osc", daemon=True)
+			thread.start()
+			self._thread = thread
 
 			if not self._leaving:
 				atexit.register(self.drain)
@@ -190,7 +196,12 @@ class Sender:
 	def _sent (self, host: str, port: int, datagram: bytes) -> None:
 		"""Send one datagram, looking its destination up if it has not been lately."""
 
-		family, address = self._found(host, port)
+		found = self._found(host, port)
+
+		if found is None:
+			return
+
+		family, address = found
 
 		# **Where a name led is checked as well as what was written** (decision `#3804`), since a
 		# name is looked up here, long after anybody set it.
@@ -206,19 +217,34 @@ class Sender:
 
 		connection.sendto(datagram, address)
 
-	def _found (self, host: str, port: int) -> tuple[int, typing.Any]:
-		"""Return where a host and port are on the network, from memory where it is recent."""
+	def _found (self, host: str, port: int) -> tuple[int, typing.Any] | None:
+		"""Return where a host and port are on the network, or ``None`` where they were not found,
+		from memory where they were asked about lately.
+
+		**A failure is remembered as long as an answer is** (`#3938`). One thread sends for every
+		workspace and a lookup holds it up, so a name that did not answer was asked again for
+		every datagram, delaying every other workspace's and, once the queue was full, dropping
+		them.
+		"""
 
 		now = time.monotonic()
 		known = self._known.get((host, port))
 
 		if known is not None and now - known[0] < REMEMBERED:
-			return known[1], known[2]
+			return known[1]
 
-		family, _, _, _, address = self._resolve(host, port, type=socket.SOCK_DGRAM)[0]
-		self._known[(host, port)] = (now, family, address)
+		# Broad on purpose, as `_run` is: a lookup fails in several ways, and each means there is
+		# nowhere to send.
+		try:
+			family, _, _, _, address = self._resolve(host, port, type=socket.SOCK_DGRAM)[0]
+			found: tuple[int, typing.Any] | None = (family, address)
 
-		return family, address
+		except Exception:
+			found = None
+
+		self._known[(host, port)] = (now, found)
+
+		return found
 
 
 #: The one sender a process has. Its thread starts with the first datagram, so a process that

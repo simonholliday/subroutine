@@ -21,6 +21,7 @@ import uuid
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
+import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.orm
 
@@ -30,6 +31,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.db.migrate
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
@@ -471,6 +473,164 @@ def test_a_read_that_fails_while_composing_leaves_the_write (
 
 	with committing() as reading:
 		assert reading.get(subroutine.db.models.work.Task, kept) is not None, "the write was undone"
+
+
+def test_nothing_is_sent_before_the_real_commit_or_for_one_that_fails (
+	committing: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3938`: sent once the transaction has committed, and never for one whose commit failed.
+
+	SQLAlchemy calls the hook that sends as each savepoint is released, and composing opens them,
+	so the datagrams went before the real ``COMMIT`` - and with it made to fail, as here, the row
+	was not kept and its filing was heard all the same. **With the positive twin**: the same
+	write, committed.
+	"""
+
+	sender = _Sender()
+	monkeypatch.setattr(subroutine.osc, "SENDER", sender)
+
+	with committing() as setup:
+		made = subroutine.domain.bootstrap.initialise(setup, username="keanu", instance_name="Test")
+		subroutine.domain.workspaces.update(
+			setup,
+			made.workspace,
+			settings={"osc.send_to": "studio.local:9000"},
+			actor=subroutine.domain.authentication.Principal(user=made.user),
+		)
+		inbox_id = made.inbox.id
+		setup.commit()
+
+	sender.heard.clear()
+
+	def refused (*_: typing.Any, **__: typing.Any) -> None:
+		"""Fail as a ``COMMIT`` the database refuses does."""
+
+		raise sqlalchemy.exc.OperationalError("COMMIT", {}, Exception("the commit was refused"))
+
+	with committing() as writing:
+		project = writing.get(subroutine.db.models.project.Project, inbox_id)
+
+		assert project is not None
+
+		lost = subroutine.domain.tasks.create(writing, project=project, title="Never kept").id
+
+		with monkeypatch.context() as patched:
+			patched.setattr(sqlalchemy.engine.Connection, "_commit_impl", refused)
+
+			with pytest.raises(sqlalchemy.exc.OperationalError):
+				writing.commit()
+
+		writing.rollback()
+
+	assert sender.heard == [], "a write whose commit failed was heard"
+
+	with committing() as writing:
+		project = writing.get(subroutine.db.models.project.Project, inbox_id)
+
+		assert project is not None
+
+		kept = subroutine.domain.tasks.create(writing, project=project, title="Kept").ref
+		writing.commit()
+
+	with committing() as reading:
+		assert reading.get(subroutine.db.models.work.Task, lost) is None, "the failed write was kept"
+
+	assert [(address, values[0]) for address, values in sender.heard] == [
+		("/subroutine/task/filed", kept)
+	]
+
+
+def test_one_workspace_that_cannot_be_described_keeps_the_others_messages (
+	world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3938`: one workspace's savepoint rolling back forgot every workspace's datagrams.
+
+	**Hidden until sending waited for the real commit**, since each workspace's went as its own
+	savepoint was released, before a later one could fail. Filed in the workspace that describes
+	its events first, so its datagrams are waiting when the other's describing fails.
+	"""
+
+	other = subroutine.domain.workspaces.create(
+		world.session, slug=f"annex-{uuid.uuid4().hex[:8]}", title="Annex", owner=world.owner
+	)
+	annex = subroutine.domain.projects.create(
+		world.session, workspace_id=other.id, key="annex", title="Annex", owner_id=world.owner.id
+	)
+	subroutine.domain.workspaces.update(
+		world.session, other, settings={"osc.send_to": "annex.local:9000"}, actor=world.acting
+	)
+	world.session.commit()
+	world.sender.heard.clear()
+	world.sender.destinations.clear()
+	described = subroutine.domain.sounds._message
+
+	def failing_in_the_annex (
+		session: sqlalchemy.orm.Session,
+		event: subroutine.db.models.activity.Event,
+		**options: typing.Any,
+	) -> tuple[str, list[subroutine.osc.Value]] | None:
+		"""Fail to describe what happens in the annex, and describe the rest."""
+
+		if event.workspace_id == other.id:
+			raise RuntimeError("a defect in describing the annex")
+
+		return described(session, event, **options)
+
+	monkeypatch.setattr(subroutine.domain.sounds, "_message", failing_in_the_annex)
+	heard = subroutine.domain.tasks.create(
+		world.session, project=world.open, title="Heard in the studio", actor=world.acting
+	)
+	subroutine.domain.tasks.create(
+		world.session, project=annex, title="Lost in the annex", actor=world.acting
+	)
+	world.session.commit()
+
+	assert world.sender.heard == [("/subroutine/task/filed", [heard.ref, 0, 0, "open", "person"])]
+	assert world.sender.destinations == [("studio.local", 9000)]
+
+
+def test_a_savepoint_is_opened_only_where_asking_reaches_the_database (world: World) -> None:
+	"""`#3938`: a SAVEPOINT and a RELEASE for every workspace a commit touched, to read a setting
+	that is off by default. **None for a workspace the write holds, which asks nothing of the
+	database; one for a workspace it had not loaded.**
+	"""
+
+	quiet = subroutine.domain.workspaces.create(
+		world.session, slug=f"quiet-{uuid.uuid4().hex[:8]}", title="Quiet", owner=world.owner
+	)
+	notes = subroutine.domain.projects.create(
+		world.session, workspace_id=quiet.id, key="notes", title="Notes", owner_id=world.owner.id
+	)
+	world.session.commit()
+	opened: list[bool] = []
+
+	def counted (_session: sqlalchemy.orm.Session, transaction: typing.Any) -> None:
+		"""Keep whether each transaction begun is a savepoint."""
+
+		opened.append(transaction.nested)
+
+	sqlalchemy.event.listen(world.session, "after_transaction_create", counted)
+
+	try:
+		world.session.refresh(quiet)
+		subroutine.domain.tasks.create(
+			world.session, project=notes, title="Asked of what is in hand", actor=world.acting
+		)
+		world.session.commit()
+		in_hand = opened.count(True)
+		opened.clear()
+		subroutine.domain.tasks.create(
+			world.session, project=notes, title="Asked of the database", actor=world.acting
+		)
+		world.session.expire(quiet)
+		world.session.commit()
+		not_in_hand = opened.count(True)
+
+	finally:
+		sqlalchemy.event.remove(world.session, "after_transaction_create", counted)
+
+	assert (in_hand, not_in_hand) == (0, 1), (in_hand, not_in_hand)
+	assert world.sender.heard == []
 
 
 @pytest.mark.parametrize("sends", [True, False], ids=["sends", "sends-nothing"])

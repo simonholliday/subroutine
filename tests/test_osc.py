@@ -13,6 +13,7 @@ import contextlib
 import socket
 import threading
 import time
+import types
 import typing
 
 import pytest
@@ -250,6 +251,72 @@ def test_a_name_that_leads_where_nothing_is_sent_is_not_sent_to () -> None:
 	sender.drain(5)
 
 	assert sent == [(b"sent", ("192.0.2.10", 9000))], sent
+
+
+def test_a_thread_that_did_not_start_is_tried_again_by_the_next_datagram (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#3938`: a sender whose thread failed to start kept it, and sent nothing until a restart.
+
+	The first start fails, as it does in a process out of threads, and is said to whoever handed
+	the datagram over - :mod:`subroutine.domain.sounds` swallows it. The next one must go.
+	"""
+
+	class Unlucky (threading.Thread):
+		"""A thread that cannot be started the first time it is asked."""
+
+		refused: typing.ClassVar[list[str]] = []
+
+		def start (self) -> None:
+			"""Refuse once, then start."""
+
+			if not Unlucky.refused:
+				Unlucky.refused.append(self.name)
+
+				raise RuntimeError("can't start new thread")
+
+			super().start()
+
+	sender = subroutine.osc.Sender()
+	monkeypatch.setattr(subroutine.osc, "threading", types.SimpleNamespace(Thread=Unlucky))
+
+	with _listening() as (listener, port):
+		with pytest.raises(RuntimeError):
+			sender.send("127.0.0.1", port, [b"lost"])
+
+		sender.send("127.0.0.1", port, [b"heard"])
+
+		assert _heard(listener) == b"heard"
+
+
+def test_a_name_that_did_not_answer_is_not_asked_again_for_a_while () -> None:
+	"""`#3938`: a failure is remembered as long as an answer is.
+
+	One thread sends for every workspace and a lookup holds it up, so a name that did not answer
+	was asked again for every datagram, while every other workspace's waited behind it. **With
+	the positive twin**: a name that answers is asked once too.
+	"""
+
+	asked: list[str] = []
+
+	def resolve (host: str, port: int, **options: typing.Any) -> list[typing.Any]:
+		"""Fail for one name, as a machine that is off does, and lead the rest to this machine."""
+
+		asked.append(host)
+
+		if host == "nowhere":
+			raise OSError("no such name")
+
+		return socket.getaddrinfo("127.0.0.1", port, **options)
+
+	with _listening() as (listener, port):
+		sender = subroutine.osc.Sender(resolve=resolve)
+		sender.send("nowhere", 9000, [b"one", b"two", b"three"])
+		sender.send("studio.local", port, [b"four", b"five"])
+
+		assert {_heard(listener), _heard(listener)} == {b"four", b"five"}
+
+	assert asked == ["nowhere", "studio.local"], asked
 
 
 @contextlib.contextmanager

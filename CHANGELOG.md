@@ -23,6 +23,11 @@ upgrade involves.
   while nothing is sent. Whatever the setting says, nothing goes to an address in
   `169.254.0.0/16`, where a cloud server answers questions about itself: a destination there is
   refused, and one already set sends nothing.
+- **OSC is sent once a change is saved, and never for one that was not.** Each workspace's
+  messages went out while the change was still being saved, so one whose saving then failed was
+  heard all the same. And a music computer that could not be found held up every other
+  workspace's messages while it was looked for again, once a message; it is looked for once a
+  minute now.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and
