@@ -3716,6 +3716,14 @@ class Client:
 
 		self._refuse_if_read_only()
 
+		# **An explicit None for a field that cannot be emptied is not given** (`#3936`), which is
+		# what the API has always read it as: a PATCH carrying ``"project": null`` changes nothing,
+		# where here it moved the item to the Inbox and ``type=None`` was refused.
+		title, status, type, project = (
+			subroutine.clients.base.UNSET if one is None else one
+			for one in (title, status, type, project)
+		)
+
 		# `status` is `status_key` in the service, and the rest are spelled the same. Built by
 		# comparison against UNSET rather than by filtering falsey values, because `None` is a
 		# meaningful value here — it is how §8.3 says "clear this".

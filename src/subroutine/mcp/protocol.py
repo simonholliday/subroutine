@@ -186,6 +186,15 @@ class Server:
 		if not isinstance(method, str):
 			return _failure(identifier, INVALID_REQUEST, "A request needs a method name.")
 
+		# **A ``params`` that is there and is not an object is invalid params** (`#3936`), the code
+		# JSON-RPC keeps for it. A list or a string reached each method, whose first ``.get`` raised,
+		# so a client's mistake was answered *Something went wrong* with a traceback, and an empty
+		# list read as no params at all.
+		if "params" in message and message["params"] is not None and not isinstance(
+			message["params"], dict
+		):
+			return _failure(identifier, INVALID_PARAMS, "'params' must be an object.")
+
 		if method == "initialize":
 			return _result(identifier, self._initialize(message.get("params") or {}))
 

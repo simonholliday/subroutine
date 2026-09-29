@@ -5315,6 +5315,81 @@ def test_both_transports_refuse_the_same_malformed_method (pair: Pair) -> None:
 		)
 
 
+@pytest.mark.parametrize(
+	"path",
+	["/v1/../healthz", "/v1/../mcp", "/v1/%2e%2e/mcp", "/v1/./meta", "/v1/tasks/..%2F..%2Fmcp"],
+)
+def test_a_raw_call_cannot_step_out_of_the_api (pair: Pair, path: str) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: the prefix was asked before '..' resolved.
+
+	``/v1/../healthz`` answered 200, and ``POST /v1/../mcp`` with a ``tools/call`` body was answered
+	by the tool's own host - the call to the thing that hosts it that the prefix exists to refuse.
+	**A dot segment is refused however it is spelled**, on both transports, since no route needs one.
+	"""
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError):
+			client.call_api(method="GET", path=path)
+
+
+def test_an_explicit_none_for_a_field_that_cannot_be_emptied_changes_nothing (
+	pair: Pair,
+) -> None:
+	"""`SR#3936`: ``project=None`` moved an item to the Inbox locally and was ignored over HTTP.
+
+	And ``type=None`` was refused locally and ignored over HTTP. **Not given, on both**, which is
+	what the API has always read a null for such a field as.
+	"""
+
+	for client in pair.both():
+		made = client.capture(text="Brief the crew +inbox")
+		project = client.create_project(key=f"crew-{uuid.uuid4().hex[:6]}", title="Crew")
+		moved = client.update(ref=made.task.ref, project=project.key)
+		kept = client.update(
+			ref=made.task.ref,
+			project=typing.cast(typing.Any, None),
+			type=typing.cast(typing.Any, None),
+		)
+
+		assert kept.project_key == moved.project_key == project.key, kept
+		assert kept.type == moved.type, kept
+
+
+def test_every_answer_the_http_client_reads_goes_through_its_parser () -> None:
+	"""`SR#3936`: twenty-two reads went round ``_parsed``.
+
+	``_parsed`` turns an answer of the wrong shape - a proxy's page, an instance on another
+	version - into a refusal naming the connection, which a fan-out survives; ``model_validate``
+	raises a pydantic error, which it does not. **Every read goes through it**, so the one call
+	left is its own.
+	"""
+
+	root = pathlib.Path(__file__).resolve().parent.parent
+	source = (root / "src" / "subroutine" / "clients" / "http.py").read_text(encoding="utf-8")
+
+	assert source.count(".model_validate(") == 1, "an answer is read around _parsed"
+
+
+@pytest.mark.parametrize(
+	("written", "shown"),
+	[
+		("https://keanu:red-pill@work.example/", "https://work.example/"),
+		("https://keanu@work.example:8443/v1", "https://work.example:8443/v1"),
+		("http://keanu:red-pill@[::1]:9/", "http://[::1]:9/"),
+		("https://work.example/team@acme", "https://work.example/team@acme"),
+		("https://work.example/", "https://work.example/"),
+	],
+)
+def test_a_connection_s_address_is_quoted_without_its_credentials (written: str, shown: str) -> None:
+	"""`SR#3936`: a refusal quoted the address whole, a user and password included.
+
+	So a connection configured with credentials in its address put them in a terminal, a log and
+	an agent's context whenever it could not be reached. **Quoted without them**, the rest as written.
+	"""
+
+	assert subroutine.connections.shown(written) == shown
+
+
 def test_both_transports_normalise_an_acceptable_method_the_same_way (pair: Pair) -> None:
 	"""Case and surrounding space are the caller's typing, not a different request.
 

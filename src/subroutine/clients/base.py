@@ -23,6 +23,7 @@ import dataclasses
 import datetime
 import types
 import typing
+import urllib.parse
 
 import subroutine.config
 import subroutine.connections
@@ -2018,6 +2019,18 @@ def require_a_route (path: str) -> str:
 	"""
 
 	given = path.strip()
+
+	# **No dot segment, however it is written** (`#3936`). The prefix below was asked of the path
+	# as given, before '..' is resolved, so '/v1/../healthz' passed as part of the API, and
+	# '/v1/../mcp' reached the transport that hosts this tool - which a call could then nest
+	# without end. No route needs one, so '.' and '..' are refused, percent-encoded or not.
+	route = urllib.parse.unquote(given.split("?", 1)[0].split("#", 1)[0])
+
+	if any(segment in {".", ".."} for segment in route.split("/")):
+		raise subroutine.errors.ValidationError(
+			f"{path!r} steps up or across with '.' or '..', which no route on this instance needs.",
+			hint="Name the route itself, such as '/v1/tasks'.",
+		)
 
 	if not given.startswith("/") or given.startswith("//"):
 		raise subroutine.errors.ValidationError(

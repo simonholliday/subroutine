@@ -174,6 +174,11 @@ upgrade involves.
   asked about. **`db copy` prints the address to paste without its password**, and
   **`user create` with a role the workspace has not got says the account was made** and how to
   finish, where a retry answered that the name was taken.
+- **`subroutine_call_api` refuses a path that steps out of the API with `..`**, where
+  `/v1/../mcp` reached the transport that hosts it. The MCP server answers `params` that are
+  not an object as invalid params rather than as an internal error. A connection's address is
+  quoted in refusals without its user and password, and a response of the wrong shape from a
+  remote instance is a refusal naming the connection wherever it is read, not a traceback.
 
 ## 0.9.12 — 2026-09-29
 

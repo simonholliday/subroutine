@@ -140,7 +140,7 @@ class Client:
 			# address is checked where it is written, and this is for one that was not.
 			raise subroutine.errors.ValidationError(
 				f"Connection {connection.name!r} has an address no request can be made to: "
-				f"{connection.url}.",
+				f"{subroutine.connections.shown(connection.url)}.",
 				code="invalid_field_value",
 				hint=f"Put its url right in the [connections.{connection.name}] table of config.toml.",
 			) from None
@@ -1150,7 +1150,7 @@ class Client:
 			},
 		)
 
-		return subroutine.views.Project.model_validate(body)
+		return self._parsed(subroutine.views.Project, body)
 
 	def tokens (self) -> list[subroutine.views.Token]:
 		"""List the credentials this caller may act on, newest first (`#348`)."""
@@ -1351,7 +1351,7 @@ class Client:
 			},
 		)
 
-		return subroutine.views.User.model_validate(body)
+		return self._parsed(subroutine.views.User, body)
 
 	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
 		"""List who belongs to one workspace."""
@@ -1359,7 +1359,7 @@ class Client:
 		body = self._json("GET", f"/v1/workspaces/{self._workspace(workspace)}/members")
 
 		return [
-			subroutine.views.Member.model_validate(row) for row in body.get("items", [])
+			self._parsed(subroutine.views.Member, row) for row in body.get("items", [])
 		]
 
 	def add_member (
@@ -1375,7 +1375,7 @@ class Client:
 			json={"username": username, "role": role},
 		)
 
-		return subroutine.views.Member.model_validate(body)
+		return self._parsed(subroutine.views.Member, body)
 
 	def set_member_role (
 		self, *, username: str, role: str, workspace: str | None = None
@@ -1390,7 +1390,7 @@ class Client:
 			json={"role": role},
 		)
 
-		return subroutine.views.Member.model_validate(body)
+		return self._parsed(subroutine.views.Member, body)
 
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
 		"""Mark somebody as having left, or bring them back."""
@@ -1399,7 +1399,7 @@ class Client:
 
 		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"is_active": active})
 
-		return subroutine.views.User.model_validate(answer)
+		return self._parsed(subroutine.views.User, answer)
 
 	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
 		"""Hand an agent to somebody else, who becomes answerable for it."""
@@ -1408,7 +1408,7 @@ class Client:
 
 		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"responsible": to})
 
-		return subroutine.views.User.model_validate(answer)
+		return self._parsed(subroutine.views.User, answer)
 
 	def set_timezone (
 		self, *, username: str, timezone: str | None
@@ -1419,7 +1419,7 @@ class Client:
 
 		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"timezone": timezone})
 
-		return subroutine.views.User.model_validate(answer)
+		return self._parsed(subroutine.views.User, answer)
 
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
@@ -1441,7 +1441,7 @@ class Client:
 		)
 
 		return [
-			subroutine.views.UnreachableProject.model_validate(row)
+			self._parsed(subroutine.views.UnreachableProject, row)
 			for row in body.get("items", [])
 		]
 
@@ -1451,7 +1451,7 @@ class Client:
 		body = self._json("GET", "/v1/instance/workspaces")
 
 		return [
-			subroutine.views.WorkspaceOnInstance.model_validate(row)
+			self._parsed(subroutine.views.WorkspaceOnInstance, row)
 			for row in body.get("items", [])
 		]
 
@@ -1472,7 +1472,7 @@ class Client:
 			},
 		)
 
-		return subroutine.views.Instance.model_validate(body)
+		return self._parsed(subroutine.views.Instance, body)
 
 	def share_project (
 		self, project: str, *, username: str, workspace: str | None = None
@@ -1488,7 +1488,7 @@ class Client:
 			params=_given(workspace_id=workspace),
 		)
 
-		return subroutine.views.ProjectMember.model_validate(body)
+		return self._parsed(subroutine.views.ProjectMember, body)
 
 	def unshare_project (
 		self, project: str, *, username: str, workspace: str | None = None
@@ -1515,7 +1515,7 @@ class Client:
 		)
 
 		return [
-			subroutine.views.ProjectMember.model_validate(row) for row in body.get("items", [])
+			self._parsed(subroutine.views.ProjectMember, row) for row in body.get("items", [])
 		]
 
 	def workspace_settings (
@@ -1556,7 +1556,7 @@ class Client:
 			params=_given(workspace_id=workspace),
 		)
 
-		return subroutine.views.Project.model_validate(body)
+		return self._parsed(subroutine.views.Project, body)
 
 	def update_project (
 		self,
@@ -1593,7 +1593,7 @@ class Client:
 			json=_asked(given, expected_version),
 		)
 
-		return subroutine.views.Project.model_validate(body)
+		return self._parsed(subroutine.views.Project, body)
 
 	def create_workspace (
 		self,
@@ -1615,7 +1615,7 @@ class Client:
 			),
 		)
 
-		return subroutine.views.Workspace.model_validate(body)
+		return self._parsed(subroutine.views.Workspace, body)
 
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name."""
@@ -1624,7 +1624,7 @@ class Client:
 
 		body = self._json("PATCH", f"/v1/workspaces/{_segment(workspace)}", json={"slug": slug})
 
-		return subroutine.views.Workspace.model_validate(body)
+		return self._parsed(subroutine.views.Workspace, body)
 
 	def update_workspace (
 		self,
@@ -1656,7 +1656,7 @@ class Client:
 			json=_asked(given, expected_version),
 		)
 
-		return subroutine.views.Workspace.model_validate(body)
+		return self._parsed(subroutine.views.Workspace, body)
 
 	def delete_workspace (self, workspace: str) -> subroutine.views.Workspace:
 		"""Move a workspace to the trash, over the wire."""
@@ -1665,7 +1665,7 @@ class Client:
 
 		body = self._json("DELETE", f"/v1/workspaces/{_segment(workspace)}")
 
-		return subroutine.views.Workspace.model_validate(body)
+		return self._parsed(subroutine.views.Workspace, body)
 
 	def restore_workspace (self, workspace: str) -> subroutine.views.Workspace:
 		"""Take a workspace back out of the trash, over the wire."""
@@ -1674,7 +1674,7 @@ class Client:
 
 		body = self._json("POST", f"/v1/workspaces/{_segment(workspace)}/restore")
 
-		return subroutine.views.Workspace.model_validate(body)
+		return self._parsed(subroutine.views.Workspace, body)
 
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
@@ -1694,7 +1694,7 @@ class Client:
 			params=_given(workspace_id=workspace),
 		)
 
-		return subroutine.views.Project.model_validate(body)
+		return self._parsed(subroutine.views.Project, body)
 
 	def create_document (
 		self,
@@ -1727,7 +1727,7 @@ class Client:
 			),
 		)
 
-		return subroutine.views.Document.model_validate(answered)
+		return self._parsed(subroutine.views.Document, answered)
 
 	def capture (
 		self,
@@ -2395,7 +2395,7 @@ class Client:
 
 		return subroutine.errors.ServiceUnavailable(
 			f"{self.connection.name} answered, but not as a Subroutine instance: {because}.",
-			hint=f"Check what is serving {self.connection.url} - a proxy, a captive portal or "
+			hint=f"Check what is serving {subroutine.connections.shown(self.connection.url)} - a proxy, a captive portal or "
 			"an instance on a different API version will answer like this.",
 		)
 
@@ -2542,7 +2542,7 @@ class Client:
 
 		except httpx.HTTPError as error:
 			raise subroutine.errors.ServiceUnavailable(
-				f"{self.connection.name} could not be reached at {self.connection.url}: "
+				f"{self.connection.name} could not be reached at {subroutine.connections.shown(self.connection.url)}: "
 				f"{error}",
 				hint="Check that the instance is running and that you are on a network that "
 				"can reach it.",
@@ -2566,7 +2566,7 @@ class Client:
 				raise subroutine.errors.ServiceUnavailable(
 					f"{self.connection.name} answered {response.status_code} with something "
 					"that is not a JSON object.",
-					hint=f"Check that {self.connection.url} is a Subroutine instance and not "
+					hint=f"Check that {subroutine.connections.shown(self.connection.url)} is a Subroutine instance and not "
 					"a proxy or a login page.",
 				)
 
@@ -2588,7 +2588,7 @@ class Client:
 			raise subroutine.errors.ServiceUnavailable(
 				f"{self.connection.name} answered {response.status_code}, and not in this "
 				"program's error format.",
-				hint=f"Check what is serving {self.connection.url} - a proxy or a captive "
+				hint=f"Check what is serving {subroutine.connections.shown(self.connection.url)} - a proxy or a captive "
 				"portal will answer like this.",
 			)
 

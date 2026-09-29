@@ -308,6 +308,31 @@ def test_an_unknown_tool_is_a_protocol_error (
 	assert answered[0]["error"]["code"] == subroutine.mcp.protocol.INVALID_PARAMS
 
 
+@pytest.mark.parametrize(
+	("method", "params"),
+	[
+		("tools/call", [1]),
+		("tools/call", "subroutine_list"),
+		("initialize", ["x"]),
+		("initialize", "x"),
+		("resources/read", ["x"]),
+	],
+)
+def test_params_that_are_not_an_object_are_invalid_params (
+	server: subroutine.mcp.protocol.Server, method: str, params: typing.Any
+) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: a client's mistake answered as our own.
+
+	A list or a string as ``params`` reached each method, whose first ``.get`` raised, so the answer
+	was *Something went wrong* with a traceback on standard error; an empty list read as no params
+	and succeeded. **Refused as invalid params**, JSON-RPC's own code for it.
+	"""
+
+	answered = _exchange(server, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+
+	assert answered[0]["error"]["code"] == subroutine.mcp.protocol.INVALID_PARAMS, answered
+
+
 def test_an_unknown_method_is_refused_and_the_session_continues (
 	server: subroutine.mcp.protocol.Server,
 ) -> None:

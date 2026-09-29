@@ -294,7 +294,8 @@ def _over_http (
 			# Every message goes through here, so a server that goes away mid-session must
 			# produce an answer rather than a traceback: the client is blocked on this one.
 			raise subroutine.errors.ServiceUnavailable(
-				f"{connection.name} could not be reached at {connection.url}: {failure}",
+				f"{connection.name} could not be reached at {subroutine.connections.shown(connection.url)}: "
+				f"{failure}",
 				hint="Check that the instance is running and that you are on a network that "
 				"can reach it.",
 			) from None

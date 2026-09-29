@@ -578,6 +578,28 @@ def _default_name (
 	return live[0].name
 
 
+def shown (url: str | None) -> str:
+	"""Return a connection's address fit to print, with any user and password left out (`#3936`).
+
+	**An address can carry credentials** - ``https://keanu:red-pill@host`` - and a refusal quoting
+	it put them in a terminal, a log and an agent's context. The rest is kept as written, since
+	which instance could not be reached is the point of the sentence.
+	"""
+
+	if not url or "@" not in url:
+		return url or ""
+
+	try:
+		parts = urllib.parse.urlsplit(url)
+
+	except ValueError:
+		scheme, _, rest = url.partition("://")
+
+		return f"{scheme}://{rest.rpartition('@')[2]}" if rest else url.rpartition("@")[2]
+
+	return urllib.parse.urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+
 def _refusal (field: str, message: str) -> subroutine.errors.SubroutineError:
 	"""Return the refusal for a bad connection setting, naming the key and the file."""
 
