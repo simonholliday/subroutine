@@ -14602,6 +14602,53 @@ def test_an_end_earlier_than_its_start_and_given_no_day_ends_the_next_day (
 	assert level["ends"] == "2026-09-27T21:00", "an end equal to its start was moved"
 
 
+def test_every_project_is_read_where_a_workspace_has_more_than_a_page (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: the browser read one page of projects.
+
+	It asked for two hundred and never read ``has_more``, so an operator who lowered
+	``max_page_size`` lowered what the project picker, the tree's labels and the settings pages
+	could see. **Read to the end with `everyPage`**, as the people page is.
+	"""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/projects",
+		answers={
+			"cursor=later": {
+				"items": [{"id": "p2", "key": "web", "title": "Website", "depth": 0}],
+				"page": {"has_more": False, "next_cursor": None, "total": None},
+			},
+			"/projects?fields=": {
+				"items": [{"id": "p1", "key": "inbox", "title": "Inbox", "depth": 0, "is_inbox": True}],
+				"page": {"has_more": True, "next_cursor": "later", "total": None},
+			},
+		},
+	)
+
+	asked = [one["path"] for one in driven["asked"]]
+
+	assert any("/projects?fields=" in one and "cursor=later" in one for one in asked), asked
+
+
+def test_no_saved_views_means_no_menu_of_them_open () -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: the button came back marked as expanded.
+
+	Forgetting the last view from inside the menu took the open popover out of the page, which
+	hides it without the ``toggle`` its handler waits for, so the flag stayed set and the next
+	button drawn said its menu was open. **Cleared whenever there are no views.** Source-level for
+	`SR#640`'s reason: the harness cannot open a popover.
+	"""
+
+	app = _without_comments(_our_source())
+	cleared = app.index("if (!savedViews.length) setPickingView(false);")
+
+	assert app[cleared:].split("}, [", 1)[1].startswith("savedViews]"), (
+		"the flag is not cleared whenever the views change"
+	)
+
+
 def test_a_project_s_gone_note_is_said_only_where_the_page_fell_back (
 	tmp_path: pathlib.Path,
 ) -> None:

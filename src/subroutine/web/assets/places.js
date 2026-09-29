@@ -24,7 +24,7 @@ export function vocabularyRequest (slug) {
 	return { path: scoped("/meta", slug), method: "GET" };
 }
 
-export function projectsRequest (slug) {
+export function projectsRequest (slug, cursor = null) {
 	/*
 		Where a new item can be filed, **in tree order** (`#770`).
 
@@ -49,7 +49,9 @@ export function projectsRequest (slug) {
 	return {
 		path: scoped(
 			"/projects?fields=id,key,title,is_inbox,depth,hidden_statuses"
-			+ "&order=path&limit=200",
+			+ "&order=path&limit=200"
+			// **A page at a time, read to the end by `everyPage`** (`#3942`).
+			+ (cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`),
 			slug
 		),
 		method: "GET",

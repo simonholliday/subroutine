@@ -542,7 +542,7 @@ function settingsApart ({ scope, registry = [], sections = [], ...rows }) {
 }
 
 
-function ProjectPages ({ slug, projects = [], more = false }) {
+function ProjectPages ({ slug, projects = [] }) {
 	/*
 		A workspace's projects, each leading to its own settings page — `#1448`.
 
@@ -568,7 +568,6 @@ function ProjectPages ({ slug, projects = [], more = false }) {
 					</li>
 				`)}
 			</ul>
-			${more ? html`<p class="hint">Only the first ${titled.length} are listed here.</p>` : null}
 		</div>
 	`;
 }
@@ -576,7 +575,7 @@ function ProjectPages ({ slug, projects = [], more = false }) {
 
 export function WorkspaceSettings ({
 	workspace = null, registry = [], sections = [], statuses = [], inForce = null, may = [],
-	onChoose, busy = false, projects = null, more = false,
+	onChoose, busy = false, projects = null,
 }) {
 	/*
 		A workspace's settings page — `#1447`, design `#2110` §3 to §5.
@@ -603,7 +602,7 @@ export function WorkspaceSettings ({
 				onChoose, busy,
 			})}
 			${projects && projects.length > 0
-				? html`<${ProjectPages} slug=${workspace.slug} projects=${projects} more=${more} />`
+				? html`<${ProjectPages} slug=${workspace.slug} projects=${projects} />`
 				: null}
 			${settingsApart({
 				scope: "workspace", slug: workspace.slug, registry, sections, statuses, inForce, may,
@@ -1025,8 +1024,7 @@ export function Settings ({
 						${current.failed}</p>`
 				: page.scope === "workspace"
 				? html`<${WorkspaceSettings} workspace=${workspace} ...${shared}
-						projects=${current ? current.projects : null}
-						more=${Boolean(current && current.more)} />`
+						projects=${current ? current.projects : null} />`
 				: page.scope === "project"
 				? html`<${ProjectSettings} workspace=${workspace} project=${page.project}
 						title=${current ? titlesByPath(current.projects)[page.project] : null}

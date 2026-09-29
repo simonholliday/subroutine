@@ -369,6 +369,24 @@ export const SAVING_VIEW = "save-view";
 */
 export const PICKING_VIEW = "pick-view";
 
+function fitBelow (menu) {
+	/*
+		**As tall as the space under its button, and no taller** (`#3942`), measured as it opens.
+		Taller than that space, the menu overflowed in both places it may open, under the button and
+		inside the screen's left edge, and the browser kept the first: on a narrow, short screen it
+		sat 15 px off the left and ran past the bottom, so the views below the fold could not be
+		reached. No rule in the stylesheet can know the space below a button, so it is measured here,
+		and the menu scrolls within it.
+	*/
+	const button = globalThis.document?.querySelector(`[popovertarget="${menu.id}"]`);
+
+	if (!button) return;
+
+	const below = globalThis.innerHeight - button.getBoundingClientRect().bottom;
+
+	menu.style.maxHeight = `${Math.max(below - 16, 64)}px`;
+}
+
 export function SavedViews ({
 	views = [], showing = null, unkept = [], saving = false, forgetting = null, busy = false,
 	onApply = null, onSave = null, onStartSaving = null, onStopSaving = null,
@@ -487,6 +505,7 @@ export function SavedViews ({
 					<${Icon} name="caret-down" />
 				</button>
 				<div id=${PICKING_VIEW} class="saved-views-menu" popover="auto"
+					onBeforeToggle=${(event) => event.newState === "open" && fitBelow(event.currentTarget)}
 					onToggle=${(event) => onPicking && onPicking(event.newState === "open")}>
 					${/* ***None* while a view is showing** (`#3738`): the way back to the page with no
 					     view, and there is nothing to leave otherwise. */ null}

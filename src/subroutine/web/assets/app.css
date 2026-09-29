@@ -1084,6 +1084,8 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 .saved-views-menu {
 	max-width: min(24rem, calc(100vw - 2rem));
 	min-width: 12rem;
+	/* Held to the space under its button as it opens (`#3942`, `fitBelow`), so it scrolls. */
+	overflow-y: auto;
 	padding: var(--space-3) 0;
 	background: var(--bg-raised);
 	color: var(--ink);

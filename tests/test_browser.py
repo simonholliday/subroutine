@@ -6569,6 +6569,25 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	)
 
 	page.keyboard.press("Escape")
+
+	# **And a short one** (`SR#3942`): taller than the space under its button, the menu overflowed
+	# in both places it may open, so the browser kept the first, off the left edge, and the views
+	# below the fold could not be reached. The screen is made just too short for it.
+	button = page.locator(".saved-views-pick").bounding_box()
+
+	assert button is not None
+
+	short = int(button["y"] + button["height"] + 90)
+	page.set_viewport_size({"width": 320, "height": short})
+	page.click(".saved-views-pick")
+	page.wait_for_selector(".saved-views-menu a", timeout=10_000)
+	menu = page.locator(".saved-views-menu").bounding_box()
+
+	assert menu is not None and menu["x"] >= 0 and menu["y"] + menu["height"] <= short, (
+		f"the menu of views opened outside a short screen, {short} px high: {menu}"
+	)
+
+	page.keyboard.press("Escape")
 	page.set_viewport_size(wide)
 
 	# **An arrow key applies nothing** (`SR#3751`). The select this replaced applied a view on

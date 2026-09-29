@@ -162,6 +162,10 @@ upgrade involves.
 - **A date within a day of the calendar's first or last is refused where some clock could not
   show it.** For an account in Guam a deadline in the first hours of year 1 was stored, and then
   every answer about the item failed.
+- **In the browser, the menu of saved views fits a short screen**, where it opened partly off the
+  left edge and ran past the bottom, and it no longer comes back marked as open after the last
+  view was forgotten from inside it. **And every project is offered**: the project picker and
+  the settings pages read the first two hundred and stopped.
 
 ## 0.9.12 — 2026-09-29
 

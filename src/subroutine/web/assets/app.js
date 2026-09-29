@@ -723,13 +723,16 @@ export function App () {
 		setFilable([]);
 
 		try {
+			/* **Every page of projects, not the first** (`#3942`): one page of two hundred, with
+			   `has_more` unread, was all the picker, the tree's labels and the settings pages had, so
+			   an operator who lowered `max_page_size` lowered what they could see. */
 			const [meta, projects] = await Promise.all([
 				sent(vocabularyRequest(slug)),
-				sent(projectsRequest(slug)),
+				everyPage((cursor) => sent(projectsRequest(slug, cursor))),
 			]);
 
 			setVocabulary(meta);
-			setFilable(projects.items);
+			setFilable(projects);
 		} catch (_) {
 			/* Left empty and disabled, which is what the form renders when it has nothing to
 			   offer. Nothing else on the page depends on it. */
@@ -769,14 +772,14 @@ export function App () {
 		try {
 			const [meta, projects, joined] = await Promise.all([
 				sent(vocabularyRequest(slug)),
-				sent(projectsRequest(slug)),
+				everyPage((cursor) => sent(projectsRequest(slug, cursor))),
 				sent(rosterRequest(slug)),
 			]);
 
 			setElsewhere({
 				slug,
 				vocabulary: meta,
-				projects: projects.items,
+				projects,
 				members: people(joined.items),
 			});
 		} catch (_) {
@@ -1934,16 +1937,10 @@ export function App () {
 				sent(page.scope === "project"
 					? projectSettingsRequest(page.slug, page.project)
 					: workspaceSettingsRequest(page.slug)),
-				sent(projectsRequest(page.slug)),
+				everyPage((cursor) => sent(projectsRequest(page.slug, cursor))),
 			]);
 
-			setConfigured({
-				key,
-				meta,
-				inForce,
-				projects: projects.items || [],
-				more: Boolean(projects.page && projects.page.has_more),
-			});
+			setConfigured({ key, meta, inForce, projects });
 		} catch (failure) {
 			setConfigured({ key, failed: failure.message });
 		}
@@ -3407,6 +3404,14 @@ export function App () {
 	useEffect(() => {
 		readSavedViews(workspace);
 	}, [readSavedViews, workspace]);
+
+	useEffect(() => {
+		/* **No views, so no menu of them open** (`#3942`). Taking an open popover out of the page
+		   hides it without the `toggle` that `onPicking` waits for, so forgetting the last view from
+		   inside the menu left this set, and the button saved next came back marked as expanded over
+		   a menu that was closed. */
+		if (!savedViews.length) setPickingView(false);
+	}, [savedViews]);
 
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
