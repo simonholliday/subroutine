@@ -2485,6 +2485,27 @@ def test_a_series_needing_a_date_is_refused_before_anything_is_written (
 	assert session.scalar(counter) == before
 
 
+def test_finishing_a_trashed_occurrence_brings_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3935`: completing an occurrence in the trash minted the next one, live.
+
+	So a repeat somebody had thrown away came back on its own, the next time anybody finished the
+	row they could no longer see. **Refused, as every change to the trash is, and a skip with it.**
+	"""
+
+	live = _repeating(session, recurrence="every week")
+	series = _template(session, live)
+
+	subroutine.domain.tasks.delete(session, live, now=NOW)
+
+	for act in (subroutine.domain.tasks.complete, subroutine.domain.tasks.skip):
+		with pytest.raises(subroutine.errors.ValidationError):
+			act(session, live, now=NOW)
+
+	assert subroutine.domain.tasks.live_occurrence(session, series) is None
+
+
 def test_an_all_day_series_moved_across_a_clock_change_stays_on_its_day (
 	session: sqlalchemy.orm.Session,
 ) -> None:

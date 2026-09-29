@@ -38,6 +38,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.readiness
+import subroutine.domain.trash
 import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
@@ -118,6 +119,8 @@ def claim (
 	# **Before the conflict is reported, not after.** Whether somebody else is working on this
 	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
 	_permitted(session, actor, task)
+	# **Nor one in the trash** (`#3935`): it holds work nobody is going to do.
+	subroutine.domain.trash.refuse(task, doing="claimed")
 
 	# **A finished task is not held** (`#2976`), for :func:`released_if_finished`'s reason: a
 	# lease over work nobody can start protects nothing, and a name on the row saying somebody

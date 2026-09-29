@@ -1715,6 +1715,69 @@ def test_both_move_an_item_to_the_trash_and_back (pair: Pair) -> None:
 	assert {task.ref for task in local.tasks()} == {mistake.ref, other.ref}
 
 
+def test_an_item_in_the_trash_is_refused_every_change_but_restoring (pair: Pair) -> None:
+	"""`SR#3935`, L-4 of the cold review of 2026-09-28: a trashed item was edited and finished.
+
+	A comment on one was refused by name, and an edit, a completion, a claim and a move answered
+	as though it were live. **Refused on both transports**, naming the trash and saying how to go
+	on, and restoring it still works.
+	"""
+
+	for client in pair.both():
+		ref = client.capture(text="Brief the crew").task.ref
+		document = client.create_document(title="How the crew is briefed").ref
+
+		client.discard(ref=ref)
+		client.discard(ref=document, entity_type="document")
+
+		attempts: list[tuple[typing.Callable[..., object], dict[str, typing.Any]]] = [
+			(client.update, {"ref": ref, "title": "Brief the whole crew"}),
+			(client.complete, {"ref": ref}),
+			(client.claim, {"ref": ref}),
+			(client.move, {"ref": ref, "parent": None}),
+			(client.update_document, {"ref": document, "title": "How the whole crew is briefed"}),
+			(client.move, {"ref": document, "parent": None, "entity_type": "document"}),
+		]
+
+		for attempt, arguments in attempts:
+			with pytest.raises(subroutine.errors.ValidationError) as refused:
+				attempt(**arguments)
+
+			assert "is in the trash" in refused.value.detail, (attempt, refused.value.detail)
+
+		client.undiscard(ref=ref)
+
+		assert client.update(ref=ref, title="Brief the whole crew").title == "Brief the whole crew"
+
+
+def test_a_move_to_another_project_takes_the_trash_beneath_it (pair: Pair) -> None:
+	"""`SR#3935`: a trashed sub-task or section stayed in the old project.
+
+	Restored afterwards, it sat in one project under a parent in another, the mixed state creating
+	one refuses. **Carried with the rest**, so it comes back where what it is part of now is.
+	"""
+
+	for client in pair.both():
+		key = f"crew-{uuid.uuid4().hex[:6]}"
+		client.create_project(key=key, title="Crew")
+
+		parent = client.capture(text="Brief the crew").task.ref
+		child = client.capture(text="Find the ship", parent=parent).task.ref
+		client.discard(ref=child)
+		client.update(ref=parent, project=key)
+		restored = client.undiscard(ref=child)
+
+		assert restored.project_key == key, restored
+
+		document = client.create_document(title="How the crew is briefed").ref
+		section = client.create_document(title="Before the jump", parent=document).ref
+		client.discard(ref=section, entity_type="document")
+		client.update_document(ref=document, project=key)
+		back = client.undiscard(ref=section, entity_type="document")
+
+		assert back.project_key == key, back
+
+
 def test_both_list_the_trash_and_only_the_trash (pair: Pair) -> None:
 	"""A mixed list is the one place nothing in a row says which kind of thing it is."""
 

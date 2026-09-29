@@ -42,6 +42,7 @@ import subroutine.domain.schedule
 import subroutine.domain.selection
 import subroutine.domain.tags
 import subroutine.domain.text
+import subroutine.domain.trash
 import subroutine.domain.users
 import subroutine.domain.versions
 import subroutine.errors
@@ -1475,6 +1476,9 @@ def update (
 		workspace_id=task.workspace_id,
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
+	# **Nothing but restoring changes a task in the trash** (`#3935`) - not an edit, a completion or
+	# a skip, which all come through here.
+	subroutine.domain.trash.refuse(task, doing="changed")
 	refuse_an_answer_that_means_nothing(task, applies_to)
 	refuse_an_edit_that_does_not_say(task, applies_to, named=named)
 
@@ -1704,10 +1708,12 @@ def update (
 
 		descendants = list(
 			session.scalars(
+				# **The trash beneath it goes too** (`#3935`). It was left in the old project, so a
+				# sub-task restored afterwards sat in one project under a parent in another - the mixed
+				# state `create` refuses - where carrying it keeps the invariant for every row there is.
 				sqlalchemy.select(subroutine.db.models.work.Task).where(
 					subroutine.domain.hierarchy.subtree(subroutine.db.models.work.Task, task),
 					subroutine.db.models.work.Task.id != task.id,
-					subroutine.db.models.work.Task.deleted_at.is_(None),
 				)
 			)
 		)
@@ -2059,6 +2065,7 @@ def move (
 	)
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")
+	subroutine.domain.trash.refuse(task, doing="moved")
 
 	# **Neither end of a move is the repeat itself** (`#3936`). The occurrence is what is in front
 	# of somebody, and the next one is filed where the series is, so moving the series moved

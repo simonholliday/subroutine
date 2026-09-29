@@ -41,6 +41,7 @@ import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.text
+import subroutine.domain.trash
 import subroutine.domain.users
 import subroutine.domain.versions
 import subroutine.errors
@@ -403,6 +404,8 @@ def update (
 		workspace_id=document.workspace_id,
 	)
 	subroutine.domain.versions.require(document, expected_version, noun="This document")
+	# **Nothing but restoring changes a document in the trash** (`#3935`).
+	subroutine.domain.trash.refuse(document, doing="changed")
 
 	# **Filing it somewhere else** (`#294`). A document could be created into a project and
 	# never moved, so a conclusion written before anybody decided where it belonged stayed in
@@ -455,12 +458,13 @@ def update (
 
 		descendants = list(
 			session.scalars(
+				# **The trash beneath it goes too** (`#3935`), for `tasks.update`'s reason: a section
+				# left behind was restored into a different project from the document it is part of.
 				sqlalchemy.select(subroutine.db.models.work.Document).where(
 					subroutine.domain.hierarchy.subtree(
 						subroutine.db.models.work.Document, document
 					),
 					subroutine.db.models.work.Document.id != document.id,
-					subroutine.db.models.work.Document.deleted_at.is_(None),
 				)
 			)
 		)
@@ -653,6 +657,7 @@ def move (
 	)
 
 	subroutine.domain.versions.require(document, expected_version, noun="document")
+	subroutine.domain.trash.refuse(document, doing="moved")
 
 	if parent is not None and parent.project_id != document.project_id:
 		destination = session.get(subroutine.db.models.project.Project, parent.project_id)

@@ -192,6 +192,11 @@ upgrade involves.
   with a sentence about time zones, and is the whole of that day now. **The calendar feed writes
   an all-day series' end as a date**, as the standard requires beside a start that is one; it
   wrote a time there, which a strict calendar refuses.
+- **An item in the trash is refused every change but restoring it**, naming the trash: it could
+  be edited, finished, skipped, claimed and moved as though it were live, and finishing a
+  trashed occurrence of a repeat brought the next one. **Moving a task or a document to another
+  project takes what is in the trash beneath it too**, so restoring a sub-task or a section no
+  longer files it apart from what it is part of.
 
 ## 0.9.12 — 2026-09-29
 
