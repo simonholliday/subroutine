@@ -708,6 +708,44 @@ def _refuse_a_second_membership (
 	)
 
 
+def _refuse_an_owner_to_anybody_but_an_owner (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*roles: subroutine.db.models.identity.Role,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> None:
+	"""Refuse making, demoting or removing an owner unless an owner asks - decision `#3808`.
+
+	**An owner is a role that may delete the workspace**, the one thing the seeded owner may do and
+	the administrator may not: *Everything an owner can do, except delete the workspace itself*.
+	Granting a role asked only ``user:admin``, which both hold, so an administrator could make any
+	member owner - themselves included - and then delete the workspace, or remove the owner who
+	founded it (`#3813`). So a role carrying ``workspace:delete`` is granted, taken away or removed
+	only by somebody who holds it. A superuser is not bound by roles, and still may.
+
+	**Asked by the permission, not by the role's key**, since a workspace's roles are its own to
+	rename and a key would stop naming its owners the day it did.
+	"""
+
+	if actor is None:
+		return
+
+	if not any(
+		subroutine.permissions.WORKSPACE_DELETE in (role.permissions or []) for role in roles
+	):
+		return
+
+	if subroutine.domain.authorization.may(
+		session, actor, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+	):
+		return
+
+	raise subroutine.errors.Forbidden(
+		f"Only an owner of {workspace.slug} makes, demotes or removes an owner.",
+		hint="Ask an owner of this workspace, or whoever runs this instance.",
+	)
+
+
 def add_member (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
@@ -751,6 +789,7 @@ def add_member (
 	_refuse_a_second_membership(session, workspace, user)
 
 	role = find_role(session, workspace.id, role_key)
+	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, role, actor=actor)
 
 	membership = subroutine.db.models.identity.WorkspaceMember(
 		workspace_id=workspace.id, user_id=user.id, role_id=role.id
@@ -833,6 +872,9 @@ def set_member_role (
 	# out who granted what, and `TimestampMixin` would move ``updated_at`` besides.
 	if wanted.id == found.role_id:
 		return found
+
+	# **Both ends**: making somebody owner, and moving an owner to anything else (`#3813`).
+	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, held, wanted, actor=actor)
 
 	# **The guard is reached from here too, and it was written for removals only** — a
 	# demotion strands a workspace exactly as a removal does, by a different verb, and the
@@ -959,6 +1001,11 @@ def remove_member (
 			hint="Nothing was changed. Check the spelling - 'subroutine user list' shows who "
 			"is on this instance.",
 		)
+
+	held = session.get(subroutine.db.models.identity.Role, found.role_id)
+
+	if held is not None:
+		_refuse_an_owner_to_anybody_but_an_owner(session, workspace, held, actor=actor)
 
 	_refuse_leaving_nobody_who_can_administer(session, workspace, found)
 

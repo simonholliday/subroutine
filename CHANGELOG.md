@@ -23,6 +23,11 @@ upgrade involves.
   is refused now, saying why, and `/v1/me` no longer offers it to such a credential. Work in its
   projects is unchanged, and so is each project's own administration. **An agent that curates
   the vocabulary or moderates** needs a credential that is not narrowed to projects.
+- **Only an owner makes, demotes or removes an owner.** An administrator could make anybody
+  owner, themselves included, and then delete the workspace, or remove the owner who founded it,
+  though deleting the workspace is the one thing an owner may do and an administrator may not.
+  An administrator still grants roles up to administrator and removes anyone but an owner, and
+  whoever runs the instance is not bound by roles.
 
 ## 0.9.12 — 2026-09-29
 

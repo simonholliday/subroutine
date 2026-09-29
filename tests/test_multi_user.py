@@ -1191,3 +1191,99 @@ def test_the_account_list_says_when_it_stopped (
 	assert len(json.loads(scripted.stdout)) == 2
 	assert "…and more" in scripted.stderr, "a script got a page and nothing saying there was more"
 	assert "…and more" not in run("user", "list", "--limit", "50", "--json").stderr
+
+
+def _metacortex (
+	session: sqlalchemy.orm.Session,
+) -> tuple[
+	subroutine.db.models.identity.Workspace,
+	subroutine.db.models.identity.User,
+	subroutine.db.models.identity.User,
+	subroutine.db.models.identity.User,
+]:
+	"""Return a workspace with its founding owner, an administrator and a member."""
+
+	keanu = subroutine.domain.users.create(session, username="keanu")
+	workspace = subroutine.domain.workspaces.create(
+		session, slug="metacortex", title="Metacortex", owner=keanu, timezone="UTC"
+	)
+	carrie_anne = subroutine.domain.users.create(session, username="carrie-anne")
+	hugo = subroutine.domain.users.create(session, username="hugo")
+	subroutine.domain.workspaces.add_member(session, workspace, carrie_anne, role_key="admin")
+	subroutine.domain.workspaces.add_member(session, workspace, hugo, role_key="member")
+
+	return workspace, keanu, carrie_anne, hugo
+
+
+def test_only_an_owner_makes_demotes_or_removes_an_owner (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#3813`, decision `#3808`: what an administrator may not do stays an owner's.
+
+	Granting a role asked only ``user:admin``, which an administrator holds as an owner does, so
+	an administrator could make any member owner - themselves included - and then delete the
+	workspace, or remove the owner who founded it. Every call refused here succeeded before.
+	An administrator still grants roles up to administrator and removes anyone but an owner.
+	"""
+
+	workspace, keanu, carrie_anne, hugo = _metacortex(session)
+	gloria = subroutine.domain.users.create(session, username="gloria")
+	administering = subroutine.domain.authentication.Principal(user=carrie_anne)
+	workspaces = subroutine.domain.workspaces
+
+	refused: dict[str, typing.Callable[[], object]] = {
+		"a newcomer made owner": lambda: workspaces.add_member(
+			session, workspace, gloria, role_key="owner", actor=administering
+		),
+		"a member made owner": lambda: workspaces.set_member_role(
+			session, workspace, hugo, role_key="owner", actor=administering
+		),
+		"themselves made owner": lambda: workspaces.set_member_role(
+			session, workspace, carrie_anne, role_key="owner", actor=administering
+		),
+		"the owner demoted": lambda: workspaces.set_member_role(
+			session, workspace, keanu, role_key="admin", actor=administering
+		),
+		"the owner removed": lambda: workspaces.remove_member(
+			session, workspace, keanu, actor=administering
+		),
+	}
+
+	for case, attempt in refused.items():
+		with pytest.raises(subroutine.errors.Forbidden) as raised:
+			attempt()
+
+		assert raised.value.detail == (
+			"Only an owner of metacortex makes, demotes or removes an owner."
+		), case
+
+	roles = {
+		holder.username: held.key
+		for _found, holder, held in workspaces.members(session, workspace)
+	}
+
+	assert roles == {"keanu": "owner", "carrie-anne": "admin", "hugo": "member"}, roles
+
+	workspaces.set_member_role(session, workspace, hugo, role_key="admin", actor=administering)
+	workspaces.remove_member(session, workspace, hugo, actor=administering)
+
+
+def test_an_owner_or_the_operator_makes_and_removes_owners (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other half of decision `#3808`: an owner may, and a superuser is not bound by roles."""
+
+	workspace, keanu, _carrie_anne, hugo = _metacortex(session)
+	laurence = subroutine.domain.users.create(session, username="laurence", is_superuser=True)
+	owning = subroutine.domain.authentication.Principal(user=keanu)
+	operating = subroutine.domain.authentication.Principal(user=laurence)
+	workspaces = subroutine.domain.workspaces
+
+	workspaces.set_member_role(session, workspace, hugo, role_key="owner", actor=owning)
+	workspaces.set_member_role(session, workspace, hugo, role_key="member", actor=operating)
+	workspaces.set_member_role(session, workspace, hugo, role_key="owner", actor=operating)
+	workspaces.remove_member(session, workspace, hugo, actor=owning)
+
+	assert "hugo" not in {
+		holder.username for _found, holder, _held in workspaces.members(session, workspace)
+	}
