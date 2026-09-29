@@ -19,11 +19,14 @@ import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.config
 import subroutine.errors
+import subroutine.mcp.relay
 
 Run = typing.Callable[..., typer.testing.Result]
 
-#: The eight commands with a ``--workspace`` of their own, as somebody types them.
+#: The nine commands with a ``--workspace`` of their own, as somebody types them - ``mcp`` since
+#: ``SR#3942``.
 OWN_WORKSPACE = (
+	("mcp",),
 	("token", "create"),
 	("agent", "create"),
 	("calendar", "create"),
@@ -99,6 +102,33 @@ def test_every_command_with_its_own_workspace_takes_w_after_it (
 	assert re.search(r"--workspace\s+-w\b", shown), (
 		f"'subroutine {' '.join(command)}' has no -w beside --workspace:\n{shown}"
 	)
+
+
+def test_mcp_serves_the_workspace_w_names_before_it_or_after_it (
+	two: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3942`, S2 of L-10 of the cold review of 2026-09-28: ``mcp`` was not among the eight.
+
+	``subroutine -w beta mcp`` served no workspace, without a word; ``mcp -w beta`` was *No such
+	option*; and given both, the one after it won. **Either spelling names it, and two different
+	ones are refused by name.**
+	"""
+
+	served: list[str | None] = []
+
+	def serving (*_arguments: typing.Any, workspace: str | None, **_options: typing.Any) -> None:
+		"""Record the workspace the relay was started for, and serve nothing."""
+
+		served.append(workspace)
+
+	monkeypatch.setattr(subroutine.mcp.relay, "run", serving)
+
+	two("-w", "beta", "mcp")
+	two("mcp", "-w", "beta")
+	refused = two("-w", "beta", "mcp", "--workspace", "alpha", expect=1).output
+
+	assert served == ["beta", "beta"], served
+	assert "two different workspaces" in refused, refused
 
 
 def test_agent_create_pins_to_the_w_before_it (two: Run) -> None:

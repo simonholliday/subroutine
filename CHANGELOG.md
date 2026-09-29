@@ -140,6 +140,19 @@ upgrade involves.
   it would end up there, is refused before it happens, where each went ahead and every request
   the agent made was then refused. The API's description of adding a member names the
   permission it checks, and a worked example that promised one project now sends one.
+- **A section goes where its document is**, when nothing names a project, as a sub-task goes
+  where its parent is. It was refused on every surface as belonging somewhere else.
+- **Claiming a repeat by its own number is refused, naming the occurrence to claim**, as a
+  deferral or a skip is. It held the series, and the occurrence stayed ready for anybody else.
+- **A pair joined both ways by one kind can be unlinked.** *A duplicates B* and *B duplicates
+  A* are two links, and withdrawing one from `unlink` or `subroutine_link` was refused, asking
+  for the kind it had been given. The one withdrawn is the one that runs from the item named.
+- **`subroutine mcp` takes `-w`, before or after it.** One before it was dropped without a word,
+  and one after it was not an option.
+- **A workspace's last active administrator cannot be removed**: an administrator who has been
+  deactivated no longer counts as one staying.
+- **A `.subroutine` file that is not UTF-8, or a working directory that has been deleted,** is
+  read as no marker, where the terminal and `subroutine mcp` stopped at it.
 
 ## 0.9.12 — 2026-09-29
 

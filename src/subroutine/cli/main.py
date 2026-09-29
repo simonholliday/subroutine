@@ -698,7 +698,10 @@ def mcp (
 		"default, not the one in use.",
 	),
 	workspace: str = typer.Option(
-		"", "--workspace", help="Which workspace its calls land in. Unset means say each time."
+		"",
+		"--workspace",
+		"-w",
+		help="Which workspace its calls land in. Unset means say each time.",
 	),
 ) -> None:
 	"""Serve this instance to an AI agent over MCP, on stdin and stdout.
@@ -730,11 +733,17 @@ def mcp (
 	# invocation is a command line where it would.
 	import subroutine.mcp.relay
 
+	# **Through the helper the other commands with a workspace of their own share** (`#3942`,
+	# decision `#3831`): a ``-w`` before ``mcp`` was dropped without a word, one after it was
+	# *No such option*, and given both, the option after it won. ``use`` and a checkout's marker
+	# are not read here, as ever.
+	named = _named_on_the_command_line(workspace, "mcp")
+
 	subroutine.mcp.relay.run(
 		sys.stdin,
 		sys.stdout,
 		connection=connection or None,
-		workspace=workspace or None,
+		workspace=named or None,
 		settings=_settings(),
 	)
 

@@ -4048,11 +4048,14 @@ def _wrote (
 		# before starting work.
 		#
 		# **A `project` argument is the caller speaking now and still wins**, which is the same
-		# precedence a `+key` in a captured line has.
+		# precedence a `+key` in a captured line has. **So does a parent** (`#3942`), as it does for
+		# a sub-task (`#3769`): a section belongs to its document's project.
 		checkout = _checkout(
 			client,
 			workspace=workspace,
-			overridden=_text(arguments, "project") is not None,
+			overridden=(
+				_text(arguments, "project") is not None or arguments.get("parent") is not None
+			),
 			standing=standing,
 		)
 
@@ -4734,6 +4737,9 @@ def _linked (
 
 				if not joins:
 					raise LookupError(f"#{ref} has no {named!r} link to #{one}.")
+
+			# A pair joined both ways by one kind is withdrawn from this end (`#3942`).
+			joins = subroutine.clients.base.from_this_end(joins)
 
 			if len(joins) > 1:
 				raise LookupError(

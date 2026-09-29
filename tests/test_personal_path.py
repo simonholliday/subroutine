@@ -6765,6 +6765,28 @@ def test_withdrawing_a_link_that_is_not_there_leaves_the_others_alone (
 	)
 
 
+def test_a_pair_joined_both_ways_by_one_kind_is_unlinked_from_this_end (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: *1 duplicates 2* and *2 duplicates 1*.
+
+	They differ only by direction, so ``unlink 1 2`` asked for the kind, and ``--type duplicates``
+	was refused the same way. **The link withdrawn is the one that runs from the item named**,
+	which ``link 1 duplicates 2`` made; the other stays, until it is withdrawn from its own end.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+	run("add", "Mend the parser")
+	run("link", "1", "duplicates", "2")
+	run("link", "2", "duplicates", "1")
+
+	assert "Mend the parser" in run("unlink", "1", "2", "--type", "duplicates").output
+	assert "Fix the parser" in run("unlink", "2", "1").output
+
+	run("unlink", "1", "2", expect=1)
+
+
 def test_a_link_is_withdrawn_by_naming_the_two_items (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

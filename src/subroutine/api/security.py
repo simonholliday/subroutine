@@ -382,9 +382,10 @@ def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None
 
 	**``cors_origins`` is honoured**, because an operator who named an origin has already said
 	a browser there may make credentialed requests and read the replies; refusing its writes
-	would break a configuration somebody deliberately made. ``*`` is honoured too and gives
-	this up entirely — which it already does for reads, since the middleware is built with
-	``allow_credentials=True``.
+	would break a configuration somebody deliberately made. ``*`` is honoured too, and gives up
+	the ``Origin`` check for any page that names itself — which reads already give up, since the
+	middleware is built with ``allow_credentials=True``. A write naming no page is still refused
+	below, whatever ``cors_origins`` says (`#3942`).
 
 	**And a write that names no page at all is refused** (`#3016`, Simon's decision of
 	2026-09-28). An absent ``Origin`` used to pass, on the reasoning that only a browser attaches

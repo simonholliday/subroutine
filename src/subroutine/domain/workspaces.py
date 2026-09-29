@@ -1067,10 +1067,19 @@ def _refuse_leaving_nobody_who_can_administer (
 	# One query for every membership's permissions, not one per membership. The obvious
 	# version of this asks the database once per row and is `#39`'s N+1 on the path of a
 	# command somebody runs while tidying up a team.
+	# **Only an account that can still act is counted as staying** (`#3942`). A deactivated or
+	# deleted administrator was, so the only active one could be removed or demoted while the
+	# other had left, and the workspace had nobody able to administer it.
+	user = subroutine.db.models.identity.User
 	rows = session.execute(
 		sqlalchemy.select(member.id, role.permissions)
 		.join(role, role.id == member.role_id)
-		.where(member.workspace_id == workspace.id)
+		.join(user, user.id == member.user_id)
+		.where(
+			member.workspace_id == workspace.id,
+			user.is_active.is_(True),
+			user.deleted_at.is_(None),
+		)
 	).all()
 
 	administrators = {

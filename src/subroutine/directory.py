@@ -351,7 +351,13 @@ def find (start: pathlib.Path | None = None) -> Marker | None:
 	report where a credential was asked for.
 	"""
 
-	here = (start or pathlib.Path.cwd()).resolve()
+	# **A working directory that has been deleted holds no marker** (`#3942`): ``Path.cwd`` raises
+	# there, and the terminal, the agent tools and the relay each died at it.
+	try:
+		here = (start or pathlib.Path.cwd()).resolve()
+
+	except OSError:
+		return None
 
 	for directory in (here, *here.parents):
 		found = directory / FILE_NAME
@@ -380,7 +386,9 @@ def _read (path: pathlib.Path) -> Marker | None:
 		with path.open("rb") as handle:
 			data = tomllib.load(handle)
 
-	except (OSError, tomllib.TOMLDecodeError):
+	# **Nor is one that is not UTF-8** (`#3942`), which reading it raises as neither of the other
+	# two, and which killed ``subroutine mcp`` at its first message.
+	except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
 		return None
 
 	values = {

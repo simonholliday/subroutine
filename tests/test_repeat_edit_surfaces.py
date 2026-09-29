@@ -477,6 +477,34 @@ def test_skipping_the_repeat_itself_is_refused_naming_the_occurrence (
 	assert refused.value.hint == f"Skip #{instance.repeating}, the occurrence in front of you."
 
 
+def test_claiming_the_repeat_itself_is_refused_naming_the_occurrence (
+	instance: Instance,
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: a claim held the series, not the work.
+
+	It answered *Claimed*, and the occurrence stayed unclaimed and ready for anybody else, on the
+	terminal and the agent tools alike. **Refused as a deferral and a skip are** (decision
+	`SR#3795`), naming the occurrence to claim, and over HTTP too.
+	"""
+
+	series = _the_repeat_itself(instance)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		instance.client.claim(ref=series)
+
+	assert f"#{series} is the repeat itself" in str(refused.value), str(refused.value)
+	assert refused.value.hint == f"Claim #{instance.repeating}, the occurrence in front of you."
+
+	over_http = api_support.call(
+		instance.application,
+		"POST",
+		f"/v1/tasks/{series}/claim",
+		headers={"authorization": f"Bearer {instance.token}"},
+	)
+
+	assert over_http.status_code == 422, over_http.text
+
+
 def test_an_answer_about_something_that_does_not_repeat_is_refused (
 	instance: Instance,
 ) -> None:

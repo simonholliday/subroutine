@@ -13184,6 +13184,12 @@ def _unjoined (
 				f"Run 'subroutine show {near.ref}' to see what it is joined to.",
 			)
 
+	# **A pair joined both ways by one kind is withdrawn from this end** (`#3942`), since naming
+	# the kind cannot tell those two apart.
+	joins = {
+		ref: subroutine.clients.base.from_this_end(links) for ref, links in joins.items()
+	}
+
 	# **Refused rather than resolved, where a pair carries more than one link** (`SR#1637`).
 	# Both defaults are wrong half the time: removing every link destroys a statement somebody
 	# meant to keep, and removing one leaves a command that did less than it said. That is

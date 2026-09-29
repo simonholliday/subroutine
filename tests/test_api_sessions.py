@@ -1403,9 +1403,23 @@ def test_a_wildcard_gives_the_defence_up_entirely (
 
 	This is what `docs/hosting.md` now warns about in the operator's own terms. A test is where
 	the warning stops being prose.
+
+	**Only for a page that names itself** (`SR#3942`): a write naming none, which the browser says
+	came from another site, is refused under ``*`` too. Every request here sent an ``Origin``, so
+	the half given up was pinned and the half kept was not.
 	"""
 
 	application, held = _served_allowing(session, setup.user, "*")
+
+	unnamed = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
+		headers={"sec-fetch-site": "cross-site"},
+	)
+
+	assert unnamed.status_code == 403, unnamed.text
 
 	answer = api_support.call(
 		application,

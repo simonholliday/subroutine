@@ -170,18 +170,22 @@ def create (
 	"""Create a document - a spec, a design, a note, a decision, a finding or a dead end."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=body.workspace_id)
+	parent = None if body.parent is None else _resolve(session, actor, workspace, str(body.parent))
 
 	created = subroutine.domain.documents.create(
 		session,
 		settings=settings,
-		project=subroutine.domain.selection.project(session, actor, workspace, body.project),
+		# **A section goes where its document is, when nothing names a project** (`#3942`).
+		project=(
+			subroutine.domain.documents.parents_project(session, parent)
+			if body.project is None and parent is not None
+			else subroutine.domain.selection.project(session, actor, workspace, body.project)
+		),
 		title=body.title,
 		body=body.body,
 		type_key=body.type or "note",
 		status_key=body.status,
-		parent=(
-			None if body.parent is None else _resolve(session, actor, workspace, str(body.parent))
-		),
+		parent=parent,
 		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
 		tags=body.tags,
 		actor=actor,

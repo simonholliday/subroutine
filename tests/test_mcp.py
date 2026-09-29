@@ -5904,6 +5904,77 @@ def test_a_sub_task_goes_where_its_parent_is (
 	assert "+ops" in _called(bound, "subroutine_show", ref=_numbered(marked))[0], marked
 
 
+def test_a_section_goes_where_its_document_is (
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3942`: `SR#3769` for a document, whose sections were refused, with or without a checkout.
+
+	The checkout's project, or the Inbox where there was none, was not the document's, and a
+	section has to share it. **The parent outranks the checkout**, as a project argument does.
+	"""
+
+	_called(bound, "subroutine_project", key="ops", title="Operations")
+	_called(bound, "subroutine_project", key="web", title="Website")
+	whole = _documented(bound, title="The runbook", body="How.", project="ops")
+
+	part, failed = _called(
+		bound, "subroutine_document", title="The disks", body="Which.", parent=whole
+	)
+
+	assert not failed, part
+
+	(tmp_path / subroutine.directory.FILE_NAME).write_text('project = "web"\n', encoding="utf-8")
+	os.chdir(tmp_path)
+
+	marked, failed = _called(
+		_where_the_relay_stands(local_client),
+		"subroutine_document",
+		title="The backups",
+		body="When.",
+		parent=whole,
+	)
+
+	assert not failed, marked
+
+	for written in (part, marked):
+		shown, failed = _called(bound, "subroutine_show", ref=_numbered(written))
+
+		assert not failed and "ops" in shown and "web" not in shown, shown
+
+
+def test_a_pair_joined_both_ways_by_one_kind_is_withdrawn_from_this_end (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: naming the kind could not tell them apart.
+
+	*A duplicates B* and *B duplicates A* are two links, differing only by direction, so withdrawing
+	one asked for the kind, and naming it was refused the same way. **The one withdrawn is the one
+	that runs from the item named**, the kind named or not, and the other is left.
+	"""
+
+	first = _added(bound, "Fix the parser")
+	second = _added(bound, "Mend the parser")
+
+	for near, far in ((first, second), (second, first)):
+		assert not _called(bound, "subroutine_link", ref=near, type="duplicates", other=far)[1]
+
+	named, failed = _called(
+		bound, "subroutine_link", ref=first, other=second, type="duplicates", remove=True
+	)
+
+	assert not failed, named
+
+	unnamed, failed = _called(bound, "subroutine_link", ref=second, other=first, remove=True)
+
+	assert not failed, f"the link from the other end went with the first: {unnamed}"
+
+	gone, failed = _called(bound, "subroutine_link", ref=first, other=second, remove=True)
+
+	assert failed and "is not joined" in gone, gone
+
+
 # --- Which instance a session is bound to ------------------------------------------------
 
 

@@ -26,6 +26,7 @@ import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 
 
@@ -188,6 +189,34 @@ def test_the_last_administrator_may_leave_once_there_is_another (
 	subroutine.domain.users.set_active(session, first, active=False, actor=_acting(second))
 
 	assert not first.is_active
+
+
+def test_a_deactivated_administrator_does_not_count_as_one_staying (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: the workspace's guard counted a leaver.
+
+	With one of two administrators deactivated, the only active one could still be removed from
+	the workspace, since every administrator's membership was counted - leaving nobody there who
+	could administer it. **Only an account that can still act is counted as staying.**
+	"""
+
+	keeping = _superuser(session, "keeping")
+	leaving = _superuser(session, "leaving")
+	workspace = subroutine.domain.workspaces.create(
+		session, slug=f"shared-{uuid.uuid4().hex[:8]}", title="Shared", owner=keeping
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace, leaving, role_key="admin", actor=_acting(keeping)
+	)
+	subroutine.domain.users.set_active(session, leaving, active=False, actor=_acting(keeping))
+
+	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+		subroutine.domain.workspaces.remove_member(
+			session, workspace, keeping, actor=_acting(keeping)
+		)
+
+	assert "nobody who can administer it" in str(refusal.value), str(refusal.value)
 
 
 def test_an_agent_does_not_count_as_somebody_who_can_administer (

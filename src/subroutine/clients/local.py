@@ -3138,11 +3138,23 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			# **Resolved here rather than passed as a ref** (`#2173`). `documents.create` takes the
+			# row, and refusing a parent this caller cannot see *by name* is `selection.document`'s
+			# job - a ref that resolved to nothing would file the document at the top level and say
+			# it had done what was asked.
+			above = (
+				None if parent is None else subroutine.domain.selection.document(session, actor, chosen, str(parent))
+			)
 
 			created = subroutine.domain.documents.create(
 				session,
 				settings=self.settings,
-				project=subroutine.domain.selection.project(session, actor, chosen, project),
+				# **A section goes where its document is, when nothing names a project** (`#3942`).
+				project=(
+					subroutine.domain.documents.parents_project(session, above)
+					if project is None and above is not None
+					else subroutine.domain.selection.project(session, actor, chosen, project)
+				),
 				title=title,
 				body=body,
 				type_key=type or "note",
@@ -3152,17 +3164,7 @@ class Client:
 				# anything, since a conclusion with no author is a rumour.
 				owner_id=actor.user.id,
 				tags=tags,
-				# **Resolved here rather than passed as a ref** (`#2173`). `documents.create`
-				# takes the row, and refusing a parent this caller cannot see *by name* is
-				# `selection.document`'s job — a ref that resolved to nothing would file the
-				# document at the top level and say it had done what was asked.
-				parent=(
-					None
-					if parent is None
-					else subroutine.domain.selection.document(
-						session, actor, chosen, str(parent)
-					)
-				),
+				parent=above,
 				actor=actor,
 			)
 
@@ -3616,6 +3618,7 @@ class Client:
 
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
+			subroutine.domain.tasks.refuse_claiming_the_repeat_itself(session, row)
 			held = subroutine.domain.claims.claim(
 				session, row, minutes=minutes, settings=self.settings, actor=actor
 			)

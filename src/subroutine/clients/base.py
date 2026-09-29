@@ -2090,3 +2090,19 @@ def every_project (
 		found = client.projects(workspace=workspace, limit=limit)
 
 	return list(found)
+
+
+def from_this_end (links: typing.Sequence[subroutine.views.Link]) -> list[subroutine.views.Link]:
+	"""Keep, of a pair joined both ways by one kind, the link that runs from the item asked about.
+
+	**One link is what withdrawing one pair means** (`#3942`). *A duplicates B* and *B duplicates A*
+	are two links an item's own listing returns, differing only by direction, so naming their kind
+	could not tell them apart, and the terminal and the agent tools each refused, asking for the
+	kind they had just been given. The one kept is the one ``link <this> <kind> <other>`` made.
+	Anything else comes back as it came.
+	"""
+
+	if len(links) > 1 and len({one.link_type for one in links}) == 1:
+		return [one for one in links if one.direction == "outgoing"]
+
+	return list(links)

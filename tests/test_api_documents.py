@@ -30,6 +30,38 @@ def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
 	return test_api_tasks._world(session)
 
 
+def test_a_section_named_without_a_project_goes_where_its_document_is (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: `SR#3769` was done for tasks alone.
+
+	A section added with no project was filed where a document with no parent goes, the Inbox
+	here, and refused: *A section belongs to the same project as the document it is part of.*
+	**It goes where its document is**, and a project named that is not the document's is still
+	refused.
+	"""
+
+	made = world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+
+	assert made.status_code == 201, made.text
+
+	whole = world.call(
+		"POST", "/v1/documents", json={"title": "The site plan", "project": "web"}
+	).json()
+	part = world.call("POST", "/v1/documents", json={"title": "The blog", "parent": whole["ref"]})
+
+	assert part.status_code == 201, part.text
+	assert part.json()["project_key"] == "web", part.text
+
+	refused = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "The shop", "parent": whole["ref"], "project": "inbox"},
+	)
+
+	assert refused.status_code == 422, refused.text
+
+
 def test_a_document_is_written_and_read_back (world: test_api_tasks.World) -> None:
 	"""The default type is a note, which is the least presumptuous thing to assume."""
 

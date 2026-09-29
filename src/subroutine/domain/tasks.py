@@ -2237,6 +2237,21 @@ def _refuse_the_repeat_itself (
 	)
 
 
+def refuse_claiming_the_repeat_itself (
+	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+) -> None:
+	"""Refuse a claim given the repeat itself, naming the occurrence - `#3942`.
+
+	**As a deferral and a skip are** (decision `#3795`). Claiming the series held the row nobody
+	works on, and its occurrence stayed unclaimed and ready for anybody else to take, while the
+	claim said *Claimed*. Called by both clients before they claim, since
+	:mod:`~subroutine.domain.claims` is imported by this module and cannot import it back.
+	"""
+
+	if task.is_template:
+		_refuse_the_repeat_itself(session, task, act="claiming", verb="claim", field="ref")
+
+
 def skip (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,

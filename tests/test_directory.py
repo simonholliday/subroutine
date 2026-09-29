@@ -115,6 +115,38 @@ def test_a_directory_this_account_cannot_look_inside_holds_no_marker (
 		closed.chmod(0o700)
 
 
+def test_a_marker_that_is_not_utf_8_is_read_as_none (tmp_path: pathlib.Path) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: reading one raised, and nothing caught it.
+
+	A marker that cannot be read is absent, by this module's own rule, and one that is not UTF-8
+	raised as neither of the two failures caught, so ``subroutine mcp`` died at its first message
+	and the terminal at every command. **Read as no marker.**
+	"""
+
+	marked = tmp_path / "marked"
+	marked.mkdir()
+	(marked / subroutine.directory.FILE_NAME).write_bytes(b'project = "caf\xe9"\n')
+
+	assert subroutine.directory.find(marked) is None
+
+
+def test_a_working_directory_that_has_gone_holds_no_marker (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3942`: ``Path.cwd`` raises once the directory it names has been deleted.
+
+	The terminal, the agent tools and the relay each looked for a marker from there first, and
+	died. **No marker**, as a directory nobody can look inside holds none.
+	"""
+
+	gone = tmp_path / "gone"
+	gone.mkdir()
+	monkeypatch.chdir(gone)
+	gone.rmdir()
+
+	assert subroutine.directory.find() is None
+
+
 def test_an_unreadable_directory_does_not_stop_the_walk (
 	monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
