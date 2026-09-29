@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased
+## 0.9.12 — 2026-09-29
 
 - **A deferral given with a new repeat defers its first occurrence.** An item made with a repeat
   and a deferral in one request showed at once, since the deferral went on the repeat itself,
