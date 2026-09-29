@@ -233,6 +233,67 @@ def test_a_narrowed_token_cannot_comment (session: sqlalchemy.orm.Session) -> No
 	assert refused.status_code == 403
 
 
+@pytest.mark.parametrize("narrowing", ["reading-only", "writing-elsewhere"])
+def test_a_credential_that_may_not_comment_may_not_change_its_owners_comments_either (
+	world: test_api_tasks.World, narrowing: str
+) -> None:
+	"""`#3920`: adding a comment asks for ``comment:write`` in the item's project, and editing and
+	deleting asked only who wrote it - so a token scoped to reading, or one that may write only in
+	another project, was refused a new comment and then edited and deleted its owner's.
+
+	**With the positive twin**: the owner's own unrestricted token edits and deletes the same one.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
+	made = world.call(
+		"POST", f"/v1/tasks/{task['ref']}/comments", json={"body": "First take."}
+	).json()
+	elsewhere = world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"}).json()
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session=world.session,
+		user=world.user,
+		title="Narrowed",
+		**(
+			{"scopes": ["task:read", "comment:read"]}
+			if narrowing == "reading-only"
+			else {"project_write_scope": [elsewhere["id"]]}
+		),
+	)
+	world.session.flush()
+	secret = issued.value.get_secret_value()
+
+	def narrowed (method: str, path: str, **options: typing.Any) -> typing.Any:
+		"""Make one request with the narrowed token."""
+
+		return api_support.call(
+			world.application,
+			method,
+			path,
+			headers={"authorization": f"Bearer {secret}"},
+			**options,
+		)
+
+	added = narrowed("POST", f"/v1/tasks/{task['ref']}/comments", json={"body": "Another."})
+	edited = narrowed("PATCH", f"/v1/comments/{made['id']}", json={"body": "Rewritten."})
+	deleted = narrowed("DELETE", f"/v1/comments/{made['id']}")
+
+	assert (added.status_code, edited.status_code, deleted.status_code) == (403, 403, 403), (
+		added.text, edited.text, deleted.text
+	)
+	assert edited.json()["detail"] == deleted.json()["detail"] == added.json()["detail"], (
+		"refused for another reason than adding one is"
+	)
+	assert [
+		item["body"]
+		for item in world.call("GET", f"/v1/tasks/{task['ref']}/comments").json()["items"]
+	] == ["First take."], "a refused edit or delete still changed the comment"
+
+	edited = world.call("PATCH", f"/v1/comments/{made['id']}", json={"body": "Second take."})
+
+	assert edited.status_code == 200 and edited.json()["body"] == "Second take.", edited.text
+	assert world.call("DELETE", f"/v1/comments/{made['id']}").status_code == 200
+
+
 def test_comments_on_something_you_cannot_see_are_absent (
 	world: test_api_tasks.World,
 ) -> None:

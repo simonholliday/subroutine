@@ -31,6 +31,10 @@ upgrade involves.
 - **`db copy` moves an instance where a project has been prioritised.** It failed in both
   directions with a raw foreign key error, since a workspace's prioritised project names a table
   copied after it; the reference is now filled in once everything it can name is there.
+- **A credential that may not comment cannot edit or delete its owner's comments either.** Adding
+  a comment asked for `comment:write` in the item's project, and editing and deleting asked only
+  who wrote it, so a token scoped to reading, or one that may write only in another project,
+  rewrote and deleted its owner's comments.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

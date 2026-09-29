@@ -398,9 +398,12 @@ def update (
 	**Only the author may edit**, whatever their role. A comment is attributed prose, and an
 	administrator rewriting somebody else's words while leaving their name on them is not a
 	permission anybody should hold — deleting it is the honest alternative and is allowed.
+
+	**And only with a credential that may comment there** (`#3920`), as adding one asks.
 	"""
 
 	_authored_by(actor, comment, verb="edit")
+	_may_write(session, actor, comment)
 	subroutine.domain.versions.require(comment, expected_version, noun="This comment")
 
 	if body is subroutine.domain.patch.UNSET:
@@ -454,8 +457,10 @@ def delete (
 	Soft, like everything else here — nothing in this system hard-deletes, which is what lets an
 	event about a deleted thing still be scoped (§5.11a).
 
-	The author may delete their own; ``comment:write`` plus workspace administration may delete
-	anybody's, because a work record sometimes needs a mistake taken out of it.
+	The author may delete their own, and an administrator of the workspace anybody's, because a
+	work record sometimes needs a mistake taken out of it. **Either way with a credential that may
+	comment there** (`#3920`): only the administrator's half was asked, so a read-only credential
+	deleted its owner's comments.
 	"""
 
 	if actor is not None and comment.author_id != actor.user.id:
@@ -466,6 +471,7 @@ def delete (
 			workspace_id=comment.workspace_id,
 		)
 
+	_may_write(session, actor, comment)
 	subroutine.domain.versions.require(comment, expected_version, noun="This comment")
 
 	if comment.deleted_at is not None:
@@ -499,6 +505,39 @@ def delete (
 	session.flush()
 
 	return comment
+
+
+def _may_write (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	comment: subroutine.db.models.activity.Comment,
+) -> None:
+	"""Refuse a change to a comment by a credential that may not comment on its item (`#3920`).
+
+	**Exactly what adding one asks** - ``comment:write``, against the item's project - so a
+	credential's scopes and its write set both reach editing and deleting. Only whether the
+	caller wrote it was asked, so a token scoped to reading, or one that may write only in another
+	project, edited and deleted its owner's comments while being refused a new one. The item is
+	read as a read, since changing a comment on something in the trash is not adding to it.
+	"""
+
+	if actor is None:
+		return
+
+	subject = _entity(
+		session,
+		actor,
+		entity_type=comment.entity_type,
+		entity_id=comment.entity_id,
+		writing=False,
+	)
+	subroutine.domain.authorization.authorize(
+		session,
+		actor,
+		subroutine.permissions.COMMENT_WRITE,
+		workspace_id=comment.workspace_id,
+		project=_project_of(session, subject, entity_type=comment.entity_type),
+	)
 
 
 def _authored_by (
