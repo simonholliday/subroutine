@@ -179,6 +179,11 @@ upgrade involves.
   not an object as invalid params rather than as an internal error. A connection's address is
   quoted in refusals without its user and password, and a response of the wrong shape from a
   remote instance is a refusal naming the connection wherever it is read, not a traceback.
+- **A repeat's series is turned down by name wherever one occurrence is meant, on every
+  surface.** Moving it, putting work under it and linking it name the occurrence to act on
+  instead, and deleting it says that a repeat is stopped by marking it done. The terminal turned
+  all of these down on its own database, while the API, the browser and a remote connection
+  moved, deleted and linked the series.
 
 ## 0.9.12 — 2026-09-29
 

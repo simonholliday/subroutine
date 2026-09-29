@@ -1758,11 +1758,10 @@ def test_the_repeat_itself_is_turned_down_by_name_rather_than_denied (
 	pointed at a listing that excludes templates by design, so following the advice confirmed
 	the false statement.
 
-	**The exclusion is not the defect and is not changed.** ``_in_the_trash_too`` declines a
-	template with its reasons written down: widening it would make a series a legal parent to
-	move work under, which is a decision about the model that nobody has taken. What was wrong
-	is a refusal asserting something untrue — worse than a vague one, because the reader has no
-	thread to pull.
+	**The exclusion was not the defect.** What was wrong is a refusal asserting something
+	untrue — worse than a vague one, because the reader has no thread to pull. The exclusion
+	went with `SR#3936`, which put the refusal in the domain, one verb at a time, so the endpoint
+	gives it too; a delete says how a repeat is stopped.
 
 	**All three are driven in one test**, because that is what makes the contradiction visible:
 	each command alone is defensible and the set of them is not.
@@ -1780,14 +1779,15 @@ def test_the_repeat_itself_is_turned_down_by_name_rather_than_denied (
 	assert "the repeat itself" in run("show", "1").output, "show cannot read the template"
 
 	refused = run("delete", "1", expect=1)
+	said = " ".join(refused.output.split())
 
-	assert "There is no" not in refused.output, (
+	assert "There is no" not in said, (
 		f"delete denied a row show and done both reach:\n{refused.output}"
 	)
-	assert "repeat" in refused.output, (
+	assert "repeat" in said, (
 		f"the refusal has to say what the ref names:\n{refused.output}"
 	)
-	assert "done 1" in refused.output, (
+	assert "Mark #1 done" in said, (
 		f"the refusal has to name the command that does work:\n{refused.output}"
 	)
 
@@ -12766,12 +12766,13 @@ def test_the_repeat_refusal_points_at_the_occurrence_whatever_the_caller_was_doi
 	"""`SR#1331`. The hint was ``delete``'s and five verbs raise it.
 
 	``_in_the_trash_too`` is how ``delete``, ``link``, ``discard``, ``undiscard`` and ``move``
-	resolve a ref, so a ref naming a recurrence template refuses through one message for all of
+	resolve a ref, so a ref naming a recurrence template refused through one message for all of
 	them — and it read *"Stop it with 'subroutine done 2'"*. Somebody drawing a link between
 	two items was advised to complete a series.
 
 	Naming the row is right and is `SR#1322`'s improvement; the remedy has to be one that is
-	true whatever the caller came to do.
+	true whatever the caller came to do. **Since `SR#3936` each verb refuses in the domain with
+	its own**, so a link names the occurrence to link.
 	"""
 
 	run("init")
@@ -12791,11 +12792,13 @@ def test_the_repeat_refusal_points_at_the_occurrence_whatever_the_caller_was_doi
 	)
 
 	refused = run("link", str(ordinary), "blocks", str(series), expect=1)
+	said = " ".join(refused.output.split())
+	occurrence = next(ref for ref in rows if ref not in (series, ordinary))
 
-	assert "the repeat itself" in refused.output, (
+	assert "the repeat itself" in said, (
 		f"the refusal no longer names what the row is:\n{refused.output}"
 	)
-	assert "subroutine list" in refused.output, (
+	assert f"Link #{occurrence}, the occurrence in front of you." in said, (
 		f"nothing points at the row the caller can actually act on:\n{refused.output}"
 	)
 

@@ -40,6 +40,7 @@ import subroutine.domain.milestones
 import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.tasks
 import subroutine.errors
 import subroutine.permissions
 
@@ -412,6 +413,27 @@ def create (
 
 	if existing is not None:
 		return existing
+
+	# **The repeat itself is at neither end** (`#3936`), since a link is for one occurrence. The
+	# local client refused a series as it looked the ref up and the endpoint linked it, so the
+	# refusal is here, naming the occurrence - after the lookup above, so re-sending a link an
+	# older build made is answered with it, as `#3798` answers every link already there. The end
+	# somebody acted from is the address's, ``ref``, and the other is the body's ``target``.
+	named = acted_on or source
+
+	for end in (source, target):
+		row = (
+			session.get(subroutine.db.models.work.Task, end.id)
+			if end.entity_type == "task"
+			else None
+		)
+
+		if row is not None:
+			subroutine.domain.tasks.refuse_linking_the_repeat_itself(
+				session,
+				row,
+				field="ref" if (end.entity_type, end.id) == (named.entity_type, named.id) else "target",
+			)
 
 	_refuse_what_cannot_count(
 		session, source=source, target=target, link_type=link_type, acted_on=acted_on

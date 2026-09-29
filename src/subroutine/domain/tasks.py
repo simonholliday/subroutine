@@ -954,6 +954,19 @@ def create (
 	cleaned_title = _clean_title(title)
 	description = subroutine.domain.text.readable(description, field="description")
 
+	# **Work goes under an occurrence, never under the repeat itself** (`#3936`). The series is
+	# the rule rather than work (docs/design.md §6.7) and a listing hides it, so work filed under
+	# it hung from a row nobody is shown. The local client turned a series away as it looked the
+	# parent up and the endpoint took one, so the refusal is here, for both.
+	if parent is not None and parent.is_template:
+		_refuse_the_repeat_itself(
+			session,
+			parent,
+			act="putting work under it",
+			verb="put it under",
+			field="parent_task_id",
+		)
+
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
 			"A sub-task belongs to the same project as its parent.",
@@ -2022,6 +2035,20 @@ def move (
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")
 
+	# **Neither end of a move is the repeat itself** (`#3936`). The occurrence is what is in front
+	# of somebody, and the next one is filed where the series is, so moving the series moved
+	# nothing anybody is looking at and changed where the next occurrence goes: an edit to every
+	# one from now on, which this verb never asks about (decision `#1249`). Work moved under the
+	# series hangs from a row no listing shows. The local client refused both as it looked the
+	# refs up, and the endpoint did both.
+	if task.is_template:
+		_refuse_the_repeat_itself(session, task, act="moving", verb="move", field="ref")
+
+	if parent is not None and parent.is_template:
+		_refuse_the_repeat_itself(
+			session, parent, act="putting work under it", verb="put it under", field="parent"
+		)
+
 	if parent is not None and parent.project_id != task.project_id:
 		# **Refused rather than carried, and this is the decision worth reading** (`#44`).
 		# A subtask belongs to its parent's project — `create` enforces it and `update`
@@ -2235,6 +2262,57 @@ def _refuse_the_repeat_itself (
 			)
 		],
 	)
+
+
+def _refuse_deleting_the_repeat_itself (
+	session: sqlalchemy.orm.Session, series: subroutine.db.models.work.Task
+) -> typing.NoReturn:
+	"""Refuse a delete given the repeat itself, saying how a repeat is stopped - `#3936`.
+
+	**Not :func:`_refuse_the_repeat_itself`'s sentence**, because a delete is not only ever for an
+	occurrence: somebody deleting a series usually means *stop it*, which marking it done does
+	(decision `#1294`). So the hint says that first, and names the occurrence second, for
+	somebody who meant only the one in front of them, which may be deleted on its own.
+	"""
+
+	itself = subroutine.domain.refs.format_ref(series.ref)
+	occurrence = live_occurrence(session, series)
+	stopping = f"Mark {itself} done to stop it, keeping what it was and what it ran"
+	hint = (
+		f"{stopping}, or delete {subroutine.domain.refs.format_ref(occurrence.ref)} to drop only "
+		"the occurrence in front of you."
+		if occurrence is not None
+		else f"{stopping}."
+	)
+
+	raise subroutine.errors.ValidationError(
+		f"{itself} is the repeat itself, and a repeat is stopped rather than deleted.",
+		code="invalid_field_value",
+		hint=hint,
+		errors=[
+			subroutine.errors.FieldError(
+				field="ref",
+				code="invalid_field_value",
+				message="A repeat is stopped by marking it done, never deleted.",
+				hint=hint,
+			)
+		],
+	)
+
+
+def refuse_linking_the_repeat_itself (
+	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task, *, field: str
+) -> None:
+	"""Refuse a link with the repeat itself at one end, naming the occurrence - `#3936`.
+
+	**A link is for one occurrence**, and one of the things that never ask which (decision
+	`#1249`), so the series at either end is refused as a deferral, a skip and a claim are.
+	Called by :func:`subroutine.domain.links.create`, which imports this module; this one does not
+	import it back.
+	"""
+
+	if task.is_template:
+		_refuse_the_repeat_itself(session, task, act="a link", verb="link", field=field)
 
 
 def refuse_claiming_the_repeat_itself (
@@ -3538,6 +3616,13 @@ def delete (
 
 	if task.deleted_at is not None:
 		return task
+
+	# **A repeat is stopped, never deleted** (`#3936`, as decided on `#1294`). Stopping it keeps
+	# what it was and what it ran, where the series in the trash left its occurrence behind, still
+	# saying it repeats with nothing to bring the next. The local client refused as it looked the
+	# ref up and the endpoint deleted it, so the refusal is here, for both.
+	if task.is_template:
+		_refuse_deleting_the_repeat_itself(session, task)
 
 	task.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 

@@ -4181,20 +4181,18 @@ class Client:
 		reference to something in the trash is more useful than a dangling one" — so that half
 		is the two transports agreeing rather than a local liberty.
 
-		**Recurrence templates deliberately stop here**, unlike in `_row` and `_subject`. Those
-		two answer *what does this ref name*, which is a read, and `#921` is that a ref we
-		publish must resolve. This one serves `restore`, `undiscard` and `move` — so widening it
-		would quietly make a series a legal parent to move work under, which is a decision about
-		the model rather than about reading, and nobody has taken it. A deleted template is
-		reachable only through the API in any case: stopping a series *completes* the template
-		rather than deleting it (§6.7).
+		**And recurrence templates, since `#3936`**, as in `_row` and `_subject`. They stopped here
+		once, so that a series could not quietly become a parent to move work under - but only here,
+		so the endpoint, which resolves all three, moved a series, deleted it, linked it and filed
+		work under it, and one database answered two ways. **The refusal is the domain's now**, in
+		``tasks.move``, ``tasks.delete``, ``tasks.create`` and ``links.create``, each naming the
+		occurrence to act on or, for a delete, how a repeat is stopped. So this answers what the ref
+		names, and ``undiscard`` and ``unlink`` reach a series an older endpoint left in the trash or
+		at the end of a link, as the endpoint does.
 
-		**The refusal has to say that, and it used to say the ref named nothing** (`#1322`).
-		``show 6`` read the row, ``done 6`` acted on it, and the product itself printed *from
-		repeat #6* — while ``delete 6`` answered *"There is no task #6"* and sent the reader to
-		a listing that excludes templates by design, where following the advice confirmed the
-		false statement. The exclusion above is right; the message was not. It names the kind
-		now, through :meth:`_nothing_of_that_kind`.
+		**So a refusal here is about a ref naming nothing** this caller can see, which is the one
+		thing it says. Before, it could be a series this lookup declined, and *"There is no task
+		#6"* about a row ``show 6`` had just read was a false statement (`#1322`).
 		"""
 
 		chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -4208,70 +4206,22 @@ class Client:
 			)
 			if documents
 			else subroutine.domain.scoping.readable_tasks(
-				actor, workspace_ids=[chosen.id], include_deleted=True, include_archived=True
+				actor,
+				workspace_ids=[chosen.id],
+				include_deleted=True,
+				include_archived=True,
+				include_templates=True,
 			)
 		)
 		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
 
 		if row is None:
-			raise self._nothing_of_that_kind(
-				session, actor, chosen, entity_type=entity_type, ref=ref, documents=documents
+			raise subroutine.errors.NotFound(
+				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} in {chosen.slug}.",
+				hint="Run 'subroutine list' to see what there is.",
 			)
 
 		return row
-
-	def _nothing_of_that_kind (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		chosen: typing.Any,
-		*,
-		entity_type: str,
-		ref: int,
-		documents: bool,
-	) -> subroutine.errors.NotFound:
-		"""Return the refusal for a ref this lookup will not take, saying what it *is*.
-
-		**A refusal may not assert something untrue** (`#1322`). The ref that reaches here is
-		usually one that names nothing, and sometimes one that names a row this particular
-		lookup declines — a recurrence template, which :meth:`_in_the_trash_too` excludes for
-		the reasons written there. Saying *"there is no task #6"* about a row the caller has
-		just been shown leaves them nothing to do; naming it points at the command that works.
-
-		**The hint says what to do, and never what this one caller happened to be doing**
-		(`#1331`). Five verbs resolve refs through :meth:`_in_the_trash_too` — ``delete``,
-		``link``, ``discard``, ``undiscard`` and ``move`` — and the first version offered
-		``done`` to all of them, so somebody drawing a link between two items was advised to
-		complete a series. Both clauses below are true whatever the caller came to do: the
-		occurrence is the row to act on, and stopping the series is the other thing you might
-		have wanted.
-
-		**The second query is the price of the ordinary refusal, not of the rare one.** This
-		runs *because* the narrow lookup found nothing, so a ref naming nothing at all pays for
-		the wider look and a template does not. It is one indexed read on the way out of a
-		failing call, which is the cheapest moment there is to spend one — but the earlier
-		sentence here had it exactly backwards and would have misled anybody costing it.
-		"""
-
-		written = subroutine.domain.refs.format_ref(ref)
-
-		if not documents:
-			series = self._row(session, actor, chosen.id, ref)
-
-			if series is not None and series.is_template:
-				return subroutine.errors.NotFound(
-					f"{written} is the repeat itself, not a task - {series.title}",
-					hint=(
-						f"'subroutine list' names the occurrence to act on instead, and "
-						f"'subroutine show {ref}' reads the repeat. 'subroutine done {ref}' "
-						f"stops it altogether, keeping what it was and what it ran."
-					),
-				)
-
-		return subroutine.errors.NotFound(
-			f"There is no {entity_type} {written} in {chosen.slug}.",
-			hint="Run 'subroutine list' to see what there is.",
-		)
 
 	def _subject (
 		self,

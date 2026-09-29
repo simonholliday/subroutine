@@ -505,6 +505,112 @@ def test_claiming_the_repeat_itself_is_refused_naming_the_occurrence (
 	assert over_http.status_code == 422, over_http.text
 
 
+def test_the_repeat_itself_is_refused_where_one_occurrence_is_meant (
+	instance: Instance,
+) -> None:
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28: the two transports disagreed.
+
+	The local client turned the series away as it looked a ref up, for a move, a parent and a
+	link, and the endpoint moved it, filed work under it and linked it. **Refused in the domain**,
+	naming the occurrence as a deferral, a skip and a claim do, so both say it.
+	"""
+
+	series = _the_repeat_itself(instance)
+	once = instance.once
+	occurrence = f"#{instance.repeating}, the occurrence in front of you."
+	attempts: list[tuple[typing.Callable[[], object], str, str, str, dict[str, typing.Any]]] = [
+		(
+			lambda: instance.client.move(ref=series, parent=once),
+			f"Move {occurrence}",
+			"ref",
+			f"/v1/tasks/{series}/move",
+			{"parent": str(once)},
+		),
+		(
+			lambda: instance.client.move(ref=once, parent=series),
+			f"Put it under {occurrence}",
+			"parent",
+			f"/v1/tasks/{once}/move",
+			{"parent": str(series)},
+		),
+		(
+			lambda: instance.client.capture(text="Bring the agenda", parent=series),
+			f"Put it under {occurrence}",
+			"parent_task_id",
+			"/v1/tasks",
+			{"title": "Bring the agenda", "parent_task_id": series},
+		),
+		(
+			lambda: instance.client.link(ref=once, link_type="blocks", target=series),
+			f"Link {occurrence}",
+			"target",
+			f"/v1/tasks/{once}/links",
+			{"link_type": "blocks", "target": series},
+		),
+		(
+			lambda: instance.client.link(ref=series, link_type="blocks", target=once),
+			f"Link {occurrence}",
+			"ref",
+			f"/v1/tasks/{series}/links",
+			{"link_type": "blocks", "target": once},
+		),
+	]
+
+	for attempt, hint, field, path, body in attempts:
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			attempt()
+
+		assert f"#{series} is the repeat itself" in str(refused.value), str(refused.value)
+		assert refused.value.hint == hint, refused.value.hint
+		assert [error.field for error in refused.value.errors] == [field], refused.value.errors
+
+		over_http = api_support.call(
+			instance.application,
+			"POST",
+			path,
+			headers={"authorization": f"Bearer {instance.token}"},
+			json=body,
+		)
+
+		assert over_http.status_code == 422, (path, over_http.text)
+		assert f"#{series} is the repeat itself" in over_http.json()["detail"], over_http.text
+
+
+def test_deleting_the_repeat_itself_says_how_a_repeat_is_stopped (
+	instance: Instance,
+) -> None:
+	"""`SR#3936`: the endpoint deleted the series, which the terminal turns down (`SR#1294`).
+
+	In the trash, the series left its occurrence saying it repeats, with nothing that would bring
+	the next. **Refused in the domain**, saying that a repeat is stopped by marking it done, and
+	naming the occurrence for somebody who meant only that one, which may still be deleted.
+	"""
+
+	series = _the_repeat_itself(instance)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		instance.client.discard(ref=series)
+
+	assert f"#{series} is the repeat itself" in str(refused.value), str(refused.value)
+	assert refused.value.hint == (
+		f"Mark #{series} done to stop it, keeping what it was and what it ran, or delete "
+		f"#{instance.repeating} to drop only the occurrence in front of you."
+	), refused.value.hint
+
+	over_http = api_support.call(
+		instance.application,
+		"DELETE",
+		f"/v1/tasks/{series}",
+		headers={"authorization": f"Bearer {instance.token}"},
+	)
+
+	assert over_http.status_code == 422, over_http.text
+
+	gone = instance.client.discard(ref=instance.repeating)
+
+	assert gone.ref == instance.repeating, "the occurrence could not be deleted on its own"
+
+
 def test_an_answer_about_something_that_does_not_repeat_is_refused (
 	instance: Instance,
 ) -> None:
