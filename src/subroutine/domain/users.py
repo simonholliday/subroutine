@@ -354,27 +354,39 @@ def transfer (
 			hint="Only an agent has somebody else accountable for it.",
 		)
 
-	previous = agent.responsible_user_id
-	agent.responsible_user_id = to.id
-
-	# Proved against the tree as it will be, not as it was: assigning first and walking after is
-	# what catches handing an agent to something below itself, which is a cycle every foreign key
-	# resolves happily. Put back on refusal so a refused transfer changes nothing.
-	try:
-		subroutine.domain.accountability.chain(session, agent)
-
-	except subroutine.errors.ValidationError as looped:
-		agent.responsible_user_id = previous
-
-		# The chain's own message names the cycle, which is right where it is raised and wrong
-		# here: somebody handing an agent over asked a different question and wants it answered
-		# in those terms.
+	# **A cycle is asked for by name** (`#3939`). Handing an agent to something below itself is a
+	# loop every foreign key resolves happily, and the move makes one exactly when the target
+	# already answers to the agent. It was found by assigning and walking, and every refusal the
+	# walk raised was reworded as this one, so a chain that was only too long was called a loop.
+	if to.id == agent.id or any(
+		below.id == to.id
+		for below in subroutine.domain.accountability.agents_answering_to(session, agent)
+	):
 		raise subroutine.errors.ValidationError(
 			f"{to.username} already answers to {agent.username}, directly or through another "
 			f"agent, so this would leave neither of them answering to a person.",
 			hint="Hand it to somebody outside the chain below it.",
-		) from looped
+		)
 
+	# **Measured at the deepest agent below it, where the chain is longest** (`#3939`). Walking the
+	# moved agent alone let one with eight levels below it go to an agent ten deep, and its deepest
+	# sub-agent could not act, with nothing said. A target whose own chain reaches no person is
+	# refused in the chain's own words, and all of it before anything moves.
+	depth = subroutine.domain.accountability.MAX_DEPTH
+	below = subroutine.domain.accountability.levels_below(session, agent)
+	longest = below + 1 + len(subroutine.domain.accountability.chain(session, to))
+
+	if longest > depth:
+		whose = "it" if below == 0 else "an agent below it"
+
+		raise subroutine.errors.ValidationError(
+			f"Handing {agent.username} to {to.username} would give {whose} a chain of "
+			f"responsibility {longest} accounts long, and more than {depth} is treated as broken, "
+			f"so it could not act.",
+			hint="Hand it to somebody nearer a person.",
+		)
+
+	agent.responsible_user_id = to.id
 	agent.version += 1
 	session.flush()
 

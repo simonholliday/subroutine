@@ -35,9 +35,11 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.errors
 
-#: How far a chain may be walked before it is treated as broken rather than long. A real one is
-#: one or two links; anything approaching this is a cycle the write-time guard failed to stop,
-#: and looping forever inside an authentication path is the worse of the two failures.
+#: How long a chain may be before it is treated as broken rather than long. A real one is one or
+#: two links; anything approaching this is a cycle the write-time guard failed to stop, or a
+#: nesting nobody meant, and looping forever inside an authentication path is the worse of the
+#: two failures. **Held on the way in as well** (`#3939`): an agent is not made, or handed on,
+#: where its chain, or the chain of an agent below it, would be longer than this.
 MAX_DEPTH = 16
 
 
@@ -75,12 +77,22 @@ def chain (
 				f"so nothing it does can be traced to a person."
 			)
 
-		if following.id in seen or len(walked) >= MAX_DEPTH:
+		if following.id in seen:
 			named = " → ".join(entry.username for entry in walked)
 
 			raise subroutine.errors.ValidationError(
 				f"Responsibility for '{user.username}' runs in a circle and never reaches a "
 				f"person: {named} → {following.username}."
+			)
+
+		# **Too long is not a circle** (`#3939`), and was said as one: sixteen nested agents that
+		# reached a person were refused as a loop, over a list that ended at the person.
+		if len(walked) >= MAX_DEPTH:
+			named = " → ".join(entry.username for entry in walked)
+
+			raise subroutine.errors.ValidationError(
+				f"The chain of responsibility for '{user.username}' is more than {MAX_DEPTH} "
+				f"accounts long, which is treated as broken: {named} → {following.username}."
 			)
 
 		walked.append(following)
@@ -172,6 +184,45 @@ def agents_answering_to (
 		frontier = [row.id for row in fresh]
 
 	return sorted(found.values(), key=lambda row: row.username)
+
+
+def levels_below (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> int:
+	"""Return how many levels of agents answer to ``user`` through one another — `#3939`.
+
+	The distance to the furthest of them, which is where a chain moved above ``user`` is longest:
+	a transfer measured at the moved agent alone left an agent eight levels below it answering
+	through a chain nothing would walk. Walked by level for :func:`agents_answering_to`'s reason,
+	and bounded by :data:`MAX_DEPTH`, since anything deeper is broken already.
+	"""
+
+	model = subroutine.db.models.identity.User
+	seen: set[uuid.UUID] = {user.id}
+	frontier = [user.id]
+	levels = 0
+
+	for _step in range(MAX_DEPTH):
+		fresh = [
+			one
+			for one in session.scalars(
+				sqlalchemy.select(model.id).where(
+					model.responsible_user_id.in_(frontier),
+					model.is_service_account.is_(True),
+					model.deleted_at.is_(None),
+				)
+			)
+			if one not in seen
+		]
+
+		if not fresh:
+			break
+
+		seen.update(fresh)
+		frontier = fresh
+		levels += 1
+
+	return levels
 
 
 def answerable_for_many (
@@ -315,7 +366,7 @@ def account_parent_name (
 	return account_parents_for_many(session, [user]).get(user.id)
 
 
-def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:
+def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID:
 	"""Return who a *new* account created by ``actor`` must be answerable to: ``actor`` itself.
 
 	**The creator, not the creator's person.** An agent that spawns a sub-agent becomes the link
@@ -375,12 +426,6 @@ def refuse_an_unaccountable_agent (
 
 		wanted = inherited(actor)
 
-		if wanted is None:
-			raise subroutine.errors.ValidationError(
-				f"No one is accountable for '{actor.username}', so it cannot create an agent "
-				f"that would be answerable to nobody."
-			)
-
 	elif actor is not None and actor.is_service_account and wanted != inherited(actor):
 		raise subroutine.errors.ValidationError(
 			f"An agent cannot choose who answers for the agents it creates. "
@@ -397,6 +442,16 @@ def refuse_an_unaccountable_agent (
 	# Walking from the *named* account proves the new agent's chain before it is written: if the
 	# person named is themselves an agent, their chain has to reach somebody, and this is the
 	# only moment where refusing costs nothing.
-	chain(session, named)
+	above = chain(session, named)
+
+	# **And measures it** (`#3939`): the new agent is one more link, so under a chain already as
+	# long as :data:`MAX_DEPTH` allows, an agent was made that every one of its requests refused.
+	if len(above) >= MAX_DEPTH:
+		raise subroutine.errors.ValidationError(
+			f"An agent answering to '{named.username}' would have a chain of responsibility "
+			f"{len(above) + 1} accounts long, and more than {MAX_DEPTH} is treated as broken, so it "
+			f"could never act.",
+			hint="Make it answer to an account nearer a person.",
+		)
 
 	return wanted

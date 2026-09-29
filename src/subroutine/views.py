@@ -3000,8 +3000,8 @@ class Agenda(pydantic.BaseModel):
 	upcoming: list[Task]
 	unscheduled: list[Task]
 
-	#: What is waiting on a person — status ``needs_input`` (`#1116`). First in
-	#: :data:`AGENDA_BUCKETS`, because it is the only one that is not work the reader could do.
+	#: What is waiting on a person — status ``needs_input`` (`#1116`), the only bucket that is
+	#: not work the reader could do. Where it comes is :data:`AGENDA_BUCKETS`' to say.
 	#:
 	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`), for
 	#: the reason ``in_progress`` below gives.

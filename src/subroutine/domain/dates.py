@@ -659,12 +659,6 @@ def zone (timezone: str, field: str = "timezone") -> zoneinfo.ZoneInfo:
 def _unit_hint (unit: str) -> str:
 	"""Explain an unrecognised offset unit, naming the mistake where it is a known one."""
 
-	if unit.lower() == "m" or unit.upper() == "M":
-		return (
-			"Case matters here: 'm' is minutes and 'M' is months. Units are "
-			f"{_VALID_UNITS}."
-		)
-
 	if unit.lower() in {"d", "w", "h", "y"}:
 		return f"Units are lower case except 'M' for months: write '{unit.lower()}'."
 

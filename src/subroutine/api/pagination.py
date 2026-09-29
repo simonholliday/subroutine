@@ -273,7 +273,8 @@ def _same (key: SortKey, value: typing.Any) -> sqlalchemy.ColumnElement[bool]:
 def _sign (secret: str, body: str, collection: str) -> str:
 	"""Return the signature for a cursor body, in the collection it belongs to.
 
-	The separator cannot appear in a collection name — they are the fixed words below — so
+	The separator cannot appear in a collection name — each is a fixed word, or for one item's
+	history or comments a fixed word with the item's kind and id after colons (`#3939`) — so
 	there is no pair of (collection, body) that signs the same as another.
 	"""
 

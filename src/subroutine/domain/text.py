@@ -101,8 +101,10 @@ def plain (message: str) -> str:
 	**Wider than :data:`CONTROL_CHARACTERS`, and the difference is the point.** That set is
 	refused when somebody *writes*; this one is stripped when anybody *reads*. A read has to
 	defend text this instance never validated — a merged remote agenda, a restored database, a
-	row written before that refusal existed — so it also takes ``\r`` and the C1 range, neither
-	of which a writer here can store any more.
+	row written before that refusal existed — so it also takes ``\r`` and the C1 range. **And a
+	writer here can still store both** (`#3939`): the refusal leaves them alone, so a one-line
+	field such as a title keeps a C1 character and turns ``\r`` into a space, and a comment, a
+	description or a body keeps both.
 	"""
 
 	return INSTRUCTIONS.sub("", message)

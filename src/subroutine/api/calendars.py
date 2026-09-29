@@ -10,7 +10,7 @@ a deliberate consequence of the secret being in the path rather than in a header
 
 * **It carries no ``PrincipalDep``**, so §7.7's limiters — which live inside that dependency —
   do not reach it. `#364` predicted that gap for a login endpoint; this is its second
-  instance, and :meth:`~subroutine.api.limits.Limiters.count_a_poll` is the answer.
+  instance, and :meth:`~subroutine.api.limits.Limits.count_a_poll` is the answer.
 * **Every refusal is a 404.** The credential *is* the address, so there is no header to
   correct and no challenge a calendar client could answer.
 * **It answers ``text/calendar``**, and conditionally: clients poll on schedules nobody here

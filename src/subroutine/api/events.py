@@ -121,12 +121,17 @@ def _page (
 	)
 	size = subroutine.domain.paging.size(limit, settings)
 
+	# **One item's history is its own collection** (`#3939`), for `#1564`'s reason: signed with
+	# one word for every item, a cursor from one item's history was accepted on another's, and
+	# carried on there from where the first had stopped, leaving rows out behind a 200.
+	collection = f"history:{entity_type}:{entity_id}"
+
 	if cursor is not None:
 		statement = statement.where(
 			subroutine.api.pagination.after(
 				keys,
 				subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="changes"
+					settings.require_secret_key(), keys, cursor, collection=collection
 				),
 			)
 		)
@@ -143,7 +148,7 @@ def _page (
 			has_more=has_more,
 			next_cursor=(
 				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, rows[-1], collection="changes"
+					settings.require_secret_key(), keys, rows[-1], collection=collection
 				)
 				if has_more and rows
 				else None

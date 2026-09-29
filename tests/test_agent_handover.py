@@ -134,9 +134,8 @@ def test_handing_an_agent_to_its_own_descendant_is_refused (
 ) -> None:
 	"""A cycle where every foreign key resolves and nobody answers for anything.
 
-	This is why the check runs against the tree as it *will* be rather than as it was: asking
-	whether the target is currently reachable would miss the case where the move itself makes
-	the loop.
+	The move makes one exactly when the target already answers to the agent being moved, so that
+	is what is asked, by name, before anything is assigned (`SR#3939`).
 	"""
 
 	person = _person(session)
@@ -150,7 +149,7 @@ def test_handing_an_agent_to_its_own_descendant_is_refused (
 
 
 def test_a_refused_transfer_changes_nothing (session: sqlalchemy.orm.Session) -> None:
-	"""The refusal above assigns before it walks, so it has to put the old answer back.
+	"""A refused transfer leaves the agent answering to whoever it answered to before.
 
 	Worth its own test rather than trusting the one above: a guard that leaves the row half
 	written is `claims._lease`'s recorded defect, where a refused lease length left the loaded
@@ -166,6 +165,60 @@ def test_a_refused_transfer_changes_nothing (session: sqlalchemy.orm.Session) ->
 
 	assert parent.responsible_user_id == person.id
 	assert subroutine.domain.accountability.answers_for(session, child) is person
+
+
+def test_an_agent_is_not_handed_where_an_agent_below_it_could_not_act (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3939`, NEW-L7-1 of the verification of the cold review of 2026-09-28.
+
+	A transfer walked the moved agent's own chain and nothing below it, so an agent with eight
+	levels below it could be handed to one ten deep, and its deepest sub-agent was left with a
+	chain nineteen accounts long - treated as broken, so it could not act - with nothing said.
+	**Measured at the deepest agent below**, and refused before anything moves - one account past
+	the limit is refused and a chain exactly as long as allowed is not.
+	"""
+
+	person = _person(session)
+
+	def nested (
+		top: subroutine.db.models.identity.User, depth: int
+	) -> list[subroutine.db.models.identity.User]:
+		"""Nest ``depth`` agents under ``top`` by hand, each answering to the one before it."""
+
+		made: list[subroutine.db.models.identity.User] = []
+		above = top
+
+		for _level in range(depth):
+			agent = _agent(session, person, "level")
+			agent.responsible_user_id = above.id
+			made.append(agent)
+			above = agent
+
+		session.flush()
+
+		return made
+
+	moving = _agent(session, person, "moving")
+	deepest = nested(moving, 8)[-1]
+	ladder = nested(person, 7)
+
+	# Eight below, the agent itself, and a target whose own chain is eight long: seventeen.
+	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+		subroutine.domain.users.transfer(session, moving, to=ladder[-1], actor=_acting(person))
+
+	said = str(refusal.value)
+
+	assert "an agent below it" in said and "17 accounts long" in said, said
+	assert moving.responsible_user_id == person.id, "a refused transfer moved the agent"
+	assert subroutine.domain.accountability.can_act(session, deepest)
+
+	# One nearer a person, and the deepest chain is exactly as long as allowed.
+	subroutine.domain.users.transfer(session, moving, to=ladder[-2], actor=_acting(person))
+
+	assert len(subroutine.domain.accountability.chain(session, deepest)) == (
+		subroutine.domain.accountability.MAX_DEPTH
+	)
 
 
 def test_an_agent_may_be_handed_to_another_agent (session: sqlalchemy.orm.Session) -> None:

@@ -270,10 +270,9 @@ class Agenda:
 	date: datetime.date
 	timezone: str
 
-	#: What is waiting on a person — status ``needs_input`` (`#1116`). **First**, because it is
-	#: the only bucket that is not work the reader could do: it is work somebody else cannot do
-	#: until they answer, so leaving it below the day's own list buries the one thing that
-	#: unblocks anybody else.
+	#: What is waiting on a person — status ``needs_input`` (`#1116`). The only bucket that is
+	#: not work the reader could do: it is work somebody else cannot do until they answer. Where
+	#: it comes is :data:`BUCKETS`' to say, which is the one place the order is argued.
 	waiting: tuple[subroutine.db.models.work.Task, ...]
 
 	overdue: tuple[subroutine.db.models.work.Task, ...]
@@ -281,10 +280,10 @@ class Agenda:
 	upcoming: tuple[subroutine.db.models.work.Task, ...]
 	unscheduled: tuple[subroutine.db.models.work.Task, ...]
 
-	#: What is already started — status category ``in_progress`` (`#853`). Between *today* and
-	#: the rest, because work somebody is in the middle of is neither scheduled nor a candidate
-	#: to pick up, and an agenda that could not say so left an agent unable to see its own
-	#: half-finished work (`#841`).
+	#: What is already started — status category ``in_progress`` (`#853`). Work somebody is in
+	#: the middle of is neither scheduled nor a candidate to pick up, and an agenda that could not
+	#: say so left an agent unable to see its own half-finished work (`#841`). Where it comes is
+	#: :data:`BUCKETS`' to say.
 	in_progress: tuple[subroutine.db.models.work.Task, ...] = ()
 
 	#: What is happening to you today rather than being done by you — the ``occasion`` type
@@ -394,8 +393,8 @@ class Agenda:
 	#: morning.
 	#:
 	#: **Counted on the scope before the assignee rule, and nothing else is** — every other
-	#: total here is computed on rows that already survived it, so the seven partition rather than
-	#: overlap. A row of somebody else's that is *also* deferred is counted once, here.
+	#: total here is computed on rows that already survived it, so the totals partition rather
+	#: than overlap. A row of somebody else's that is *also* deferred is counted once, here.
 	assigned_elsewhere_total: int = 0
 
 	#: How many *dated* tasks this agenda does not show — further out than the look-ahead, or
@@ -1183,8 +1182,8 @@ def _scoped (
 	negating a clause the select already carries returns nothing, correctly and uselessly.
 
 	**The project narrowing goes here, beside the workspace one, rather than per bucket.** Every
-	bucket narrows this, so one clause covers all seven and a bucket added later is scoped
-	without anybody remembering.
+	bucket narrows this, so one clause covers every bucket in :data:`BUCKETS`, and a bucket
+	added later is scoped without anybody remembering.
 
 	**And so does the assignee, for the same reason** (`#1265`, decision `#1267` §1). An
 	agenda is one person's, which every bucket has to obey — including the ones nobody has

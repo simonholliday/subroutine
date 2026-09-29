@@ -756,13 +756,13 @@ def add_member (
 ) -> subroutine.db.models.identity.WorkspaceMember:
 	"""Give a user a role in a workspace.
 
-	**Requires ``workspace:admin``, and did not check anything at all until `#188`.** It took an
+	**Requires ``user:admin``, and did not check anything at all until `#188`.** It took an
 	actor, recorded an event attributed to it, and performed no check — while `CLAUDE.md`'s list
 	of the services that check permissions named this one explicitly. It was not exploitable
 	only because nothing reached it: no endpoint, no command. `#174` is what changes that, which
 	is why this is being fixed in the same sitting rather than after.
 
-	``workspace:admin`` rather than ``workspace:write``, because deciding who belongs in a
+	``user:admin`` rather than ``workspace:write``, because deciding who belongs in a
 	workspace is not the same act as doing work in one — and a member who can add members can
 	grant themselves anything the roles allow.
 	"""

@@ -118,6 +118,47 @@ def test_a_history_pages_with_the_ordinary_cursor (world: test_api_tasks.World) 
 	assert len(set(seen)) == len(seen), "no row is returned twice across the page boundary"
 
 
+@pytest.mark.parametrize("listing", ["events", "journal", "comments"])
+def test_one_item_s_cursor_is_refused_on_another_s (
+	world: test_api_tasks.World, listing: str
+) -> None:
+	"""`SR#3939`, L-7 of the cold review of 2026-09-28: one item's cursor read another's.
+
+	Every item's history signed its cursors with one word, so a cursor from one task's history was
+	accepted on another's and carried on from where the first had stopped: the second's newer rows
+	were missing behind a 200, and the same on a journal and on comments. **Each item's listing is
+	its own collection**, `SR#1564`'s rule, so another item's cursor is refused as every unusable
+	cursor is - and the cursor still works where it was made, or this would pass against a
+	version that refused them all.
+	"""
+
+	one, other = (
+		world.call("POST", "/v1/tasks", json={"title": title}).json()
+		for title in ("Fix the parser", "Write the release notes")
+	)
+
+	for task in (one, other):
+		for step in range(1, 4):
+			if listing == "comments":
+				world.call("POST", f"/v1/tasks/{task['ref']}/comments", json={"body": f"Note {step}"})
+
+			else:
+				world.call("PATCH", f"/v1/tasks/{task['ref']}", json={"importance": step})
+
+	first = world.call("GET", f"/v1/tasks/{one['ref']}/{listing}?limit=1").json()
+	cursor = first["page"]["next_cursor"]
+
+	assert cursor is not None, first
+
+	borrowed = world.call("GET", f"/v1/tasks/{other['ref']}/{listing}?limit=1&cursor={cursor}")
+
+	assert borrowed.status_code == 422, borrowed.text
+
+	kept = world.call("GET", f"/v1/tasks/{one['ref']}/{listing}?limit=1&cursor={cursor}")
+
+	assert kept.status_code == 200, kept.text
+
+
 def test_a_history_can_be_read_oldest_first (world: test_api_tasks.World) -> None:
 	"""``?order=seq``, because reading a story from the beginning is a real thing to want."""
 

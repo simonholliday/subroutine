@@ -11878,20 +11878,12 @@ def _agenda (
 ) -> list[str]:
 	"""Show what somebody is doing today, merged across every connection they can reach.
 
-	**The command is `subroutine agenda` and `subroutine agenda` is a hidden synonym** (`#996`).
-	Simon, 2026-08-18: the rename *"helps consolidate that expectation of similarity"* across
-	the surfaces — and it is consolidation rather than redesign, because everything below the
-	CLI was already called agenda: ``GET /v1/agenda``, :meth:`Client.agenda`,
-	:class:`subroutine.views.Agenda`, :mod:`subroutine.domain.agenda`. ``today`` was the only
-	thing in the product wearing the other name.
-
-	``ls``/``list`` is the precedent, and the reasoning is §12.2a's: nothing anybody has typed
-	stops working, and a synonym you can *see* is a second thing to choose between.
-
-	**This is not `#509`'s situation, which is why an alias is safe here.** There,
-	``subroutine upgrade`` and ``db upgrade`` swapped meanings, so a surviving alias would have
-	answered to a name that used to mean the opposite. ``today`` goes on meaning exactly what
-	it meant.
+	**The command is ``subroutine agenda``** (`#996`). Simon, 2026-08-18: the rename *"helps
+	consolidate that expectation of similarity"* across the surfaces — and it is consolidation
+	rather than redesign, because everything below the CLI was already called agenda:
+	``GET /v1/agenda``, :meth:`Client.agenda`, :class:`subroutine.views.Agenda`,
+	:mod:`subroutine.domain.agenda`. ``today`` was its name until then, and is now a hidden
+	signpost that refuses and names this one (`#1003`, ``today_moved``), not an alias.
 
 	**`-w` precedes the command**, because it is an application-wide option: it changes what
 	every command means, not what this one does. ``subroutine agenda -w work`` is therefore

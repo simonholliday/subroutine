@@ -666,8 +666,8 @@ def join (
 ) -> subroutine.views.Member:
 	"""Give somebody a role in this workspace.
 
-	Needs ``workspace:admin`` rather than ``workspace:write``: deciding who belongs somewhere is
-	not the same act as doing work there, and a member who can add members can grant themselves
+	Needs ``user:admin`` rather than ``workspace:write``: deciding who belongs somewhere is not
+	the same act as doing work there, and a member who can add members can grant themselves
 	anything the roles allow. That check did not exist at all at first - the service took an
 	actor, attributed the event to it, and never asked it anything - and it was found on the
 	morning this endpoint was written.

@@ -222,10 +222,12 @@ def resolve (
 	   stored and the connection's ``agent_when`` variable is set in this process's
 	   environment, and the ordinary one otherwise.
 
-	**Step 4 is where an agent and the person at one machine stop sharing a name** (`#1449`).
-	They are the same account, in the same directory, reading the same two files; the only thing
-	that differs is the environment each process was started in, so that is what is asked. It
-	sits *below* every explicit source deliberately: a variable somebody set by hand still wins,
+	**Steps 1 and 4 are where an agent and the person at one machine stop sharing a name**
+	(`#1449`, `#3286`, `#3600`): step 1's per-connection variable is what ``agent create
+	--here`` sets, and the plugin's field is the plugin's; step 4 is ``--store``. They are the
+	same account, in the same directory, reading the same two files; the only thing that differs
+	is the environment each process was started in, so that is what is asked. Step 4 sits
+	*below* every explicit source deliberately: a variable somebody set by hand still wins,
 	which keeps `#1455` true and makes removing the second token a complete undo.
 
 	``describe_only`` answers *where* the token would come from without fetching it, which is

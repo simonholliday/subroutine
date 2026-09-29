@@ -265,6 +265,85 @@ def test_a_chain_that_runs_in_a_circle_is_refused (session: sqlalchemy.orm.Sessi
 	assert "in a circle" in str(refusal.value)
 
 
+def _nested (
+	session: sqlalchemy.orm.Session, person: subroutine.db.models.identity.User, depth: int
+) -> list[subroutine.db.models.identity.User]:
+	"""Make ``depth`` agents, each answering to the one before it and the first to ``person``.
+
+	Nested by hand, for the tests above's reason: the rule under test refuses the deepest of them
+	on the way in.
+	"""
+
+	made: list[subroutine.db.models.identity.User] = []
+	above = person
+
+	for level in range(depth):
+		agent = subroutine.domain.users.create(
+			session, username=f"level{level}-{uuid.uuid4().hex[:8]}",
+			is_service_account=True, actor=_acting(person),
+		)
+		agent.responsible_user_id = above.id
+		made.append(agent)
+		above = agent
+
+	session.flush()
+
+	return made
+
+
+def test_a_chain_that_is_only_too_long_is_not_called_a_circle (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3939`, L-7 of the cold review of 2026-09-28: sixteen nested agents read as a loop.
+
+	A chain longer than ``MAX_DEPTH`` is treated as broken, and was refused in a cycle's words -
+	*runs in a circle and never reaches a person* - over a list that ended at the person. **Too
+	long is said as too long**; a cycle keeps its own sentence, which the test above holds.
+	"""
+
+	depth = subroutine.domain.accountability.MAX_DEPTH
+	deepest = _nested(session, _person(session), depth)[-1]
+
+	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+		subroutine.domain.accountability.chain(session, deepest)
+
+	said = str(refusal.value)
+
+	assert "circle" not in said, said
+	assert f"more than {depth} accounts long" in said, said
+
+
+def test_an_agent_is_not_made_where_its_chain_would_be_too_long (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3939`, NEW-L7-1 of the verification of the cold review of 2026-09-28.
+
+	Making an agent proved the chain of the account it would answer to, and the new agent is one
+	more link: under a chain already as long as ``MAX_DEPTH`` allows, the agent was made, and every
+	request it made was refused. **Refused before it is made**, and one level nearer a person it
+	is still made, with a chain exactly as long as allowed.
+	"""
+
+	person = _person(session)
+	depth = subroutine.domain.accountability.MAX_DEPTH
+	levels = _nested(session, person, depth - 1)
+
+	allowed = subroutine.domain.users.create(
+		session, username=f"allowed-{uuid.uuid4().hex[:8]}", is_service_account=True,
+		responsible_user_id=levels[-2].id, actor=_acting(person),
+	)
+
+	assert len(subroutine.domain.accountability.chain(session, allowed)) == depth
+
+	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+		subroutine.domain.users.create(
+			session, username=f"refused-{uuid.uuid4().hex[:8]}", is_service_account=True,
+			responsible_user_id=levels[-1].id, actor=_acting(person),
+		)
+
+	assert "could never act" in str(refusal.value), str(refusal.value)
+
+
 def test_an_agent_cannot_be_created_with_no_actor_at_all (
 	session: sqlalchemy.orm.Session,
 ) -> None:

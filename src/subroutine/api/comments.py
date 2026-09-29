@@ -132,12 +132,15 @@ def _page (
 	)
 	size = subroutine.domain.paging.size(limit, settings)
 
+	# One item's comments are their own collection (`#3939`), as its history is.
+	collection = f"comments:{entity_type}:{entity_id}"
+
 	if cursor is not None:
 		statement = statement.where(
 			subroutine.api.pagination.after(
 				keys,
 				subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="comments"
+					settings.require_secret_key(), keys, cursor, collection=collection
 				),
 			)
 		)
@@ -153,7 +156,7 @@ def _page (
 			has_more=has_more,
 			next_cursor=(
 				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, rows[-1], collection="comments"
+					settings.require_secret_key(), keys, rows[-1], collection=collection
 				)
 				if has_more and rows
 				else None

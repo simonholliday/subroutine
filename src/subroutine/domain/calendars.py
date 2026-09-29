@@ -52,10 +52,12 @@ PAST_DAYS = 7
 #: four hundred rows, and it clears a year so an annual event is always present.
 FUTURE_DAYS = 400
 
-#: Both are constants rather than settings, and per-feed is deliberately not built: Simon
-#: raised it as a *future* possibility and a column nobody writes to is §6.16's own refusal.
-#: Adding ``past_days`` to the table later is additive, which is why nothing here anticipates
-#: it — but they live together so that change is one edit.
+# Both are constants rather than settings, and per-feed is deliberately not built: Simon
+# raised it as a *future* possibility and a column nobody writes to is §6.16's own refusal.
+# Adding ``past_days`` to the table later is additive, which is why nothing here anticipates
+# it — but they live together so that change is one edit.
+
+#: How many times to re-roll a feed secret whose prefix is already taken, before giving up.
 PREFIX_ATTEMPTS = 8
 
 
@@ -81,9 +83,9 @@ class Occasion:
 	emptied: tuple[datetime.datetime, ...] = ()
 
 
-
 #: What a feed's title may hold, matching ``calendar_feed.title``'s column — `SR#1555`.
 MAX_TITLE_LENGTH = 128
+
 
 def create (
 	session: sqlalchemy.orm.Session,

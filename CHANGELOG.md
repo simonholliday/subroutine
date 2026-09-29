@@ -131,6 +131,15 @@ upgrade involves.
   left the occurrence it had already made standing for 10:00 that week, where the series is at
   09:00. A subscribed calendar then showed a 09:00 that week which nothing would ever offer as
   work.
+- **One item's cursor is refused on another's.** A cursor from one item's history, journal or
+  comments was accepted on a different item's and carried on from where the first had stopped,
+  leaving rows out. It is refused now, as a cursor from another listing is.
+- **An agent is not made, or handed on, where it could never act.** A chain of sixteen agents
+  nested one below another was refused as *runs in a circle*, though it reached a person; it is
+  called too long now. Making an agent at that depth, or handing one over where an agent below
+  it would end up there, is refused before it happens, where each went ahead and every request
+  the agent made was then refused. The API's description of adding a member names the
+  permission it checks, and a worked example that promised one project now sends one.
 
 ## 0.9.12 — 2026-09-29
 

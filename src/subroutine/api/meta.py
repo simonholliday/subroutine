@@ -186,11 +186,9 @@ def meta (
 ) -> subroutine.views.Meta:
 	"""Report this installation's vocabulary, limits and grammars.
 
-	**Refuses a query parameter it does not accept, which no other single-entity read does.**
-	The rule `api/query.py` states is that a listing refuses because an ignored
-	parameter costs *payload*, and a single-entity read is exempt because it wastes nothing.
-	This endpoint breaks that criterion: a discarded parameter here does not return too much,
-	it returns **a different answer that looks like a true one**.
+	**Refuses a query parameter it does not accept, as every route does** (``api/query.py``),
+	**and this is the read where that matters most**: a discarded parameter here does not
+	return too much, it returns **a different answer that looks like a true one**.
 
 	``?workspace=projects`` - the spelling every MCP tool uses - was dropped, and the reply was
 	``200`` with ``workspace: null`` and empty vocabulary maps, which is exactly what a fresh
@@ -199,8 +197,8 @@ def meta (
 	was no way to close an item as a duplicate, and **deleted a task** rather than cancelling
 	it. ``cancelled`` had been there the whole time.
 
-	So the criterion is not "collection or entity", it is whether ignoring the parameter
-	changes the *answer* or only its size. This is the one read whose entire answer is chosen
+	Ignoring a parameter elsewhere changes the size of an answer, and here it changes the
+	*answer*. This is the one read whose entire answer is chosen
 	by a query parameter, with no path segment naming the subject and no ambiguity refusal
 	underneath it to catch the mistake.
 	"""
@@ -396,7 +394,7 @@ def guide_text () -> str:
 		"",
 		"## Why this is worth your context",
 		"",
-		"Four things reliably go wrong across sessions. Each has somewhere to put the answer, "
+		"These things reliably go wrong across sessions. Each has somewhere to put the answer, "
 		"and the reason to write it there is that *you* get it back:",
 		"",
 		"| What goes wrong | Where it goes | What you get back |",
@@ -993,9 +991,9 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	),
 	(
 		"What was created in a window, in one project? Two bounds make a range, and a date "
-		"filter narrows alongside every other one rather than replacing it.",
+		"filter narrows alongside every other one - `project` here - rather than replacing it.",
 		"GET",
-		"/v1/tasks?created_at.gte=now-30d&created_at.lt=today&format=ids&limit=5",
+		"/v1/tasks?created_at.gte=now-30d&created_at.lt=today&project=inbox&format=ids&limit=5",
 		None,
 	),
 	(

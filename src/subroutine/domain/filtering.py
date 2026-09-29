@@ -1142,6 +1142,10 @@ TASK_PROPERTIES: dict[str, Property] = {
 		# working and are documented as the older spelling; this is the one that takes
 		# `end_of_week`.
 		due_at=subroutine.db.models.work.Task.due_at,
+		# **`snoozed_until` does not duplicate `ordering.DEFERRED`.** That is a *band* — startable
+		# against put-off — added per request because it is a fact about an instant rather than
+		# about a column. This is the date itself, so ascending with NULLS LAST is *coming back
+		# soonest first*, which is a question the band cannot answer at all.
 		snoozed_until=subroutine.db.models.work.Task.snoozed_until,
 		# **Was a `DATE` called `planned_for` and took `eq`** (`#854`). It is an instant now,
 		# so it takes the instant operators like every other timestamp — *what starts today*
@@ -1155,24 +1159,11 @@ TASK_PROPERTIES: dict[str, Property] = {
 		# no query. Null unless it is claimed, and NULLS LAST does the rest.
 		claimed_at=subroutine.db.models.work.Task.claimed_at,
 	),
-	# **Filterable and not orderable, and now it says why** — `#1803`. Both were simply in one
-	# list and not the other; neither absence had been argued, and `#1805` is where they are
-	# decided rather than inherited.
-	# **Both orderable since `#1805`**, which is that item's whole thesis: a field filterable
-	# and plausibly orderable *is* orderable, without a second list being edited. They were in
-	# one list and not the other and neither absence had ever been argued.
-	#
-	# **`snoozed_until` does not duplicate `ordering.DEFERRED`.** That is a *band* — startable
-	# against put-off — added per request because it is a fact about an instant rather than
-	# about a column. This is the date itself, so ascending with NULLS LAST is *coming back
-	# soonest first*, which is a question the band cannot answer at all.
-	#
-	# **And `content_updated_at` does not duplicate `updated_at`**: one is *when did the prose
+	# **Orderable since `#1805`**, as ``snoozed_until`` above is, which is that item's whole
+	# thesis: a field filterable and plausibly orderable *is* orderable, without a second list
+	# being edited. **And it does not duplicate `updated_at`**: one is *when did the prose
 	# change* and the other *when did anything about this move*. `#815` made that distinction
 	# worth a filter; it is worth a sort for the same reason.
-	"snoozed_until": Property(
-		column=subroutine.db.models.work.Task.snoozed_until, kind=INSTANT, orderable=True
-	),
 	"content_updated_at": Property(
 		column=subroutine.db.models.work.Task.content_updated_at, kind=INSTANT, orderable=True
 	),

@@ -7,9 +7,10 @@ escape hatch that refused there would be missing exactly where it is most needed
 
 So the application is driven in process. Two things make that honest rather than a shortcut:
 
-* **The caller is resolved, not invented.** ``api/security.RESOLVERS`` is ``from_bearer_token``
-  alone, and §12.1a says the filesystem permission *is* the authentication locally — so an
-  in-process call carries no header and every route would answer 401. What stands in is
+* **The caller is resolved, not invented.** ``api/security.RESOLVERS`` reads a bearer token or a
+  session cookie off the request, and §12.1a says the filesystem permission *is* the
+  authentication locally — so an in-process call carries neither and every route would answer
+  401. What stands in is
   :func:`subroutine.domain.local.principal`, the same resolution every other local client method
   uses, honouring ``SUBROUTINE_TOKEN_<NAME>`` and carrying the token's scopes. The rule is
   unchanged; only where the credential is read from is.

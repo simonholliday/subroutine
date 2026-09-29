@@ -279,8 +279,8 @@ def described (names: typing.Iterable[str]) -> list[str]:
 #: **A permission that gates nothing is a claim about what a credential cannot do**, made to
 #: every caller of ``/v1/me`` and to every operator reading ``--scope``. The cold review of
 #: 2026-08-16 (`#927` H-3) found eight of twenty in that state; three were defects and are now
-#: checked, three more went with `#826`, and these two are honest gaps in features nobody has
-#: built.
+#: checked, three more went with `#826`, ``workspace:delete`` went with `#704`, and the one left
+#: is an honest gap in a feature nobody has built.
 #:
 #: **Each entry names the thing that deletes it**, which is what makes this a record rather
 #: than a place to park an awkward verb. ``tests/test_authorization.py`` fails the build both
