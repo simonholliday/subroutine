@@ -349,6 +349,33 @@ def test_every_section_is_published_beside_the_settings_it_holds (
 			assert one["section"] == subroutine.domain.settings.SETTINGS[one["key"]].section, one["key"]
 
 
+@pytest.mark.parametrize(
+	("stated", "withheld"),
+	[
+		({}, False),
+		({"public_url": "https://subroutine.example.com"}, True),
+		({"public_url": "https://subroutine.example.com", "osc_enabled": True}, False),
+	],
+	ids=["alone", "published", "allowed-though-published"],
+)
+def test_a_section_says_so_where_this_installation_does_not_act_on_it (
+	session: sqlalchemy.orm.Session, stated: dict[str, typing.Any], withheld: bool
+) -> None:
+	"""`#3810`: the OSC section says when the operator has not let this instance send.
+
+	**In the registry's own words, and only then**, so a page draws the sentence as published and
+	never works out for itself whether it applies.
+	"""
+
+	world = test_api_tasks._world(session, instance=stated)
+	body = world.call("GET", "/v1/meta").json()
+	osc = next(
+		one for one in body["setting_sections"] if one["key"] == subroutine.domain.settings.OSC.key
+	)
+
+	assert osc["withheld"] == (subroutine.domain.settings.OSC.withheld if withheld else None), osc
+
+
 def test_a_published_setting_names_the_verb_the_service_enforces_at_each_scope (
 	world: test_api_tasks.World,
 ) -> None:

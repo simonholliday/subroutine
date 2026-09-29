@@ -25,6 +25,10 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 
 import conftest
+import subroutine.api.app
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -540,6 +544,181 @@ def test_a_real_socket_hears_a_filed_item (
 			"/subroutine/task/filed",
 			[task.ref, 0, 0, "set", "person"],
 		)
+
+
+@pytest.mark.parametrize(
+	("stated", "sends"),
+	[
+		({}, True),
+		({"public_url": "https://subroutine.example.com"}, False),
+		({"host": "0.0.0.0"}, False),
+		({"public_url": "https://subroutine.example.com", "osc_enabled": True}, True),
+		({"osc_enabled": False}, False),
+	],
+	ids=["alone", "published", "listening-widely", "allowed-though-published", "refused-though-alone"],
+)
+def test_the_operator_decides_whether_an_instance_sends (
+	stated: dict[str, typing.Any], sends: bool
+) -> None:
+	"""Decision `#3804`: ``osc_enabled`` is obeyed, and unset it follows who can reach the instance.
+
+	**On where only this machine can reach it, off where strangers can** - a ``public_url``, or a
+	bind beyond loopback - by the test rate limiting takes.
+	"""
+
+	assert subroutine.config.sends_osc(subroutine.config.Settings(**stated)) is sends
+
+
+@pytest.mark.parametrize("sends", [True, False], ids=["sends", "sends-nothing"])
+def test_the_sessions_this_program_opens_carry_what_it_decided (
+	tmp_path: pathlib.Path, sends: bool
+) -> None:
+	"""`#3810`: decided by whoever opens the sessions, where the address it listens on is known.
+
+	**Both factories this program builds for itself**: the served application's, from the settings
+	``serve`` hands it with its ``--host`` in them, and a local client's. Every other test here
+	passes a session of its own, which goes around both and reads the configuration instead.
+	"""
+
+	settings = subroutine.config.Settings(
+		dev_mode=True,
+		database_url=f"sqlite:///{tmp_path / 'stamped.db'}",
+		host="127.0.0.1" if sends else "0.0.0.0",
+	)
+	application = subroutine.api.app.create_app(settings=settings)
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"), settings
+	)
+
+	try:
+		for factory in (application.state.session_factory, client._sessions):
+			with factory() as opened:
+				assert opened.info.get(subroutine.domain.sounds.SENDS) is sends, factory
+
+	finally:
+		application.state.engine.dispose()
+		client.close()
+
+
+def test_nothing_is_composed_where_the_operator_has_not_allowed_sending (
+	world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Decision `#3804`: an instance whose operator has not let it send composes nothing at all.
+
+	**Not even the lookup of where each workspace sends**, which opens a savepoint, so a stand-in
+	counts the lookups. **With the positive twin**: the same write, on a session that may send.
+	"""
+
+	asked: list[uuid.UUID] = []
+	looked_up = subroutine.domain.sounds._destination
+
+	def counted (
+		session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
+	) -> tuple[str, int, bool] | None:
+		"""Count the lookup, then make it."""
+
+		asked.append(workspace_id)
+
+		return looked_up(session, workspace_id)
+
+	monkeypatch.setattr(subroutine.domain.sounds, "_destination", counted)
+	world.session.info[subroutine.domain.sounds.SENDS] = False
+	subroutine.domain.tasks.create(
+		world.session, project=world.open, title="Played to nobody", actor=world.acting
+	)
+	world.session.commit()
+
+	assert world.sender.heard == [] and asked == [], (world.sender.heard, asked)
+
+	world.session.info[subroutine.domain.sounds.SENDS] = True
+	heard = subroutine.domain.tasks.create(
+		world.session, project=world.open, title="Played to the studio", actor=world.acting
+	)
+	world.session.commit()
+
+	assert world.sender.heard == [("/subroutine/task/filed", [heard.ref, 0, 0, "open", "person"])]
+	assert asked == [world.workspace.id], asked
+
+
+@pytest.mark.parametrize(
+	("environment", "sends"),
+	[
+		({}, True),
+		({"SUBROUTINE_PUBLIC_URL": "https://subroutine.example.com"}, False),
+		(
+			{"SUBROUTINE_PUBLIC_URL": "https://subroutine.example.com", "SUBROUTINE_OSC_ENABLED": "true"},
+			True,
+		),
+	],
+	ids=["alone", "published", "allowed-though-published"],
+)
+def test_a_session_nobody_stamped_reads_the_configuration (
+	world: World, monkeypatch: pytest.MonkeyPatch, environment: dict[str, str], sends: bool
+) -> None:
+	"""A test's session, or ``init``'s: nothing decided for it, so the configuration answers."""
+
+	for name, value in environment.items():
+		monkeypatch.setenv(name, value)
+
+	task = subroutine.domain.tasks.create(
+		world.session, project=world.open, title="Heard as the configuration says", actor=world.acting
+	)
+	world.session.commit()
+
+	assert world.sender.heard == (
+		[("/subroutine/task/filed", [task.ref, 0, 0, "open", "person"])] if sends else []
+	)
+
+
+def test_a_configuration_that_cannot_be_read_sends_nothing_and_breaks_nothing (
+	world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""**The write commits, and nothing is sent**: whether a datagram goes is never worth a write."""
+
+	def unreadable (**_: typing.Any) -> subroutine.config.Settings:
+		"""Fail as a configuration file that does not parse does."""
+
+		raise ValueError("config.toml does not parse")
+
+	monkeypatch.setattr(subroutine.config, "load_settings", unreadable)
+	task = subroutine.domain.tasks.create(
+		world.session, project=world.open, title="Saved whatever the file says", actor=world.acting
+	)
+	world.session.commit()
+
+	assert world.session.get(subroutine.db.models.work.Task, task.id) is not None
+	assert world.sender.heard == []
+
+
+def test_where_nothing_is_sent_is_refused_as_a_destination (world: World) -> None:
+	"""Decision `#3804`: the cloud metadata range is refused by name, as any other destination is."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.workspaces.update(
+			world.session,
+			world.workspace,
+			settings={"osc.send_to": "169.254.169.254:80"},
+			actor=world.acting,
+		)
+
+	said = refused.value.errors[0]
+
+	assert said.field == "osc.send_to"
+	assert "169.254.0.0/16" in said.message, said.message
+
+
+def test_a_destination_stored_there_before_it_was_refused_sends_nothing (world: World) -> None:
+	"""The release notes' word: one set in that range before the refusal is kept, and silent."""
+
+	world.workspace.settings = {**(world.workspace.settings or {}), "osc.send_to": "169.254.169.254:80"}
+	world.session.commit()
+	subroutine.domain.tasks.create(
+		world.session, project=world.open, title="Asked of the metadata service", actor=world.acting
+	)
+	world.session.commit()
+
+	assert world.sender.heard == [] and world.sender.destinations == []
+	assert (world.workspace.settings or {})["osc.send_to"] == "169.254.169.254:80"
 
 
 def test_where_to_send_is_refused_saying_what_it_looks_like (world: World) -> None:

@@ -23,6 +23,18 @@ the workspace's administrator can change it.
 - **Include each item's title** - off unless you turn it on. OSC is not encrypted, so anybody on the
   same network could read what the messages carry.
 
+**Whoever runs the installation decides whether it sends at all.** On your own computer, with
+nothing reachable from outside it, it does. An installation other people can reach - one with a
+public address, or listening beyond the machine it runs on - sends nothing until whoever runs it
+sets `osc_enabled = true` in its configuration and restarts it, because there the workspace's
+administrator need not be the person whose network the messages leave from. The settings page says
+so while it is off, and what you set there is kept.
+
+**Nothing is sent to an address in `169.254.0.0/16`**, where a cloud server answers questions about
+itself. Two computers joined by a cable, with nothing on it handing out addresses, give themselves
+addresses in that range too; join them through a router instead, or give each an address of its
+own.
+
 Saving the address is itself something that happens in the workspace, so the music software hears
 `/subroutine/workspace/edited` straight away - a quick way to see that the two can reach each other.
 

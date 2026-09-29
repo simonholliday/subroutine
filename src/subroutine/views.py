@@ -7460,6 +7460,12 @@ class SettingSection(pydantic.BaseModel):
 	#: Drawn last on its page, after a separator.
 	apart: bool = False
 
+	#: Why nothing set in this section is acted on here, where this installation's operator has
+	#: not allowed it, or null where it is acted on (`#3810`). No workspace or project setting
+	#: changes it. **Presence is the flag and the value is the sentence** (`#102`), as with
+	#: ``vocabulary_not_shown``. Defaulted, like everything added here after this model shipped.
+	withheld: str | None = None
+
 
 class Meta(pydantic.BaseModel):
 	"""Everything needed to construct a valid request against *this* installation."""
@@ -7606,8 +7612,12 @@ def published_settings () -> list[Setting]:
 	]
 
 
-def published_sections () -> list[SettingSection]:
-	"""Return every section a setting may be drawn in, as ``/v1/meta`` publishes it - `#2722`."""
+def published_sections (*, withheld: typing.Collection[str]) -> list[SettingSection]:
+	"""Return every section a setting may be drawn in, as ``/v1/meta`` publishes it - `#2722`.
+
+	``withheld`` holds the keys of the sections this installation does not act on, which
+	:func:`subroutine.domain.settings.withheld_sections` answers; each of those says so (`#3810`).
+	"""
 
 	return [
 		SettingSection(
@@ -7617,6 +7627,7 @@ def published_sections () -> list[SettingSection]:
 			further_label=None if found.further is None else found.further[0],
 			further_url=None if found.further is None else found.further[1],
 			apart=found.apart,
+			withheld=found.withheld if found.key in withheld else None,
 		)
 		for found in subroutine.domain.settings.SECTIONS.values()
 	]

@@ -338,6 +338,22 @@ def reachable_by_strangers (settings: "Settings", *, host: str) -> bool:
 	return not is_loopback(host)
 
 
+def sends_osc (settings: "Settings") -> bool:
+	"""Report whether this instance sends OSC at all - decision `#3804`.
+
+	``osc_enabled`` is obeyed where it is set. **Unset, an instance sends where only its own
+	machine can reach it and not where strangers can**, by :func:`reachable_by_strangers`: there a
+	workspace's administrator may be somebody the operator does not know, choosing where the
+	operator's machine sends. The bind is ``settings.host``, which is the address ``serve`` listens
+	on, since it copies its ``--host`` there before building the application.
+	"""
+
+	if settings.osc_enabled is not None:
+		return settings.osc_enabled
+
+	return not reachable_by_strangers(settings, host=settings.host)
+
+
 def config_home () -> pathlib.Path:
 	"""Return the directory holding the configuration file."""
 
@@ -778,6 +794,17 @@ class Settings(pydantic_settings.BaseSettings):
 	# considers that too much turns the feature off here, and the endpoint stops existing
 	# rather than refusing — nothing minted, nothing served.
 	calendars_enabled: bool = True
+
+	# **Whether this instance sends OSC at all** (decision `#3804`, item `#3810`). A workspace's
+	# administrator says where its events go, in its `osc.send_to`; this is the operator's say in
+	# whether the server sends anything anywhere, since the datagrams leave from the operator's
+	# machine and network.
+	#
+	# **Unset is not "on"**: it is on where only this machine can reach the instance and off where
+	# strangers can, by `reachable_by_strangers` - the test rate limiting takes - because there a
+	# workspace's administrator may be somebody the operator does not know. Set it either way to
+	# say so out loud. `sends_osc` answers it.
+	osc_enabled: bool | None = None
 
 	# The largest request body this instance will read, in bytes. `docs/errors.md` has
 	# described `payload_too_large` as *"a field **or the request body** exceeds the

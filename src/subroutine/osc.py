@@ -14,6 +14,7 @@ fit, and nothing is ever tried twice.
 
 import atexit
 import contextlib
+import ipaddress
 import queue
 import socket
 import struct
@@ -36,6 +37,11 @@ AT_EXIT = 0.25
 
 #: The prefix OSC tools write before a destination, accepted and set aside.
 SCHEME = "osc.udp://"
+
+#: Where a cloud server answers questions about itself, its credentials among them, and so where
+#: nothing is sent, whoever asks (decision `#3804`). Refused where it is written, and again where a
+#: name leads, since a name is looked up long after it was set.
+REFUSED = ipaddress.ip_network("169.254.0.0/16")
 
 #: What a message carries: OSC's 32-bit integers and its strings, which is everything
 #: :mod:`subroutine.domain.sounds` sends.
@@ -65,7 +71,8 @@ def destination (written: str) -> tuple[str, int]:
 	``studio.local:9000``, ``192.168.0.20:9000`` or ``[::1]:9000``, and any of them written the way
 	OSC tools write a destination: ``osc.udp://studio.local:9000``. **A name is checked for its
 	shape and never looked up here**, because whether it answers is the sender's to find out,
-	later and on a thread nobody waits for.
+	later and on a thread nobody waits for. An address in :data:`REFUSED` is refused, and a name
+	that leads there is refused by the sender.
 	"""
 
 	text = written.strip()
@@ -95,6 +102,12 @@ def destination (written: str) -> tuple[str, int]:
 
 	if not port.isdigit() or not 1 <= int(port) <= 65_535:
 		raise ValueError(f"{written!r} ends in no port, which is a number from 1 to 65535.")
+
+	if _refused(host):
+		raise ValueError(
+			f"{written!r} is in {REFUSED}, where a cloud server answers questions about itself, "
+			"so nothing is sent there."
+		)
 
 	return host, int(port)
 
@@ -178,6 +191,12 @@ class Sender:
 		"""Send one datagram, looking its destination up if it has not been lately."""
 
 		family, address = self._found(host, port)
+
+		# **Where a name led is checked as well as what was written** (decision `#3804`), since a
+		# name is looked up here, long after anybody set it.
+		if _refused(address[0]):
+			return
+
 		connection = self._sockets.get(family)
 
 		if connection is None:
@@ -205,6 +224,25 @@ class Sender:
 #: The one sender a process has. Its thread starts with the first datagram, so a process that
 #: never sends never has one.
 SENDER = Sender()
+
+
+def _refused (host: str) -> bool:
+	"""Say whether a host is an address in :data:`REFUSED`, however it is written.
+
+	**An IPv6 address carrying an IPv4 one is read as that one**, since ``::ffff:169.254.169.254``
+	goes to the same machine. A name is not an address, and is checked where it leads.
+	"""
+
+	try:
+		found: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(host)
+
+	except ValueError:
+		return False
+
+	if isinstance(found, ipaddress.IPv6Address) and found.ipv4_mapped is not None:
+		found = found.ipv4_mapped
+
+	return found in REFUSED
 
 
 def _padded (text: str) -> bytes:

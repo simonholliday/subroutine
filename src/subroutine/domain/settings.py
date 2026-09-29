@@ -54,6 +54,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -296,6 +297,10 @@ class Section (typing.NamedTuple):
 	#: Drawn last on its page, after a separator.
 	apart: bool = False
 
+	#: What the section says on an installation that does not act on it, or ``None`` where every
+	#: installation does (`#3810`). :func:`withheld_sections` says which installations those are.
+	withheld: str | None = None
+
 
 #: Sending what happens in a workspace to music software - design `#2721`.
 OSC = Section(
@@ -312,10 +317,27 @@ OSC = Section(
 	),
 	further=("What is OSC?", "https://en.wikipedia.org/wiki/Open_Sound_Control"),
 	apart=True,
+	# **Said where the operator has not let this instance send** (decision `#3804`), rather than
+	# letting a workspace send nothing in silence.
+	withheld=(
+		"This installation sends nothing over OSC, because whoever runs it has not turned sending "
+		"on - which they do by setting osc_enabled = true and restarting it. What is set here is "
+		"kept, and used once they have."
+	),
 )
 
 #: Every section a setting may be drawn in, by key.
 SECTIONS: dict[str, Section] = {OSC.key: OSC}
+
+
+def withheld_sections (settings: subroutine.config.Settings) -> frozenset[str]:
+	"""Return the keys of the sections this installation does not act on (`#3810`).
+
+	**Only OSC's can be**: an instance sends it only where :func:`subroutine.config.sends_osc`
+	says so, which is the operator's to decide (decision `#3804`).
+	"""
+
+	return frozenset() if subroutine.config.sends_osc(settings) else frozenset({OSC.key})
 
 
 class Setting (typing.NamedTuple):

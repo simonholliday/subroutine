@@ -60,6 +60,7 @@ import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
+import subroutine.domain.settings
 import subroutine.domain.tasks
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -309,7 +310,9 @@ def document (
 		# `settings` in this function's own scope is the installation's configuration, which is a
 		# different thing and is not published at all.
 		settings=subroutine.views.published_settings(),
-		setting_sections=subroutine.views.published_sections(),
+		setting_sections=subroutine.views.published_sections(
+			withheld=subroutine.domain.settings.withheld_sections(settings)
+		),
 		# **No `human` entry** (`#927` H-18). It named `/docs`, which this instance served as a
 		# blank page: Swagger loads its bundle from a CDN and `script-src 'self'` refuses it.
 		# Publishing an address to a client is a claim that something is there, and the client

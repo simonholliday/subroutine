@@ -278,7 +278,8 @@ export function valueSaid (setting, value, statuses = []) {
 		return named.length > 0 ? `Not offered: ${named.join(", ")}.` : "Every status is offered.";
 	}
 
-	if (setting.kind === "destination") return value ? `Sent to ${value}.` : "Not set, so nothing is sent.";
+	/* **"Set to", never "Sent to"** (`#3810`): an installation that does not send keeps the value. */
+	if (setting.kind === "destination") return value ? `Set to ${value}.` : "Not set, so nothing is sent.";
 
 	if (setting.kind === "switch") return value ? "On." : "Off.";
 
@@ -520,6 +521,10 @@ function settingsApart ({ scope, registry = [], sections = [], ...rows }) {
 		**Explained where it is met**, in the instance's own words and with a link to more, so a
 		reader who has never heard of the thing learns enough to leave it alone without searching
 		for the word — and a musician, enough to use it.
+
+		**And said, just above its rows, where this installation does not act on them** (`#3810`):
+		the operator's choice, which nothing on this page changes, rather than a section that sends
+		nothing in silence.
 	*/
 	return apartSections(sections, registry, scope).map(({ section, settings }) => html`
 		<hr class="setting-apart" key=${`${section.key}-apart`} />
@@ -530,6 +535,7 @@ function settingsApart ({ scope, registry = [], sections = [], ...rows }) {
 				? html`<p class="hint"><a href=${section.further_url} rel="noopener noreferrer"
 						target="_blank">${section.further_label || section.further_url}</a></p>`
 				: null}
+			${section.withheld ? html`<p class="setting-explains">${section.withheld}</p>` : null}
 			${rowsOf(settings, { scope, ...rows })}
 		</section>
 	`);

@@ -150,7 +150,10 @@ _EXTRA_FOR = {"postgresql": "postgres"}
 
 
 def create_session_factory (
-	engine: sqlalchemy.engine.Engine, *, statement_timeout_seconds: int | None = None
+	engine: sqlalchemy.engine.Engine,
+	*,
+	statement_timeout_seconds: int | None = None,
+	info: dict[str, typing.Any] | None = None,
 ) -> sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session]:
 	"""Build a session factory bound to ``engine``.
 
@@ -162,9 +165,15 @@ def create_session_factory (
 	sessions may run — see :func:`_bounded_by` for what that does and does not cover. The
 	served application passes its setting; every other caller leaves it unset, which is the
 	behaviour every caller had before it existed.
+
+	``info`` is copied onto each session's own ``info``, for what the process opening them
+	decided once rather than on every commit: whether this instance sends OSC (`#3810`), which
+	:func:`subroutine.domain.sounds.stamped` makes.
 	"""
 
-	factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False, future=True)
+	factory = sqlalchemy.orm.sessionmaker(
+		bind=engine, expire_on_commit=False, future=True, info=info
+	)
 
 	if statement_timeout_seconds and engine.dialect.name == "postgresql":
 		sqlalchemy.event.listen(

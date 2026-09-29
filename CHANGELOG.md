@@ -14,6 +14,15 @@ upgrade involves.
 
 ## Unreleased
 
+- **An instance other people can reach stops sending OSC at this upgrade, until whoever runs it
+  turns it on.** A workspace's administrator could have the server send a message to any machine
+  and port on every event, and nothing let the operator refuse. `osc_enabled` in the
+  configuration decides now: unset, an instance sends where only its own machine can reach it, and
+  sends nothing where it has a `public_url` or listens beyond loopback. Set `osc_enabled = true`
+  and restart to go on sending. Each workspace keeps where it sends, and its settings page says so
+  while nothing is sent. Whatever the setting says, nothing goes to an address in
+  `169.254.0.0/16`, where a cloud server answers questions about itself: a destination there is
+  refused, and one already set sends nothing.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

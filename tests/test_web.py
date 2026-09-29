@@ -114,7 +114,7 @@ SEND_TO_SETTING = next(one for one in REGISTRY if one["kind"] == "destination")
 TITLES_SETTING = next(one for one in REGISTRY if one["kind"] == "switch")
 #: The sections a setting may be drawn in, as ``/v1/meta`` publishes them (`#2722`), and the one
 #: the OSC settings are drawn in, apart at the foot of a workspace's page.
-SECTIONS = [one.model_dump(mode="json") for one in subroutine.views.published_sections()]
+SECTIONS = [one.model_dump(mode="json") for one in subroutine.views.published_sections(withheld=())]
 APART = next(one for one in SECTIONS if one["key"] == SEND_TO_SETTING["section"])
 SOME_STATUSES = [{"key": "open", "label": "Open"}, {"key": "blocked", "label": "Blocked"}]
 
@@ -20228,7 +20228,11 @@ def test_a_section_apart_says_what_it_is_for_and_where_to_read_more (tmp_path: p
 def test_the_osc_settings_say_what_they_hold_to_a_reader_who_may_not_change_them (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""Where it sends, or that nothing is sent, and whether titles go - in words, not controls."""
+	"""Where it sends, or that nothing is sent, and whether titles go - in words, not controls.
+
+	**"Set to", never "Sent to"** (`#3810`): the value is the same on an installation whose operator
+	has not let it send, where a claim that it is sent there would be false.
+	"""
 
 	told = _rendered(tmp_path, {"WorkspaceSettings": {**SAMPLES["WorkspaceSettings"], "may": []}})[
 		"WorkspaceSettings"
@@ -20239,9 +20243,39 @@ def test_the_osc_settings_say_what_they_hold_to_a_reader_who_may_not_change_them
 		"inForce": {"scope": "workspace", "settings": []},
 	}})["WorkspaceSettings"]
 
-	assert "Sent to studio.local:9000." in told, told[-600:]
+	assert "Set to studio.local:9000." in told, told[-600:]
+	assert "Sent to" not in told, told[-600:]
 	assert "Off." in told, "whether titles are sent was not said"
 	assert "Not set, so nothing is sent." in unset, unset[-600:]
+
+
+def test_a_section_says_so_above_its_rows_where_the_installation_does_not_act_on_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#3810`: the operator's choice, in the instance's words, rather than a section that sends
+	nothing in silence - after what the section is for, and before the rows it is about.
+
+	**With the positive twin**: the same page, published by an installation that sends.
+	"""
+
+	withheld = [
+		one.model_dump(mode="json")
+		for one in subroutine.views.published_sections(withheld={APART["key"]})
+	]
+	sentence = next(one for one in withheld if one["key"] == APART["key"])["withheld"]
+	told = _rendered(tmp_path, {"WorkspaceSettings": {**SAMPLES["WorkspaceSettings"], "sections": withheld}})[
+		"WorkspaceSettings"
+	]
+	quiet = _rendered(tmp_path, {"WorkspaceSettings": SAMPLES["WorkspaceSettings"]})[
+		"WorkspaceSettings"
+	]
+
+	assert sentence and "osc_enabled = true" in sentence, sentence
+	assert APART["withheld"] is None, "the ordinary sample already says nothing is sent"
+	assert sentence not in quiet, quiet[-900:]
+	assert 0 <= told.find(APART["explains"]) < told.find(sentence) < told.find("Where to send them"), (
+		told[-1200:]
+	)
 
 
 def test_a_page_with_nothing_apart_to_say_draws_no_rule_for_it (tmp_path: pathlib.Path) -> None:

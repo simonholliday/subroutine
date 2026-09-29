@@ -84,6 +84,9 @@ def test_a_message_is_the_bytes_python_osc_writes (
 		# The way OSC tools write a destination, which somebody may paste from one.
 		("osc.udp://studio.local:9000", ("studio.local", 9000)),
 		("OSC.UDP://10.0.0.2:57120/", ("10.0.0.2", 57120)),
+		# **Either side of the refused range** (decision `#3804`), so the refusal is the range's.
+		("169.253.255.255:9000", ("169.253.255.255", 9000)),
+		("169.255.0.0:9000", ("169.255.0.0", 9000)),
 	],
 )
 def test_a_destination_is_read_in_every_form_it_is_written (
@@ -105,6 +108,12 @@ def test_a_destination_is_read_in_every_form_it_is_written (
 		("my studio:9000", "names no machine"),
 		("http://studio.local:9000", "is a web address"),
 		("::1:9000", "written in brackets"),
+		# **Where a cloud server answers questions about itself** (decision `#3804`), however the
+		# address is written.
+		("169.254.169.254:80", "where a cloud server answers questions about itself"),
+		("osc.udp://169.254.0.0:9000", "is in 169.254.0.0/16"),
+		("169.254.255.255:9000", "is in 169.254.0.0/16"),
+		("[::ffff:169.254.169.254]:9000", "is in 169.254.0.0/16"),
 	],
 )
 def test_a_destination_that_is_not_one_is_refused_saying_why (written: str, said: str) -> None:
@@ -206,6 +215,41 @@ def test_a_failure_costs_its_own_datagram_and_the_next_still_goes () -> None:
 		sender.send("127.0.0.1", port, [b"heard"])
 
 		assert _heard(listener) == b"heard"
+
+
+def test_a_name_that_leads_where_nothing_is_sent_is_not_sent_to () -> None:
+	"""Decision `#3804`: **checked where a name leads**, since it is looked up long after it is set.
+
+	A name passes :func:`subroutine.osc.destination`, which never looks one up, so a name leading
+	to ``169.254.169.254`` - an IPv4 address written as a number, or a machine that answers for
+	one - is caught only here. The sockets are stood in for, so no datagram leaves the machine
+	however this goes. **With the positive twin**: the same sender, to a name leading anywhere else.
+	"""
+
+	sent: list[tuple[bytes, typing.Any]] = []
+
+	class Recording:
+		"""Keeps what would have gone, and where."""
+
+		def sendto (self, datagram: bytes, address: typing.Any) -> None:
+			"""Keep one datagram and its address."""
+
+			sent.append((datagram, address))
+
+	def resolve (host: str, port: int, **_: typing.Any) -> list[typing.Any]:
+		"""Lead one name into the refused range, as the IPv4 address 2852039166 is, and one out."""
+
+		where = "169.254.169.254" if host == "2852039166" else "192.0.2.10"
+
+		return [(socket.AF_INET, socket.SOCK_DGRAM, 0, "", (where, port))]
+
+	sender = subroutine.osc.Sender(resolve=resolve)
+	sender._sockets[socket.AF_INET] = typing.cast(socket.socket, Recording())
+	sender.send("2852039166", 9000, [b"refused"])
+	sender.send("studio.local", 9000, [b"sent"])
+	sender.drain(5)
+
+	assert sent == [(b"sent", ("192.0.2.10", 9000))], sent
 
 
 @contextlib.contextmanager

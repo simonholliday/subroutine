@@ -16,6 +16,9 @@ nothing, and no write waits for the network.
 fail*). Anything that goes wrong while composing drops that workspace's messages and nothing else,
 and what this reads is rows by their keys - the ones the write has just touched, and the
 vocabulary, projects and people they name.
+
+**The operator decides whether an instance sends at all, and the workspace decides where**
+(decision `#3804`). Where :func:`subroutine.config.sends_osc` says no, nothing is composed.
 """
 
 import collections
@@ -27,6 +30,7 @@ import sqlalchemy
 import sqlalchemy.event
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -41,6 +45,10 @@ PENDING = "subroutine.domain.sounds.pending"
 
 #: Where the datagrams composed for a commit wait for it, as ``(host, port, datagram)``.
 READY = "subroutine.domain.sounds.ready"
+
+#: Whether this instance sends at all, as the process that made the session's factory found it:
+#: :func:`stamped` puts it on every session that factory opens (`#3810`).
+SENDS = "subroutine.domain.sounds.sends"
 
 #: Where every address starts, so a composition fed by several apps cannot mistake ours for
 #: another's (Simon's decision 2 on `#2721`).
@@ -156,6 +164,39 @@ def _category (session: sqlalchemy.orm.Session, status_id: typing.Any) -> str | 
 	return None if found is None else found.category
 
 
+def stamped (settings: subroutine.config.Settings) -> dict[str, typing.Any]:
+	"""Return what a session factory puts on each session it opens: whether this instance sends.
+
+	**Decided by the process that opens the sessions, once** (`#3810`), because only it knows the
+	address it listens on: ``serve --host`` reaches the settings the application is built with,
+	and never the configuration a commit could read for itself.
+	"""
+
+	return {SENDS: subroutine.config.sends_osc(settings)}
+
+
+def _allowed (session: sqlalchemy.orm.Session) -> bool:
+	"""Say whether this instance sends at all, as the process that opened the session decided.
+
+	**A session nobody stamped reads the configuration instead** - a test's, or ``init``'s, which
+	listen on nothing. **Where even that cannot be read, nothing is sent**: a write must not fail
+	over whether a datagram goes, and sending nothing is the one answer nobody has to allow.
+	"""
+
+	stamp = session.info.get(SENDS)
+
+	if isinstance(stamp, bool):
+		return stamp
+
+	# Broad on purpose: a configuration that does not read raises several types, and this runs
+	# inside a commit.
+	try:
+		return subroutine.config.sends_osc(subroutine.config.load_settings())
+
+	except Exception:
+		return False
+
+
 def _composed (session: sqlalchemy.orm.Session) -> None:
 	"""Before a commit: turn the events it records into datagrams, for each workspace that sends.
 
@@ -176,6 +217,11 @@ def _composed (session: sqlalchemy.orm.Session) -> None:
 	pending: list[subroutine.db.models.activity.Event] | None = session.info.pop(PENDING, None)
 
 	if not pending:
+		return
+
+	# **Nothing at all where the operator has not let this instance send** (decision `#3804`):
+	# nothing composed and no savepoint opened. Where each workspace sends stays stored.
+	if not _allowed(session):
 		return
 
 	by_workspace: dict[uuid.UUID, list[subroutine.db.models.activity.Event]] = (

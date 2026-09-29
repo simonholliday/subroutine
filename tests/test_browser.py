@@ -826,7 +826,7 @@ META = {
 	# **And the sections they are drawn in** (`SR#2722`), which the instance publishes beside them;
 	# absent, a setting meant for a section apart was drawn among the ordinary ones.
 	"setting_sections": [
-		one.model_dump(mode="json") for one in subroutine.views.published_sections()
+		one.model_dump(mode="json") for one in subroutine.views.published_sections(withheld=())
 	],
 }
 

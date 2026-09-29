@@ -75,6 +75,7 @@ import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.sessions
 import subroutine.domain.settings
+import subroutine.domain.sounds
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.tokens
@@ -185,7 +186,10 @@ class Client:
 			settings.database_url
 		)
 		self._sessions = session_factory or sqlalchemy.orm.sessionmaker(
-			bind=self._engine, expire_on_commit=False
+			bind=self._engine,
+			expire_on_commit=False,
+			# Whether this instance sends OSC, from this client's own settings (`#3810`).
+			info=subroutine.domain.sounds.stamped(settings),
 		)
 		self._schema_checked = False
 

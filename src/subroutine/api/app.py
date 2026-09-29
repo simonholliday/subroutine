@@ -49,6 +49,7 @@ import subroutine.api.workspaces
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
+import subroutine.domain.sounds
 import subroutine.installations
 import subroutine.releases
 import subroutine.views
@@ -303,8 +304,13 @@ def create_app (
 		# and a migration each take their own connection off this engine, and a statement
 		# timeout there would fail `POST /v1/admin/backups` on any database large enough to be
 		# worth backing up. `db/session._bounded_by` carries the whole argument.
+		#
+		# **Whether this instance sends OSC is decided here, where the bind is known** (`#3810`):
+		# `serve --host` reaches `resolved`, and never the configuration a commit could read.
 		application.state.session_factory = subroutine.db.session.create_session_factory(
-			engine, statement_timeout_seconds=resolved.request_timeout_seconds
+			engine,
+			statement_timeout_seconds=resolved.request_timeout_seconds,
+			info=subroutine.domain.sounds.stamped(resolved),
 		)
 
 	# **Compression belongs to the application rather than to whatever is in front of it**
