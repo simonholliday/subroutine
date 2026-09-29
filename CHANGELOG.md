@@ -153,6 +153,15 @@ upgrade involves.
   deactivated no longer counts as one staying.
 - **A `.subroutine` file that is not UTF-8, or a working directory that has been deleted,** is
   read as no marker, where the terminal and `subroutine mcp` stopped at it.
+- **Quick capture sets nothing from a time beside a span it could not read**, as beside a date it
+  left whole. *Conference October 2-12, 2024 at 9am* started today at 09:00. **And a repeat
+  typed with two spaces is read**: *every  monday* was stored while its note said it had not
+  been.
+- **A calendar feed answers "not modified" again for an old repeat in a zone without summer
+  time**, where the feed changed at every poll.
+- **A date within a day of the calendar's first or last is refused where some clock could not
+  show it.** For an account in Guam a deadline in the first hours of year 1 was stored, and then
+  every answer about the item failed.
 
 ## 0.9.12 — 2026-09-29
 

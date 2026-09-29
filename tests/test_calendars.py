@@ -1538,6 +1538,36 @@ def test_a_repeat_in_a_zone_without_summer_time_keeps_its_day (
 	assert calendar == server, (calendar, server)
 
 
+@pytest.mark.parametrize("zone", ["Asia/Kolkata", "Asia/Tokyo"])
+def test_an_old_repeat_in_a_zone_without_summer_time_is_written_the_same_at_each_poll (
+	zone: str,
+) -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: the feed never answered 304.
+
+	A zone whose clock never changes is written as one observance from the start of the years the
+	feed reads it over, and for a repeat older than those years that start was *now* less them, to
+	the minute: its ``DTSTART`` moved with every poll, and so did the ``ETag``. **From the first of
+	January of that year**, so two polls a quarter of an hour apart are one feed.
+	"""
+
+	begun = datetime.datetime(2016, 3, 7, 9, 0, tzinfo=zoneinfo.ZoneInfo(zone))
+	series = _weekly(zone, starts_at=begun.astimezone(datetime.UTC))
+	identity = uuid.uuid4()
+	polls = [
+		subroutine.domain.icalendar.render(
+			[subroutine.domain.calendars.Occasion(task=series, field="starts_at", rule="FREQ=WEEKLY")],
+			name="Work",
+			instance_id=identity,
+			now=datetime.datetime(2026, 9, 27, 12, minute, tzinfo=datetime.UTC),
+		)
+		for minute in (0, 15)
+	]
+
+	assert subroutine.api.calendars._etag(polls[0]) == subroutine.api.calendars._etag(polls[1]), (
+		polls
+	)
+
+
 @pytest.mark.parametrize("year", [1, 9995])
 def test_a_repeat_at_either_end_of_the_calendar_leaves_the_feed_whole (year: int) -> None:
 	"""`SR#3750`: one repeat dated in year 1 or 9995 made the whole feed answer 500.

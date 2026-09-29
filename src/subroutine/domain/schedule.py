@@ -958,6 +958,13 @@ LATEST_OFFSET = datetime.timedelta(hours=14)
 #: word: the reason a field's refusal gives, and the one quick capture's note gives.
 OFFSET_RANGE = "an offset runs from -12:00 to +14:00, the range clocks use"
 
+#: How far from UTC a clock's local time has ever been, for asking whether a moment can be
+#: shown on every clock (`#3942`). **Wider than the offsets above**, which bound what a written
+#: offset may be: the zone database's own history reaches past them - Asia/Manila to -15:56:08,
+#: America/Metlakatla to +15:13:42 - so a moment that passed them could still be off the calendar
+#: in an account's zone, and was stored, and then failed its own reply.
+FURTHEST_CLOCK = datetime.timedelta(hours=16)
+
 #: Why a moment some clock could not show is not taken at all (`#3766`). Near the calendar's
 #: first or last day an offset carries a moment off it - *9999-12-31T23:00-05:00* is in the
 #: year 10000 in UTC - and whichever conversion met it first raised: a 500 on quick capture and
@@ -1001,7 +1008,7 @@ def beyond_every_clock (
 		return off_the_calendar(edge.replace(tzinfo=subroutine.domain.dates.zone(timezone)))
 
 	for edge in [moment, last] if whole_day else [moment]:
-		for offset in (EARLIEST_OFFSET, LATEST_OFFSET):
+		for offset in (-FURTHEST_CLOCK, FURTHEST_CLOCK):
 			why = off_the_calendar(edge.replace(tzinfo=datetime.timezone(offset)))
 
 			if why is not None:
@@ -1025,10 +1032,11 @@ def off_the_calendar (moment: datetime.datetime) -> str | None:
 	"""Return :data:`OFF_THE_CALENDAR` where some clock could not show a moment.
 
 	**Public for the agenda** (`#3933`), whose window is held to the rule an item's dates keep.
+	**Asked of the furthest clocks there have been** (`#3942`), :data:`FURTHEST_CLOCK` either side.
 	"""
 
 	try:
-		for offset in (EARLIEST_OFFSET, LATEST_OFFSET):
+		for offset in (-FURTHEST_CLOCK, FURTHEST_CLOCK):
 			moment.astimezone(datetime.timezone(offset))
 
 	except OverflowError:

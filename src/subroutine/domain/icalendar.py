@@ -434,7 +434,13 @@ def _unchanging (name: str, *, since: datetime.datetime) -> list[_Change]:
 	if not offset:
 		return []
 
-	return [_Change(onset=since, before=offset, after=offset, daylight=False, name=called)]
+	# **From the first of January of the year the window opens in** (`#3942`). The window's own
+	# start carries the time of day, and for a series older than :data:`_ZONE_SPAN` it is *now*
+	# less that span, so this observance moved with every poll and the feed never answered 304.
+	# Any instant before the window serves for a clock that never changes; this one moves yearly.
+	onset = since.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+	return [_Change(onset=onset, before=offset, after=offset, daylight=False, name=called)]
 
 
 def _changes (name: str, *, since: datetime.datetime, until: datetime.datetime) -> list[_Change]:

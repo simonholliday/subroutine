@@ -1193,8 +1193,19 @@ def test_every_surface_the_moment_scan_reads_is_one_that_exists () -> None:
 		),
 		("9999-12-31T23:00-05:00", "first or last day"),
 		("0001-01-01T01:00+05:00", "first or last day"),
+		# **Just past each end of the range** (`SR#3941`), so the range itself is held and not only a
+		# value far outside it: moving the floor to -13:00 left every test here green.
+		("2026-10-02T09:00-12:30", "from -12:00 to +14:00"),
+		("2026-10-02T09:00+14:30", "from -12:00 to +14:00"),
 	],
-	ids=["an offset no clock uses", "one given as a datetime", "past the end", "before the start"],
+	ids=[
+		"an offset no clock uses",
+		"one given as a datetime",
+		"past the end",
+		"before the start",
+		"just past the floor",
+		"just past the ceiling",
+	],
 )
 def test_a_moment_no_clock_could_have_written_is_refused_by_name (
 	value: str | datetime.datetime, reason: str
@@ -1235,6 +1246,34 @@ def test_the_offsets_at_the_ends_of_the_range_clocks_use_are_taken () -> None:
 		)
 
 		assert read.instant == expected, (written, read)
+
+
+def test_a_moment_that_passes_can_be_shown_in_every_zone () -> None:
+	"""`SR#3942`, S1 of L-10 of the cold review of 2026-09-28: the zones reach past the offsets.
+
+	Whether a moment was too near the calendar's first or last day was asked at -12:00 and +14:00,
+	the offsets clocks write today, and the zone database's history reaches further: Asia/Manila
+	to -15:56:08, America/Metlakatla to +15:13:42. So for an account in Pacific/Guam a deadline of
+	*0001-01-01T13:00Z* was stored, and then its own reply failed. **Asked sixteen hours either
+	side**: the first and last moments that pass are shown in every zone there is, and the moments
+	just outside them do not pass.
+	"""
+
+	first = datetime.datetime(1, 1, 1, 16, 0, tzinfo=datetime.UTC)
+	last = datetime.datetime(9999, 12, 31, 7, 59, 59, 999_999, tzinfo=datetime.UTC)
+	outside = (first - datetime.timedelta(microseconds=1), last + datetime.timedelta(microseconds=1))
+
+	assert subroutine.domain.schedule.off_the_calendar(first) is None
+	assert subroutine.domain.schedule.off_the_calendar(last) is None
+	assert all(subroutine.domain.schedule.off_the_calendar(one) is not None for one in outside)
+
+	for name in sorted(zoneinfo.available_timezones()):
+		for moment in (first, last):
+			moment.astimezone(zoneinfo.ZoneInfo(name))
+
+	assert subroutine.domain.schedule.off_the_calendar(
+		datetime.datetime(1, 1, 1, 13, 0, tzinfo=datetime.UTC)
+	) is not None, "the moment Guam could not show still passes"
 
 
 def test_the_last_day_of_the_calendar_is_refused_where_its_end_cannot_be_shown () -> None:

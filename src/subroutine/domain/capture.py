@@ -1163,6 +1163,8 @@ def parse (
 	#: the readable ones and answered in the same place. Recorded rather than reported here
 	#: because *what follows it* is not knowable until every other rule has taken what it wants.
 	unread: list[tuple[int, int]] = []
+	#: Where the repeat that set the rule landed, so that withdrawing it is asked of its place.
+	ruled: tuple[int, int] | None = None
 
 	for match in _EVERY.finditer(text):
 		read = _repeat_in(match.group(0))
@@ -1178,16 +1180,21 @@ def parse (
 
 		rule, words = read
 
+		# **Only the words that were used**, so a trailing phrase this did not read stays in
+		# the title and can still be claimed by another rule — `every 14 days by friday` keeps
+		# its deadline. **As far as they reach in the line** (`#3942`): ``words`` holds them joined by
+		# one space, so measured on the line it stopped short wherever the writer left two, and
+		# *every  monday* was withdrawn as mid-sentence with its rule kept.
+		start = match.start()
+		ends = [token.end() for token in re.finditer(r"\S+", match.group(0))]
+		reach = (start, start + ends[len(words.split()) - 1])
+		claimed.append(reach)
+		repeated.append(reach)
+
 		if "recurrence" not in fields:
 			fields["recurrence"] = rule
 			fields["recurrence_text"] = words
-
-		# **Only the words that were used**, so a trailing phrase this did not read stays in
-		# the title and can still be claimed by another rule — `every 14 days by friday` keeps
-		# its deadline.
-		start, _end = match.span()
-		claimed.append((start, start + len(words)))
-		repeated.append((start, start + len(words)))
+			ruled = reach
 
 	# **Where each date landed, and which field it set** (`#2855`), so a time can be recognised
 	# as belonging to one date and then be put on that date's field. Each rule writes it on the
@@ -1195,7 +1202,9 @@ def parse (
 	# `claimed`, which knew where the dates were and not what any of them had set.
 	placed: dict[tuple[int, int], str] = {}
 
-	_collect_spans(
+	# **A span left unread is a day the writer named** (`#3942`), as a date left whole for its year is
+	# (`#3809`): *Conference October 2-12, 2024 at 9am* started today at 09:00.
+	refused_span = _collect_spans(
 		text, claimed, reserved, fields, unparsed, placed, today=today, now=now, timezone=timezone
 	)
 
@@ -1223,6 +1232,7 @@ def parse (
 		or _an_unread_date(text, claimed, reserved)
 		# **A date left whole for its year is a day the writer named too** (`#3809`).
 		or bool(hidden)
+		or refused_span
 	)
 	used = _apply_time(
 		fields,
@@ -1256,7 +1266,9 @@ def parse (
 		claimed.remove(span)
 		unparsed.append(text[span[0]:span[1]])
 
-		if fields.get("recurrence_text") == text[span[0]:span[1]]:
+		# **By where it was, not by what it said** (`#3942`), since the rule holds its words joined
+		# by one space and the line need not.
+		if span == ruled:
 			fields.pop("recurrence", None)
 			fields.pop("recurrence_text", None)
 
@@ -2119,8 +2131,11 @@ def _collect_spans (
 	today: datetime.date,
 	now: datetime.datetime,
 	timezone: str,
-) -> None:
+) -> bool:
 	"""Read the first span of whole days in a line as a start and an end — `#2687`.
+
+	**Returns whether a span was written and refused**, which is a day the writer named (`#3942`),
+	so a time beside it is not put on today.
 
 	**Before the dates, because both of its dates would otherwise be read on their own**, and
 	wrongly: the first as a defer, since ``from`` is one, and the second not at all.
@@ -2168,14 +2183,14 @@ def _collect_spans (
 				reserved.append(match.span())
 				unparsed.append(match.group(0).strip())
 
-				return
+				return True
 
 			fields["starts_at"], fields["ends_at"] = hours
 			fields["starts_is_all_day"] = False
 			claimed.append(match.span())
 			placed[match.span()] = "starts_at"
 
-			return
+			return False
 
 		# Kept whole and reported, as a span this cannot read is below - `#2894`. Its two days
 		# cannot both carry a time yet, and the date rules would have made its start a defer.
@@ -2183,7 +2198,7 @@ def _collect_spans (
 			reserved.append(match.span())
 			unparsed.append(match.group(0).strip())
 
-			return
+			return True
 
 		groups = match.groupdict()
 
@@ -2200,14 +2215,16 @@ def _collect_spans (
 			reserved.append(match.span())
 			unparsed.append(match.group(0).strip())
 
-			return
+			return True
 
 		fields["starts_at"], fields["ends_at"] = days
 		fields["starts_is_all_day"] = True
 		claimed.append(match.span())
 		placed[match.span()] = "starts_at"
 
-		return
+		return False
+
+	return False
 
 
 def _clocked_day (

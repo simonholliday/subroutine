@@ -2660,6 +2660,52 @@ def test_a_bare_time_is_still_told_how_a_time_is_read () -> None:
 	assert "a time is read after 'at', or straight after a day" in said, said
 
 
+def test_a_time_beside_a_span_that_was_not_read_sets_nothing () -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: a span refused whole left its time to today.
+
+	*Conference October 2-12, 2024 at 9am* started today at 09:00, titled with the span, and its
+	note spoke of the span alone. A span that is refused is a day the writer named, as a date left
+	whole for its year is (`SR#3809`), so **the time beside it sets nothing**, and both are said.
+	"""
+
+	read = _parse("Conference October 2-12, 2024 at 9am")
+
+	assert (read.starts_at, read.ends_at, read.due, read.snooze) == (None, None, None, None), read
+	assert read.title == "Conference October 2-12, 2024 at 9am", read.title
+	assert any("October 2-12, 2024" in one for one in read.unparsed), read.unparsed
+	assert any(one.endswith("at 9am") for one in read.unparsed), read.unparsed
+
+
+@pytest.mark.parametrize(
+	("line", "rule", "title"),
+	[
+		("Water the plants every  monday", "FREQ=WEEKLY;BYDAY=MO", "Water the plants"),
+		("Water the plants every  monday for the ferns", None, None),
+	],
+	ids=["at the end", "mid-sentence"],
+)
+def test_a_repeat_typed_with_two_spaces_is_read_or_given_back_whole (
+	line: str, rule: str | None, title: str | None
+) -> None:
+	"""`SR#3942`: *every  monday* was stored while its note said it had not been read.
+
+	The words a repeat used were measured on the line as they read with one space between them, so
+	two spaces stopped the claim a character short, *every  monda*, and the repeat was given back as
+	mid-sentence - with its rule kept, since that was matched by its text. **Claimed as far as the
+	words reach, and given back by where they were**, so the line at the end is a repeat and the
+	one in a sentence is not, whole.
+	"""
+
+	read = _parse(line)
+
+	assert read.recurrence == rule, read
+	# A title keeps one space where the line had two, as every one-line field does.
+	assert read.title == (title or " ".join(line.split())), read.title
+
+	if rule is None:
+		assert "every  monday" in read.unparsed, read.unparsed
+
+
 def test_a_time_beside_a_date_with_its_preposition_is_still_read () -> None:
 	"""`SR#3763`'s control: *on 2 October at 3pm* is an appointment on 2 October, as it was."""
 
