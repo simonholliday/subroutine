@@ -2527,6 +2527,8 @@ def _kept_on_its_grid (
 	*,
 	before: dict[str, typing.Any],
 	deltas: dict[str, datetime.timedelta],
+	timezone: str,
+	now: datetime.datetime,
 ) -> None:
 	"""Move a row's slot with the one date column it is a slot on (`#1302`).
 
@@ -2561,7 +2563,16 @@ def _kept_on_its_grid (
 	was_tracked = grid_field_for(before.get("due_at"))
 
 	if tracked == was_tracked and tracked in deltas:
-		row.occurrence_at += deltas[tracked]
+		# **By days, where the slot is a whole day** (`#3930`), for :func:`_days_moved`'s reason:
+		# moved by the hours in a fortnight across a clock change, a Monday's slot landed at 23:00
+		# on the Sunday, and the occurrence minted after it was that Monday again.
+		if getattr(row, ALL_DAY_FLAG[tracked]):
+			row.occurrence_at = _days_moved(
+				row.occurrence_at, deltas[tracked], column=tracked, timezone=timezone, now=now
+			)
+
+		else:
+			row.occurrence_at += deltas[tracked]
 
 		return
 
@@ -2702,6 +2713,44 @@ def _flags_held_back (
 	)
 
 
+def _days_moved (
+	held: datetime.datetime,
+	delta: datetime.timedelta,
+	*,
+	column: str,
+	timezone: str,
+	now: datetime.datetime,
+) -> datetime.datetime | None:
+	"""Move a whole-day date by the days the other row moved, on the calendar (`#3930`).
+
+	**By days, not by the hours in them.** The other row's move is an instant minus an instant,
+	and across a clock change a whole number of days is an hour more or less than that many
+	twenty-fours - so an all-day London series moved from now on from October into November
+	landed at 23:00 on the Sunday, and the next occurrence minted from it was the same Monday
+	again. The day is read in ``timezone``, moved, and snapped to the column's own edge there.
+
+	**``timezone`` is the zone the row's dates are held in at this point**, which each caller
+	knows and this cannot: a row a zone is being carried to is still held in its old one until
+	:func:`_resnapped` relabels it, and the row that was edited has already been relabelled.
+
+	**A move of no days is kept as it is**, not snapped, since it is not a move at all: a save of
+	an occurrence at its own date, or one correcting a row written before `#1291`, reaches here
+	with such a delta. Snapping would read a row held off its zone's edge - a deadline at the end
+	of the UTC day, labelled London - as the next day, and move a series a day for nothing.
+	"""
+
+	days = round(delta / datetime.timedelta(days=1))
+
+	if days == 0:
+		return held + delta
+
+	day = held.astimezone(subroutine.domain.dates.zone(timezone, "timezone")).date()
+
+	return whole_day_for(
+		day + datetime.timedelta(days=days), field=column, timezone=timezone, now=now
+	).instant
+
+
 def _carried (
 	session: sqlalchemy.orm.Session,
 	target: subroutine.db.models.work.Task,
@@ -2760,12 +2809,17 @@ def _carried (
 	clock = (
 		now_holds.get("timezone") or target.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
 	)
+	held_in = before.get("timezone") or clock
 
 	def moved (column: str, held: datetime.datetime) -> datetime.datetime | None:
 		"""Move one of this row's dates as the source's moved."""
 
 		if now_holds.get(ALL_DAY_FLAG[column]):
-			return held + deltas[column]
+			# **In the zone this row was written in**: a zone carried to it is applied after
+			# the loop, and :func:`_resnapped` moves these onto the same days in it.
+			return _days_moved(
+				held, deltas[column], column=column, timezone=held_in, now=instant
+			)
 
 		return _clock_moved(
 			held,
@@ -2848,7 +2902,7 @@ def _carried (
 	# leaving it behind would make a series shifting an hour look like every occurrence being
 	# individually rescheduled — and the feed would emit an ``EXDATE`` for a slot nothing had
 	# left. Read after the loop, so the column asked about is the one the row holds *now*.
-	_kept_on_its_grid(target, before=before, deltas=deltas)
+	_kept_on_its_grid(target, before=before, deltas=deltas, timezone=held_in, now=instant)
 
 	# **A zone carried is a zone this row's dates have to be on** (`#1293`). The loop relabels the
 	# row and moves its dates by whole days, so a series re-dated in London carried *Europe/London*
@@ -2924,7 +2978,14 @@ def _applied_to_the_series (
 	# :func:`_carried`.
 	#
 	# ``was`` is this row's own before, so it is the grid test :func:`_kept_on_its_grid` needs.
-	_kept_on_its_grid(task, before=was, deltas=_deltas(was, now_holds))
+	# **In the zone the row is in now**: `update` has already moved its dates onto it.
+	_kept_on_its_grid(
+		task,
+		before=was,
+		deltas=_deltas(was, now_holds),
+		timezone=task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE,
+		now=instant,
+	)
 	session.flush()
 
 	if task.is_template:

@@ -2305,6 +2305,132 @@ def test_a_repeat_given_to_a_task_deeper_than_the_default_follows_the_instances_
 	assert _template(session, below).depth == 11
 
 
+def test_an_all_day_series_moved_across_a_clock_change_stays_on_its_day (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3930`: a whole day was carried from one row of a series to the other as hours.
+
+	A London all-day series on Mondays, its live occurrence moved *from now on* from 19 October
+	to 2 November, carried the fortnight to the series as 336 hours - and the October clock change
+	lies between, so the series landed at 23:00 on Sunday 1 November and the occurrence after
+	the moved one was minted for that Monday again. **A timed series was already right**, and
+	stays so: this is the whole-day branch alone.
+	"""
+
+	live = _repeating(
+		session,
+		title="Put the bins out",
+		due=None,
+		starts=datetime.date(2026, 10, 19),
+		recurrence="every monday",
+	)
+	series = _template(session, live)
+
+	subroutine.domain.tasks.update(
+		session,
+		live,
+		starts="2026-11-02",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+	london = zoneinfo.ZoneInfo(LONDON)
+	moved = test_schedule._instant(series.starts_at).astimezone(london)
+
+	assert (moved.date(), moved.time()) == (datetime.date(2026, 11, 2), datetime.time(0, 0)), moved
+
+	subroutine.domain.tasks.complete(session, live, now=NOW)
+	following = test_schedule._instant(_next_live(session, series).starts_at).astimezone(london)
+
+	assert (following.date(), following.time()) == (datetime.date(2026, 11, 9), datetime.time(0, 0)), (
+		following
+	)
+
+
+def test_an_all_day_series_moved_and_given_a_new_zone_at_once_stays_on_its_day (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3930` where the move carries a zone too, which is where the two rows part company.
+
+	**The series is relabelled after its dates are moved, and the occurrence before.** So the
+	series' day is read in the zone it was written in, and the occurrence's slot in the zone it
+	is in now; either read in the other's zone lands a day out, 13 hours from London.
+	"""
+
+	live = _repeating(
+		session,
+		title="Put the bins out",
+		due=None,
+		starts=datetime.date(2026, 10, 19),
+		recurrence="every monday",
+	)
+	series = _template(session, live)
+
+	subroutine.domain.tasks.update(
+		session,
+		live,
+		starts="2026-11-02",
+		timezone="Pacific/Auckland",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+	auckland = zoneinfo.ZoneInfo("Pacific/Auckland")
+
+	def day (value: datetime.datetime | None) -> tuple[datetime.date, datetime.time]:
+		"""Return a stored instant as the day and time it is in Auckland."""
+
+		local = test_schedule._instant(value).astimezone(auckland)
+
+		return local.date(), local.time()
+
+	monday = (datetime.date(2026, 11, 2), datetime.time(0, 0))
+
+	assert (series.timezone, day(series.starts_at)) == ("Pacific/Auckland", monday)
+	assert day(live.occurrence_at) == monday, "the moved occurrence's slot is off its day"
+
+	subroutine.domain.tasks.complete(session, live, now=NOW)
+
+	assert day(_next_live(session, series).starts_at) == (datetime.date(2026, 11, 9), datetime.time(0, 0))
+
+
+def test_a_move_of_no_days_leaves_the_other_row_as_it_found_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3930` moves a whole day by days, and **a move of no days is left alone**, not snapped.
+
+	A series written before the edges were settled can hold its deadline at the end of the UTC
+	day while it is labelled London - an hour into the next London day. Carrying a sub-day
+	correction onto it as *zero days, snapped to the edge* reads that as the next day and moves
+	the series a day, where carrying nothing leaves it where it was.
+	"""
+
+	instance = _repeating(
+		session, title="Pay council tax", recurrence="every month on the 1st", due=None
+	)
+	template = _template(session, instance)
+	day = test_schedule._instant(template.due_at).astimezone(zoneinfo.ZoneInfo(LONDON)).date()
+	template.due_at = datetime.datetime.combine(
+		day, datetime.time(23, 59, 59, 999_999), tzinfo=datetime.UTC
+	)
+	held = template.due_at
+	behind = datetime.timedelta(microseconds=999_999)
+	instance.due_at = test_schedule._instant(instance.due_at) - behind
+	session.flush()
+
+	subroutine.domain.tasks.update(
+		session,
+		instance,
+		due=day.isoformat(),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+		timezone=LONDON,
+	)
+	session.flush()
+
+	assert template.due_at == held, f"a move of no days moved the series to {template.due_at}"
+
+
 def _renders (task: subroutine.db.models.work.Task) -> datetime.date:
 	"""Return the day a row's deadline falls on in the zone the row itself names."""
 

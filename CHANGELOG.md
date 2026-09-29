@@ -57,6 +57,10 @@ upgrade involves.
   `since=1` answered 410 once a second workspace existed, and on PostgreSQL whenever the
   sequence had a gap, which one rolled-back write leaves. Nothing prunes yet, so nothing is
   refused as expired; the refusal returns with the pruning, measured against what it pruned.
+- **An all-day repeat moved from now on across a clock change stays on its day.** It was moved by
+  the hours in the move rather than the days, so a London series on Mondays moved from October
+  into November landed on the Sunday, and the occurrence after the moved one came round on that
+  same Monday again.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and
