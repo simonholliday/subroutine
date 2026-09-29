@@ -970,7 +970,9 @@ def unreachable (
 	`user deactivate` puts before it acts, which is the other half of the decision.
 
 	Needs ``instance:admin``, and a credential pinned to one workspace or narrowed to some projects
-	is refused: this answers for every project on the installation (`#2619`).
+	is refused: this answers for every project on the installation (`#2619`). The narrowing is
+	refused by ``authorize_instance`` itself since decision `#3802`, which is why it has no branch
+	of its own here.
 	"""
 
 	if actor is not None:
@@ -983,13 +985,6 @@ def unreachable (
 				"A token pinned to one workspace cannot ask which projects on this installation "
 				"nobody can reach.",
 				hint="Use a credential that was not pinned to a workspace.",
-			)
-
-		if subroutine.domain.authorization.narrowed_to_projects(actor):
-			raise subroutine.errors.Forbidden(
-				"A token narrowed to some projects cannot ask which projects on this installation "
-				"nobody can reach.",
-				hint="Use a credential that was not narrowed to projects.",
 			)
 
 	project = subroutine.db.models.project.Project

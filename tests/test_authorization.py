@@ -1014,3 +1014,103 @@ def test_membership_is_administered_by_the_verb_named_for_it (
 		holders[subroutine.permissions.WORKSPACE_ADMIN]
 		== holders[subroutine.permissions.USER_ADMIN]
 	), f"the correction moved a capability between roles: {holders}"
+
+
+def test_every_workspace_verb_is_a_read_a_write_inside_a_project_or_workspace_wide () -> None:
+	"""`#3812`. Each workspace verb is in exactly one of the three sets, so each was placed.
+
+	Decision `#3802` refuses a credential narrowed to some projects the verbs in
+	``WORKSPACE_WIDE`` wherever no project is named. A verb in none of the sets is one nobody
+	decided about, and a narrowed credential would keep it wherever it is asked with no project -
+	which is how the whole workspace's administration was reached before (`#3744`).
+	"""
+
+	sets = {
+		"READS": subroutine.permissions.READS,
+		"WRITES_INSIDE_A_PROJECT": subroutine.permissions.WRITES_INSIDE_A_PROJECT,
+		"WORKSPACE_WIDE": subroutine.permissions.WORKSPACE_WIDE,
+	}
+	placed = [verb for members in sets.values() for verb in members]
+
+	assert len(placed) == len(set(placed)), f"a verb is in two sets: {sets}"
+	assert set(placed) == subroutine.permissions.WORKSPACE_LEVEL, (
+		f"placed in no set: {sorted(subroutine.permissions.WORKSPACE_LEVEL - set(placed))}"
+	)
+
+
+@pytest.mark.parametrize("narrowing", ["project_scope", "project_write_scope"])
+def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
+	session: sqlalchemy.orm.Session, narrowing: str
+) -> None:
+	"""`#3812`, decision `#3802`: the whole workspace is beyond the projects it was issued for.
+
+	An owner's credential narrowed to one project could make somebody else owner, rename the
+	workspace and move it to the trash (`#3744`), because a project scope was asked only where an
+	action names a project. Narrowing where it may write (`#371`) is narrowing too. Its work in
+	the project is unchanged, and ``explain`` - what ``/v1/me`` reads - offers only that.
+	"""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	project = _project(session, workspace)
+	narrowed = _with_token(session, owner, **{narrowing: [str(project.id)]})
+
+	for verb in sorted(subroutine.permissions.WORKSPACE_WIDE):
+		assert subroutine.domain.authorization.may(
+			session, owner, verb, workspace_id=workspace.id
+		), f"the owner's own role grants {verb}, or this proves nothing"
+
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError) as raised:
+			subroutine.domain.authorization.authorize(
+				session, narrowed, verb, workspace_id=workspace.id
+			)
+
+		assert (
+			raised.value.failure
+			is subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS
+		), verb
+		assert "narrowed to" in raised.value.detail, raised.value.detail
+
+	for verb in sorted(subroutine.permissions.WRITES_INSIDE_A_PROJECT):
+		subroutine.domain.authorization.authorize(
+			session, narrowed, verb, workspace_id=workspace.id, project=project
+		)
+
+	offered = subroutine.domain.authorization.effective_permissions(
+		session, narrowed, workspace.id
+	)
+
+	assert not offered & subroutine.permissions.WORKSPACE_WIDE, (
+		f"offered what the check refuses: {sorted(offered & subroutine.permissions.WORKSPACE_WIDE)}"
+	)
+
+
+@pytest.mark.parametrize("narrowing", ["project_scope", "project_write_scope"])
+def test_a_superusers_credential_narrowed_to_projects_administers_nothing_on_the_installation (
+	session: sqlalchemy.orm.Session, narrowing: str
+) -> None:
+	"""`#3812`, decision `#3802`, and `#3883` M-4: the installation is beyond every project.
+
+	A superuser's credential narrowed to one project created accounts and revoked other people's
+	credentials and sign-ins, because the instance tier asked about the superuser and the token's
+	scopes and nothing about its projects - and ``instance_permissions``, which ``/v1/me``
+	reports, offered all three verbs to it.
+	"""
+
+	workspace = _seeded_workspace(session)
+	project = _project(session, workspace)
+	superuser = subroutine.domain.authentication.Principal(
+		user=_user(session, is_superuser=True)
+	)
+	narrowed = _with_token(session, superuser, **{narrowing: [str(project.id)]})
+
+	assert subroutine.domain.authorization.instance_permissions(narrowed) == frozenset()
+
+	for verb in sorted(subroutine.permissions.INSTANCE_LEVEL):
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError) as raised:
+			subroutine.domain.authorization.authorize_instance(narrowed, verb)
+
+		assert (
+			raised.value.failure
+			is subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS
+		), verb

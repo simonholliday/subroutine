@@ -118,6 +118,33 @@ WRITES_INSIDE_A_PROJECT: frozenset[str] = frozenset(
 	}
 )
 
+#: The verbs whose effect is the whole workspace rather than anything inside a project - its name,
+#: settings and prioritised project, its trash, who belongs to it, its vocabulary, and moderating
+#: other people's comments and shared views (decision `#3802`, item `#3812`).
+#:
+#: **A credential narrowed to some projects is refused these wherever no project is named**, in
+#: ``authorization._refusal``, because somebody issuing a credential for one project expects it to
+#: stop at that project. Until then §7.3's *restricts which rows, not which verbs* was applied only
+#: where an action names a project, so an owner's credential narrowed to one could make somebody
+#: else owner, rename the workspace and move it to the trash (`#3744`). A project's own
+#: administration always names its project, and is unchanged.
+#:
+#: **Named explicitly, like the set above**, and the three sets together must be every workspace
+#: verb: ``tests/test_authorization.py`` fails the build on a verb that is none of a read, a write
+#: inside a project, or one of these, so a verb added later is placed by somebody deciding where.
+WORKSPACE_WIDE: frozenset[str] = frozenset(
+	{
+		WORKSPACE_WRITE,
+		WORKSPACE_ADMIN,
+		WORKSPACE_DELETE,
+		TAG_WRITE,
+		STATUS_WRITE,
+		LINK_TYPE_WRITE,
+		USER_ADMIN,
+		TOKEN_ADMIN,
+	}
+)
+
 #: Creating the second workspace happens outside every existing workspace, and creating an
 #: account happens before that account belongs to one — so neither can be expressed as a
 #: role permission, and without their own verbs the only way to do either is to skip the

@@ -313,7 +313,9 @@ def test_a_credential_narrowed_to_some_projects_may_not_ask_about_all_of_them (
 		refused = caller.call("GET", "/v1/instance/unreachable-projects")
 
 		assert refused.status_code == 403, (narrowing, refused.text)
-		assert "narrowed to some projects" in refused.text, refused.text
+
+		# Refused by the instance tier itself since decision `#3802` (`#3812`), in its sentence.
+		assert "the token you used is narrowed to" in refused.text, refused.text
 
 
 def test_only_a_credential_that_reaches_every_project_can_let_somebody_back_in (

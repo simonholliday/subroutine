@@ -15,6 +15,10 @@ with one exception that has to be stated in the code as loudly as in the spec: *
 Read as literal set algebra, the formula gives every ordinary token nothing at all — which
 is the single easiest way to ship an API where everything is refused.
 
+**And a project scope does restrict verbs, since decision `#3802`**: a credential narrowed to some
+projects is refused the workspace's administration wherever no project is named — the verbs in
+:data:`subroutine.permissions.WORKSPACE_WIDE` — and the installation's altogether.
+
 The instance tier (docs/design.md §7.1) has its own entry point, :func:`authorize_instance`, for
 the acts that have no workspace to be checked against — creating a workspace, creating an
 account. It is a separate function rather than the same one called with a placeholder
@@ -50,6 +54,7 @@ class AuthorizationFailure(enum.StrEnum):
 	OUT_OF_TOKEN_SCOPE = "out_of_token_scope"
 	OUT_OF_PROJECT_SCOPE = "out_of_project_scope"
 	OUT_OF_PROJECT_WRITE_SCOPE = "out_of_project_write_scope"
+	NARROWED_TO_PROJECTS = "narrowed_to_projects"
 	PROJECT_INVISIBLE = "project_invisible"
 	NOT_A_SUPERUSER = "not_a_superuser"
 
@@ -89,6 +94,13 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.OUT_OF_PROJECT_WRITE_SCOPE: (
 		"The token you used can read this project but may only write in another."
 	),
+	# One sentence for both tiers, since the workspace's administration and the installation's
+	# are refused for the same reason (decision `#3802`): each reaches past the projects the
+	# credential was issued for.
+	AuthorizationFailure.NARROWED_TO_PROJECTS: (
+		"This needs the {permission} permission, and acts beyond the projects the token you "
+		"used is narrowed to."
+	),
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"This affects the whole installation, and needs the {permission} permission. "
 		"Only an administrator of this instance holds it."
@@ -102,6 +114,7 @@ _HINTS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.WORKSPACE_MISMATCH: (
 		"Use a token issued without a workspace, or one issued for this workspace."
 	),
+	AuthorizationFailure.NARROWED_TO_PROJECTS: "Use a token that is not narrowed to projects.",
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"Ask whoever runs this instance to do it, or to make your account an administrator."
 	),
@@ -331,18 +344,18 @@ def instance_permissions (
 	Empty for everyone but a superuser, and narrowed by the token's scopes even then — so
 	an agent holding a scoped token is told the truth about what it can do rather than
 	discovering it by being refused (docs/design.md §7.1, §13.1).
+
+	**Asked of the decision itself, as :func:`explain` does for a workspace** (`#3812`). This
+	restated the superuser and scope rules and not the narrowing decision `#3802` added, so a
+	superuser's credential narrowed to some projects would have been offered the installation's
+	administration by ``/v1/me`` and then refused it.
 	"""
 
-	if not principal.is_superuser:
-		return frozenset()
-
-	scopes = principal.scopes
-
-	# The sentinel again: an empty list narrows nothing.
-	if not scopes:
-		return subroutine.permissions.INSTANCE_LEVEL
-
-	return subroutine.permissions.INSTANCE_LEVEL & frozenset(scopes)
+	return frozenset(
+		permission
+		for permission in subroutine.permissions.INSTANCE_LEVEL
+		if _instance_refusal(principal, permission) is None
+	)
 
 
 def may_instance (
@@ -460,6 +473,13 @@ def _instance_refusal (
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
+	# **Nor the narrowing to some projects** (decision `#3802`, item `#3812`). The installation is
+	# beyond every project, and ``scopes`` defaults to the owner's whole set, so a superuser's
+	# credential narrowed to one project created accounts and revoked other people's credentials
+	# and sign-ins (`#3883` M-4). Everything that acts on the installation asks here.
+	if narrowed_to_projects(principal):
+		return AuthorizationFailure.NARROWED_TO_PROJECTS
+
 	return None
 
 
@@ -521,6 +541,19 @@ def _refusal (
 
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
+
+	# **A credential narrowed to some projects administers nothing beyond them** (decision
+	# `#3802`, item `#3812`). A verb whose effect is the whole workspace, asked with no project,
+	# is by construction beyond them - and the narrowing below is asked only where a project is
+	# named, which is how an owner's credential narrowed to one project could hand out ownership
+	# and move the workspace to the trash (`#3744`). A project's own administration names its
+	# project and never reaches this.
+	if (
+		project is None
+		and permission in subroutine.permissions.WORKSPACE_WIDE
+		and narrowed_to_projects(principal)
+	):
+		return AuthorizationFailure.NARROWED_TO_PROJECTS
 
 	if project is not None and not _within_project_scope(principal, project):
 		return AuthorizationFailure.OUT_OF_PROJECT_SCOPE

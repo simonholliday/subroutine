@@ -1078,6 +1078,13 @@ just described is one nobody checks again:
 Naming one that does not exist prints all four, because four is short enough to read here
 rather than go and look up.
 
+**A credential narrowed to some projects administers nothing beyond them**, whatever its
+account's role - `worker` and `collaborator` included. The workspace's name, settings and
+members, its statuses, tags and link types, moderating other people's comments and moving the
+workspace to the trash are all refused to it, and so is the installation's own administration.
+Its work in those projects is unchanged, and so is each project's own administration. An agent
+that curates the vocabulary or moderates needs a credential that is not narrowed to projects.
+
 The rest of this section is the same work done piece by piece, which is worth reading once
 because it says what each piece is for.
 

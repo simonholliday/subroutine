@@ -12,6 +12,18 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+- **A credential narrowed to some projects administers nothing beyond them.** An owner's or
+  administrator's token narrowed to one project could change the whole workspace: rename it,
+  change its settings - pointing its OSC anywhere included - add and remove its members and
+  administrators, curate its statuses, tags and link types, moderate other people's comments and
+  shared views, and move it to the trash. A superuser's could make accounts, list and revoke
+  other people's credentials, sign them out, and list every workspace on the instance. All of it
+  is refused now, saying why, and `/v1/me` no longer offers it to such a credential. Work in its
+  projects is unchanged, and so is each project's own administration. **An agent that curates
+  the vocabulary or moderates** needs a credential that is not narrowed to projects.
+
 ## 0.9.12 — 2026-09-29
 
 - **A deferral given with a new repeat defers its first occurrence.** An item made with a repeat
