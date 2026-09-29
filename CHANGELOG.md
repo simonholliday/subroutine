@@ -184,6 +184,10 @@ upgrade involves.
   instead, and deleting it says that a repeat is stopped by marking it done. The terminal turned
   all of these down on its own database, while the API, the browser and a remote connection
   moved, deleted and linked the series.
+- **A repeating task deeper than ten levels gets its next occurrence** on an instance that allows
+  more: finishing one was refused, naming the setting already raised. **A rule that repeats no
+  times, `COUNT=0`, is refused** rather than stored, and **one on the last day of the month reads
+  back as *on the last day***, not *on the -1th*.
 
 ## 0.9.12 — 2026-09-29
 

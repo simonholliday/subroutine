@@ -282,6 +282,20 @@ def test_a_rule_carrying_a_part_this_does_not_store_is_refused () -> None:
 			subroutine.domain.recurrence.rule(stored)
 
 
+@pytest.mark.parametrize("count", ["0", "-2"])
+def test_a_repeat_that_comes_round_no_times_is_refused (count: str) -> None:
+	"""`SR#3935`, L-4 of the cold review of 2026-09-28: ``COUNT=0`` was stored as *0 times*.
+
+	dateutil reads it as a rule with nothing in it, so a new task was refused for having no dates,
+	while a change to an existing one answered 200 and a preview answered with no occurrences.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.rule(f"FREQ=DAILY;COUNT={count}")
+
+	assert "COUNT starts at 1" in refused.value.errors[0].message, refused.value.errors
+
+
 def test_a_rule_that_names_a_real_part_and_means_nothing_is_still_refused () -> None:
 	"""The part list says a name is allowed; only building the rule says the value parses."""
 
@@ -321,6 +335,11 @@ DESCRIBED: tuple[tuple[str, str], ...] = (
 	# **Lists, which are ordinary rules** (`SR#3923`): each answered 500 on every write.
 	("FREQ=MONTHLY;BYMONTHDAY=1,15", "every month, on the 1st and 15th"),
 	("FREQ=YEARLY;BYMONTH=1,7;BYMONTHDAY=1", "every year, on 1 January and July"),
+	# **A day counted from the end** (`SR#3935`), which read back as *on the -1th*.
+	("FREQ=MONTHLY;BYMONTHDAY=-1", "every month, on the last day"),
+	("FREQ=MONTHLY;BYMONTHDAY=1,-1", "every month, on the 1st and last day"),
+	("FREQ=MONTHLY;BYMONTHDAY=-2", "every month, on the 2nd to last day"),
+	("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1", "every year, on the last day of February"),
 )
 
 

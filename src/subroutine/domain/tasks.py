@@ -607,6 +607,40 @@ def whole_day_for (
 	)
 
 
+def _series_anchor (
+	rule: str, *, grid: datetime.datetime | None, filed: datetime.datetime | None
+) -> datetime.datetime:
+	"""Return the instant a series with this rule and grid date is anchored to, or refuse - `#3935`.
+
+	:func:`series_start`'s rule taken apart from the row, as :func:`grid_field_for` is, so it can
+	be asked of the dates a task *will* have, before anything is written.
+	"""
+
+	# **A rule that names its own day needs no date beside it** (`#94`, found by driving).
+	# "On the 30th of every month" was refused for not saying when, which is exactly what it
+	# does say — and the refusal arrived on the phrasing the brief was written in. Anchored on
+	# the moment it was filed, which for a self-anchoring rule invents nothing: the first
+	# occurrence is the next 30th either way.
+	if grid is None and subroutine.domain.recurrence.names_its_own_day(rule):
+		return filed or subroutine.db.types.utcnow()
+
+	if grid is None:
+		raise subroutine.errors.ValidationError(
+			"A repeat needs a date to repeat from.",
+			code="invalid_field_value",
+			hint="Give it a deadline or a start - 'every month' says how often, not when.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="recurrence",
+					code="invalid_field_value",
+					message="Send 'due' or 'starts' alongside the repeat.",
+				)
+			],
+		)
+
+	return grid
+
+
 def series_start (
 	template: subroutine.db.models.work.Task,
 ) -> datetime.datetime:
@@ -621,35 +655,12 @@ def series_start (
 	is a date they did not choose and will not remember choosing.
 	"""
 
-	rule = template.recurrence_rule or ""
 	# **The same column the slot is on** (:func:`grid_field`), and it has to be: ``materialise``
 	# computes ``occurrence_at`` from this anchor and each date from its own column, so an
 	# anchor on one column and a slot on another would mint every occurrence off its own grid.
-	anchor = grid_date(template)
-
-	# **A rule that names its own day needs no date beside it** (`#94`, found by driving).
-	# "On the 30th of every month" was refused for not saying when, which is exactly what it
-	# does say — and the refusal arrived on the phrasing the brief was written in. Anchored on
-	# the moment it was filed, which for a self-anchoring rule invents nothing: the first
-	# occurrence is the next 30th either way.
-	if anchor is None and subroutine.domain.recurrence.names_its_own_day(rule):
-		return template.created_at or subroutine.db.types.utcnow()
-
-	if anchor is None:
-		raise subroutine.errors.ValidationError(
-			"A repeat needs a date to repeat from.",
-			code="invalid_field_value",
-			hint="Give it a deadline or a start - 'every month' says how often, not when.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="recurrence",
-					code="invalid_field_value",
-					message="Send 'due' or 'starts' alongside the repeat.",
-				)
-			],
-		)
-
-	return anchor
+	return _series_anchor(
+		template.recurrence_rule or "", grid=grid_date(template), filed=template.created_at
+	)
 
 
 #: **What a series carries unchanged**, from the row it is made from to every occurrence it
@@ -850,14 +861,18 @@ def materialise (
 	# recorded symptom exactly, arriving on the one axis its fix could not see.
 	#
 	# **The depth cannot newly refuse.** An occurrence sits where its template already sits,
-	# and the template was placed by `create` against the same ceiling.
+	# and the template was placed against the instance's own ceiling - **so its depth is allowed
+	# here whatever the default is** (`#3935`). The default alone refused the next occurrence of a
+	# repeat eleven deep on an instance that allows twenty, naming the setting already raised.
 	parent = (
 		None if template.parent_task_id is None
 		else session.get(subroutine.db.models.work.Task, template.parent_task_id)
 	)
 
 	subroutine.domain.hierarchy.place(
-		instance, parent, max_depth=subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH
+		instance,
+		parent,
+		max_depth=max(template.depth, subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH),
 	)
 
 	session.add(instance)
@@ -1711,6 +1726,35 @@ def update (
 		)
 	)
 
+	# **How it repeats is read here too, against the dates the task will have** (`#3935`). It was
+	# read as it was applied, after every other field had been assigned, so a rule that could not
+	# be read - or a new series with no date to repeat from - was refused with the new title
+	# already on the row, for a caller holding the session to commit. The docstring's promise is
+	# the rule, and the repeat was the field that broke it.
+	repeating: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if recurrence is subroutine.domain.patch.UNSET
+		and recurrence_anchor is subroutine.domain.patch.UNSET
+		and recurrence_trigger is subroutine.domain.patch.UNSET
+		else _repeat_read(
+			session,
+			task,
+			rule=recurrence,
+			anchor=(
+				None if recurrence_anchor is subroutine.domain.patch.UNSET else recurrence_anchor
+			),
+			trigger=(
+				None
+				if recurrence_trigger is subroutine.domain.patch.UNSET
+				else recurrence_trigger
+			),
+			due_at=task.due_at if deadline is subroutine.domain.patch.UNSET else deadline.instant,
+			starts_at=(
+				task.starts_at if beginning is subroutine.domain.patch.UNSET else beginning.instant
+			),
+		)
+	)
+
 	before = _snapshot(session, task)
 
 	if cleaned_title is not subroutine.domain.patch.UNSET:
@@ -1896,27 +1940,8 @@ def update (
 	# **Any of the three, not the rule alone** (`#918`). The two qualifiers were readable only
 	# once the rule had been named, so *change how this is measured, keep the rule* reached
 	# nothing at all — and answered as though it had.
-	if (
-		recurrence is not subroutine.domain.patch.UNSET
-		or recurrence_anchor is not subroutine.domain.patch.UNSET
-		or recurrence_trigger is not subroutine.domain.patch.UNSET
-	):
-		_repeat_changed(
-			session,
-			task,
-			rule=recurrence,
-			anchor=(
-				None if recurrence_anchor is subroutine.domain.patch.UNSET else recurrence_anchor
-			),
-			trigger=(
-				None
-				if recurrence_trigger is subroutine.domain.patch.UNSET
-				else recurrence_trigger
-			),
-			now=instant,
-			settings=settings,
-			actor=actor,
-		)
+	if repeating is not subroutine.domain.patch.UNSET:
+		_repeat_changed(session, task, repeating, now=instant, settings=settings, actor=actor)
 
 	after = _snapshot(session, task)
 	changes = subroutine.domain.events.changes_between(before, after)
@@ -3428,6 +3453,12 @@ def begin_repeating (
 	listing and put an identical-looking stranger in its place.
 	"""
 
+	# **Refused before anything is written** (`#3935`): the series is made from the task's dates,
+	# so its need for one is asked of them - one rule about what a repeat needs a date for, in
+	# :func:`_series_anchor`. It was asked after the series row had been given a number, placed
+	# and added.
+	_series_anchor(repeat.rule, grid=grid_date(task), filed=None)
+
 	template = subroutine.db.models.work.Task(
 		id=subroutine.db.types.new_uuid(),
 		**_series_carries(task),
@@ -3474,10 +3505,6 @@ def begin_repeating (
 		session, template, subroutine.domain.tags.on(session, task)
 	)
 
-	# Refused after the template exists rather than before, so the message is the one
-	# `series_start` gives — one rule about what a repeat needs a date for, in one place.
-	series_start(template)
-
 	task.recurrence_template_id = template.id
 	# **The slot this row was minted for**, on the one column :func:`grid_field` names — the
 	# rule was written out here too, and a copy that agrees is invisible (`#1302`).
@@ -3501,27 +3528,37 @@ def begin_repeating (
 
 
 
-def _repeat_changed (
+class _Repeating (typing.NamedTuple):
+	"""A change to how a task repeats, read before anything is assigned - `#3935`."""
+
+	#: The series the task already belongs to, if any.
+	series: subroutine.db.models.work.Task | None
+
+	#: The repeat it is to have, or ``None`` where the change stops it or names no rule.
+	repeat: subroutine.domain.recurrence.Repeat | None
+
+	#: Whether the change stops the series, which is ``None`` given as the rule.
+	stopping: bool
+
+
+def _repeat_read (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
 	*,
 	rule: str | None,
 	anchor: str | None,
 	trigger: str | None,
-	now: datetime.datetime,
-	settings: subroutine.config.Settings | None,
-	actor: subroutine.domain.authentication.Principal | None,
-) -> None:
-	"""Apply a change to how a task repeats, whichever end the caller is holding.
-
-	**Editing a repeat edits the series, not this occurrence** (§6.7). The caller is looking
-	at the instance because the template is in no listing, so a rule addressed to the instance
-	is addressed to the series — and the alternative, applying it to one occurrence, would be
-	a rule on a row that mints nothing and is silently forgotten the moment it is completed.
+	due_at: datetime.datetime | None,
+	starts_at: datetime.datetime | None,
+) -> _Repeating:
+	"""Read a change to how a task repeats, refusing it before anything is assigned - `#3935`.
 
 	``rule`` carries three answers, not two. ``UNSET`` is *leave the rule alone and change
 	what qualifies it*, ``None`` stops the series, and a string replaces the rule.
 	:func:`stop_repeating` carries why stopping is not clearing a column.
+
+	``due_at`` and ``starts_at`` are the dates the task will have once the rest of the change is
+	assigned, which is what a new series is made from and so what it needs a date among.
 	"""
 
 	series = series_of(session, task)
@@ -3557,12 +3594,50 @@ def _repeat_changed (
 		trigger = trigger or series.recurrence_trigger
 
 	if rule is None:
+		return _Repeating(series=series, repeat=None, stopping=True)
+
+	repeat = _repeat(rule, anchor=anchor, trigger=trigger)
+
+	# **A new series is made from the task, so it needs a date among the ones the task will
+	# have** - asked here, as :func:`begin_repeating` would ask it of the row it makes.
+	if repeat is not None and series is None:
+		_series_anchor(
+			repeat.rule,
+			grid=due_at if grid_field_for(due_at) == "due_at" else starts_at,
+			filed=None,
+		)
+
+	return _Repeating(series=series, repeat=repeat, stopping=False)
+
+
+def _repeat_changed (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	change: _Repeating,
+	*,
+	now: datetime.datetime,
+	settings: subroutine.config.Settings | None,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> None:
+	"""Apply a change to how a task repeats, whichever end the caller is holding.
+
+	**Editing a repeat edits the series, not this occurrence** (§6.7). The caller is looking
+	at the instance because the template is in no listing, so a rule addressed to the instance
+	is addressed to the series — and the alternative, applying it to one occurrence, would be
+	a rule on a row that mints nothing and is silently forgotten the moment it is completed.
+
+	**Read by :func:`_repeat_read` first** (`#3935`), before anything was assigned, so what is
+	refused has been refused by now and this only writes.
+	"""
+
+	series = change.series
+	repeat = change.repeat
+
+	if change.stopping:
 		if series is not None:
 			stop_repeating(session, task, now=now, actor=actor)
 
 		return
-
-	repeat = _repeat(rule, anchor=anchor, trigger=trigger)
 
 	if repeat is None:
 		return

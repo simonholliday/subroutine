@@ -27,6 +27,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.readiness
+import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tags
@@ -2377,6 +2378,111 @@ def test_a_repeat_given_to_a_task_deeper_than_the_default_follows_the_instances_
 
 	assert below.depth == 11
 	assert _template(session, below).depth == 11
+
+
+def test_an_occurrence_deeper_than_the_default_is_minted_at_its_series_depth (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3935`, L-4 of the cold review of 2026-09-28: the next occurrence was held to ten.
+
+	A repeat eleven deep, on an instance allowing twelve, was refused its next occurrence when the
+	first was finished - *raise max_hierarchy_depth*, of a setting already raised. An occurrence
+	sits where its series does, so **its series' depth is allowed** whatever the default.
+	"""
+
+	settings = subroutine.config.Settings(max_hierarchy_depth=12)
+	below = _repeating(session, title="Level 0")
+	project = session.get(subroutine.db.models.project.Project, below.project_id)
+
+	assert project is not None
+
+	for level in range(1, 12):
+		below = subroutine.domain.tasks.create(
+			session,
+			project=project,
+			parent=below,
+			title=f"Level {level}",
+			due=datetime.date(2026, 8, 20),
+			now=NOW,
+			settings=settings,
+		)
+
+	subroutine.domain.tasks.update(
+		session, below, recurrence="every week", now=NOW, settings=settings
+	)
+	series = _template(session, below)
+
+	subroutine.domain.tasks.complete(session, below, now=NOW)
+
+	assert _next_live(session, series).depth == 11
+
+
+def test_an_edit_refused_for_its_repeat_changes_nothing_else (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3935`: the title was changed before the repeat was read, and stayed changed.
+
+	``update`` promises everything is validated before anything is assigned, and read the repeat
+	as it applied it, after the rest - so an in-process caller that caught the refusal and saved
+	kept half an edit. **Read in the validation pass**, where a new series' need for a date is
+	asked of the dates the task will have, so giving a date and a repeat together still works.
+	"""
+
+	dated = _repeating(session, title="Before", recurrence=None)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(
+			session, dated, title="After", recurrence="every blursday", now=NOW
+		)
+
+	assert dated.title == "Before"
+
+	dateless = _repeating(session, title="Before", recurrence=None, due=None)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(
+			session, dateless, title="After", recurrence="every week", now=NOW
+		)
+
+	assert dateless.title == "Before"
+
+	subroutine.domain.tasks.update(
+		session, dateless, due="2026-09-04", recurrence="every week", now=NOW
+	)
+
+	assert dateless.recurrence_template_id is not None
+
+
+def test_a_series_needing_a_date_is_refused_before_anything_is_written (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3935`: the series row was numbered, placed and added before its date was asked for.
+
+	A number taken from the workspace's counter is a write, so a caller that caught the refusal
+	and saved had used one up. **Asked of the task's own dates first**, which the row copies.
+	"""
+
+	dateless = _repeating(session, title="Water the plants", recurrence=None, due=None)
+	workspace = subroutine.db.models.identity.Workspace
+	counter = sqlalchemy.select(workspace.next_ref_number).where(
+		workspace.id == dateless.workspace_id
+	)
+	before = session.scalar(counter)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.begin_repeating(
+			session,
+			dateless,
+			subroutine.domain.recurrence.Repeat(
+				rule="FREQ=WEEKLY",
+				text="every week",
+				anchor=subroutine.domain.tasks.DEFAULT_ANCHOR,
+				trigger=subroutine.domain.tasks.DEFAULT_TRIGGER,
+			),
+			now=NOW,
+		)
+
+	assert session.scalar(counter) == before
 
 
 def test_an_all_day_series_moved_across_a_clock_change_stays_on_its_day (

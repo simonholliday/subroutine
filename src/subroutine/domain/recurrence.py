@@ -445,6 +445,16 @@ def _checked (value: str, *, field: str) -> str:
 	except (ValueError, TypeError) as unreadable:
 		raise _refuse(value, field=field, why=str(unreadable)) from None
 
+	# **A repeat that comes round no times is refused** (`#3935`), as *every 0 days* is: dateutil
+	# reads ``COUNT=0`` as a rule with nothing in it, so a new task was refused for having no dates
+	# while a change to an old one was stored and read back as *0 times*.
+	if "COUNT" in found and int(found["COUNT"]) < 1:
+		raise _refuse(
+			value,
+			field=field,
+			why=f"It repeats {found['COUNT']} times, which is never. COUNT starts at 1.",
+		)
+
 	_refuse_a_day_that_never_comes(value, found, field=field)
 
 	# **``UNTIL`` stored in the one spelling everything after this reads** (`#3897`). dateutil reads
@@ -780,11 +790,20 @@ def describe (stored: str, *, anchor: str | None = None) -> str:
 		months = " and ".join(
 			names.get(one, str(one)).title() for one in _numbers(parts["BYMONTH"])
 		)
-		days = " and ".join(str(one) for one in _numbers(parts["BYMONTHDAY"]))
-		said = f"{said}, on {days} {months}"
+		numbers = _numbers(parts["BYMONTHDAY"])
+
+		# **A day counted from the end is said as one** (`#3935`): *on -1 February* was the
+		# whole of it before.
+		if all(one > 0 for one in numbers):
+			days = " and ".join(str(one) for one in numbers)
+			said = f"{said}, on {days} {months}"
+
+		else:
+			days = " and ".join(_day_of_the_month(one) for one in numbers)
+			said = f"{said}, on the {days} of {months}"
 
 	elif "BYMONTHDAY" in parts:
-		days = " and ".join(_ordinal(one) for one in _numbers(parts["BYMONTHDAY"]))
+		days = " and ".join(_day_of_the_month(one) for one in _numbers(parts["BYMONTHDAY"]))
 		said = f"{said}, on the {days}"
 
 	if "COUNT" in parts:
@@ -803,6 +822,22 @@ def _numbers (setting: str) -> list[int]:
 	"""Return a part of a rule that may list several numbers - ``1,15`` - as those numbers."""
 
 	return [int(one) for one in setting.split(",")]
+
+
+def _day_of_the_month (number: int) -> str:
+	"""Return a ``BYMONTHDAY`` as words: 15 as ``15th``, -1 as ``last day`` - `#3935`.
+
+	**A negative day counts back from the end of the month**, and it read back as *the -1th*,
+	where :func:`_described_weekdays` already said *the last Thursday* from :data:`_ORDINALS`.
+	"""
+
+	if number > 0:
+		return _ordinal(number)
+
+	if number == _ORDINALS["last"]:
+		return "last day"
+
+	return f"{_ordinal(-number)} to last day"
 
 
 def _ordinal (number: int) -> str:
