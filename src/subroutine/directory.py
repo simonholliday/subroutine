@@ -258,17 +258,41 @@ def resolve (marker: Marker, projects: typing.Iterable[Named]) -> str | None:
 				return address(row, rows)
 
 	if marker.project is not None:
-		# **Compared as a whole address**, so a marker written since `#957` matches what it
-		# says and one written before it — a bare key — still matches the project of that name.
-		# Case-insensitively, because `#508` changed the stored spelling and every marker
-		# predating that holds the old one.
+		# **Compared as a whole address first, over every row, and as a bare key only where one
+		# project has it** (`#3894`), the order ``selection.addressed`` resolves in. One loop took
+		# whichever row came first, so ``web`` beside ``alpha/web`` meant whichever was made last,
+		# and a key two projects share filed into one of them in silence. Case-insensitively,
+		# because `#508` changed the stored spelling and every marker predating that holds the old
+		# one.
 		wanted = marker.project.upper()
 
 		for row in rows:
-			if address(row, rows).upper() == wanted or row.key.upper() == wanted:
+			if address(row, rows).upper() == wanted:
 				return address(row, rows)
 
+		keyed = [row for row in rows if row.key.upper() == wanted]
+
+		if len(keyed) == 1:
+			return address(keyed[0], rows)
+
 	return None
+
+
+def ambiguous (marker: Marker, projects: typing.Iterable[Named]) -> list[str]:
+	"""Return the addresses a marker's bare key could mean, where it is more than one - `#3894`.
+
+	For saying why :func:`resolve` found nothing: a key several projects share is not a project
+	missing from the instance, and saying it was would send somebody to look for one that is there.
+	"""
+
+	if marker.project is None:
+		return []
+
+	rows = list(projects)
+	wanted = marker.project.upper()
+	keyed = sorted(address(row, rows) for row in rows if row.key.upper() == wanted)
+
+	return keyed if len(keyed) > 1 else []
 
 
 class Slugged(typing.Protocol):
@@ -301,9 +325,12 @@ def resolve_workspace (marker: Marker, workspaces: typing.Iterable[Slugged]) -> 
 			if str(row.id) == marker.workspace_id:
 				return row.slug
 
+	# **Whatever case it was written in** (`#3893`), as a connection's name is compared and as the
+	# program reads a workspace everywhere else: a marker written with the workspace as it is shown,
+	# ``Projects``, was ignored by the agent's tools and by the terminal alike.
 	if marker.workspace is not None:
 		for row in workspaces:
-			if row.slug == marker.workspace:
+			if row.slug.casefold() == marker.workspace.casefold():
 				return row.slug
 
 	return None

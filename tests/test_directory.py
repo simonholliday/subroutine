@@ -391,8 +391,8 @@ def test_a_marker_written_before_workspace_ids_still_resolves_by_slug (
 ) -> None:
 	"""Every marker written before `#317` carries a slug and no id, including this repository's.
 
-	Exactly, not case-insensitively: a slug is lowercase by validation, where a project key is
-	uppercase and is normalised on the way in.
+	In whatever case it was written, since `SR#3893`, as the program reads a workspace everywhere
+	else: a marker naming ``Projects`` was ignored where the workspace is stored as ``projects``.
 	"""
 
 	marker = subroutine.directory.Marker(
@@ -468,6 +468,49 @@ def test_a_marker_holding_an_address_resolves_by_it (tmp_path: pathlib.Path) -> 
 	)
 
 	assert subroutine.directory.resolve(marker, rows) == "substation/dist"
+
+
+def test_a_bare_key_names_the_one_project_that_has_it_or_none (tmp_path: pathlib.Path) -> None:
+	"""`SR#3894`, M-6 of the cold review of 2026-09-28: the first row carrying the key won.
+
+	With ``alpha``, ``alpha/web`` and a root ``web``, a marker's bare ``web`` meant whichever was
+	made last, and with only ``alpha/web`` and ``beta/web`` one of them, in silence. **The whole
+	address first, over every row, then a bare key only where one project has it**; a key several
+	share names nothing, and :func:`subroutine.directory.ambiguous` says which they are.
+	"""
+
+	alpha, beta = uuid.uuid4(), uuid.uuid4()
+	root = _Row(uuid.uuid4(), "web")
+	nested = [_Row(alpha, "alpha"), _Row(uuid.uuid4(), "web", alpha)]
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="web"
+	)
+
+	for rows in ([*nested, root], [root, *nested]):
+		assert subroutine.directory.resolve(marker, rows) == "web", rows
+
+	shared = [
+		_Row(alpha, "alpha"),
+		_Row(uuid.uuid4(), "web", alpha),
+		_Row(beta, "beta"),
+		_Row(uuid.uuid4(), "web", beta),
+	]
+
+	assert subroutine.directory.resolve(marker, shared) is None
+	assert subroutine.directory.ambiguous(marker, shared) == ["alpha/web", "beta/web"]
+	assert subroutine.directory.ambiguous(marker, nested) == []
+
+
+def test_a_marker_names_a_workspace_in_whatever_case_it_was_written (tmp_path: pathlib.Path) -> None:
+	"""`SR#3893`, M-5 (a): ``workspace = "Projects"`` named nothing, and the tools ignored it."""
+
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, workspace="Projects"
+	)
+
+	assert subroutine.directory.resolve_workspace(
+		marker, [_Space(uuid.uuid4(), "projects")]
+	) == "projects"
 
 
 def test_composing_an_address_terminates_when_a_parent_is_absent (

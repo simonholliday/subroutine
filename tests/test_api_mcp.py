@@ -23,6 +23,7 @@ import json
 import os
 import pathlib
 import typing
+import uuid
 
 import httpx
 import pytest
@@ -1705,6 +1706,91 @@ def test_a_checkout_marked_for_another_workspace_is_ignored_there (
 	assert "names the workspace 'team', not the one this session is in. Ignoring it." in said, said
 	assert filed["project_key"] == "inbox", filed
 	assert left["items"] == [], f"the work reached the other workspace's project: {left}"
+
+
+def test_a_checkout_written_as_its_workspace_is_shown_is_used (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3893`, M-5 (a) of the cold review of 2026-09-28: the terminal used it, the tools did not.
+
+	A marker naming its workspace as it is shown, or with an id gone stale beside a name that
+	still matches, filed the agent's work in the Inbox with *not the one this session is in*,
+	where the terminal filed it in the project. **Asked the way the terminal asks.**
+	"""
+
+	here = world.workspace.slug
+	_a_project(world, "web")
+
+	for header in (
+		f"workspace={here.upper()}; project=web",
+		f"workspace_id={uuid.uuid4()}; workspace={here}; project=web",
+	):
+		answered = _message(
+			world,
+			json.loads(_adding("Fix the header")),
+			params={"workspace": here},
+			headers={subroutine.directory.HEADER: header},
+		)
+		said = str(answered.json()["result"]["content"][0]["text"])
+
+		assert f"in web, from {subroutine.directory.FILE_NAME}" in said, (header, said)
+
+
+def test_a_checkout_names_the_workspace_where_the_session_names_none (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3893`, M-5 (c): an agent with no workspace of its own was refused its first capture.
+
+	With two workspaces and none named by the call or the session, a capture in a checkout marked
+	for one answered *could be about any of several workspaces*, where the terminal filed it in the
+	checkout's project. **The checkout's workspace, where nothing else names one.**
+	"""
+
+	here = world.workspace.slug
+	_a_project(world, "web")
+	team = world.call("POST", "/v1/workspaces", json={"slug": "team", "title": "Team"})
+
+	assert team.status_code == 201, team.text
+
+	answered = _message(
+		world,
+		json.loads(_adding("Fix the footer")),
+		headers={subroutine.directory.HEADER: f"workspace={here}; project=web"},
+	)
+	said = str(answered.json()["result"]["content"][0]["text"])
+
+	assert f"in web, from {subroutine.directory.FILE_NAME}" in said, said
+
+
+def test_a_bare_key_several_projects_share_is_named_rather_than_guessed (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3894`, M-6 (a): a checkout naming ``web`` filed into whichever came first.
+
+	With only ``alpha/web`` and ``beta/web``, the marker's bare key matched ``alpha/web``, and the
+	answer said the checkout had filed it there. **Ignored, naming both**, as a ``+web`` is refused.
+	"""
+
+	here = world.workspace.slug
+
+	for parent in ("alpha", "beta"):
+		_a_project(world, parent)
+		made = world.call(
+			"POST", "/v1/projects", json={"key": "web", "title": "Web", "parent": parent}
+		)
+
+		assert made.status_code == 201, made.text
+
+	answered = _message(
+		world,
+		json.loads(_adding("Fix the header")),
+		params={"workspace": here},
+		headers={subroutine.directory.HEADER: f"workspace={here}; project=web"},
+	)
+	said = str(answered.json()["result"]["content"][0]["text"])
+
+	assert "which is more than one project here: alpha/web, beta/web. Ignoring it." in said, said
+	assert _filed_under(world, said) == "inbox", said
 
 
 def test_the_conventions_say_the_address_chose_their_project (

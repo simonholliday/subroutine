@@ -50,6 +50,7 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.db.models.system
 import subroutine.db.types
+import subroutine.directory
 import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.errors
@@ -730,6 +731,63 @@ def test_a_link_or_a_part_across_two_connections_is_refused_by_name (
 		assert "are in different connections" in refused.output, (command, refused.output)
 
 	assert "Blocked by" not in run("show", "work/acme/1").output
+
+
+def test_use_here_records_the_connection_it_names_by_that_connection_s_ids (
+	two: Remote,
+	tmp_path: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3893`, NEW-1 of its verification: ``use work/acme --here`` wrote this machine's ids.
+
+	The workspace's id was looked up on the connection in use rather than the one named, so the
+	marker carried another instance's id beside ``connection = "work"``, or none, and the agent's
+	tools refused it by id. **Read from the connection the marker names.**
+	"""
+
+	checkout = tmp_path / "marked"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+
+	run("use", "work/acme", "--here")
+
+	marker = subroutine.directory.find(checkout)
+	me = httpx.get(
+		f"{two.url}/v1/me", headers={"Authorization": f"Bearer {two.token}"}, timeout=5.0
+	).json()
+	acme = next(one for one in me["workspaces"] if one["slug"] == "acme")
+
+	assert marker is not None and marker.workspace_id == str(acme["id"]), (marker, acme)
+
+
+def test_a_checkout_s_project_is_taken_only_in_the_workspace_it_names (
+	tmp_path: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3894`, M-6 (b) of the cold review of 2026-09-28: the terminal took it in any workspace.
+
+	A marker for ``team``'s ``web``, used with ``-w personal``, missed its id in ``personal`` and
+	matched ``personal``'s own ``web`` by key, saying the checkout had filed it there. **Taken only
+	in the workspace it names**, as the agent's tools already did, and ignored elsewhere, saying so.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "team", "Team")
+	run("-w", "team", "project", "create", "web", "Website")
+	run("-w", "personal", "project", "create", "web", "Website")
+
+	checkout = tmp_path / "marked"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+
+	run("-w", "team", "use", "--here", "--project", "web")
+
+	added = run("-w", "personal", "add", "Fix the header")
+
+	assert "in team, and this is going to personal. Ignoring it." in added.output, added.output
+	assert "from .subroutine" not in added.output, added.output
 
 
 def test_use_changes_what_a_bare_number_means_and_not_what_can_be_seen (

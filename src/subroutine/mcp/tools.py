@@ -3770,8 +3770,10 @@ def _checkout (
 
 		ignored.append(
 			elsewhere
-			or f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}, "
-			"which is not on this instance. Ignoring it."
+			or _unplaced(
+				f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}",
+				subroutine.directory.ambiguous(marker, projects),
+			)
 		)
 
 	if standing.project is not None:
@@ -3789,10 +3791,47 @@ def _checkout (
 			)
 
 		ignored.append(
-			f"The address names {standing.project!r}, which is not on this instance. Ignoring it."
+			_unplaced(
+				f"The address names {standing.project!r}",
+				subroutine.directory.ambiguous(named, projects),
+			)
 		)
 
 	return _Checkout(None, " ".join(ignored) or None)
+
+
+def _unplaced (named: str, several: list[str]) -> str:
+	"""Say why a project a checkout or an address names was not used - `#3894`.
+
+	**Two reasons, and only one of them is that the project is not there.** A key several projects
+	share is refused as one would be at a terminal, naming them, rather than filed into whichever
+	came first or called missing.
+	"""
+
+	if several:
+		return f"{named}, which is more than one project here: {', '.join(several)}. Ignoring it."
+
+	return f"{named}, which is not on this instance. Ignoring it."
+
+
+def _checkouts_workspace (
+	client: subroutine.clients.base.Client, standing: Standing
+) -> str | None:
+	"""Return the workspace the caller's checkout names, for a write naming none - `#3893`.
+
+	**Only where neither the call nor the session named one**, since both are filled in before a
+	handler runs: an agent whose session had no workspace was refused its first capture in a
+	marked checkout as *could be about any of several workspaces*, where the terminal filed it in
+	the checkout's project. An explicit workspace still wins, and a marker naming one this caller
+	cannot reach names nothing.
+	"""
+
+	marker = standing.checkout
+
+	if marker is None or (marker.workspace is None and marker.workspace_id is None):
+		return None
+
+	return subroutine.directory.resolve_workspace(marker, client.me().workspaces)
 
 
 def _elsewhere (
@@ -3818,15 +3857,14 @@ def _elsewhere (
 	if not here or (marker.workspace is None and marker.workspace_id is None):
 		return None
 
-	if marker.workspace_id is not None:
-		ours = marker.workspace_id in here
+	# **Asked the way the terminal asks** (`#3893`): by id, then by short name in whatever case it
+	# was written, among the workspaces this caller reaches. Compared by hand, a marker written
+	# with the workspace as it is shown, or with an id gone stale beside a name that still
+	# matches, sent the agent's work to the Inbox where the terminal filed it in the project.
+	reached = client.me().workspaces
+	named = subroutine.directory.resolve_workspace(marker, reached)
 
-	else:
-		ours = any(
-			str(row.id) in here and row.slug == marker.workspace for row in client.me().workspaces
-		)
-
-	if ours:
+	if named is not None and any(str(row.id) in here for row in reached if row.slug == named):
 		return None
 
 	return (
@@ -3856,7 +3894,7 @@ def _added (
 	"""
 
 	line = _text(arguments, "text") or ""
-	workspace = _text(arguments, "workspace")
+	workspace = _text(arguments, "workspace") or _checkouts_workspace(client, standing)
 
 	# **A `+key` in the line is somebody speaking now, and outranks a file on disk** (§13.7a).
 	# **So does a parent** (`#3769`): a sub-task belongs to its parent's project, and the checkout's
@@ -3997,6 +4035,10 @@ def _wrote (
 	if ref is None:
 		if not _text(arguments, "title"):
 			raise ValueError("Pass title to write a document, or ref to revise one.")
+
+		# The checkout's workspace where nothing else named one, as a capture has it (`#3893`).
+		# Only for writing one: a ref is read where the caller says, never where a file suggests.
+		workspace = workspace or _checkouts_workspace(client, standing)
 
 		# **The checkout decides where a conclusion is filed, exactly as it decides where a task
 		# is** (`#1219`). This read no marker at all until 2026-08-24, so a document written from

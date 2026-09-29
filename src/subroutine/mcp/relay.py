@@ -651,8 +651,19 @@ def _standing (connection: subroutine.connections.Connection) -> dict[str, str]:
 
 	marker = subroutine.directory.find()
 
-	if marker is None or not marker.speaks_for(connection.name):
+	if marker is None:
 		return {}
+
+	# **By its ids alone, where it names the connection another way** (`#3893`). A teammate's
+	# alias for one instance is not this machine's name for it, so the marker was never sent and
+	# the agent's work went to the Inbox without a word, where the terminal filed it by id. Only
+	# ids, and never the names beside them: a key is shared across instances, and matching one
+	# where the marker was written for somewhere else is `#414`.
+	if not marker.speaks_for(connection.name):
+		if marker.workspace_id is None:
+			return {}
+
+		marker = marker._replace(connection=None, workspace=None, project=None)
 
 	said = subroutine.directory.as_header(marker)
 

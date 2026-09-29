@@ -2290,7 +2290,7 @@ def _keep_the_operators_own_list (
 	return kept
 
 
-def _workspace_id_of (world: World, slug: str | None) -> str | None:
+def _workspace_id_of (world: World, slug: str | None, *, connection: str | None = None) -> str | None:
 	"""Return the permanent id of the workspace this slug names, or ``None``.
 
 	``None`` rather than a refusal when it does not resolve: the slug written beside it is
@@ -2302,8 +2302,12 @@ def _workspace_id_of (world: World, slug: str | None) -> str | None:
 	if slug is None:
 		return None
 
+	# **On the connection the marker names** (`#3893`): ``use work/projects --here``, run while
+	# another connection was current, wrote that one's id beside ``connection = "work"``.
+	wanted = connection or world.current.connection
+
 	for item in world.reached:
-		if item.name != world.current.connection:
+		if item.name != wanted:
 			continue
 
 		for space in item.identity.workspaces:
@@ -2314,7 +2318,7 @@ def _workspace_id_of (world: World, slug: str | None) -> str | None:
 
 
 def _project_written_down (
-	world: World, wanted: str, *, workspace: str | None = None
+	world: World, wanted: str, *, workspace: str | None = None, connection: str | None = None
 ) -> tuple[str, str] | None:
 	"""Return the address and permanent id of the project this names, or ``None``.
 
@@ -2334,7 +2338,12 @@ def _project_written_down (
 	and so cannot let each call answer that question for itself.
 	"""
 
-	where = world.writing_to()
+	# **On the connection the marker names**, for :func:`_workspace_id_of`'s reason (`#3893`).
+	where = world.connection(connection) if connection else world.writing_to()
+
+	if where is None:
+		return None
+
 	tree = subroutine.clients.base.every_project(
 		where.client, workspace=_writing_workspace(world) if workspace is None else workspace
 	)
@@ -2346,8 +2355,10 @@ def _project_written_down (
 	return subroutine.directory.address(found, tree), str(found.id)
 
 
-def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str | None:
-	"""Return the current key of the project a marker names, or ``None`` if there is none.
+def _project_named_by (
+	world: World, marker: subroutine.directory.Marker
+) -> tuple[str | None, str | None]:
+	"""Return the current address of the project a marker names, or why there is none.
 
 	The matching itself is `subroutine.directory.resolve`, which is shared with the MCP
 	server — this half is only the fetching, because that is the part that needs a world
@@ -2363,20 +2374,54 @@ def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str
 	"""
 
 	where = world.writing_to()
+	shown = marker.project or marker.project_id
 
 	# **Or found there by id** (`#556`). `speaks_for` compares the name the marker wrote,
 	# which is exactly the test `#414` added and it stays; `marker_found_on` is set only
 	# when a `workspace_id` matched, which is a claim a key could never make.
+	#
+	# **Where the marker names another connection, its project was never looked for** (`#414`),
+	# so saying it "is not on local" would assert what the program has not checked, and is often
+	# false - a key like SR is exactly the kind two instances share.
 	if not (
 		marker.speaks_for(where.name) or world.current.marker_found_on == where.name
 	):
-		return None
+		return None, (
+			f"{FILE_NAME} here names project {shown!r} on {marker.connection}, and this is going "
+			f"to {where.name}. Ignoring it."
+		)
 
-	found = subroutine.clients.base.every_project(
-		where.client, workspace=_writing_workspace(world)
-	)
+	writing = _writing_workspace(world)
 
-	return subroutine.directory.resolve(marker, found)
+	# **And only in the workspace it names** (`#3894`). A project is a fact about one workspace:
+	# a marker for ``team``'s ``web``, used with ``-w personal``, missed its id there and matched
+	# ``personal``'s own ``web`` by key, and said the checkout had filed it. The agent's tools
+	# already refused that marker; this is the same rule at the terminal.
+	if marker.workspace is not None or marker.workspace_id is not None:
+		named = subroutine.directory.resolve_workspace(marker, where.identity.workspaces)
+
+		if named != writing:
+			return None, (
+				f"{FILE_NAME} here names project {shown!r} in "
+				f"{named or marker.workspace or marker.workspace_id}, and this is going to "
+				f"{writing}. Ignoring it."
+			)
+
+	found = subroutine.clients.base.every_project(where.client, workspace=writing)
+	resolved = subroutine.directory.resolve(marker, found)
+
+	if resolved is not None:
+		return resolved, None
+
+	several = subroutine.directory.ambiguous(marker, found)
+
+	if several:
+		return None, (
+			f"{FILE_NAME} here names project {shown!r}, which is more than one project in "
+			f"{writing}: {', '.join(several)}. Ignoring it."
+		)
+
+	return None, f"{FILE_NAME} here names project {shown!r}, which is not on {where.name}. Ignoring it."
 
 
 def _agent_because (
@@ -5208,7 +5253,7 @@ def _no_such_project (
 
 
 def _adopted_project (
-	program: Program, world: World, wanted: str, workspace: str | None
+	program: Program, world: World, wanted: str, workspace: str | None, *, connection: str | None = None
 ) -> tuple[str, tuple[str, str]]:
 	"""Return the workspace a named project is in, and the project — `#1501`.
 
@@ -5236,18 +5281,20 @@ def _adopted_project (
 	"""
 
 	if workspace is not None:
-		named = _project_written_down(world, wanted, workspace=workspace)
+		named = _project_written_down(world, wanted, workspace=workspace, connection=connection)
 
 		if named is None:
 			_no_such_project(program, wanted, [workspace])
 
 		return workspace, named
 
-	reachable = [one.slug for one in world.writing_to().identity.workspaces]
+	there = world.connection(connection) if connection else world.writing_to()
+	reachable = [] if there is None else [one.slug for one in there.identity.workspaces]
 	holding = [
 		(slug, found)
 		for slug, found in (
-			(slug, _project_written_down(world, wanted, workspace=slug)) for slug in reachable
+			(slug, _project_written_down(world, wanted, workspace=slug, connection=connection))
+			for slug in reachable
 		)
 		if found is not None
 	]
@@ -5294,7 +5341,7 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 	# live in :func:`_adopted_project`, including the one for a key nothing holds, because
 	# saying *there is no project 'web' here* means naming where "here" was.
 	if asked is not None:
-		workspace, found = _adopted_project(program, world, asked, workspace)
+		workspace, found = _adopted_project(program, world, asked, workspace, connection=connection)
 
 	key, identifier = found if found is not None else (None, None)
 
@@ -5313,7 +5360,7 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 		# could not be renamed when this file was designed, so its slug was durable by
 		# construction; `#295` made renaming possible and the marker went on recording only
 		# the name.
-		workspace_id=_workspace_id_of(world, workspace),
+		workspace_id=_workspace_id_of(world, workspace, connection=connection),
 		project=key,
 		# **The id is what makes this survive a rename** (`#177`). The key is written
 		# beside it so the file stays readable, and is the half that goes stale.
@@ -5359,32 +5406,16 @@ def _default_project (
 	# as of `#176`, so a marker naming one is stale the moment somebody does — and every
 	# checkout on every machine would silently start filing work into the Inbox. The id
 	# cannot change, so it is asked first.
-	named = _project_named_by(world, world.marker)
+	named, unused = _project_named_by(world, world.marker)
 
 	if named is None:
 		# **Ignored rather than refused** (`#166`). A marker is advisory context written by
 		# a machine, so a checkout marked for one instance must not stop `add` working
-		# against another.
-		shown = world.marker.project or world.marker.project_id
-
-		# **Two reasons, and only one of them is "there is no such project"** (`#414`).
-		# Where the marker names another connection, its project was never looked for —
-		# saying it "is not on local" would assert something the program has not checked
-		# and is often false, since a key like SR is exactly the kind two instances share.
-		# The whole marker applies somewhere else, which is a different thing to be told
-		# and a different thing to do about it.
-		if world.marker.speaks_for(world.current.connection):
-			program.warn(
-				f"{FILE_NAME} here names project {shown!r}, which is not on "
-				f"{world.current.connection}. Ignoring it."
-			)
-
-		else:
-			program.warn(
-				f"{FILE_NAME} here names project {shown!r} on "
-				f"{world.marker.connection}, and this is going to "
-				f"{world.current.connection}. Ignoring it."
-			)
+		# against another. **Why it was ignored is said in its own terms**, which
+		# :func:`_project_named_by` knows and this does not: another connection, another
+		# workspace, a key several projects share, or no such project.
+		if unused is not None:
+			program.warn(unused)
 
 		return None
 
@@ -5582,7 +5613,12 @@ def _chosen (program: Program, world: World, where: str) -> tuple[str, str]:
 
 		program.stop(f"There is nothing called {wanted!r} on {item.name}.", _workspace_hint(item))
 
-	return item.name, wanted
+	# **As the workspace is stored, not as it was typed** (`#3893`): ``use --here`` writes this
+	# into a marker beside the workspace's id, and ``Projects`` found no id under that spelling,
+	# so the marker went without one - and the agent's tools, comparing by name, ignored it.
+	found = item.identity.workspace(wanted)
+
+	return item.name, found.slug if found is not None else wanted
 
 
 def _require_connection (

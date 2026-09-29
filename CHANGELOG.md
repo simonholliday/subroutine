@@ -14,6 +14,17 @@ upgrade involves.
 
 ## Unreleased
 
+- **A checkout's `.subroutine` file is read one way by the terminal and by the agent's tools.**
+  A file naming its workspace as it is shown, *Projects*, or with an id gone stale beside a name
+  that matches, or naming the connection by a teammate's name for it, filed the agent's work in
+  the Inbox while the terminal filed it in the project; and an agent whose session named no
+  workspace was refused its first capture there. `use --here` now writes the workspace as it is
+  stored, with the id of the connection it names.
+- **A project named by its bare key goes to that project or nowhere.** A checkout, or an
+  address's `?project=`, naming `web` beside `alpha/web` filed into whichever was made first,
+  and a key two projects share filed into one of them in silence. The whole address is matched
+  first, a bare key only where one project has it, and a key several share is ignored, naming
+  them. And the terminal takes a checkout's project only in the workspace the checkout names.
 - **`delete`, `restore`, `link`, `unlink` and `move` act on the item the address names.** Given
   an address on another connection, `delete` and `restore` acted on this machine's item with
   the same number, and said they had acted on the one named; and an item named in another

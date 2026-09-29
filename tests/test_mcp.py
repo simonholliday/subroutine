@@ -5572,6 +5572,42 @@ def _as_the_relay_sends (client: subroutine.clients.base.Client) -> subroutine.m
 	)
 
 
+def test_a_marker_naming_its_connection_another_way_is_sent_by_its_ids_alone (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3893`, M-5 (b) of the cold review of 2026-09-28: a teammate's name for the instance.
+
+	A marker written as ``connection = "office"`` names the instance this machine calls ``work``,
+	so the relay sent nothing, and the agent's work went to the Inbox where the terminal filed it by
+	id. **Sent by its ids alone**, never by the names beside them, which would let a key shared
+	across instances match somewhere the marker was not written for (`#414`); and not at all where
+	it has no workspace id to be placed by.
+	"""
+
+	workspace, project = uuid.uuid4(), uuid.uuid4()
+	(tmp_path / subroutine.directory.FILE_NAME).write_text(
+		f'connection = "office"\nworkspace = "projects"\nworkspace_id = "{workspace}"\n'
+		f'project = "web"\nproject_id = "{project}"\n',
+		encoding="utf-8",
+	)
+	monkeypatch.chdir(tmp_path)
+
+	work = subroutine.connections.Connection(name="work", url="http://127.0.0.1:1")
+	sent = subroutine.directory.from_header(
+		subroutine.mcp.relay._standing(work).get(subroutine.directory.HEADER)
+	)
+
+	assert sent is not None, "the marker was not sent at all"
+	assert (sent.workspace_id, sent.project_id) == (str(workspace), str(project)), sent
+	assert (sent.connection, sent.workspace, sent.project) == (None, None, None), sent
+
+	(tmp_path / subroutine.directory.FILE_NAME).write_text(
+		'connection = "office"\nworkspace = "projects"\nproject = "web"\n', encoding="utf-8"
+	)
+
+	assert subroutine.mcp.relay._standing(work) == {}, "a marker with no id was sent by its names"
+
+
 def _where_the_relay_stands (
 	client: subroutine.clients.base.Client,
 ) -> subroutine.mcp.protocol.Server:
