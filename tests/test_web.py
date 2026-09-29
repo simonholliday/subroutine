@@ -11723,6 +11723,7 @@ def _views (
 			}})()
 			: name === "aboutTheProject"
 				? app.aboutTheProject(app.refusal(argument.status, argument.problem), argument.key)
+			: name === "stillSaid" ? app.stillSaid(argument.note, argument.place, argument.area)
 			: name === "unsaved"
 				? app.unsaved(
 					argument.item,
@@ -14564,6 +14565,105 @@ def test_an_end_goes_out_as_it_came_in_and_takes_the_day_it_starts (
 
 	assert (back["starts"], back["ends"]) == ("2026-10-02", "2026-10-12"), (
 		f"a holiday went back out as {back['starts']} to {back['ends']}"
+	)
+
+
+def test_an_end_earlier_than_its_start_and_given_no_day_ends_the_next_day (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3943`, L-11 of the cold review of 2026-09-28: *until 01:00* after a 21:00 start.
+
+	An end given a time and no day borrows the start's day (`SR#1238`), so an earlier time
+	finished before it started, and the instance refused it, where capture reads *at 9pm til 1am*
+	as the small hours of the next day. **The next day is lent where the end's time is earlier**,
+	across a month and a year, and in a year below 100, which `Date.UTC` would read as 19xx. Only
+	where a day is lent: an end given its own day keeps it, and one equal to its start is left.
+	"""
+
+	evening = {"text": "Gig", "type": "event", "starts": "2026-09-27", "starts_time": "21:00",
+		"ends_time": "01:00"}
+	item = {"ref": 7, "version": 2, "title": "Gig", "type": "event", "status": "open",
+		"project_key": "inbox"}
+
+	created, edited, new_year, early, dated, level = _views(tmp_path, [
+		("filed", {"slug": "projects", "values": evening}),
+		("edited", {"item": item, "values": evening}),
+		("filed", {"slug": "projects", "values": {**evening, "starts": "2026-12-31"}}),
+		("filed", {"slug": "projects", "values": {**evening, "starts": "0099-12-31"}}),
+		("filed", {"slug": "projects", "values": {**evening, "ends": "2026-09-27"}}),
+		("filed", {"slug": "projects", "values": {**evening, "ends_time": "21:00"}}),
+	])
+
+	assert created["ends"] == "2026-09-28T01:00", created
+	assert edited["ends"] == "2026-09-28T01:00", edited
+	assert new_year["ends"] == "2027-01-01T01:00", new_year
+	assert early["ends"] == "0100-01-01T01:00", early
+	assert dated["ends"] == "2026-09-27T01:00", "an end given its own day lost it"
+	assert level["ends"] == "2026-09-27T21:00", "an end equal to its start was moved"
+
+
+def test_a_project_s_gone_note_is_said_only_where_the_page_fell_back (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3943`, L-11 of the cold review of 2026-09-28: the note outlived the page it was for.
+
+	Both fallbacks say *There is no project called X here any more* on the workspace they fall
+	back to, and nothing took it down but an undo, the wordmark and the switcher, so moving into
+	a live project left the page saying the old one had gone. **The note carries where it was
+	said, and `stillSaid` keeps it only there**, the project it names included for the moment
+	before the page lets go of it. Driven here, and wired in `App` by an effect on the place,
+	source-level for `SR#640`'s reason: the harness cannot move a mounted page. That the
+	fallback's own place keeps it is driven by
+	``test_an_address_naming_a_project_gone_drops_it_in_place``.
+	"""
+
+	gone = {"text": "There is no project called gone here any more.", "tone": "bad",
+		"gone": {"workspace": "projects", "key": "gone"}}
+	fell_back = {"agenda": False, "workspace": "projects", "project": None}
+
+	kept = _views(tmp_path, [
+		("stillSaid", {"note": gone, "place": fell_back, "area": None}),
+		("stillSaid", {"note": gone, "place": {**fell_back, "project": "gone"}, "area": None}),
+		("stillSaid", {"note": gone, "place": {**fell_back, "project": "websites"}, "area": None}),
+		("stillSaid", {"note": gone, "place": {**fell_back, "workspace": "home"}, "area": None}),
+		("stillSaid", {"note": gone, "place": {**fell_back, "agenda": True}, "area": None}),
+		("stillSaid", {"note": gone, "place": fell_back, "area": "journal"}),
+		("stillSaid", {"note": gone, "place": fell_back, "area": "settings"}),
+		("stillSaid", {"note": {"text": "Saved.", "tone": "good"},
+			"place": {**fell_back, "project": "websites"}, "area": "people"}),
+	])
+
+	assert kept == [True, True, False, False, False, False, False, True], kept
+
+	app = _without_comments(_our_source())
+
+	assert app.count("gone: { workspace: slug, key }") == 2, (
+		"a fallback's note no longer says where it was said, so nothing can take it down"
+	)
+
+	asked = app.index("stillSaid(note, { agenda: everywhere, workspace, project }, area)")
+
+	assert app[asked:].split("}, [", 1)[1].startswith("area, everywhere, note, project, workspace]"), (
+		"the note is not asked about whenever the place moves"
+	)
+
+
+def test_a_project_gone_mid_listing_is_read_from_the_top_of_the_workspace () -> None:
+	"""`SR#3943`, L-11 of the cold review of 2026-09-28: the fallback kept the project's cursor.
+
+	A project renamed or deleted between a page and its *Show more* fell back to the workspace
+	with the project listing's cursor, which means nothing in the workspace's listing, so its
+	first rows were skipped until a reload. **The workspace is read from the top.** Source-level
+	for `SR#640`'s reason: the harness cannot press *Show more*.
+	"""
+
+	app = _without_comments(_our_source())
+	opens, closes = _braced(app, "const load = useCallback(async (slug, key = null, after = null")
+	body = app[opens:closes]
+
+	assert "return load(slug, null);" in body, "the fallback no longer reads the workspace"
+	assert "load(slug, null, after)" not in body, (
+		"the fallback reads the workspace from the project listing's cursor"
 	)
 
 

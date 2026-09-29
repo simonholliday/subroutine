@@ -493,6 +493,24 @@ export function projectGone (key) {
 	return `There is no project called ${key} here any more. Showing the whole workspace.`;
 }
 
+export function stillSaid (note, place, area) {
+	/*
+		Whether a page may go on showing the note it holds - `#3943`, for the one note that depends
+		on where the reader is. **A project's having gone is said where the page fell back**, the
+		workspace with no project, by the listing and the agenda alike, and nothing took it down: a
+		note is cleared by an undo, the wordmark and the switcher, so moving into a live project, or
+		onto a page that shows no work, went on saying the old one had gone.
+
+		So the note carries where it was said, and stays only while the page is there - the project
+		it names included, for the moment before the page lets go of it. Any other note is not this
+		function's to judge.
+	*/
+	if (!note || !note.gone) return true;
+
+	return area === null && !place.agenda && place.workspace === note.gone.workspace
+		&& (place.project === null || place.project === note.gone.key);
+}
+
 /*
 	The hints either item form shows, because each is written for anybody - `#3654`.
 

@@ -120,6 +120,12 @@ upgrade involves.
   running after ten minutes is stopped and reported in words, where it went on behind a crash
   report. `POST /v1/admin/backups` refuses a `keep` below 1 before taking the backup rather than
   after, and restoring a backup from the other engine says a PostgreSQL backup ends in `.dump`.
+- **Three smaller faults in the browser are put right.** A list whose project went away between
+  a page and its *Show more* fell back to the whole workspace part way down, skipping its first
+  rows until a reload; it starts from the top now. The note saying a project has gone stayed up
+  after moving to a live project or another page, and goes now. And an *Until* time earlier than
+  the start's, given no day of its own, ends the next day - *21:00 until 01:00* - where it took
+  the start's day and was refused as finishing before it starts.
 
 ## 0.9.12 — 2026-09-29
 

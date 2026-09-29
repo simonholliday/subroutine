@@ -32,7 +32,7 @@ import {
 } from "./address.js";
 import {
 	Boundary, aboutTheProject, accumulated, forgiven, inOrder, mergeOrder, newestFirst, notAdded,
-	notChanged, projectGone, refusal, sunkOrder, unpacked, unrenderable, unsaved,
+	notChanged, projectGone, refusal, stillSaid, sunkOrder, unpacked, unrenderable, unsaved,
 } from "./answers.js";
 import {
 	Facts, Foot, Note, Place, Prose, SAVING_VIEW, SavedViews, THEMES, Theme, Wordmark, You,
@@ -494,6 +494,14 @@ export function App () {
 		);
 	}, []);
 
+	useEffect(() => {
+		/* **A project's having gone is said only where the page fell back** (`#3943`). Nothing
+		   took the note down but an undo, the wordmark and the switcher, so moving into a live
+		   project went on saying the old one had gone. `stillSaid` asks the place rather than
+		   each of the dozen ways of leaving it, and leaves every other note alone. */
+		if (!stillSaid(note, { agenda: everywhere, workspace, project }, area)) setNote(null);
+	}, [area, everywhere, note, project, workspace]);
+
 	/*
 		**Which agenda read is the latest** - `#3740`, Simon's report: *board* sometimes showed a
 		single column at full width, and a reload put it right.
@@ -545,7 +553,7 @@ export function App () {
 			   naming a renamed project showed the failure page there and never opened its item. */
 			if (!key || !aboutTheProject(failure, key)) throw failure;
 
-			setNote({ text: projectGone(key), tone: "bad" });
+			setNote({ text: projectGone(key), tone: "bad", gone: { workspace: slug, key } });
 			setProject(null);
 			dropProjectFromAddress(key);
 
@@ -628,11 +636,13 @@ export function App () {
 			*/
 			if (!key || !aboutTheProject(failure, key)) throw failure;
 
-			setNote({ text: projectGone(key), tone: "bad" });
+			setNote({ text: projectGone(key), tone: "bad", gone: { workspace: slug, key } });
 			setProject(null);
 			dropProjectFromAddress(key);
 
-			return load(slug, null, after);
+			/* **From the top, not from the project's cursor** (`#3943`): a *Show more* cursor
+			   into the project's listing means nothing in the workspace's, whose rows it skipped. */
+			return load(slug, null);
 		}
 
 		/* **Whichever shape arrived** (`#1790`) — `unpacked` is pure and driven, so the rule
@@ -4168,6 +4178,7 @@ export {
 	notAdded,
 	notChanged,
 	refusal,
+	stillSaid,
 	sunkOrder,
 	unpacked,
 	unrenderable,

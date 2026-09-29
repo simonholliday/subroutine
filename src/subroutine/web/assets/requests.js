@@ -1433,12 +1433,34 @@ function dateSaid (said, name, borrows = true) {
 		emptied is an end cleared. The edit form fills both of the end's boxes, so emptying the
 		day moved an item ending at 13:00 the next day to 13:00 on its first, and one ending after
 		midnight was refused as finishing before it starts.
-	*/
-	const day = name === "ends" && borrows && !said(name) && said("ends_time")
-		? said("starts")
-		: said(name);
 
-	return withTime(day, said(`${name}_time`));
+		**And the next day, where the end's time is earlier than the start's** (`#3943`). *Starts
+		27 Sep, 21:00* and *Until 01:00* is an evening ending in the small hours of the 28th, as
+		capture reads *at 9pm til 1am*, and borrowing the 27th was refused as finishing before it
+		starts. Only where the day is lent: an end given its own day keeps it. The time boxes hold a
+		twenty-four-hour clock, so an earlier time cannot mean a later one here as it can on a line,
+		and an end equal to its start is left as it is.
+	*/
+	const lent = name === "ends" && borrows && !said(name) && Boolean(said("ends_time"));
+	const day = lent ? said("starts") : said(name);
+	const overnight = lent && Boolean(day) && Boolean(said("starts_time"))
+		&& said("ends_time") < said("starts_time");
+
+	return withTime(overnight ? dayAfter(day) : day, said(`${name}_time`));
+}
+
+function dayAfter (day) {
+	/*
+		The calendar day after a `YYYY-MM-DD`, written the same way - `#3943`. Worked in UTC, where
+		no day is longer than another, and through `setUTCFullYear`, since `Date.UTC` reads a year
+		below 100 as one in the twentieth century.
+	*/
+	const [year, month, date] = day.split("-").map(Number);
+	const moment = new Date(0);
+
+	moment.setUTCFullYear(year, month - 1, date + 1);
+
+	return moment.toISOString().slice(0, 10);
 }
 
 export function filed (values, slug, drawn = null) {
