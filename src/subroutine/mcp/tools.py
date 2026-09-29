@@ -4910,9 +4910,11 @@ def _projected (
 	if made.visibility == "private":
 		return (
 			f"{made_line}\n"
-			"Only you can see it. Nothing can add somebody else to a private project yet, "
-			"and this tool cannot undo it: subroutine_call_api with PATCH "
-			f"/v1/projects/{made.key} and {{\"visibility\": \"public\"}} opens it to the "
+			# **The schema's sentence, not a contradiction of it** (`#3944`): this said nothing
+			# could let anybody else in, a release after `#1450` made the members route the way.
+			"Only you can see it. Through subroutine_call_api, POST "
+			f"/v1/projects/{made.key}/members lets somebody else in, and PATCH "
+			f"/v1/projects/{made.key} with {{\"visibility\": \"public\"}} opens it to the "
 			"workspace."
 		)
 

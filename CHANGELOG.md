@@ -197,6 +197,12 @@ upgrade involves.
   trashed occurrence of a repeat brought the next one. **Moving a task or a document to another
   project takes what is in the trash beneath it too**, so restoring a sub-task or a section no
   longer files it apart from what it is part of.
+- **Help that described a program other than this one says what it does.** `subroutine_project`
+  told an agent nothing could share a private project, where its own description names the
+  route that does; `init --password-stdin` stores a password nothing reads yet; `login link`
+  spoke of signing in by email, which nothing sends; and `user transfer` said only a person
+  could take an agent on, where an agent whose chain ends at a person may. `explain dates`,
+  `explain estimates` and `explain scripting` printed Markdown's asterisks.
 
 ## 0.9.12 — 2026-09-29
 

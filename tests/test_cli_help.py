@@ -1349,6 +1349,54 @@ def test_the_project_key_help_teaches_the_rule_the_product_has () -> None:
 	)
 
 
+def test_no_topic_prints_markdown_a_terminal_shows_as_asterisks () -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: ``explain dates`` printed ``**``.
+
+	A topic is printed to a terminal as it is written, where ``**`` is two asterisks, while the
+	dates topic is inlined into ``/v1/docs/agent`` as well, where it renders - so the emphasis
+	read right on one surface and wrong on the other. **No topic carries any**, which reads right
+	on both.
+	"""
+
+	marked = [topic.name for topic in subroutine.cli.topics.TOPICS if "**" in topic.body]
+
+	assert not marked, f"these topics print asterisks: {marked}"
+
+
+@pytest.mark.parametrize(
+	("path", "said", "unsaid"),
+	[
+		(("init",), "Nothing signs in with a password yet", "for scripts."),
+		(("login", "link"), "nothing sends a sign-in link by email yet", "when email is not set up"),
+		(("user", "transfer"), "or to an agent whose own chain ends at one", "Only a person can take"),
+	],
+	ids=["init", "login-link", "user-transfer"],
+)
+def test_the_help_says_what_the_program_does (
+	path: tuple[str, ...], said: str, unsaid: str
+) -> None:
+	"""`SR#3944`: three commands' help described a program that is not this one.
+
+	``init --password-stdin`` stores a password nothing reads yet, ``login link`` spoke of signing
+	in by email, which nothing sends, and ``user transfer`` said only a person could take an agent
+	on, where one whose chain ends at a person may (`SR#476`). Read off the command objects, the
+	options' help included, since a rendered option wraps inside a table's borders.
+	"""
+
+	command: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+
+	for name in path:
+		command = command.commands[name]
+
+	written = " ".join(
+		[command.help or "", *(getattr(one, "help", None) or "" for one in command.params)]
+	)
+	written = re.sub(r"\s+", " ", written)
+
+	assert said in written, written
+	assert unsaid not in written, written
+
+
 def test_show_help_says_its_tree_walks_what_a_milestone_includes () -> None:
 	"""`SR#3540`. The help described a milestone by `SR#84`'s model after `SR#3391` replaced it.
 

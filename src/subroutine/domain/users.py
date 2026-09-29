@@ -330,11 +330,13 @@ def transfer (
 	somebody leaving rather than a refinement of it. Without it, marking a leaver inactive means
 	losing their agents, and a control that costs that much is one people route around.
 
-	**Only a person may take it on, and only a person may hand it over.** Both halves of that
-	are the same rule as creation: an agent that could move accountability could move it *off*
-	itself, which is the laundering :mod:`subroutine.domain.accountability` refuses one step
-	earlier. A person doing it is the act being modelled — somebody agreeing to answer for a
-	thing — and it is not an act anything can perform on their behalf.
+	**Only a person may hand it over, and it goes to a person or to an agent whose own chain ends
+	at one** (`#476`; this said a person alone could take it on until `#3944`, which the code
+	never held). Handing over is the same rule as creation: an agent that could move
+	accountability could move it *off* itself, which is the laundering
+	:mod:`subroutine.domain.accountability` refuses one step earlier. A person doing it is the
+	act being modelled — somebody agreeing to answer for a thing — and it is not an act anything
+	can perform on their behalf.
 	"""
 
 	if actor is not None:

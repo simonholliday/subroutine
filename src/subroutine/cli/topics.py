@@ -111,10 +111,10 @@ def _dates_body () -> str:
 
 Most tasks use one of them. Many use none.
 
-Ways to write a date. **Everything below works at the command line wherever a
+Ways to write a date. Everything below works at the command line wherever a
 date is asked for; all but the last also work in a captured line, and the ones
 marked (api) are accepted in a `due`, `starts`, `ends` or `snooze` field over
-HTTP.** The one exception is `plan`, which asks for a day and refuses a time
+HTTP. The one exception is `plan`, which asks for a day and refuses a time
 of day - so a timestamp sets a deadline or a defer here and does not plan one.
 A weekday name is
 shorthand this tool resolves for you, so `subroutine plan 1 friday` works
@@ -285,7 +285,7 @@ A day is twenty-four hours, and a week is seven of those:
 
 {table}
 
-**That is calendar time, not working time.** '~1d' is 24 hours and not the
+That is calendar time, not working time. '~1d' is 24 hours and not the
 day you would spend on it, and '~1w' is 168 hours and not a working week.
 If you mean a working day, write '~8h'; a working week is '~40h'.
 
@@ -545,8 +545,8 @@ commands open the database directly, because they have to work when the
 service will not start, so 'db backup' and 'db restore' answer to the
 file permissions rather than to a token. Neither could anything else:
 somebody who can run these can read your config.toml, find the database
-and open it themselves. **If the boundary has to hold, it needs a server
-between them and the file** - that is what 'subroutine serve' and a
+and open it themselves. If the boundary has to hold, it needs a server
+between them and the file - that is what 'subroutine serve' and a
 token over the network are for.""",
 	),
 	Topic(

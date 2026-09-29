@@ -614,7 +614,10 @@ def init (
 		"", "--instance-name", help="What to call this installation. Defaults to the hostname."
 	),
 	password_stdin: bool = typer.Option(
-		False, "--password-stdin", help="Read a password from standard input, for scripts."
+		False,
+		"--password-stdin",
+		help="Read a password from standard input and store it. Nothing signs in with a password "
+		"yet - a browser signs in with 'login link'.",
 	),
 	non_interactive: bool = typer.Option(
 		False, "--non-interactive", help="Never prompt; fail instead."
@@ -2945,9 +2948,8 @@ def login_link (
 	Hand it over however you would hand over anything private - it signs in as whoever it
 	names, once, and stops working after half an hour.
 
-	This is also the way back in when email is not set up or is not working, which is why it
-	exists at a terminal rather than only in a browser: the console has to be a way in when
-	the ordinary path is broken.
+	It is how a browser signs in - nothing sends a sign-in link by email yet - which is why it
+	is at a terminal: the console has to be a way in.
 	"""
 
 	with _administering() as client:
@@ -3873,6 +3875,10 @@ def _read_password (from_stdin: bool, non_interactive: bool) -> str | None:
 	``None`` is the ordinary case. Local mode opens the database directly, so a password is
 	only wanted once there is a server to log in to — asking for one during setup would be
 	ceremony in service of nothing.
+
+	**Stored, and read by nothing yet** (`#3944`): a browser signs in with a link from ``login
+	link``, and ``users.verify_password`` is called by a test alone. Kept rather than dropped,
+	because a scripted install may pass the flag, and the help says so.
 
 	An empty pipe under ``--password-stdin`` is refused rather than treated as "no
 	password". Passing the flag states that a password is coming, so nothing arriving means

@@ -9385,8 +9385,8 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		  subroutine user transfer deploy-bot --to jo
 
 		Agents stop when the person answerable for them leaves, so this is how one is kept when
-		somebody goes. Only a person can take an agent on - being accountable is something
-		somebody agrees to, and an agent cannot agree on anybody's behalf.
+		somebody goes. Only a person can hand an agent over. It can go to a person, or to an
+		agent whose own chain ends at one.
 		"""
 
 		with program.opened() as world:

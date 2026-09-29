@@ -2116,6 +2116,10 @@ def test_making_a_project_private_says_so_on_the_agent_surface (
 	assert "subroutine_call_api" in made, (
 		f"the way back has to be reachable from here, and this tool cannot take it:\n{made}"
 	)
+	# **And the way in, as the schema names it** (`SR#3944`): the reply said nothing could let
+	# anybody else in, while the tool's own description named the route that does.
+	assert "/v1/projects/secret/members" in made, made
+	assert "Nothing can add" not in made, made
 
 
 def test_an_ordinary_project_says_nothing_about_who_can_see_it_to_an_agent (
