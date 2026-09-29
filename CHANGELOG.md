@@ -147,8 +147,9 @@ upgrade involves.
 - **A page left on a second screen keeps up with an agent's work.** The browser checked for
   changes every five seconds only while somebody used the page, and every thirty once it had
   gone two minutes untouched - which is how a page on a second screen is left. A change
-  arriving counts as activity now, so the faster pace holds while work is landing, and the
-  page still slows down after two quiet minutes.
+  arriving counts as activity now on a page that shows it - the list, the board, the agenda
+  and the journal - so the faster pace holds while work is landing, and the page still slows
+  down after two quiet minutes. The People and Settings pages keep the slower pace.
 - **A search naming a project that does not exist leaves the page's own project in place.**
   Typed on a project's page, `project:` and a name no project has said the page's own project
   was gone and showed the whole workspace. It says the search was refused now, and the page

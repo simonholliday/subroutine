@@ -1352,21 +1352,28 @@ export function App () {
 
 				since.current = fresh[fresh.length - 1].seq;
 
-				/* **Changes arriving are somebody working** (`#3824`, decision `#3838`), so
-				   the busy cadence holds while work lands, and relaxes after `ATTENTIVE_MS`
-				   with neither this nor a touch. A value the effect already holds changes
-				   nothing, so a page already busy keeps its timer. */
-				arrived.current = Date.now();
-
-				const away = globalThis.document?.visibilityState === "hidden";
-
-				setAttention(cadence(away, Infinity, 0));
-
 				/* **The open item first, because it is what the reader is looking at** (`#657`).
 				   `held` rather than `open` for the reason `since` is a ref: this callback is
 				   left behind by a render that almost certainly had nothing open. */
-				if (touching(fresh, held.current && held.current.item, seen.page,
-					held.current ? held.current.links : [])) await refresh();
+				const touched = touching(fresh, held.current && held.current.item, seen.page,
+					held.current ? held.current.links : []);
+
+				/* **Changes arriving are somebody working** (`#3824`, decision `#3838`), so
+				   the busy cadence holds while work lands, and relaxes after `ATTENTIVE_MS`
+				   with neither this nor a touch. A value the effect already holds changes
+				   nothing, so a page already busy keeps its timer. **Only where the page redraws
+				   for them** (`#3918`, the decision as narrowed on 2026-09-29): the work, a journal
+				   and an open item do, and the People and Settings pages redraw for none, so a
+				   change arriving there leaves them at their own pace. */
+				if (touched || showsWork(area) || area === JOURNAL) {
+					arrived.current = Date.now();
+
+					const away = globalThis.document?.visibilityState === "hidden";
+
+					setAttention(cadence(away, Infinity, 0));
+				}
+
+				if (touched) await refresh();
 
 				/* **And an administrative area refreshes none of it** (`#2508`). The arrival
 				   skips these; without the same question here, a settings page left open went

@@ -16539,6 +16539,34 @@ def test_a_page_watched_while_work_arrives_keeps_the_busy_cadence (tmp_path: pat
 	assert "Date.now() - arrived.current" in app, "the cadence no longer reads when one arrived"
 
 
+def test_a_change_holds_the_busy_cadence_only_where_the_page_redraws_for_it () -> None:
+	"""`SR#3918`, L-10 browser 4 of the cold review of 2026-09-28, decision `SR#3838` as narrowed.
+
+	Every change counted as activity, so a People or Settings page left open beside a working agent
+	checked every five seconds for changes it never draws. **Only where the page redraws for one**:
+	the work, a journal and an open item. Source-level for `SR#640`'s reason, as the cadence's own
+	test above is: the poll is inside `App`, where the mount cannot see a timer's length.
+	"""
+
+	app = _without_comments(_our_source())
+	opens, closes = _braced(app, "const poll = async () =>")
+	body = app[opens:closes]
+	guard = "if (touched || showsWork(area) || area === JOURNAL)"
+
+	assert guard in body, "the poll no longer asks whether the page redraws for a change"
+
+	within, until = _braced(body, guard)
+	held = body[within:until]
+
+	assert body.count("arrived.current = Date.now()") == 1, body
+	assert "arrived.current = Date.now()" in held, (
+		"a change counts as activity whether or not the page redraws for it"
+	)
+	assert "setAttention(cadence(away, Infinity, 0))" in held, (
+		"the busy cadence is set whether or not the page redraws for the change"
+	)
+
+
 def test_a_board_says_how_it_is_ordered_and_lets_a_reader_change_it (
 	tmp_path: pathlib.Path,
 ) -> None:
