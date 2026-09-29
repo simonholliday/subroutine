@@ -188,6 +188,10 @@ upgrade involves.
   more: finishing one was refused, naming the setting already raised. **A rule that repeats no
   times, `COUNT=0`, is refused** rather than stored, and **one on the last day of the month reads
   back as *on the last day***, not *on the -1th*.
+- **A repeat can end on a date, written as calendars write one**: `UNTIL=20261210` was refused
+  with a sentence about time zones, and is the whole of that day now. **The calendar feed writes
+  an all-day series' end as a date**, as the standard requires beside a start that is one; it
+  wrote a time there, which a strict calendar refuses.
 
 ## 0.9.12 — 2026-09-29
 

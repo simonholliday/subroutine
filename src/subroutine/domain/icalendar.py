@@ -22,6 +22,7 @@ import dateutil.rrule
 import subroutine.db.models.work
 import subroutine.domain.calendars
 import subroutine.domain.dates
+import subroutine.domain.recurrence
 import subroutine.domain.schedule
 
 #: What this program calls itself in the files it produces. RFC 5545 wants a globally unique
@@ -221,7 +222,15 @@ def _event (
 			lines.append(_moment("DTEND", when + datetime.timedelta(minutes=minutes), local))
 
 	if occasion.rule:
-		lines.append(f"RRULE:{occasion.rule}")
+		# **Its ``UNTIL`` in the form its start takes** (`#3935`, RFC 5545 §3.3.10): a date beside a
+		# ``VALUE=DATE`` start. It was copied as stored, so an all-day series ending on a day carried
+		# a date-time, which a strict client refuses.
+		rule = subroutine.domain.recurrence.for_a_calendar(
+			occasion.rule,
+			whole_day=bool(all_day),
+			timezone=subroutine.domain.schedule.series_zone(task),
+		)
+		lines.append(f"RRULE:{rule}")
 
 		# **The holes in the grid, said out loud** (`#1248`). A client expands the rule and
 		# draws every slot it describes, so one whose occurrence has been moved or deleted is

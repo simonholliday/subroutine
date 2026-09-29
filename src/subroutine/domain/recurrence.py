@@ -435,11 +435,19 @@ def _checked (value: str, *, field: str) -> str:
 			f"anything finer would materialise faster than anybody works.",
 		)
 
+	# **An ``UNTIL`` that is a date is a whole day** (`#3935`), which is how RFC 5545 writes the
+	# end beside a start that is one, so an all-day rule copied from a calendar carries it. It was
+	# refused with dateutil's sentence about zones, since dateutil takes one only beside a start
+	# with none - which is what it is built against here.
+	dated = _A_DATE.fullmatch(found.get("UNTIL", "")) is not None
+	built_from = datetime.datetime(2026, 1, 1)
+
 	# Proved by building it, because a part this accepts by name can still be unreadable —
 	# `BYDAY=XX` passes the check above and means nothing.
 	try:
 		dateutil.rrule.rrulestr(
-			f"RRULE:{written}", dtstart=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+			f"RRULE:{written}",
+			dtstart=built_from if dated else built_from.replace(tzinfo=datetime.UTC),
 		)
 
 	except (ValueError, TypeError) as unreadable:
@@ -461,7 +469,9 @@ def _checked (value: str, *, field: str) -> str:
 	# many - *20261210T0000Z*, *20261210T000000+0000* - and only UTC's ``YYYYMMDDTHHMMSSZ`` was put
 	# on the start's clock, so the others saved and then answered 500 when an occurrence was
 	# completed. A year no clock can move it into is refused here, where it is written.
-	if "UNTIL" in found:
+	# **A date is stored as it was written** (`#3935`), and read as the whole of its day on the
+	# series' own clock by :func:`_on_the_clock`, which is where the zone is known.
+	if "UNTIL" in found and not dated:
 		until = _until_in_utc(value, found["UNTIL"], field=field)
 		written = ";".join(
 			f"UNTIL={until}" if piece.partition("=")[0].strip().upper() == "UNTIL" else piece
@@ -579,12 +589,20 @@ def names_its_own_day (stored: str) -> bool:
 #: spelling hold others dateutil reads as well.
 _UNTIL = re.compile(r"UNTIL=([^;]+)")
 
+#: An ``UNTIL`` that is a date and no time, as RFC 5545 writes one beside a start that is a date.
+_A_DATE = re.compile(r"\d{8}")
+
 
 def _on_the_clock (stored: str, zone: datetime.tzinfo) -> str:
 	"""Return a rule with an ``UNTIL`` that has a zone rewritten on ``zone``'s clock, as its start is (`#3765`)."""
 
 	def local (found: re.Match[str]) -> str:
 		"""Return one ``UNTIL`` as the zone's clock read that instant, its year in four digits."""
+
+		# **A date is the whole of its day on this clock** (`#3935`), so a slot at its first second,
+		# a deadline at its last and a meeting between are all on it.
+		if _A_DATE.fullmatch(found[1]):
+			return f"UNTIL={found[1]}T235959"
 
 		try:
 			instant = dateutil.parser.parse(found[1])
@@ -606,6 +624,48 @@ def _on_the_clock (stored: str, zone: datetime.tzinfo) -> str:
 		return f"UNTIL={subroutine.domain.dates.basic(clock, '%m%dT%H%M%S')}"
 
 	return _UNTIL.sub(local, stored)
+
+
+def for_a_calendar (stored: str, *, whole_day: bool, timezone: str) -> str:
+	"""Return a rule with its ``UNTIL`` in the form its start takes, for a calendar - `#3935`.
+
+	**RFC 5545 §3.3.10 makes the two match**: a date beside a start that is a date, and a date-time
+	in UTC beside one with a time. A rule stores one ``UNTIL`` whatever its series is, and the feed
+	copied it as stored, so an all-day series ending on a day was written with a date-time beside
+	its ``VALUE=DATE`` start, which a strict client refuses. The instant is read on ``timezone``'s
+	clock, the series' own, as :func:`_on_the_clock` reads it; one that cannot be read is left be.
+	"""
+
+	zone = subroutine.domain.dates.zone(timezone)
+
+	def written (found: re.Match[str]) -> str:
+		"""Return one ``UNTIL`` in the form beside the start, or as it was where it cannot be read."""
+
+		until = found[1]
+
+		if _A_DATE.fullmatch(until):
+			if whole_day:
+				return found[0]
+
+			until = f"{until}T235959"
+
+		try:
+			instant = dateutil.parser.parse(until)
+			clock = (
+				instant.replace(tzinfo=zone) if instant.tzinfo is None else instant.astimezone(zone)
+			)
+
+			if whole_day:
+				return f"UNTIL={subroutine.domain.dates.basic(clock.date(), '%m%d')}"
+
+			return (
+				f"UNTIL={subroutine.domain.dates.basic(clock.astimezone(datetime.UTC), '%m%dT%H%M%S')}Z"
+			)
+
+		except (ValueError, OverflowError):
+			return found[0]
+
+	return _UNTIL.sub(written, stored)
 
 
 def occurrences (

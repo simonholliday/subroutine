@@ -296,6 +296,58 @@ def test_a_repeat_that_comes_round_no_times_is_refused (count: str) -> None:
 	assert "COUNT starts at 1" in refused.value.errors[0].message, refused.value.errors
 
 
+def test_a_date_ends_a_rule_as_the_whole_of_its_day () -> None:
+	"""`SR#3935`, NEW-1 of the verification of 2026-09-28: ``UNTIL=20261210`` was refused.
+
+	RFC 5545 writes a series' end as a date beside a start that is one, so an all-day rule copied
+	from a calendar carried the form this refused, with dateutil's sentence about zones. **Stored
+	as written, and read as the whole of its day on the series' clock**, so a slot at the day's
+	first second, a deadline at its last and a meeting between are all on it.
+	"""
+
+	stored = subroutine.domain.recurrence.rule("FREQ=DAILY;UNTIL=20261210").rule
+
+	assert stored == "FREQ=DAILY;UNTIL=20261210"
+
+	zone = zoneinfo.ZoneInfo(LONDON)
+
+	for start in (
+		datetime.datetime(2026, 12, 8, 0, 0, tzinfo=zone),
+		datetime.datetime(2026, 12, 8, 23, 59, 59, 999999, tzinfo=zone),
+		datetime.datetime(2026, 12, 8, 9, 0, tzinfo=zone),
+	):
+		found = subroutine.domain.recurrence.occurrences(
+			stored, start=start.astimezone(datetime.UTC), timezone=LONDON
+		)
+
+		assert len(found) == 3, (start, found)
+
+
+@pytest.mark.parametrize(
+	("stored", "whole_day", "written"),
+	[
+		("FREQ=DAILY;UNTIL=20260825T225959Z", True, "FREQ=DAILY;UNTIL=20260825"),
+		("FREQ=DAILY;UNTIL=20260825", True, "FREQ=DAILY;UNTIL=20260825"),
+		("FREQ=DAILY;UNTIL=20260825", False, "FREQ=DAILY;UNTIL=20260825T225959Z"),
+		("FREQ=DAILY;UNTIL=20260825T225959Z", False, "FREQ=DAILY;UNTIL=20260825T225959Z"),
+		("FREQ=WEEKLY;UNTIL=20260825T090000;BYDAY=TU", False, "FREQ=WEEKLY;UNTIL=20260825T080000Z;BYDAY=TU"),
+		("FREQ=DAILY;COUNT=3", True, "FREQ=DAILY;COUNT=3"),
+	],
+)
+def test_a_rule_s_end_is_written_for_a_calendar_as_its_start_is (
+	stored: str, whole_day: bool, written: str
+) -> None:
+	"""`SR#3935`: RFC 5545 §3.3.10 makes a rule's ``UNTIL`` and its start the same kind of value.
+
+	A date beside a start that is a date, and a date-time in UTC beside one with a time, each read
+	on the series' own clock - London's here, an hour ahead of UTC in August.
+	"""
+
+	assert subroutine.domain.recurrence.for_a_calendar(
+		stored, whole_day=whole_day, timezone=LONDON
+	) == written
+
+
 def test_a_rule_that_names_a_real_part_and_means_nothing_is_still_refused () -> None:
 	"""The part list says a name is allowed; only building the rule says the value parses."""
 

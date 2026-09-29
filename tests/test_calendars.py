@@ -613,6 +613,60 @@ def _series_block (body: str, summary: str) -> str:
 	)
 
 
+@pytest.mark.parametrize(
+	("starts", "until", "written"),
+	[
+		(datetime.date(2026, 8, 20), "20260825T225959Z", "UNTIL=20260825"),
+		(
+			datetime.datetime(2026, 8, 20, 9, 0, tzinfo=zoneinfo.ZoneInfo("Europe/London")),
+			"20260825",
+			"UNTIL=20260825T225959Z",
+		),
+	],
+	ids=["all-day", "timed"],
+)
+def test_a_series_end_is_written_in_the_form_its_start_takes (
+	session: sqlalchemy.orm.Session,
+	starts: datetime.date | datetime.datetime,
+	until: str,
+	written: str,
+) -> None:
+	"""`SR#3935`, L-4 of the cold review of 2026-09-28: RFC 5545 §3.3.10 makes the two match.
+
+	An all-day series was written with a ``VALUE=DATE`` start and its rule as stored, so a
+	date-time ``UNTIL`` stood beside it, which a strict client refuses - dateutil among them. And a
+	timed series could not end on a date at all. **Each end is written in its start's form**, and
+	expanded by a real parser rather than matched as text: six days, the 20th to the 25th.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+
+	subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=subroutine.domain.authentication.Principal(user=owner),
+		title="Water the plants",
+		starts=starts,
+		recurrence=f"FREQ=DAILY;UNTIL={until}",
+		timezone="Europe/London",
+		now=NOW,
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	body = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Mine",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+	block = _series_block(body, "Water the plants")
+
+	assert written in block, block
+	assert len(list(dateutil.rrule.rrulestr(block, forceset=True))) == 6, block
+
+
 @pytest.mark.parametrize("how", ["moved", "deleted"])
 def test_a_slot_that_no_longer_holds_an_occurrence_is_excluded_from_the_grid (
 	session: sqlalchemy.orm.Session, how: str
