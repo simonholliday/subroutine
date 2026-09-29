@@ -9,6 +9,7 @@ leaves, and it *refuses* what it cannot prove is ours. A destructive tool that g
 one nobody runs again.
 """
 
+import errno
 import importlib.metadata
 import json
 import os
@@ -932,9 +933,10 @@ def test_a_link_round_a_loop_is_reported_rather_than_ending_the_clean (
 ) -> None:
 	"""`SR#3940`: a link leading round a loop ended the run, where it should have been left.
 
-	``resolve`` raises ``RuntimeError`` for one before Python 3.13 and ``OSError`` from it, and
-	only the second was caught, and only for a name the package does not declare. **Both are
-	caught, at a declared name and at any other**, and the one at the program's name is reported.
+	Before Python 3.13 ``resolve`` raises ``RuntimeError`` for one, and only ``OSError`` was
+	caught, and only for a name the package does not declare. **Left, at a declared name and at
+	any other**, and the one at the program's name is reported. This asks whichever Python runs
+	the suite; the next test makes an older one answer as 3.13 does (`SR#3992`).
 	"""
 
 	_installed()
@@ -952,6 +954,82 @@ def test_a_link_round_a_loop_is_reported_rather_than_ending_the_clean (
 
 	assert declared.is_symlink() and other.is_symlink()
 	assert "round a loop" in printed, printed
+
+
+def _resolving_as_3_13_does (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Make ``Path.resolve`` answer a loop as Python 3.13 and later do, on whichever Python this is.
+
+	Before 3.13 a loop raises ``RuntimeError`` whether or not ``strict`` is asked for; from 3.13 it
+	raises only when strict, as ``ELOOP``, and otherwise hands back the link. On 3.13 and later
+	this changes nothing, since the real ``resolve`` never raises ``RuntimeError`` there.
+	"""
+
+	resolve = pathlib.Path.resolve
+
+	def resolved (self: pathlib.Path, strict: bool = False) -> pathlib.Path:
+		"""The real ``resolve``, with a loop answered as 3.13 answers it."""
+
+		try:
+			return resolve(self, strict=strict)
+
+		except RuntimeError:
+			if strict:
+				raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(self)) from None
+
+			return self.absolute()
+
+	monkeypatch.setattr(pathlib.Path, "resolve", resolved)
+
+
+def test_a_link_round_a_loop_is_reported_where_resolve_does_not_raise_for_one (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3992`: from Python 3.13 a loop at the program's name was called a stranger's file.
+
+	``resolve`` stopped raising for a loop in 3.13 unless asked to be strict, so the test above
+	passed on this machine's 3.12 and failed on CI's 3.13 and 3.14. **Made to answer as 3.13
+	does**, it is still reported as a loop, and still left.
+	"""
+
+	_installed()
+
+	binaries = tmp_path / ".local" / "bin"
+	binaries.mkdir(parents=True)
+	declared = binaries / subroutine.config.APPLICATION_NAME
+	declared.symlink_to(declared)
+
+	_resolving_as_3_13_does(monkeypatch)
+	deep_clean.main(["--yes"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert declared.is_symlink()
+	assert "round a loop" in printed, printed
+
+
+def test_a_backup_directory_round_a_loop_is_outside_the_data_directory (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3992`: from Python 3.13 a dry run counted a loop inside the data directory as inside.
+
+	A loop leads nowhere, so ``_inside`` calls it outside and the report names it with the command
+	that removes it. From 3.13 ``resolve`` handed back the link, which sits inside, so a dry run -
+	the one run where the loop is still there when it is asked about - left it out. **Made to
+	answer as 3.13 does**, it is reported as outside.
+	"""
+
+	made = _installed()
+	looping = subroutine.config.data_home() / "backups"
+	looping.symlink_to(looping)
+	made["config"].write_text(
+		f"backup_directory = {str(looping)!r}\n[connections.local]\nenabled = true\n",
+		encoding="utf-8",
+	)
+
+	_resolving_as_3_13_does(monkeypatch)
+	deep_clean.main(["--dry-run"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert _outcomes(printed, "backups") == ["SKIPPED"], printed
 
 
 def test_the_names_a_clean_looks_for_come_from_the_package () -> None:

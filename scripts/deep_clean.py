@@ -28,6 +28,7 @@ There is no undo. The database goes with everything else.
 
 import argparse
 import dataclasses
+import errno
 import importlib.metadata
 import json
 import os
@@ -261,6 +262,32 @@ def installed_names () -> list[str]:
 	return scripts or [name]
 
 
+def _followed (path: pathlib.Path) -> pathlib.Path | None:
+	"""Return where a path leads once every link in it is followed, or ``None`` for a loop.
+
+	**One answer on every Python** (`#3992`). Before 3.13 ``resolve`` raises ``RuntimeError`` for
+	a loop whether or not it is strict; from 3.13 it raises only when strict, with ``ELOOP``, and
+	otherwise hands back the link - so a loop read as a stranger's file on CI's newer interpreters
+	and as a loop on this machine's. A link to nothing is followed as far as it goes, as before.
+	"""
+
+	try:
+		return path.resolve(strict=True)
+
+	except RuntimeError:
+		return None
+
+	except OSError as error:
+		if error.errno == errno.ELOOP:
+			return None
+
+	try:
+		return path.resolve()
+
+	except (OSError, RuntimeError):
+		return None
+
+
 def _candidates (
 	directory: pathlib.Path, *, names: list[str], tools: pathlib.Path
 ) -> list[pathlib.Path]:
@@ -284,15 +311,11 @@ def _candidates (
 		if entry in found or not entry.is_symlink():
 			continue
 
-		# **A link round a loop is skipped, not a crash** (`#3940`): ``resolve`` raises
-		# ``RuntimeError`` for one before Python 3.13 and ``OSError`` from it.
-		try:
-			pointed = entry.resolve()
+		# **A link round a loop is skipped, not a crash** (`#3940`), and :func:`_followed` tells one
+		# apart the same way on every Python (`#3992`).
+		pointed = _followed(entry)
 
-		except (OSError, RuntimeError):
-			continue
-
-		if tools in pointed.parents:
+		if pointed is not None and tools in pointed.parents:
 			found.append(entry)
 
 	return found
@@ -349,10 +372,9 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 			if not binary.exists() and not binary.is_symlink():
 				continue
 
-			try:
-				target = binary.resolve() if binary.is_symlink() else binary
+			target = _followed(binary) if binary.is_symlink() else binary
 
-			except (OSError, RuntimeError):
+			if target is None:
 				steps.append(Step(
 					"executable",
 					str(binary),
@@ -531,13 +553,11 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 
 
 def _inside (path: pathlib.Path, root: pathlib.Path) -> bool:
-	"""Say whether ``path`` is ``root`` or beneath it, once both are resolved; a loop is outside."""
+	"""Say whether ``path`` is ``root`` or beneath it, once both are followed; a loop is outside."""
 
-	try:
-		return path.resolve().is_relative_to(root.resolve())
+	followed, within = _followed(path), _followed(root)
 
-	except (OSError, RuntimeError):
-		return False
+	return followed is not None and within is not None and followed.is_relative_to(within)
 
 
 def _things_nobody_else_may_decide (
