@@ -89,6 +89,9 @@ def create_backup (
 	keep: int | None = fastapi.Body(
 		None,
 		embed=True,
+		# **Refused here, before anything is written** (`#3937`): pruning refused it too, but
+		# only once the backup had been taken, so the caller was told no with a new copy on disk.
+		ge=1,
 		description=(
 			"Afterwards, keep only this many of the newest routine backups. Copies taken "
 			"before an upgrade or a restore are kept under their own rules and are not "

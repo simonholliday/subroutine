@@ -1754,6 +1754,11 @@ def _what_it_held (written: subroutine.db.backup.Backup) -> str:
 	if not held:
 		return "  Could not count what it holds; check the copy before relying on it."
 
+	missing = _uncounted(held)
+
+	if missing:
+		return f"  {_partly_counted(held, missing)}, so check the copy before relying on it."
+
 	if not any(held.values()):
 		return (
 			"  It holds nothing - no workspaces, no projects, no tasks and no documents. "
@@ -1765,6 +1770,33 @@ def _what_it_held (written: subroutine.db.backup.Backup) -> str:
 		for name, count in held.items()
 		if count
 	) + "."
+
+
+def _uncounted (held: dict[str, int]) -> list[str]:
+	"""Return the kinds of work a backup's record has no count for, in the order they are counted.
+
+	**A kind left out is one whose count failed** (`#3937`): each is counted on its own, so one
+	table that cannot be read no longer loses the others, and what is missing is said rather than
+	left to read as none.
+	"""
+
+	return [name for name in subroutine.db.backup.COUNTED if name not in held]
+
+
+def _partly_counted (held: dict[str, int], missing: list[str]) -> str:
+	"""Say what a backup held where some kinds of work could not be counted.
+
+	**Every count is shown, a zero included**, where a whole count leaves its zeroes out: beside a
+	kind that could not be counted, *none* is a finding rather than a tidy omission.
+	"""
+
+	counted = ", ".join(
+		f"{count:,} {name}{'' if count == 1 else 's'}" for name, count in held.items()
+	)
+	plural = [f"{name}s" for name in missing]
+	named = plural[0] if len(plural) == 1 else f"{', '.join(plural[:-1])} and {plural[-1]}"
+
+	return f"{counted}; its {named} could not be counted"
 
 
 def _holdings_cell (backup: subroutine.db.backup.Backup) -> str:
@@ -1788,6 +1820,17 @@ def _holdings_cell (backup: subroutine.db.backup.Backup) -> str:
 			"Holdings not recorded - taken before this was written down. Check it before "
 			"relying on it."
 		)
+
+	# **An empty record is a count that failed, not an empty instance** (`#3937`): an instance
+	# with nothing in it is four zeroes. Read as *holds nothing*, it was the false confidence the
+	# three states exist to prevent.
+	if not held:
+		return "Holdings could not be counted when it was taken. Check it before relying on it."
+
+	missing = _uncounted(held)
+
+	if missing:
+		return f"{_partly_counted(held, missing)}. Check it before relying on it."
 
 	if not any(held.values()):
 		return "Holds nothing: an empty instance, not your work."

@@ -17,6 +17,7 @@ import itertools
 import os
 import pathlib
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -1019,6 +1020,10 @@ def test_a_backup_from_the_other_engine_is_refused_before_anything_is_dropped (
 
 	assert "runs on" in _refusal(refused.value)
 
+	# **And it names the suffix this engine's backups really end in** (`#3937`): a PostgreSQL
+	# one said `.sql`, which nothing has written since `#1554`.
+	assert written.path.suffix in (refused.value.hint or ""), refused.value.hint
+
 	# The point of the item: still there, and still itself.
 	assert _instance_id(own_database) == identity
 
@@ -1354,6 +1359,28 @@ def test_a_backup_over_http_is_named_without_naming_the_server_s_filesystem (
 		)
 
 	assert taken.json()["name"], "the backup is not identified by anything at all"
+
+
+def test_a_backup_asked_to_keep_none_is_refused_before_it_is_taken (
+	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path
+) -> None:
+	"""`SR#3937`, L-6 of the cold review of 2026-09-28: the refusal came after the copy.
+
+	A ``keep`` below 1 was refused by the pruning that runs once the backup is written, so the
+	caller was told no in the terminal's words - *--keep must be 1 or more* - with a new backup
+	and its record left on disk. **Refused as a field of the request now**, before anything is
+	written.
+	"""
+
+	world = test_api_tasks._world(session)
+	refused = world.call("POST", "/v1/admin/backups", json={"keep": 0})
+
+	assert refused.status_code == 422, refused.text
+	assert "--keep" not in refused.text, refused.text
+	assert "keep" in refused.json()["errors"][0]["field"], refused.text
+	assert not [one for one in elsewhere.rglob("*") if one.is_file()], (
+		"the backup was taken before the refusal"
+	)
 
 
 def test_a_narrowed_token_cannot_take_a_backup (
@@ -1936,6 +1963,123 @@ def test_counting_a_backup_never_turns_a_good_one_into_a_failure (
 	assert written.path.exists(), "the backup itself must still have been taken"
 	assert written.holdings == {}, "an uncountable backup is described as unknown, not refused"
 	assert "check the copy" in subroutine.cli.main._what_it_held(written)
+
+
+def test_a_table_that_cannot_be_counted_loses_only_its_own_count (
+	own_database: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3937`, L-6 of the cold review of 2026-09-28: the first failure lost every count.
+
+	Each table is counted on a connection of its own so that one refusal cannot poison the rest,
+	and the loop then gave up at the first refusal, so the tables it could have counted were
+	reported as uncountable too. **Each failure loses its own count now**, and both lines an
+	operator reads name what could not be counted rather than leaving it to read as none.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path))
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+
+	settings = subroutine.config.Settings(
+		database_url=own_database, backup_directory=str(tmp_path)
+	)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	monkeypatch.setattr(subroutine.db.backup, "COUNTED", ("workspace", "no_such_table", "task"))
+
+	try:
+		written = subroutine.db.backup.take(engine, settings)
+
+	finally:
+		engine.dispose()
+
+	assert written.holdings is not None
+	assert sorted(written.holdings) == ["task", "workspace"], written.holdings
+
+	said = subroutine.cli.main._what_it_held(written)
+
+	assert "no_such_tables could not be counted" in said, said
+
+	listed = [one for one in subroutine.db.backup.catalogue(settings) if one.path == written.path]
+
+	assert len(listed) == 1, listed
+
+	cell = subroutine.cli.main._holdings_cell(listed[0])
+
+	assert "no_such_tables could not be counted" in cell, cell
+
+
+@pytest.mark.parametrize(
+	("holdings", "said"),
+	[
+		(None, "Holdings not recorded"),
+		({}, "could not be counted"),
+		({"workspace": 0, "project": 0, "task": 0, "document": 0}, "Holds nothing"),
+		({"workspace": 1, "project": 0, "task": 0}, "0 tasks; its documents could not be counted"),
+		({"workspace": 1, "project": 2, "task": 3, "document": 0}, "1 workspace, 2 projects, 3 tasks"),
+	],
+	ids=["not recorded", "nothing counted", "an empty instance", "partly counted", "counted"],
+)
+def test_a_listed_backup_says_what_could_not_be_counted (
+	tmp_path: pathlib.Path, holdings: dict[str, int] | None, said: str
+) -> None:
+	"""`SR#3937`, NEW-1 of the verification of the cold review of 2026-09-28.
+
+	A backup whose counts failed recorded an empty mapping, and the listing read it as *Holds
+	nothing: an empty instance, not your work* - the false confidence its three states (`SR#432`)
+	exist to prevent, and on the one line an operator reads on the day they need a copy. **An
+	empty record is a count that failed**, an empty instance is every kind counted at zero, and a
+	record missing some kinds names them.
+	"""
+
+	backup = subroutine.db.backup.Backup(
+		path=tmp_path / "subroutine-20260929T120000Z.db",
+		taken_at=datetime.datetime(2026, 9, 29, 12, tzinfo=datetime.UTC),
+		schema_head="58c81c09d101",
+		size_bytes=1,
+		profile=None,
+		holdings=holdings,
+	)
+	cell = subroutine.cli.main._holdings_cell(backup)
+
+	assert said in cell, cell
+
+	if holdings is not None and set(holdings) != set(subroutine.db.backup.COUNTED):
+		assert "Holds nothing" not in cell, cell
+
+
+def test_a_postgresql_tool_that_runs_out_of_time_is_stopped_and_said (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3937`, L-6 of the cold review of 2026-09-28: running out of time stopped nothing.
+
+	``communicate`` raises when its time is up and leaves the child running, so a ``pg_dump`` or
+	``pg_restore`` that hung went on behind a crash report or a 500. **It is stopped now, and the
+	refusal says so in words.** Driven with ``sleep``, since the runner is the same whatever it
+	runs, and asserted on the child's own exit: killed, not left to finish.
+	"""
+
+	started: list[typing.Any] = []
+	real = subprocess.Popen
+
+	def recording (*arguments: typing.Any, **options: typing.Any) -> typing.Any:
+		"""Start the child as the runner would, and keep hold of it."""
+
+		process = real(*arguments, **options)
+		started.append(process)
+
+		return process
+
+	monkeypatch.setattr(subprocess, "Popen", recording)
+	monkeypatch.setattr(subroutine.db.backup, "_SUBPROCESS_TIMEOUT_SECONDS", 0.2)
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+		subroutine.db.backup._run(["sleep", "10"], what="pg_dump")
+
+	assert "pg_dump was still running" in str(refused.value), str(refused.value)
+	assert [process.returncode for process in started] == [-signal.SIGKILL], (
+		"the tool was left to finish rather than stopped"
+	)
 
 
 def test_a_connection_that_has_gone_by_the_second_look_is_not_using_the_database (

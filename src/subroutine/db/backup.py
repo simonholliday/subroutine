@@ -45,8 +45,9 @@ import subroutine.errors
 #: to that profile and destroying it takes them with it (docs/design.md §12.5).
 DIRECTORY_NAME = "backups"
 
-#: ``.db`` for a SQLite copy, which really is a database; ``.sql`` for a PostgreSQL dump,
-#: which is a script. The suffix is what tells ``restore`` how to read a file it is handed.
+#: ``.db`` for a SQLite copy, which really is a database; ``.sql`` for a PostgreSQL dump taken
+#: before `#1554`, which is a script, and :data:`POSTGRESQL_ARCHIVE_SUFFIX` for every one since.
+#: The suffix is what tells ``restore`` how to read a file it is handed.
 SQLITE_SUFFIX = ".db"
 POSTGRESQL_SUFFIX = ".sql"
 
@@ -584,7 +585,7 @@ def check_engine (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> Non
 			f"Backups are taken with the tools of one engine and cannot be read by the other, "
 			f"so this one cannot be restored here - nothing has been changed. A {ours} backup "
 			f"of this instance ends in "
-			f"{SQLITE_SUFFIX if ours == 'SQLite' else POSTGRESQL_SUFFIX}; "
+			f"{SQLITE_SUFFIX if ours == 'SQLite' else POSTGRESQL_ARCHIVE_SUFFIX}; "
 			f"'subroutine db backups' lists them with their engine. To move an instance "
 			f"between engines, use 'subroutine db copy'."
 		),
@@ -1308,9 +1309,11 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 	question and the one that is always answerable: the copy may be a `pg_dump` script, which
 	is not a database anything can open without restoring it somewhere first.
 
-	Failures are swallowed to an empty mapping on purpose. This exists to make a backup
-	*legible*, and a backup that succeeded must not be reported as failed because a count
-	afterwards did — that would be this check causing the loss it was written to prevent.
+	A table that cannot be counted is left out of the mapping, on purpose, rather than raised.
+	This exists to make a backup *legible*, and a backup that succeeded must not be reported as
+	failed because a count afterwards did — that would be this check causing the loss it was
+	written to prevent. The readers name what is missing (`#3937`), so a kind left out never
+	reads as a kind that held nothing.
 	"""
 
 	counted: dict[str, int] = {}
@@ -1331,7 +1334,9 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 				).scalar_one()
 
 		except sqlalchemy.exc.SQLAlchemyError:
-			return {}
+			# **The next table, not the end** (`#3937`). Returning here gave up every count after
+			# the first that failed, against the isolation this loop exists for.
+			continue
 
 		counted[table] = int(found)
 
@@ -1557,7 +1562,26 @@ def _run (
 
 	# `communicate` rather than `wait`: a pipe left open trips the ResourceWarning this project
 	# turns into an error, and the traceback then points at the wrong place entirely.
-	output, complaint = process.communicate(timeout=_SUBPROCESS_TIMEOUT_SECONDS)
+	try:
+		output, complaint = process.communicate(timeout=_SUBPROCESS_TIMEOUT_SECONDS)
+
+	except subprocess.TimeoutExpired as error:
+		# **Running out of time does not stop the child** (`#3937`): Python raises and leaves it
+		# going, so a `pg_dump` went on reading the database behind a crash report. Stopped and
+		# drained here, and said in words.
+		process.kill()
+		process.communicate()
+
+		minutes = _SUBPROCESS_TIMEOUT_SECONDS // 60
+
+		raise subroutine.errors.ServiceUnavailable(
+			f"{what} was still running after {minutes} minutes, so it was stopped before it "
+			f"finished.",
+			hint=(
+				f"{minutes} minutes is as long as a PostgreSQL tool is given here. If the database is "
+				f"large or its storage slow, run {what} by hand, where nothing stops it."
+			),
+		) from error
 
 	if process.returncode != 0:
 		reported = complaint.strip() or f"exit status {process.returncode}"

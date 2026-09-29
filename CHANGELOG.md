@@ -113,6 +113,13 @@ upgrade involves.
   though deleting the workspace is the one thing an owner may do and an administrator may not.
   An administrator still grants roles up to administrator and removes anyone but an owner, and
   whoever runs the instance is not bound by roles.
+- **A backup whose counts could not be taken no longer reads as empty.** Counting what a backup
+  holds stopped at the first table it could not read, and the listing then described the copy
+  as *an empty instance, not your work*. Each kind is counted on its own now, and `db backup`
+  and `db backups` name what could not be counted. A `pg_dump`, `pg_restore` or `psql` still
+  running after ten minutes is stopped and reported in words, where it went on behind a crash
+  report. `POST /v1/admin/backups` refuses a `keep` below 1 before taking the backup rather than
+  after, and restoring a backup from the other engine says a PostgreSQL backup ends in `.dump`.
 
 ## 0.9.12 — 2026-09-29
 
