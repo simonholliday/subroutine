@@ -657,102 +657,67 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	every = [one for one in rest if _EVERY.match(one)]
 	over = [one for one in rest if not _EVERY.match(one)]
 
-	# **A fourth bucket, because the third was about to assert a cause it had not
-	# established** (`#2116`). Everything that was not a project and not a repeat used to be
-	# called a time and told how to write one — which is exactly the mistake the comment above
-	# records for repeats, one token along: *Monday 18th September* is not a time, and
-	# advising `at 2pm` about it is a refusal explaining something the reader did not do.
-	#
-	# **Told apart by asking `dates.day_named`, which is the function that refused it**, rather
-	# than by a second description of what a contradiction looks like. It is the same move the
-	# `mid` bucket makes with `_repeat_in`, and for the same reason.
-	# **A span it would not read, told apart by asking the patterns that found it** (`#2886`).
-	# A span has two causes to be left as written - it runs backwards, or it names a day there
-	# is not - and was falling through to *timed*, so a writer who typed *12-2 October* was
-	# told how to write a time. The patterns are :func:`_collect_spans`'s own, so this is one
-	# description of what a span looks like rather than two.
-	# **And a span with times of day, told apart the same way** (`#2894`): held back whole, and
-	# the reason is that its times are not read yet - not that its days are out of order.
-	# **Two of those now, because one of them is read** (`#675`): a phrase naming one day and
-	# two times is an appointment this grammar writes, so the only way back here is a day or a
-	# pair of times it could not read - a different sentence from *two timed days are not read*.
-	clocked = [one for one in over if _CLOCKED_SPAN.fullmatch(one) and _A_CLOCK.search(one)]
-	hours = [one for one in over if one not in clocked and _CLOCKED_DAY.fullmatch(one)]
-	spans = [
-		one for one in over
-		if one not in clocked and one not in hours
-		and any(pattern.fullmatch(one) for pattern in _SPANS)
-	]
-	contradicted = [
-		one for one in over
-		if one not in spans and one not in clocked and one not in hours
-		and subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
-		and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
-		# **Not a weekday carried with the time beside it** (`#3896`), which is a day that was not
-		# read rather than two that disagree.
-		and _TIME_LOOKS_LIKE.search(one) is None
-	]
-	# **And a range, which is a third thing to be told** (`#675`). A range reaches here only
-	# when nothing could hold it - beside a deadline, beside a span already read, or beside a
-	# day this grammar does not read - and the time sentence would advise `at`, which is no
-	# help for any of the three and wrong for the first two.
-	ranges = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and _TIME_RANGE.fullmatch(one)
-	]
-	# **And a moment no clock could have written** (`#3766`), told apart by asking the function
-	# that declined it: an offset outside the range clocks use, or a moment off the calendar.
-	unclocked = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges
-		and subroutine.domain.schedule.beyond_every_clock(one) is not None
-	]
-	# **And a date left whole for its year** (`#3809`, decision `#3799`), told apart from a day no
-	# calendar has by asking whether the day is one its year has.
-	yeared = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges and one not in unclocked
-		and subroutine.domain.dates.is_a_day_of_its_year(one)
-	]
-	# **And a date written out that names no day** (`#3582`): *29 February 2027*, *31 April*. It
-	# reached the time's sentence, which advised `at` about a line with no clock in it.
-	dateless = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges and one not in unclocked
-		and one not in yeared
-		and subroutine.domain.dates.is_written_date(one)
-	]
-	# **And a time carried with a day that was not read** (`#3896`), told apart by the day at
-	# either end of it. On its own it was told *a time is read after 'at'*, on a line where it was.
-	unread = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges and one not in dateless
-		and one not in unclocked and one not in yeared
-		and _TIME_LOOKS_LIKE.search(one) is not None
-		and (_A_DAY_UNREAD.match(one) is not None or _A_DAY_LAST.search(one) is not None)
-	]
-	# **And any other time written after 'at'** (`#3896`), which the sentence below told to be
-	# written after 'at'. What stopped it is the day it needed - one not set, a span, one with a time
-	# already - or a time no clock shows, and which is the reader's to know, not this sentence's.
-	after_at = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges and one not in dateless
-		and one not in unclocked and one not in yeared and one not in unread
-		and _AFTER_AT.match(one) is not None
-	]
-	timed = [
-		one for one in over
-		if one not in contradicted and one not in spans and one not in clocked
-		and one not in hours and one not in ranges and one not in dateless
-		and one not in unclocked and one not in yeared and one not in unread
-		and one not in after_at
-	]
+	# **Which sentence a token is given is decided once, by the first test below that it passes**
+	# (`#3942`). Each bucket was a comprehension excluding the buckets above it, re-excluded in no
+	# one order, so where a new one went was a question every later one had to be edited to answer.
+	# The order here is the precedence, and a token lands in exactly one bucket.
+	kinds: tuple[tuple[str, typing.Callable[[str], bool]], ...] = (
+		# **A span with times of day** (`#2894`): held back whole, and the reason is that its times are
+		# not read yet - not that its days are out of order.
+		("clocked", lambda one: bool(_CLOCKED_SPAN.fullmatch(one)) and bool(_A_CLOCK.search(one))),
+		# **One day and two times it could not read** (`#675`): a phrase naming one day and two times
+		# is an appointment this grammar writes, so the only way back here is a day or a pair of
+		# times it could not read - a different sentence from *two timed days are not read*.
+		("hours", lambda one: _CLOCKED_DAY.fullmatch(one) is not None),
+		# **A span it would not read, told apart by asking the patterns that found it** (`#2886`). It
+		# runs backwards or names a day there is not, and fell through to *timed*, so a writer who
+		# typed *12-2 October* was told how to write a time. The patterns are :func:`_collect_spans`'s
+		# own, so this is one description of what a span looks like rather than two.
+		("spans", lambda one: any(pattern.fullmatch(one) for pattern in _SPANS)),
+		# **A weekday and a date naming different days** (`#2116`), told apart by asking
+		# `dates.day_named`, the function that refused it, rather than a second description of what
+		# a contradiction looks like. *Monday 18th September* is not a time, and advising `at 2pm`
+		# about it explained something the reader did not do. **Not a weekday carried with the time
+		# beside it** (`#3896`), which is a day that was not read rather than two that disagree.
+		("contradicted", lambda one: (
+			subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
+			and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
+			and _TIME_LOOKS_LIKE.search(one) is None
+		)),
+		# **A range** (`#675`), which reaches here only when nothing could hold it - beside a deadline,
+		# beside a span already read, or beside a day this grammar does not read - and the time
+		# sentence would advise `at`, which is no help for any of the three.
+		("ranges", lambda one: _TIME_RANGE.fullmatch(one) is not None),
+		# **A moment no clock could have written** (`#3766`), told apart by asking the function that
+		# declined it: an offset outside the range clocks use, or a moment off the calendar.
+		("unclocked", lambda one: subroutine.domain.schedule.beyond_every_clock(one) is not None),
+		# **A date left whole for its year** (`#3809`, decision `#3799`), told apart from a day no
+		# calendar has by asking whether the day is one its year has.
+		("yeared", subroutine.domain.dates.is_a_day_of_its_year),
+		# **A date written out that names no day** (`#3582`): *29 February 2027*, *31 April*. It reached
+		# the time's sentence, which advised `at` about a line with no clock in it.
+		("dateless", subroutine.domain.dates.is_written_date),
+		# **A time carried with a day that was not read** (`#3896`), told apart by the day at either
+		# end of it. On its own it was told *a time is read after 'at'*, on a line where it was.
+		("unread", lambda one: _TIME_LOOKS_LIKE.search(one) is not None and (
+			_A_DAY_UNREAD.match(one) is not None or _A_DAY_LAST.search(one) is not None
+		)),
+		# **Any other time written after 'at'** (`#3896`), which the sentence below told to be written
+		# after 'at'. What stopped it is the day it needed - one not set, a span, one with a time
+		# already - or a time no clock shows, and which is the reader's to know, not this sentence's.
+		("after_at", lambda one: _AFTER_AT.match(one) is not None),
+		# **And everything else is a time**, told how one is read.
+		("timed", lambda _one: True),
+	)
+	sorted_out: dict[str, list[str]] = {name: [] for name, _test in kinds}
+
+	for one in over:
+		sorted_out[next(name for name, test in kinds if test(one))].append(one)
+
+	(
+		clocked, hours, spans, contradicted, ranges, unclocked, yeared, dateless, unread, after_at,
+		timed,
+	) = (sorted_out[name] for name, _test in kinds)
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
 	# decided** (`#1401`). A phrase this grammar cannot read and one it read out of the middle

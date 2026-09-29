@@ -2061,9 +2061,11 @@ def refuse_a_write (connection: subroutine.connections.Connection) -> typing.NoR
 	)
 
 
-#: How many projects :func:`every_project` asks for first (`#3767`), and it asks for more while
-#: the answer says there is more.
-_A_LOOKUPS_FIRST_ASK = 1_000
+#: How many projects :func:`every_project` asks for (`#3767`, `#3942`): a number no installation
+#: reaches, since a client's ``limit`` counts rows rather than a response - the HTTP client follows
+#: the cursor to it and the local one asks the database once - so one call reads to the end on
+#: both, as the terminal's ``WHOLE_DIRECTORY`` does for accounts.
+_EVERY_PROJECT = 1_000_000
 
 
 def every_project (
@@ -2077,19 +2079,12 @@ def every_project (
 	by key or by id: a checkout marked for it filed into the Inbox, and ``use --here --project``
 	answered that there was no such project. A tree cut there draws children with no parents.
 
-	**Asked again for more while more is said to be there**, since both clients honour a
-	caller's limit whole: the HTTP one follows the cursor for it and the local one asks the
-	database for it.
+	**In one call** (`#3942`). This asked for a thousand and then, while more was said to be there,
+	for eight times as many from the start again, reading every row it already had once more.
+	Both clients honour a caller's limit whole, so one number no installation reaches does it.
 	"""
 
-	limit = _A_LOOKUPS_FIRST_ASK
-	found = client.projects(workspace=workspace, limit=limit)
-
-	while found.has_more:
-		limit *= 8
-		found = client.projects(workspace=workspace, limit=limit)
-
-	return list(found)
+	return list(client.projects(workspace=workspace, limit=_EVERY_PROJECT))
 
 
 def from_this_end (links: typing.Sequence[subroutine.views.Link]) -> list[subroutine.views.Link]:

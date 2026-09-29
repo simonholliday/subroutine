@@ -931,9 +931,9 @@ def _helpers () -> dict[str, set[str]]:
 	"""Return each function of ``clients/base.py`` and the protocol methods it calls for its caller.
 
 	**A helper that calls a method on its caller's behalf reaches it for them** (`SR#3767`):
-	``every_project`` asks ``projects`` for more while there is more, so a lookup cannot stop at
-	the first page, and the packages calling it reach ``projects`` exactly as they did when they
-	called it themselves. Read from the source, as the calls are, so a helper that stopped
+	``every_project`` asks ``projects`` for every row at once, so a lookup cannot stop at the first
+	page, and the packages calling it reach ``projects`` exactly as they did when they called it
+	themselves. Read from the source, as the calls are, so a helper that stopped
 	calling a method would stop counting for it.
 	"""
 

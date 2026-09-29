@@ -5838,6 +5838,39 @@ def test_revising_a_document_does_not_move_it_to_the_checkouts_project (
 	assert "web" not in shown, shown
 
 
+def test_every_project_is_read_in_one_call () -> None:
+	"""`SR#3942`, L-10 of the cold review of 2026-09-28: it asked again from the first row.
+
+	``every_project`` asked for a thousand projects and, while more was said to be there, for eight
+	times as many from the start again, reading every row it had already had. **One call**, since a
+	client's ``limit`` counts rows rather than a response: here one that honours it as both real
+	clients do, over fifteen hundred projects.
+	"""
+
+	asked: list[int | None] = []
+
+	class Rows(list[int]):
+		"""A listing's answer, saying whether there were more rows than it holds."""
+
+		has_more = False
+
+	class Client:
+		"""A client holding fifteen hundred projects, which gives as many as it is asked for."""
+
+		def projects (self, *, workspace: str | None = None, limit: int | None = None) -> Rows:
+			"""Answer up to ``limit`` of them, and say whether there were more."""
+
+			asked.append(limit)
+			rows = Rows(range(min(limit or 50, 1_500)))
+			rows.has_more = len(rows) < 1_500
+
+			return rows
+
+	found = subroutine.clients.base.every_project(typing.cast(typing.Any, Client()))
+
+	assert len(found) == 1_500 and len(asked) == 1, asked
+
+
 def test_a_checkout_marked_for_a_project_past_the_first_page_files_into_it (
 	bound: subroutine.mcp.protocol.Server,
 	local_client: subroutine.clients.local.Client,

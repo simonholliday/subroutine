@@ -484,7 +484,7 @@ def _until_in_utc (value: str, until: str, *, field: str) -> str:
 
 	utc = moment.astimezone(datetime.UTC)
 
-	return f"{utc.year:04d}{utc:%m%dT%H%M%S}Z"
+	return f"{subroutine.domain.dates.basic(utc, '%m%dT%H%M%S')}Z"
 
 
 def _refuse_a_day_that_never_comes (
@@ -593,7 +593,7 @@ def _on_the_clock (stored: str, zone: datetime.tzinfo) -> str:
 		except OverflowError:
 			clock = instant.replace(tzinfo=None)
 
-		return f"UNTIL={clock.year:04d}{clock:%m%dT%H%M%S}"
+		return f"UNTIL={subroutine.domain.dates.basic(clock, '%m%dT%H%M%S')}"
 
 	return _UNTIL.sub(local, stored)
 

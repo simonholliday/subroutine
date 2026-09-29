@@ -315,17 +315,6 @@ def _duration (minutes: int) -> str:
 _ALL_DAY = {"starts_at": "starts_is_all_day", "due_at": "due_is_all_day"}
 
 
-def _dated (when: datetime.date, rest: str) -> str:
-	"""Return a date in basic format: its year in four digits, then the rest as ``rest`` writes it.
-
-	**The four digits are written out rather than left to** ``%Y`` (`#3788`), which the C library
-	pads or not as it pleases: here year 2 came out as ``2``, and 09:00 on 1 March of it as
-	``20301T090000``, which no client can read.
-	"""
-
-	return f"{when.year:04d}{when.strftime(rest)}"
-
-
 def _instant (when: datetime.datetime) -> str:
 	"""Return one instant as UTC basic format — ``20260817T140000Z``.
 
@@ -339,7 +328,7 @@ def _instant (when: datetime.datetime) -> str:
 	:func:`_moment` with the zone named and described.
 	"""
 
-	return _dated(when.astimezone(datetime.UTC), "%m%dT%H%M%SZ")
+	return subroutine.domain.dates.basic(when.astimezone(datetime.UTC), "%m%dT%H%M%SZ")
 
 
 def _moment (name: str, when: datetime.datetime, zone: str | None) -> str:
@@ -360,7 +349,7 @@ def _clock (when: datetime.datetime, zone: str) -> str:
 def _wall (clock: datetime.datetime) -> str:
 	"""Return a time as a clock shows it, in basic format with nothing to say which clock."""
 
-	return _dated(clock, "%m%dT%H%M%S")
+	return subroutine.domain.dates.basic(clock, "%m%dT%H%M%S")
 
 
 def _series_zone (occasion: subroutine.domain.calendars.Occasion) -> str | None:
@@ -612,7 +601,7 @@ def _basic (day: datetime.date) -> str:
 	somebody reads.
 	"""
 
-	return _dated(day, "%m%d")
+	return subroutine.domain.dates.basic(day, "%m%d")
 
 
 def _escaped (value: str) -> str:

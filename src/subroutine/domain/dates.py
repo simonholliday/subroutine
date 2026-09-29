@@ -656,6 +656,18 @@ def zone (timezone: str, field: str = "timezone") -> zoneinfo.ZoneInfo:
 		) from None
 
 
+def basic (when: datetime.date, rest: str) -> str:
+	"""Return a date in basic format: its year in four digits, then the rest as ``rest`` writes it.
+
+	**The four digits are written out rather than left to** ``%Y`` (`#3788`), which the C library
+	pads or not as it pleases: year 2 came out as ``2``, and 09:00 on 1 March of it as
+	``20301T090000``, which no client can read. **Here since `#3942`**, for the calendar feed and a
+	repeat's ``UNTIL`` alike, where each spelled it out for itself.
+	"""
+
+	return f"{when.year:04d}{when.strftime(rest)}"
+
+
 def _unit_hint (unit: str) -> str:
 	"""Explain an unrecognised offset unit, naming the mistake where it is a known one."""
 
