@@ -715,7 +715,7 @@ def materialise (
 		return None
 
 	anchor = series_start(template)
-	zone = template.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+	zone = subroutine.domain.schedule.series_zone(template)
 
 	occurrence: datetime.datetime | None
 

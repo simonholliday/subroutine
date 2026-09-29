@@ -375,7 +375,7 @@ def _series_zone (occasion: subroutine.domain.calendars.Occasion) -> str | None:
 	if not occasion.rule or getattr(occasion.task, _ALL_DAY[occasion.field], False):
 		return None
 
-	return occasion.task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+	return subroutine.domain.schedule.series_zone(occasion.task)
 
 
 def _described (

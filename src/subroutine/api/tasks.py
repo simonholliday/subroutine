@@ -1080,10 +1080,13 @@ def occurrences (
 	# the same trick every listing here uses, and the reason it matters more: a rule with no
 	# end never runs out, so *there are no more* and *I stopped counting* would otherwise be
 	# indistinguishable to a caller drawing a month.
+	#
+	# **In the series' own zone, where it comes round** (`#3926`): the reader's zone is for
+	# reading their `until`, and expanding in it moved a London Monday to a New York Tuesday.
 	found = subroutine.domain.recurrence.occurrences(
 		series.recurrence_rule,
 		start=subroutine.domain.tasks.series_start(series),
-		timezone=zone,
+		timezone=subroutine.domain.schedule.series_zone(series),
 		until=(
 			None
 			if until is None

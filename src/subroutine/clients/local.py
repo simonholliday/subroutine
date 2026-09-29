@@ -3367,7 +3367,8 @@ class Client:
 			found = subroutine.domain.recurrence.occurrences(
 				series.recurrence_rule,
 				start=subroutine.domain.tasks.series_start(series),
-				timezone=zone,
+				# In the series' own zone, and the reader's only for `until` (`#3926`).
+				timezone=subroutine.domain.schedule.series_zone(series),
 				until=(
 					None
 					if until is None

@@ -46,6 +46,10 @@ upgrade involves.
   `?workspace_id=` now, like every other request that can name one, and with several and none
   named it reads days in the instance's zone. The browser names the workspace, and on an open
   item it sends that item's own workspace and zone.
+- **A repeat's coming dates fall where the series does, whoever reads them.** They were worked
+  out in the reader's time zone, so a London series on Mondays at 00:30, read from New York,
+  listed Tuesdays and lost its first Monday. The reader's zone still decides what *until
+  August* means to them.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

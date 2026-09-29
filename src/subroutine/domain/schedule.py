@@ -42,6 +42,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.system
+import subroutine.db.models.work
 import subroutine.domain.accountability
 import subroutine.domain.dates
 import subroutine.errors
@@ -261,6 +262,19 @@ def zone_for (
 			return candidate
 
 	return DEFAULT_TIMEZONE
+
+
+def series_zone (series: subroutine.db.models.work.Task) -> str:
+	"""Return the zone a repeating series comes round in: its own, or the default (`#3926`).
+
+	**One rule, read wherever a series is worked out**: the occurrences it mints
+	(:func:`subroutine.domain.tasks.materialise`), the calendar feed, and the coming dates a
+	reader is shown. The last read the reader's zone instead, so a London series on Mondays at
+	00:30, read from New York, listed Tuesdays and lost its first Monday. A reader's zone decides
+	what *until August* means to them, and never when the series comes round.
+	"""
+
+	return series.timezone or DEFAULT_TIMEZONE
 
 
 def day_in (instant: datetime.datetime, timezone: str | None) -> datetime.date:

@@ -2269,6 +2269,41 @@ def test_both_expand_a_repeat_into_the_same_dates (pair: Pair) -> None:
 		assert "does not repeat" in str(refused.value)
 
 
+def test_both_expand_a_repeat_in_its_own_zone_rather_than_the_readers (pair: Pair) -> None:
+	"""`SR#3926`: coming occurrences were worked out in the reader's zone, where a series is
+	minted in its own.
+
+	A London series on Mondays at 00:30, read by somebody in New York, listed Tuesdays - and one
+	Monday at 23:30, in the week between the two countries' clock changes - and lost its first
+	Monday altogether. **On both transports**, since each works the dates out for itself.
+	"""
+
+	inbox = subroutine.domain.bootstrap.inbox_for(pair.session, pair.workspace)
+
+	assert inbox is not None
+
+	made = subroutine.domain.tasks.create(
+		pair.session,
+		project=inbox,
+		title="Stand-up",
+		starts="2026-10-05T00:30",
+		timezone="Europe/London",
+		recurrence="every monday",
+		now=datetime.datetime(2026, 9, 29, tzinfo=datetime.UTC),
+	)
+	pair.user.timezone = "America/New_York"
+	pair.session.flush()
+	london = zoneinfo.ZoneInfo("Europe/London")
+	expected = [datetime.datetime(2026, 10, day, 0, 30) for day in (5, 12, 19, 26)]
+
+	for client in pair.both():
+		read = client.occurrences(ref=made.ref, limit=4)
+
+		assert [
+			one.astimezone(london).replace(tzinfo=None) for one in read.occurrences
+		] == expected, (type(client).__module__, read.occurrences)
+
+
 #: Every call ``subroutine show`` makes, by name. **Four rather than one, and that is the whole
 #: point of this guard**: `#700` and `#921` were both a ref that ``task()`` resolved on both
 #: transports and a *sub-resource* refused on one — so a check that asked only for the item
