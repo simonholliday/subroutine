@@ -205,11 +205,10 @@ _STATUSES = (
 )
 
 #: The category on each is decision `#1133`'s table, and it is what a client draws by when it
-#: does not recognise the key. Task-side it is Simon's own naming rule of 2026-07-31 with the
-#: types collected under each clause: `work` says what will be true when it is done, `defect`
-#: says what is wrong, `question` says the question. Document-side: `decision` is something
-#: settled including a route closed off, `reference` is how a thing is meant to be, `record` is
-#: what was observed.
+#: does not recognise the key. Task-side each category is a title mood, as decision `#2390`
+#: sets them: `work` is titled as an instruction, `defect` as a symptom in the present tense,
+#: and `question` as a question. Document-side: `decision` is something settled including a
+#: route closed off, `reference` is how a thing is meant to be, `record` is what was observed.
 #:
 #: **Every document type here starts *in force* rather than as a draft**, because
 #: :data:`subroutine.domain.documents.IN_FORCE_WHEN_WRITTEN` is derived from this tuple. Adding
