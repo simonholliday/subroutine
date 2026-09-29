@@ -38,6 +38,9 @@ upgrade involves.
 - **A repeat naming two days, such as the 1st and 15th of the month, works.** Every write of
   such a rule answered 500, since reading it back as a sentence took the list for one number. It
   reads *every month, on the 1st and 15th* now.
+- **Giving an existing task a repeat keeps its end time, reminder and assigner.** Each later
+  occurrence of a meeting made to repeat afterwards lost all three, where the same series filed in
+  one go kept them. A repeating sub-task's series is filed under the same parent as the task, too.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

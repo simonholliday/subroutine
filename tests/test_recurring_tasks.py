@@ -21,7 +21,9 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.cli.personal
+import subroutine.config
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.readiness
@@ -29,6 +31,7 @@ import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tags
 import subroutine.domain.tasks
+import subroutine.domain.users
 import subroutine.domain.versions
 import subroutine.errors
 import subroutine.views
@@ -2201,6 +2204,105 @@ def test_a_rule_added_to_a_task_that_already_has_tags_keeps_them_on_every_occurr
 	assert [tag.name for tag in subroutine.domain.tags.on(session, following)] == ["home"], (
 		"the tag survived on the series and not on the occurrence minted from it"
 	)
+
+
+def test_a_repeat_given_to_a_task_keeps_its_end_reminder_and_assigner (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3924`: the other way a series is made copied a hand-picked list of columns, short three.
+
+	A stand-up from 09:00 to 09:15, with a half-hour reminder and somebody who assigned it, given
+	*every day* afterwards lost the end, the reminder and the assigner from the series row and
+	from every occurrence after the first. The same series filed in one go kept all three, which
+	is where `SR#1235` and `SR#1211` were each fixed.
+	"""
+
+	task = _repeating(
+		session,
+		title="Stand-up",
+		due=None,
+		starts=datetime.datetime(2026, 8, 17, 9, 0, tzinfo=datetime.UTC),
+		ends=datetime.datetime(2026, 8, 17, 9, 15, tzinfo=datetime.UTC),
+		reminder="30m",
+	)
+	assigner = subroutine.domain.users.create(session, username=f"morpheus-{uuid.uuid4().hex[:8]}")
+	task.assigned_by_id = assigner.id
+	session.flush()
+
+	subroutine.domain.tasks.update(session, task, recurrence="every day", now=NOW)
+	series = _template(session, task)
+	subroutine.domain.tasks.complete(session, task, now=NOW)
+	following = _next_live(session, series)
+
+	for row, called in ((series, "the series"), (following, "the next occurrence")):
+		length = test_schedule._instant(row.ends_at) - test_schedule._instant(row.starts_at)
+
+		assert length == datetime.timedelta(minutes=15), f"{called} lost its end"
+		assert row.reminder_minutes == 30, f"{called} lost its reminder"
+		assert row.assigned_by_id == assigner.id, f"{called} lost who assigned it"
+
+
+def test_a_repeat_given_to_a_sub_task_files_its_series_under_the_same_parent (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3924`, `SR#2279`'s disagreement again: the series row named the task's parent and sat
+	at the root of the tree, where every rule that reads the tree reads the path.
+	"""
+
+	parent = _repeating(session, title="Launch the site")
+	project = session.get(subroutine.db.models.project.Project, parent.project_id)
+
+	assert project is not None
+
+	child = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		parent=parent,
+		title="Rehearse the launch",
+		due=datetime.date(2026, 8, 20),
+		now=NOW,
+	)
+
+	subroutine.domain.tasks.update(session, child, recurrence="every week", now=NOW)
+	series = _template(session, child)
+
+	assert series.parent_task_id == parent.id
+	assert (series.depth, series.path.startswith(parent.path)) == (child.depth, True), (
+		series.path, parent.path
+	)
+
+
+def test_a_repeat_given_to_a_task_deeper_than_the_default_follows_the_instances_limit (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3924` files the series row under the task's parent, so the depth limit reaches it, and
+	it must be the instance's own (`SR#1560`): a hard-coded ten refused a repeat to a task eleven
+	deep on an instance that allows twelve.
+	"""
+
+	settings = subroutine.config.Settings(max_hierarchy_depth=12)
+	below = _repeating(session, title="Level 0")
+	project = session.get(subroutine.db.models.project.Project, below.project_id)
+
+	assert project is not None
+
+	for level in range(1, 12):
+		below = subroutine.domain.tasks.create(
+			session,
+			project=project,
+			parent=below,
+			title=f"Level {level}",
+			due=datetime.date(2026, 8, 20),
+			now=NOW,
+			settings=settings,
+		)
+
+	subroutine.domain.tasks.update(
+		session, below, recurrence="every week", now=NOW, settings=settings
+	)
+
+	assert below.depth == 11
+	assert _template(session, below).depth == 11
 
 
 def _renders (task: subroutine.db.models.work.Task) -> datetime.date:

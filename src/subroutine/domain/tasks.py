@@ -652,6 +652,36 @@ def series_start (
 	return anchor
 
 
+#: **What a series carries unchanged**, from the row it is made from to every occurrence it
+#: mints (`#3924`). Kept as two hand-written lists, one per way a series is made and one per
+#: occurrence, it lost a column three times: an end (`#1235`) and a reminder (`#1211`) on the
+#: way to an occurrence, and then an end, a reminder and an assigner at once, on the way from a
+#: task that was given a repeat. **A reminder is here** because it is a property of the series
+#: - "two weeks before my sister's birthday" is asked once and meant every year - where a snooze
+#: is somebody saying *not this one*. **The dates and the zone are not**: each occurrence moves
+#: them with its slot, and each path says how.
+CARRIED: tuple[str, ...] = (
+	"workspace_id",
+	"project_id",
+	"parent_task_id",
+	"type_id",
+	"title",
+	"description",
+	"assignee_id",
+	"assigned_by_id",
+	"importance",
+	"urgency",
+	"estimate_minutes",
+	"reminder_minutes",
+)
+
+
+def _series_carries (row: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
+	"""Return the columns of :data:`CARRIED`, as one row of a series holds them."""
+
+	return {name: getattr(row, name) for name in CARRIED}
+
+
 def materialise (
 	session: sqlalchemy.orm.Session,
 	template: subroutine.db.models.work.Task,
@@ -774,23 +804,9 @@ def materialise (
 
 	instance = subroutine.db.models.work.Task(
 		id=subroutine.db.types.new_uuid(),
-		workspace_id=template.workspace_id,
-		project_id=template.project_id,
-		parent_task_id=template.parent_task_id,
-		type_id=template.type_id,
+		**_series_carries(template),
 		ref=subroutine.domain.refs.allocate(session, template.workspace_id),
-		title=template.title,
-		description=template.description,
 		status_id=status_for(session, template.workspace_id, None).id,
-		assignee_id=template.assignee_id,
-		assigned_by_id=template.assigned_by_id,
-		importance=template.importance,
-		urgency=template.urgency,
-		estimate_minutes=template.estimate_minutes,
-		# **Carried, unlike the snooze below it** (`#1211`). A reminder is a property of the
-		# series — "two weeks before my sister's birthday" is asked once and meant every year —
-		# where a defer is somebody saying *not this one*.
-		reminder_minutes=template.reminder_minutes,
 		due_at=(
 			(whole_day if own_field == "due_at" else None)
 			if dateless
@@ -1885,6 +1901,7 @@ def update (
 				else recurrence_trigger
 			),
 			now=instant,
+			settings=settings,
 			actor=actor,
 		)
 
@@ -3214,6 +3231,7 @@ def begin_repeating (
 	repeat: subroutine.domain.recurrence.Repeat,
 	*,
 	now: datetime.datetime,
+	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Make an existing task the first occurrence of a new series.
@@ -3227,22 +3245,16 @@ def begin_repeating (
 
 	template = subroutine.db.models.work.Task(
 		id=subroutine.db.types.new_uuid(),
-		workspace_id=task.workspace_id,
-		project_id=task.project_id,
-		parent_task_id=task.parent_task_id,
-		type_id=task.type_id,
+		**_series_carries(task),
 		ref=subroutine.domain.refs.allocate(session, task.workspace_id),
-		title=task.title,
-		description=task.description,
 		status_id=task.status_id,
-		assignee_id=task.assignee_id,
-		importance=task.importance,
-		urgency=task.urgency,
-		estimate_minutes=task.estimate_minutes,
 		due_at=task.due_at,
 		due_is_all_day=task.due_is_all_day,
 		starts_at=task.starts_at,
 		starts_is_all_day=task.starts_is_all_day,
+		# **The end too** (`#3924`), or every occurrence after this one is the zero-length event
+		# `#1235` fixed on the other way a series is made.
+		ends_at=task.ends_at,
 		timezone=task.timezone,
 		recurrence_rule=repeat.rule,
 		recurrence_text=repeat.text,
@@ -3253,8 +3265,15 @@ def begin_repeating (
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
 	)
+	# **Under the task's parent, as its `parent_task_id` says** (`#3924`, `SR#2279`'s rule): it
+	# was placed at the root, so the column and the path disagreed about where it is filed. At
+	# the instance's own depth limit, since the task already sits at this depth under it.
+	parent = (
+		None if task.parent_task_id is None
+		else session.get(subroutine.db.models.work.Task, task.parent_task_id)
+	)
 	subroutine.domain.hierarchy.place(
-		template, None, max_depth=subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH
+		template, parent, max_depth=subroutine.domain.hierarchy.depth_limit(None, settings)
 	)
 
 	session.add(template)
@@ -3305,6 +3324,7 @@ def _repeat_changed (
 	anchor: str | None,
 	trigger: str | None,
 	now: datetime.datetime,
+	settings: subroutine.config.Settings | None,
 	actor: subroutine.domain.authentication.Principal | None,
 ) -> None:
 	"""Apply a change to how a task repeats, whichever end the caller is holding.
@@ -3363,7 +3383,7 @@ def _repeat_changed (
 		return
 
 	if series is None:
-		begin_repeating(session, task, repeat, now=now, actor=actor)
+		begin_repeating(session, task, repeat, now=now, settings=settings, actor=actor)
 
 		return
 
