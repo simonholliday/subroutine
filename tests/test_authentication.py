@@ -599,6 +599,55 @@ def test_the_narrowing_sentence_names_a_write_set (
 	)
 
 
+def test_a_credential_listing_names_its_write_set_too (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: ``token list`` called it unnarrowed.
+
+	A credential narrowed only in where it may write still reads everything its owner can, and the
+	listing said that and stopped - *everything its owner can do* - while the guide and the
+	command's own help say the write set is shown. **Named where the read set is**, on the
+	terminal's line and the API's compact row; the browser's is its own test.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	inside = subroutine.domain.projects.create(
+		session,
+		workspace_id=setup.workspace.id,
+		key="web",
+		title="Website",
+		actor=subroutine.domain.authentication.Principal(user=setup.user),
+	)
+	session.flush()
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="Collaborator",
+		project_write_scope=[str(inside.id)],
+	)
+	session.flush()
+
+	rendered = subroutine.views.token(
+		token,
+		owner=setup.user,
+		session=session,
+		principal=subroutine.domain.authentication.Principal(user=setup.user),
+	)
+	line = subroutine.cli.main._credential_reach(
+		rendered, None, subroutine.cli.main.Reading("UTC", assumed=False)
+	)
+
+	assert "writing only in web" in line, line
+	assert rendered.columns(None)[-1] == "everything its owner can do, writing only in web", (
+		rendered.columns(None)
+	)
+
+
 def test_a_credential_narrowed_only_by_a_write_set_still_says_something (
 	session: sqlalchemy.orm.Session,
 ) -> None:

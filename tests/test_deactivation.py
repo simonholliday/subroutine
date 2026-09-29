@@ -25,6 +25,7 @@ import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.sessions
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -99,6 +100,28 @@ def test_somebody_can_be_marked_as_having_left (session: sqlalchemy.orm.Session)
 	subroutine.domain.users.set_active(session, leaver, active=False, actor=_acting(admin))
 
 	assert not leaver.is_active
+
+
+def test_a_sign_in_link_for_somebody_who_has_left_is_refused_by_name (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: the refusal blamed the caller's credential.
+
+	Making a link for a deactivated account raised what redeeming one raises, which a terminal
+	reads as its own credential being refused, where ``token create`` for the same account names
+	it. **Named as the link is made.**
+	"""
+
+	admin = _superuser(session)
+	leaver = subroutine.domain.users.create(session, username=f"keanu-{uuid.uuid4().hex[:8]}")
+
+	subroutine.domain.users.set_active(session, leaver, active=False, actor=_acting(admin))
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.sessions.mint_link(session, user=leaver, actor=_acting(admin))
+
+	assert f"{leaver.username!r} is deactivated" in refused.value.detail, refused.value.detail
+	assert refused.value.hint == "Reactivate the account first."
 
 
 def test_bringing_somebody_back_is_the_same_operation (session: sqlalchemy.orm.Session) -> None:

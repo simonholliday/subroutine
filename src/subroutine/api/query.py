@@ -55,6 +55,7 @@ same defect this module exists to prevent, one level up.
 """
 
 import collections.abc
+import difflib
 import types
 import typing
 
@@ -132,9 +133,34 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 			)
 			for name in unknown
 		],
-		hint="Refused rather than ignored, because a request that quietly ignores 'fields' "
-		"returns the whole object and charges you for it.",
+		hint=_why_refused(unknown, accepted),
 	)
+
+
+def _why_refused (
+	unknown: collections.abc.Sequence[str], accepted: collections.abc.Set[str]
+) -> str:
+	"""Say why an unknown parameter is refused, with ``fields``' reason only where it fits - `#3944`.
+
+	**The reason every route shares**, where the sentence was about ``fields`` on all of them:
+	``/v1/me`` takes nothing, and a mistyped filter answers with more rows rather than a wider
+	object. Only a name close to ``fields``, on a route that takes it, is told what ignoring it costs.
+	"""
+
+	why = (
+		"Refused rather than ignored, because a parameter that is quietly ignored is one you "
+		"believe you set."
+	)
+
+	if "fields" in accepted and any(
+		difflib.get_close_matches(name, ["fields"], n=1, cutoff=0.7) for name in unknown
+	):
+		return (
+			f"{why} A request that quietly ignored 'fields' would return the whole object and "
+			"charge you for it."
+		)
+
+	return why
 
 
 def _excused (request: starlette.requests.Request) -> bool:

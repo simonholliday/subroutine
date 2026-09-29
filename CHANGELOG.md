@@ -211,6 +211,15 @@ upgrade involves.
 - The hosting and connecting guides and the README no longer name `upgrade` alone, promise a
   calendar refresh every quarter of an hour, say the remote plugin asks for its address and
   token, or say `help` lists every command.
+- **A credential narrowed to writing in some projects says so** in `token list`, the API's
+  compact rows and the browser's settings page, where each called it *everything its owner can
+  do*. **The roster of one workspace marks somebody who has left**, as the instance's does.
+- **`calendar create` and `calendar reset` say whose `public_url` is missing**, the server's
+  over a connection, and a reset prints the reference it leaves, which the next one needs.
+- **A sign-in link for an account that has left is refused naming it**, where the refusal read
+  as the caller's own credential being wrong. `use` with nothing chosen says so, `project rename`
+  and `workspace rename` no longer say a `.subroutine` file breaks, and the API's refusal of an
+  unknown parameter speaks of `fields` only where that is what was meant.
 
 ## 0.9.12 — 2026-09-29
 

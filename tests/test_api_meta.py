@@ -824,6 +824,37 @@ def test_meta_refuses_a_query_parameter_it_does_not_accept (
 	assert "workspace_id" in answer.json()["errors"][0]["hint"]
 
 
+@pytest.mark.parametrize(
+	("asked", "about_fields"),
+	[
+		("/v1/me?limit=5", False),
+		("/v1/tasks?statuss=open", False),
+		("/v1/tasks?feilds=title", True),
+	],
+)
+def test_an_unknown_parameter_is_refused_for_the_reason_that_fits (
+	world: test_api_tasks.World, asked: str, about_fields: bool
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: every refusal spoke of ``fields``.
+
+	On ``/v1/me``, which takes nothing, and for a mistyped filter, which answers with more rows
+	rather than a wider object, the sentence about ``fields`` explained nothing. **The reason every
+	route shares, and ``fields`` only where it is what was meant.**
+	"""
+
+	answer = world.call("GET", asked)
+
+	assert answer.status_code == 422, answer.text
+
+	hint = answer.json()["hint"]
+
+	assert hint.startswith(
+		"Refused rather than ignored, because a parameter that is quietly ignored is one you "
+		"believe you set."
+	), hint
+	assert ("'fields'" in hint) is about_fields, hint
+
+
 def test_meta_still_answers_the_spelling_it_does_accept (
 	world: test_api_tasks.World,
 ) -> None:

@@ -5336,6 +5336,48 @@ def _adopted_project (
 	return holding[0]
 
 
+def _said_after_a_reset (world: World, *, removed: bool) -> str:
+	"""Say what ``use --reset`` leaves a bare number meaning.
+
+	**Nothing chosen is said as what it is, not as a place** (`#3944`): with two workspaces and
+	no default it read *Now working in (not chosen yet) (from nothing)*.
+	"""
+
+	if not removed:
+		return "There was nothing to reset."
+
+	if world.current.workspace is None:
+		return (
+			"Now working everywhere: a bare command reads every workspace, and a write that could "
+			"go to more than one asks which."
+		)
+
+	return f"Now working in {world.current.describe(qualified=world.qualifies_connection)}."
+
+
+def _where_work_goes (program: Program, world: World) -> None:
+	"""Say what a bare ``use`` reports: what a bare number means here, and what chose it.
+
+	**With nothing chosen, said so and with no tip** (`#3944`): it named *(not chosen yet)* as a
+	place and tipped ``use --reset``, which then answered that there was nothing to reset.
+	"""
+
+	if world.current.workspace is None:
+		program.say("Working everywhere - nothing is chosen.")
+
+		return
+
+	program.say(f"Working in {world.current.describe(qualified=world.qualifies_connection)}.")
+
+	# The marker is reported here rather than only where it acts, because this is
+	# the command somebody runs when they are asking "why is my work going there".
+	if world.marker is not None:
+		program.say(f"This directory says {world.marker.describe()}.")
+
+	program.say("")
+	_suggest(program.console, "subroutine use --reset", "go back to working everywhere")
+
+
 def _use_here (program: Program, world: World, where: str, project: str) -> None:
 	"""Write a marker into the current directory, and say what it will do.
 
@@ -5896,8 +5938,10 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 
 			program.say(f"Renaming {key} to {subroutine.domain.projects.normalize_key(to)}.")
 			program.say(f"  {_kept(held)}.")
-			program.say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
-			program.say("  .subroutine file that names it.")
+			# **A marked checkout follows the project** (`#3944`, `#177`): its file records which one it
+			# is as well as the key, and says how to bring the key up to date.
+			program.say(f"  '{key}' stops working: as an address, and in '+{key}'. A .subroutine")
+			program.say("  file follows it.")
 
 			if naming:
 				program.say(
@@ -6340,8 +6384,8 @@ def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> N
 					f"  {len(people)} people reach it, and the address changes for all of them."
 				)
 
-			program.say(f"  '{slug}' stops working: in an address like '{slug}/42', in")
-			program.say("  'subroutine use', and in any .subroutine file that names it.")
+			program.say(f"  '{slug}' stops working: in an address like '{slug}/42', and in")
+			program.say("  'subroutine use'. A .subroutine file follows it.")
 
 			if not typer.confirm("Go on?"):
 				program.stop("Nothing was renamed.")
@@ -8073,9 +8117,9 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		a name you retired should be retired. Nothing already recorded moves - every item keeps
 		its number, and what it is filed under does not change.
 
-		What does break is anything that wrote the old name down: a bookmarked address, a
-		'.subroutine' file in a checkout, a '+OLD' in a shell history. This says so before it
-		does it.
+		What does break is anything that wrote the old name down: a bookmarked address, a '+OLD'
+		in a shell history. This says so before it does it. A '.subroutine' file follows the
+		project, and says how to bring its name up to date.
 		"""
 
 		_project_renamed(program, key=key, to=to, yes=yes)
@@ -10795,11 +10839,7 @@ def register (
 			removed = subroutine.context.clear()
 
 			with program.opened() as world:
-				say(
-					f"Now working in {world.current.describe(qualified=world.qualifies_connection)}."
-					if removed is not None
-					else "There was nothing to reset."
-				)
+				say(_said_after_a_reset(world, removed=removed is not None))
 
 			return
 
@@ -10817,15 +10857,7 @@ def register (
 				)
 
 			if not where.strip():
-				say(f"Working in {world.current.describe(qualified=world.qualifies_connection)}.")
-
-				# The marker is reported here rather than only where it acts, because this is
-				# the command somebody runs when they are asking "why is my work going there".
-				if world.marker is not None:
-					say(f"This directory says {world.marker.describe()}.")
-
-				say("")
-				_suggest(console, "subroutine use --reset", "go back to working everywhere")
+				_where_work_goes(program, world)
 
 				return
 

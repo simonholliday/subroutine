@@ -74,6 +74,24 @@ def mint_link (
 	"""
 
 	_refuse_administering_somebody_else(actor, user, doing="issue a sign-in link for")
+
+	# **An account that has left is refused by name as the link is made** (`#3944`), as ``token
+	# create`` refuses one. The check below speaks as authentication does - a credential refused -
+	# which at this moment read as the caller's own credential being wrong.
+	if not user.is_active:
+		raise subroutine.errors.ValidationError(
+			f"{user.username!r} is deactivated, so a sign-in link for it would be refused.",
+			hint="Reactivate the account first.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="username",
+					code="invalid_field_value",
+					message=f"{user.username!r} is deactivated and cannot sign in.",
+					hint="Reactivate the account first.",
+				)
+			],
+		)
+
 	_refuse_an_account_that_cannot_sign_in(user)
 
 	moment = now if now is not None else subroutine.db.types.utcnow()

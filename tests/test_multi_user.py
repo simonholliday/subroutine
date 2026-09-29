@@ -104,6 +104,29 @@ def test_a_second_person_can_be_added_and_given_a_role (
 	assert "member" in members
 
 
+def test_the_roster_of_one_workspace_marks_somebody_who_has_left (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3944`, NEW-L12-2 of the verification of 2026-09-28: a leaver read as a member.
+
+	``user list`` says *inactive* beside somebody who has left, and ``user list --workspace`` said
+	nothing, so the roster of one workspace showed a leaver as an ordinary member. **The same cell
+	on both.**
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "deactivate", "thomas", "--yes")
+
+	line = next(
+		one
+		for one in run("user", "list", "--workspace", "acme").output.splitlines()
+		if "thomas" in one
+	)
+
+	assert "inactive" in line, line
+
+
 def test_adding_a_colleague_does_not_cost_you_your_own_list (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

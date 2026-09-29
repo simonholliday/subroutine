@@ -21258,6 +21258,33 @@ def test_a_credential_that_narrows_nothing_is_read_off_narrows_not_off_the_list 
 	)
 
 
+def test_a_credential_s_write_set_is_named_on_the_settings_page (tmp_path: pathlib.Path) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: the page called it unnarrowed.
+
+	A credential writing only in one project still reads everything its owner can, and the page
+	said *everything its owner can do* and stopped, as ``token list`` did. **The write set is named**,
+	by key where the instance could resolve it and by id where it could not, as ``views.writable``.
+	"""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			keyed: app.reachOf({{
+				narrows: true, scopes: [], project_write_scope: ["p1"], project_write_scope_keys: ["web"],
+			}}),
+			unkeyed: app.reachOf({{
+				narrows: true, scopes: [], project_write_scope: ["p1"], project_write_scope_keys: null,
+			}}),
+			whole: app.reachOf({{ narrows: false, scopes: [], project_write_scope: null }}),
+		}}));
+	""")
+
+	assert said["keyed"] == "everything its owner can do, writing only in web", said
+	assert said["unkeyed"] == "everything its owner can do, writing only in p1", said
+	assert said["whole"] == "everything its owner can do", said
+
+
 def app_unnarrowed (said: dict[str, str]) -> str:
 	"""The phrase both branches above fall back to, named once rather than written twice."""
 

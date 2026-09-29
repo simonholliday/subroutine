@@ -292,8 +292,15 @@ export function reachOf (credential) {
 	const within = credential.project_scope_keys && credential.project_scope_keys.length > 0
 		? `, within ${credential.project_scope_keys.join(", ")}`
 		: "";
+	/* **And where it may change things** (`#3944`), which a credential narrows on its own: one
+	   writing only in one project still reads everything its owner can, and was described as
+	   unnarrowed. Keys where the instance could resolve them, as `views.writable` gives them. */
+	const changing = credential.project_write_scope == null
+		? []
+		: (credential.project_write_scope_keys || credential.project_write_scope);
+	const writing = changing.length > 0 ? `, writing only in ${changing.join(", ")}` : "";
 
-	return `${may}${within}`;
+	return `${may}${within}${writing}`;
 }
 
 export function Credential ({ credential, onRevoke, busy = false }) {

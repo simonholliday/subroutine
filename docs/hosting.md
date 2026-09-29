@@ -152,10 +152,10 @@ came from rather than guessing:
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine config show
   …
-  database_url                      postgresql+psycopg:///subroutine  [/var/lib/subroutine/config/subroutine/config.toml]
-  default_page_size                 50  [default]
-  public_url                        https://tasks.example.com  [/var/lib/subroutine/config/subroutine/config.toml]
-  secret_key                        (set)  [/var/lib/subroutine/config/subroutine/config.toml]
+  database_url                    postgresql+psycopg:///subroutine  [/var/lib/subroutine/config/subroutine/config.toml]
+  default_page_size               50  [default]
+  public_url                      https://tasks.example.com  [/var/lib/subroutine/config/subroutine/config.toml]
+  secret_key                      (set)  [/var/lib/subroutine/config/subroutine/config.toml]
   …
 ```
 
@@ -1219,10 +1219,12 @@ project](connecting.md#a-different-agent-in-each-project) is the whole of it.
 
 ```console
 $ subroutine whoami
-  claude (agent), via token 'web agent' (24148201…).
+  claude (agent), via token 'web agent' (c4d60eea…).
+  Account parent: laurence.
   Narrowed to workspace 'projects'; projects web; scopes task:read, task:write.
 
-    projects  Contributor  may: task:read, task:write
+    projects  Contributor  may: task:read (tasks and documents), task:write (tasks and documents)
+  …
 ```
 
 A person's name on that line is the split, and it is the only place it is visible. Run the same
@@ -1342,7 +1344,10 @@ four places its token came from*, which is the question that actually bites:
 
 ```console
 $ subroutine connections
-  local  sqlite:////home/you/.local/share/subroutine/subroutine.db  …/credentials.toml  default
+  local  sqlite:////home/you/.local/share/subroutine/subroutine.db  nowhere                                        in use, default
+  work   http://127.0.0.1:8471                                      /home/you/.config/subroutine/credentials.toml
+
+    Tip: subroutine use
 ```
 
 No token is printed and none can be recovered from what is. If your new connection is missing

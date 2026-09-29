@@ -2471,6 +2471,14 @@ def _credential_reach (
 	if named:
 		parts.append(f"projects {', '.join(named)}")
 
+	# **And where it may change things, which is a second answer** (`#3944`, `#403`'s rule, in the
+	# words `agent create`'s check line uses). A credential narrowed only in where it writes still
+	# reads everything its owner can, and saying only that described it as unnarrowed.
+	changing = subroutine.views.writable(token)
+
+	if changing:
+		parts.append(f"writing only in {', '.join(changing)}")
+
 	# A credential issued and never presented is the interesting case here — it is either
 	# unused or was pasted somewhere that has not run yet — so it is stated rather than left
 	# as a blank the reader has to interpret.
@@ -3114,6 +3122,8 @@ def calendar_create (
 		)
 
 	with _administering() as client:
+		local = client.connection.is_local
+
 		try:
 			made = client.create_calendar(
 				title=named,
@@ -3145,7 +3155,11 @@ def calendar_create (
 	if made.url is None:
 		_say("")
 		_say("This instance has not been told its own address, so there is nothing to give")
-		_say("a calendar application. Set 'public_url' in config.toml, then run:")
+		_say("a calendar application.")
+
+		for line in _setting_the_address(local):
+			_say(line)
+
 		_say(f"  subroutine calendar reset {made.prefix}")
 
 		return
@@ -3155,6 +3169,19 @@ def calendar_create (
 	_say("")
 	_say("That is the only time it is shown. Add it to your calendar now.")
 	_say("Treat it as a password: anybody holding it sees this work.")
+
+
+def _setting_the_address (local: bool) -> list[str]:
+	"""Say who sets ``public_url`` so a calendar's address can be given - `#3944`.
+
+	**The server's setting, over a connection.** The reader's own ``config.toml`` does nothing for
+	an instance somebody else runs, and this told them to edit it.
+	"""
+
+	if local:
+		return ["Set 'public_url' in config.toml, then run:"]
+
+	return ["Whoever runs the instance sets 'public_url' in its config.toml; then run:"]
 
 
 @calendar_app.command("list")
@@ -3272,19 +3299,30 @@ def calendar_reset (
 	)
 
 	with _administering() as client:
+		local = client.connection.is_local
+
 		try:
 			made = client.reset_calendar(id_or_prefix=named)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
+	# **The new reference is said on both branches** (`#3944`). A reset replaces the credential,
+	# reference and all, so *run this again* named one that no longer answered, and the next
+	# reset was refused for a calendar that was there.
 	if made.url is None:
 		_say(f"{made.title} has a new address, and this instance cannot say what it is.")
-		_say("Set 'public_url' in config.toml, then run this again.")
+		_say(f"Its reference is now {made.prefix}.")
+
+		for line in _setting_the_address(local):
+			_say(line)
+
+		_say(f"  subroutine calendar reset {made.prefix}")
 
 		return
 
 	_say(f"{made.title} has a new address. The old one no longer works.")
+	_say(f"Its reference is now {made.prefix}.")
 	_say("")
 	_say(made.url)
 	_say("")

@@ -268,6 +268,9 @@ $ subroutine list
 
   work
     work/acme/#1  Fix the deploy script
+        A bare number means local/personal. 'subroutine use' to change it.
+
+    Tip: subroutine show 1 - read one of them in full
 ```
 
 **If this machine has nothing of its own, it looks different and that is right.** Somebody

@@ -7570,6 +7570,49 @@ def test_a_rename_says_what_will_stop_working_before_it_does_it (
 	assert "st" in run("project", "list").output
 
 
+def test_use_with_nothing_chosen_says_it_works_everywhere (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: *(not chosen yet) (from nothing)*.
+
+	With two workspaces and nothing chosen, ``use --reset`` printed that as where work now is, and
+	a bare ``use`` printed it and tipped ``use --reset``, which then said there was nothing to reset.
+	**Said as what it is**, with no tip to a command that would do nothing.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "zion", "Zion")
+	run("use", "zion")
+
+	reset = " ".join(run("use", "--reset").output.split())
+	bare = " ".join(run("use").output.split())
+
+	assert "Now working everywhere" in reset, reset
+	assert "Working everywhere - nothing is chosen." in bare, bare
+	assert "use --reset" not in bare, bare
+	assert "not chosen yet" not in reset + bare, reset + bare
+
+
+def test_a_rename_says_a_checkout_s_file_follows_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: it said a ``.subroutine`` file breaks.
+
+	The file records which project and workspace it is as well as their names (`SR#177`), so a
+	marked checkout still resolves and files after either rename - and the help and both
+	confirmations said it stops working. **Said as what happens.**
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("project", "create", "st", "Subtask")
+
+	for arguments in (("project", "rename", "st", "SR"), ("workspace", "rename", "personal", "projects")):
+		refused = " ".join(run(*arguments, expect=1, input="n\n").output.split())
+
+		assert "A .subroutine file follows it." in refused, refused
+		assert "file that names it" not in refused, refused
+
+
 def test_a_checkout_still_finds_its_project_after_a_rename (
 	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
 ) -> None:
@@ -10452,7 +10495,11 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **1,437 → 1,425 on 2026-09-24 (`SR#3587`).** ``skip``'s body left as :func:`_skipped`, as
 #: ``done``'s left as :func:`_finished`, so its reason is read before the occurrence goes: read
 #: after, a refused ``--because -`` left it skipped with no reason and no line saying so.
-REGISTER_CEILING = 1_425
+#:
+#: **1,425 	 1,413 on 2026-09-29 (`SR#3944`).** What ``use`` says after ``--reset`` and when
+#: run bare left as :func:`_said_after_a_reset` and :func:`_where_work_goes`, as each learned to
+#: say that nothing is chosen rather than name *(not chosen yet)* as a place.
+REGISTER_CEILING = 1_413
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.

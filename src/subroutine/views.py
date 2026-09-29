@@ -2514,8 +2514,21 @@ class Token(pydantic.BaseModel):
 			self.username,
 			self.title,
 			"" if self.usable else "not usable",
-			"everything its owner can do" if not self.scopes else ", ".join(self.scopes),
+			self._may(),
 		)
+
+	def _may (self) -> str:
+		"""Say what this credential may do, and where it may change things where that is narrower.
+
+		**The write set is the second answer** (`#3944`, `#403`'s rule): a credential narrowed only
+		in where it writes still reads everything its owner can, and the compact row said that and
+		stopped, calling it unnarrowed. The words are ``token list``'s and ``agent create``'s.
+		"""
+
+		said = "everything its owner can do" if not self.scopes else ", ".join(self.scopes)
+		changing = writable(self)
+
+		return f"{said}, writing only in {', '.join(changing)}" if changing else said
 
 
 class IssuedToken(Token):
@@ -2646,10 +2659,13 @@ class Member(pydantic.BaseModel):
 	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this membership as the cells of one compact line."""
 
+		# **And whether they have left** (`#3944`), the cell ``User.columns`` has: the roster of one
+		# workspace showed a leaver as an ordinary member.
 		return (
 			self.user.username,
 			self.role,
 			"agent" if self.user.is_service_account else "person",
+			"" if self.user.is_active else "inactive",
 			self.user.display_name or "",
 		)
 

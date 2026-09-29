@@ -811,6 +811,21 @@ def test_use_changes_what_a_bare_number_means_and_not_what_can_be_seen (
 	assert "work/acme/#1" in run("done", "1").output
 
 
+def test_a_calendar_made_over_a_connection_says_whose_address_is_missing (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#3944`: a remote user was told to set ``public_url`` in their own ``config.toml``.
+
+	Over a connection the address is the server's to know, and the reader's file does nothing for
+	it. **Said as the instance's operator's to set**, then the command to run.
+	"""
+
+	made = " ".join(run("-c", "work", "calendar", "create", "Deploys").output.split())
+
+	assert "Whoever runs the instance sets 'public_url'" in made, made
+	assert "Set 'public_url' in config.toml" not in made, made
+
+
 def test_use_reports_where_the_context_came_from (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
@@ -5104,6 +5119,35 @@ def test_a_terminal_is_refused_a_new_feed_when_the_feature_is_off (
 	assert "turned off" not in run("calendar", "revoke", prefix).output, (
 		"turning the feature off must not trap a credential already in the world"
 	)
+
+
+def test_a_reset_says_the_reference_it_leaves (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#3944`, L-12 of the cold review of 2026-09-28: the reference changed and went unsaid.
+
+	A reset replaces the credential, reference and all, and with no ``public_url`` the answer was
+	*run this again* - which then said no calendar had the old reference. **The new reference is
+	printed on both branches**, with the command to run once the address can be said.
+	"""
+
+	run("init")
+	made = run("calendar", "create", "My work")
+	reference = run("calendar", "list").output.split()[0]
+
+	assert f"subroutine calendar reset {reference}" in made.output, made.output
+
+	again = run("calendar", "reset", reference)
+	renewed = run("calendar", "list").output.split()[0]
+
+	assert renewed != reference
+	assert f"subroutine calendar reset {renewed}" in again.output, again.output
+
+	declare(home, '\npublic_url = "https://tasks.example.com"\n')
+	shown = run("calendar", "reset", renewed)
+	latest = run("calendar", "list").output.split()[0]
+
+	assert f"Its reference is now {latest}." in shown.output, shown.output
 
 
 def test_a_calendar_address_is_printed_once_and_never_again (
