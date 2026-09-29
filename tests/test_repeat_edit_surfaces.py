@@ -394,6 +394,17 @@ def test_a_deferral_on_the_repeat_itself_can_be_cleared_or_sent_back (
 
 	assert cleared.snoozed_until is None, cleared
 
+	# **The same instant with the other all-day-ness is a new deferral** (`SR#3941`): a timed one at
+	# the start of a day and that day name one instant, and only one of them is the deferral the
+	# row has - with nothing asking which, the whole suite passed.
+	instance.session.refresh(row)
+	row.snoozed_until = datetime.datetime(2026, 10, 5, tzinfo=datetime.UTC)
+	row.snoozed_is_all_day = False
+	instance.session.flush()
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		instance.client.update(ref=series, snooze="2026-10-05")
+
 
 def test_a_deferral_given_with_a_new_repeat_goes_on_its_first_occurrence (
 	instance: Instance,

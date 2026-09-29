@@ -16,12 +16,14 @@ foreign key's check, and held up filing in every workspace while one was deleted
 import concurrent.futures
 import dataclasses
 import pathlib
+import threading
 import time
 import typing
 import uuid
 
 import pytest
 import sqlalchemy
+import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.orm
 
@@ -98,26 +100,90 @@ def _two_at_once (factory: Factory, first: Step, second: Step) -> None:
 	"""Take ``first`` up to its commit, start ``second`` beside it, then commit ``first``.
 
 	``second`` runs on its own connection, and whatever it raised is raised here, so a test says
-	with ``pytest.raises`` how it has to end. **Half a second is long enough for ``second`` to
-	reach the lock ``first`` holds, or, where nothing locks, to finish** - which is the defect.
+	with ``pytest.raises`` how it has to end. **``first`` commits once ``second`` is waiting on the
+	lock ``first`` holds, or has finished, where nothing locks** - which is the defect.
+
+	**Waited for rather than slept for** (`SR#3941`). Half a second was taken to be enough, and on
+	a loaded runner ``second`` could reach the lock after ``first`` had committed, be refused by
+	the ordinary count, and pass whether or not the lock existed. PostgreSQL says when a backend
+	waits on a lock. SQLite says nothing, so there it waits for ``second``'s first write to be
+	under way, which is the statement that takes the lock.
 	"""
 
 	with factory() as one:
 		first(one)
 		one.flush()
 
+		postgres = one.get_bind().dialect.name == "postgresql"
+		ready = threading.Event()
+		backend: list[int] = []
+
+		def writing (
+			_connection: typing.Any, _cursor: typing.Any, statement: str, *_: typing.Any
+		) -> None:
+			"""Mark the moment ``second`` starts to write, which is when it takes the lock."""
+
+			if not statement.lstrip().upper().startswith("SELECT"):
+				ready.set()
+
 		def run_second () -> None:
 			"""Do ``second`` in a transaction of its own, and commit it."""
 
 			with factory() as two:
+				if postgres:
+					backend.append(two.execute(sqlalchemy.text("SELECT pg_backend_pid()")).scalar_one())
+					ready.set()
+
+				else:
+					sqlalchemy.event.listen(two.connection(), "before_cursor_execute", writing)
+
 				second(two)
 				two.commit()
 
 		with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
 			waiting = pool.submit(run_second)
-			time.sleep(0.5)
+			_until_waiting(factory, waiting, ready, backend)
 			one.commit()
 			waiting.result(timeout=30)
+
+
+def _until_waiting (
+	factory: Factory,
+	waiting: concurrent.futures.Future[None],
+	ready: threading.Event,
+	backend: list[int],
+) -> None:
+	"""Return once ``second`` waits on the lock or has finished, and fail if it does neither.
+
+	On PostgreSQL its backend is asked, in a transaction of its own each time, since one reading
+	of ``pg_stat_activity`` is kept for the rest of the transaction that made it.
+	"""
+
+	deadline = time.monotonic() + 20
+
+	while time.monotonic() < deadline:
+		if waiting.done():
+			return
+
+		if ready.is_set():
+			if not backend:
+				# SQLite: the write is under way, and a moment later it waits or has finished.
+				time.sleep(0.05)
+
+				return
+
+			with factory() as watching:
+				held = watching.execute(
+					sqlalchemy.text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
+					{"pid": backend[0]},
+				).scalar()
+
+			if held == "Lock":
+				return
+
+		time.sleep(0.01)
+
+	pytest.fail("the second caller neither reached the lock nor finished, in twenty seconds")
 
 
 def _named (prefix: str) -> str:

@@ -440,27 +440,42 @@ def committing (
 			admin.dispose()
 
 
+@pytest.mark.parametrize("read", ["_destination", "_about"])
 def test_a_read_that_fails_while_composing_leaves_the_write (
-	committing: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session], monkeypatch: pytest.MonkeyPatch
+	committing: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session],
+	monkeypatch: pytest.MonkeyPatch,
+	read: str,
 ) -> None:
 	"""`SR#3757`: on PostgreSQL a failed statement ends the transaction, and the guard hid it.
 
 	So a lookup failing while the messages were composed turned the commit into a rollback: the
 	request answered 201 with a ref for a row that was never kept. It fails here in the lookup
-	every write makes, whether or not its workspace sends, and the row has to be there after.
+	every write makes, and the row has to be there after.
+
+	**And in the second guarded read** (`SR#3941`), what each event is about, which runs only for
+	a workspace that sends: taking its savepoint away left the whole suite green. So this
+	workspace sends, and each read fails in turn.
 	"""
+
+	monkeypatch.setattr(subroutine.osc, "SENDER", _Sender())
 
 	with committing() as setup:
 		made = subroutine.domain.bootstrap.initialise(setup, username="si", instance_name="Test")
+		subroutine.domain.workspaces.update(
+			setup,
+			made.workspace,
+			settings={"osc.send_to": "studio.local:9000"},
+			actor=subroutine.domain.authentication.Principal(user=made.user),
+		)
 		inbox_id = made.inbox.id
 		setup.commit()
 
-	def failing (session: sqlalchemy.orm.Session, _workspace_id: uuid.UUID) -> None:
+	def failing (session: sqlalchemy.orm.Session, *_: typing.Any) -> None:
 		"""Fail as a read does when the database refuses it."""
 
 		session.execute(sqlalchemy.text("SELECT * FROM no_such_table"))
 
-	monkeypatch.setattr(subroutine.domain.sounds, "_destination", failing)
+	monkeypatch.setattr(subroutine.domain.sounds, read, failing)
 
 	with committing() as writing:
 		project = writing.get(subroutine.db.models.project.Project, inbox_id)

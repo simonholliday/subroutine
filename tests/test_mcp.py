@@ -635,12 +635,18 @@ def test_a_document_moved_and_revised_in_one_call_is_both (
 	assert "Less." in _called(bound, "subroutine_show", ref=stale)[0]
 
 
-#: A later request's refusal of each shape (`SR#3756`): a busy database's, which takes the base
-#: constructor, and three that each take one of their own.
+#: A later request's refusal of each shape (`SR#3756`): a busy database's and a caller going too
+#: fast's, which take the base constructor and each say to try again (`SR#3941`), and three that
+#: each take one of their own.
 _REFUSED_LATER: dict[str, typing.Callable[[], subroutine.errors.SubroutineError]] = {
 	"busy": lambda: subroutine.errors.DatabaseBusy(
 		"The database was busy: another connection was writing to it.",
 		hint="This request changed nothing. Try it again - a busy database clears on its own.",
+	),
+	"limited": lambda: subroutine.errors.RateLimited(
+		"This credential is making requests faster than this instance serves them.",
+		hint="Wait 3 seconds and try again.",
+		extensions={"retry_after": 3},
 	),
 	"narrowed": lambda: subroutine.domain.authorization.AuthorizationError(
 		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
@@ -653,6 +659,11 @@ _REFUSED_LATER: dict[str, typing.Callable[[], subroutine.errors.SubroutineError]
 		subroutine.domain.authentication.AuthenticationFailure.REVOKED, prefix="sr_abc123"
 	),
 }
+
+
+#: What each refusal above that says to try again says it with, which a refusal after something
+#: was saved must not repeat (`SR#3941`): taking a 429 out of the rule left the suite green.
+_RETRIED = {"busy": "Try it again", "limited": "try again"}
 
 
 @pytest.mark.parametrize("refusal", sorted(_REFUSED_LATER))
@@ -704,8 +715,8 @@ def test_links_made_before_a_refusal_are_named_by_it (
 	if refusal == "narrowed":
 		assert "Use a token that includes" in made, f"the credential's own advice was lost: {made}"
 
-	if refusal == "busy":
-		assert "Try it again" not in made, f"a retry would repeat what was saved: {made}"
+	if refusal in _RETRIED:
+		assert _RETRIED[refusal] not in made, f"a retry would repeat what was saved: {made}"
 
 	monkeypatch.setattr(subroutine.clients.local.Client, "link", linking)
 	assert not _called(bound, "subroutine_link", ref=blocker, type="blocks", other=second)[1]
@@ -817,8 +828,10 @@ def test_an_update_that_was_half_saved_says_which_half (
 			f"the credential's own advice was lost: {answered}"
 		)
 
-	if refusal == "busy":
-		assert "Try it again" not in answered, f"a retry would repeat what was saved: {answered}"
+	if refusal in _RETRIED:
+		assert _RETRIED[refusal] not in answered, (
+			f"a retry would repeat what was saved: {answered}"
+		)
 
 	shown, _failed = _called(bound, "subroutine_show", ref=ref)
 

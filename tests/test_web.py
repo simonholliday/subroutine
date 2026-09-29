@@ -21807,6 +21807,30 @@ def test_a_word_only_one_kind_has_is_forgiven_by_the_other (
 	assert other.get("status") == 422, f"a refusal about something else was forgiven: {other}"
 
 
+def test_a_tag_is_answered_or_refused_by_both_kinds_together (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3941`, L-9 of the cold review of 2026-09-28: the browser forgave a refusal nobody sends.
+
+	``namesTheOtherKind`` forgave a 422 naming ``query.tag`` as it does a type or a status only one
+	kind has, and the whole suite passed without it, since no such refusal exists: a tag is the
+	workspace's, refused only where nothing carries it, which both kinds say together. **So the
+	clause is gone, and this holds its reason**: a tag only a task carries is answered by the
+	documents too, and one that nothing carries is refused by both.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call("POST", "/v1/tasks", json={"title": "Fix the boiler", "tags": ["urgent"]})
+
+	carried, nowhere = (
+		[world.call("GET", f"/v1/{kind}", params={"q": word}) for kind in ("tasks", "documents")]
+		for word in ("tag:urgent", "tag:nosuch")
+	)
+
+	assert [one.status_code for one in carried] == [200, 200], [one.text for one in carried]
+	assert [one.status_code for one in nowhere] == [422, 422], [one.text for one in nowhere]
+
+
 def test_a_move_is_checked_against_the_version_the_form_was_opened_on (
 	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
 ) -> None:

@@ -418,7 +418,9 @@ const NOTHING_KEPT = Object.freeze({
 });
 
 /* The words a search names that only one kind of item may have - `#3759`. */
-const ONE_KIND_ONLY = ["query.type", "query.status", "query.tag"];
+/* **Not `query.tag`** (`#3941`): a tag is the workspace's, refused only where nothing carries it,
+   which both kinds say together, so no refusal of one kind's is there to forgive. */
+const ONE_KIND_ONLY = ["query.type", "query.status"];
 
 export function namesTheOtherKind (failure) {
 	/*
@@ -427,7 +429,7 @@ export function namesTheOtherKind (failure) {
 		**Read off the field, as the server's own fan-out reads it**: a 404 naming `id_or_ref` is
 		`parent:1` put to the documents when #1 is a task, or to the tasks when it is a document.
 
-		**And a 422 naming a type, a status or a tag** (`#3759`). Task types are refused by the
+		**And a 422 naming a type or a status** (`#3759`). Task types are refused by the
 		documents and document types by the tasks, and so are the statuses only one kind has, so
 		every `type:` word threw the whole listing - and a saved view on one, *My bugs* among them,
 		threw with no note at all. A word neither kind has is refused by both, and still thrown.
