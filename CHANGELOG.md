@@ -41,6 +41,11 @@ upgrade involves.
 - **Giving an existing task a repeat keeps its end time, reminder and assigner.** Each later
   occurrence of a meeting made to repeat afterwards lost all three, where the same series filed in
   one go kept them. A repeating sub-task's series is filed under the same parent as the task, too.
+- **The repeat preview answers somebody who can reach two workspaces.** It asked which workspace,
+  which nothing could say, so the browser showed that refusal under the Repeats box. It takes
+  `?workspace_id=` now, like every other request that can name one, and with several and none
+  named it reads days in the instance's zone. The browser names the workspace, and on an open
+  item it sends that item's own workspace and zone.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

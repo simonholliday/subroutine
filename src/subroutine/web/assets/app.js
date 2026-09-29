@@ -2472,7 +2472,7 @@ export function App () {
 		status(item, chosen.key);
 	}, [status, vocabulary]);
 
-	const readRepeat = useCallback(async (phrase) => {
+	const readRepeat = useCallback(async (phrase, { slug = workspace, zone = null } = {}) => {
 		/*
 			**The same refusal a save would give, arriving while there is still time to change
 			it** (`#94`, §6.7). It is the same function on the server, so a phrase this accepts
@@ -2493,6 +2493,11 @@ export function App () {
 			the last one shown, which is true of every new phrase — so the first answer stuck
 			and nothing after it was ever displayed. The question is *is this still what they
 			are typing*, and only something written at ask-time can answer it.
+
+			**Asked of a workspace and in a zone** (`#3925`): the page's workspace for a new item,
+			and an open item's own workspace and zone for a repeat being changed on it. It read
+			`workspace.timezone` off what is a short name, so no zone was ever sent, and the
+			instance then refused anybody who could reach two workspaces for not naming one.
 		*/
 		const asked = String(phrase || "").trim();
 
@@ -2504,11 +2509,10 @@ export function App () {
 			return;
 		}
 
-		const zone = (workspace && workspace.timezone) || null;
 		const current = () => latestRepeat.current === asked;
 
 		try {
-			const answer = await sent(readingRequest(asked, zone));
+			const answer = await sent(readingRequest(asked, zone, slug));
 
 			if (current()) setReading({ ...answer, asked });
 		} catch (why) {
@@ -3820,7 +3824,8 @@ export function App () {
 					     left click on an item from elsewhere read another item with that number. */ null}
 					onOpen=${(row) => show(row, { slug: openIn })} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${mayWriteThere ? save : null}
-					reading=${reading} onReading=${readRepeat}
+					reading=${reading}
+					onReading=${(phrase) => readRepeat(phrase, { slug: openIn, zone: open.item.timezone || null })}
 					previewing=${previewing} onPreviewing=${setPreviewing}
 					${/* **Bound to the item's own workspace, the way the agenda binds its rows**
 					     (`#1040`). These three take a row and default to the switcher's, which is

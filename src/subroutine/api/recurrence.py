@@ -30,6 +30,7 @@ import subroutine.domain.instances
 import subroutine.domain.recurrence
 import subroutine.domain.schedule
 import subroutine.domain.selection
+import subroutine.domain.workspaces
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -61,6 +62,10 @@ def parse (
 	body: Parse,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(
+		None,
+		description="Whose days the dates fall on, by id or short name, when no timezone is sent.",
+	),
 ) -> subroutine.views.Reading:
 	"""Read a written repeat without storing anything, and say what it means.
 
@@ -68,12 +73,28 @@ def parse (
 	function - so a caller that checks first and then commits cannot be told two different
 	things about one phrase, which is the divergence every two-implementations defect in this
 	codebase has been.
+
+	**A workspace only where one is named, or where there is only one.** The zone comes from the
+	ordinary chain, and a workspace is only one step of it: with several and none named, the
+	chain goes on to the instance's.
 	"""
+
+	# **Asking which workspace refused everybody who could reach two** (`#3925`), whatever zone
+	# of their own they had, and the body has no field to answer with.
+	named = (
+		subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+		if workspace_id is not None
+		else None
+	)
+
+	if named is None:
+		reachable = subroutine.domain.workspaces.readable(session, actor)
+		named = reachable[0] if len(reachable) == 1 else None
 
 	zone = body.timezone or subroutine.domain.schedule.zone_for(
 		session,
 		user=actor.user,
-		workspace=subroutine.domain.selection.workspace(session, actor, requested=None),
+		workspace=named,
 		instance=subroutine.domain.instances.get(session),
 	)
 

@@ -1513,20 +1513,21 @@ export function filed (values, slug, drawn = null) {
 	return body;
 }
 
-export function readingRequest (phrase, zone = null) {
+export function readingRequest (phrase, zone = null, slug = null) {
 	/*
 		Ask what a written repeat means, without storing anything — `#94`, §6.7.
 
 		**The zone travels with it**, because the dates that come back are days: *every monday*
 		asked from Sydney and answered in UTC lands a day out either side of midnight, which is
-		`#773` at the other end of the same wire.
+		`#773` at the other end of the same wire. **And the workspace, where there is one**
+		(`#3925`), so a zone left unsaid is that workspace's rather than a question of which.
 
 		Pure, like every other request builder here (`#661`) — the guard that drives every one
 		of them against a real instance derives its cases from these, so a request assembled
 		inline would be the one nothing checks.
 	*/
 	return {
-		path: "/recurrence/parse",
+		path: slug ? scoped("/recurrence/parse", slug) : "/recurrence/parse",
 		method: "POST",
 		body: zone ? { text: phrase, timezone: zone } : { text: phrase },
 	};

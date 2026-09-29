@@ -1146,6 +1146,11 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: **Off by default**, so the thirty-five tests that predate the question open an item that
 	#: does not repeat and are never asked one.
 	repeating: list[bool] = [False]
+	#: Every repeat preview the page asked for, as its whole address and its body (`SR#3925`).
+	#: Its own holder rather than a write, since it stores nothing and the tests reading
+	#: ``written`` count what was stored; the whole address, because which workspace it asked
+	#: travels as ``?workspace_id=`` and the path alone cannot say.
+	previewed: list[tuple[str, str | None]] = []
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
 	#: The problem document a refused write carries - `SR#2434`. A holder for `listing`'s reason,
@@ -1197,6 +1202,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			# route that always agreed would leave the refusal path drawn by nothing. What the
 			# words actually mean is `tests/test_api_recurrence.py`'s question, not this one.
 			if wanted == "v1/recurrence/parse":
+				previewed.append((
+					route.request.url.split("://", 1)[-1].split("/", 1)[-1],
+					route.request.post_data,
+				))
 				asked = json.loads(route.request.post_data or "{}").get("text", "")
 				known = asked in READABLE_REPEATS
 
@@ -1460,6 +1469,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		roster[0] = IDENTITY
 		missing[0] = set()
 		repeating[0] = False
+		previewed.clear()
 		written.clear()
 		reads.clear()
 		violations.clear()
@@ -1467,8 +1477,8 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	try:
 		yield (
 			# `refused_with` before `restore`, because `tidy` takes `restore` from the end.
-			opened, written, refusing, roster, missing, reads, unreadable, repeating, refused_with,
-			restore,
+			opened, written, refusing, roster, missing, reads, unreadable, repeating, previewed,
+			refused_with, restore,
 		)
 	finally:
 		context.close()
@@ -3806,11 +3816,19 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	somebody can still change it, which is the `catch` and a different path through `App`.
 
 	**And a sub-task goes with its parent** (`SR#3769`), folded in because this opens the details.
+
+	**And the preview is asked where the dates belong** (`SR#3925`), folded in because this opens
+	the Repeats box: the page's workspace and no zone for a new item, and an open item's own
+	workspace and zone for a repeat being changed on it. It read `workspace.timezone` off what is
+	a short name, so no zone was ever sent, and the instance refused anybody who could reach two
+	workspaces for not naming one. That lives in `App`'s wiring, which only a page reaches.
 	What the Project control showed when it was drawn is recorded by the form, which only a
 	browser draws, and a parent sent with the Inbox beside it is refused by the instance.
 	"""
 
-	opened, written, _refusing, *_ = running
+	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating, previewed, *_ = (
+		running
+	)
 	page = opened("/projects")
 
 	page.click(".adding .more")
@@ -3827,6 +3845,9 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 		f"the preview echoed the phrase back rather than reading it: {read!r}. Echoing confirms "
 		f"nothing — the words have to come from the stored rule."
 	)
+	assert (previewed[-1][0], json.loads(previewed[-1][1] or "{}")) == (
+		"v1/recurrence/parse?workspace_id=projects", {"text": "every other tuesday"},
+	), previewed
 
 	page.fill(".repeats input[name=recurrence]", "every fortnight")
 	page.wait_for_selector(".repeats .reading.bad", timeout=10_000)
@@ -3854,6 +3875,31 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 		f"the project the form offered went beside the parent, where the instance refuses one that "
 		f"is not the parent's: {bodies[0]}"
 	)
+
+	page.close()
+
+	# **On an open item, its own workspace and zone**: the row from the other workspace, in
+	# `personal` while the switcher holds `projects`, served as the repeating card, which carries
+	# `SPANNING`'s London. `restore` puts `repeating` back.
+	repeating[0] = True
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail button.edit", timeout=10_000)
+
+	assert "/personal/" in page.url, page.url
+
+	page.click(".detail button.edit")
+	page.wait_for_selector(".detail form.editing .repeats summary", timeout=10_000)
+	page.click(".detail form.editing .repeats summary")
+	previewed.clear()
+	page.fill(".detail form.editing .repeats input[name=recurrence]", "every other tuesday")
+	page.wait_for_selector(".detail form.editing .repeats .reading strong", timeout=10_000)
+
+	assert [(where, json.loads(body or "{}")) for where, body in previewed] == [(
+		"v1/recurrence/parse?workspace_id=personal",
+		{"text": "every other tuesday", "timezone": SPANNING["timezone"]},
+	)], previewed
 
 	page.close()
 

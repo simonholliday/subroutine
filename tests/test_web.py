@@ -10322,6 +10322,9 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# other entry here it needs no spare row and can be asked anything.
 		("readingRequest", ["every other tuesday", "Europe/London"]),
 		("readingRequest", ["every month on the 30th"]),
+		# **And naming the workspace** (`SR#3925`), which is how the form asks now, so the
+		# instance is asked a question it can answer for somebody who can reach two.
+		("readingRequest", ["every monday", None, place.slug]),
 	]
 
 

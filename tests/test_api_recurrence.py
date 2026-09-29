@@ -10,11 +10,14 @@ It writes nothing, so these are cheap and there is no cleanup.
 
 import datetime
 import typing
+import uuid
 
 import pytest
 import sqlalchemy.orm
 
+import subroutine.domain.instances
 import subroutine.domain.recurrence
+import subroutine.domain.workspaces
 import test_api_tasks
 
 
@@ -246,6 +249,53 @@ def test_a_rule_naming_two_days_of_the_month_works_everywhere_a_rule_is_read (
 
 	assert all(200 <= status < 300 for status in answers.values()), answers
 	assert checked.json()["description"] == "every month, on the 1st and 15th", checked.json()
+
+
+def test_somebody_with_two_workspaces_is_answered_rather_than_asked_which (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#3925`: a calculator refused everybody who could reach two workspaces, asking which.
+
+	The body has no field to name one, so nothing got past it but a zone sent by hand. **A
+	workspace named** answers in its own zone; **none named** goes on down the chain, to the
+	person's own zone where they have one and the instance's where they do not; **one that does
+	not exist** is refused, as on every route that takes one.
+	"""
+
+	tokyo = subroutine.domain.workspaces.create(
+		world.session,
+		slug=f"tokyo-{uuid.uuid4().hex[:8]}",
+		title="Tokyo",
+		owner=world.user,
+		timezone="Asia/Tokyo",
+	)
+	# **A person's own zone comes before any workspace's** in the chain, so this one starts with
+	# none, and is given one at the end.
+	world.user.timezone = None
+	world.session.flush()
+
+	def asked (path: str) -> typing.Any:
+		"""Ask what *every monday* means, at one address."""
+
+		return world.call("POST", path, json={"text": "every monday"})
+
+	unnamed = asked("/v1/recurrence/parse")
+	named = asked(f"/v1/recurrence/parse?workspace_id={tokyo.slug}")
+	unknown = asked("/v1/recurrence/parse?workspace_id=nowhere")
+	instance = subroutine.domain.instances.get(world.session)
+
+	assert instance is not None and instance.timezone != "Asia/Tokyo"
+	assert (unnamed.status_code, unnamed.json().get("timezone")) == (200, instance.timezone), (
+		unnamed.text
+	)
+	assert (named.status_code, named.json().get("timezone")) == (200, "Asia/Tokyo"), named.text
+	assert unknown.status_code == 404, unknown.text
+
+	world.user.timezone = "America/New_York"
+	world.session.flush()
+	own = asked("/v1/recurrence/parse")
+
+	assert (own.status_code, own.json().get("timezone")) == (200, "America/New_York"), own.text
 
 
 def test_asking_something_that_does_not_repeat_is_refused_by_name (
