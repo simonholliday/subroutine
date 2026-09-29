@@ -28,6 +28,9 @@ upgrade involves.
   heard all the same. And a music computer that could not be found held up every other
   workspace's messages while it was looked for again, once a message; it is looked for once a
   minute now.
+- **`db copy` moves an instance where a project has been prioritised.** It failed in both
+  directions with a raw foreign key error, since a workspace's prioritised project names a table
+  copied after it; the reference is now filled in once everything it can name is there.
 - **A credential narrowed to some projects administers nothing beyond them.** An owner's or
   administrator's token narrowed to one project could change the whole workspace: rename it,
   change its settings - pointing its OSC anywhere included - add and remove its members and

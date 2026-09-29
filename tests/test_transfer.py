@@ -68,6 +68,37 @@ def _filled (url: str) -> str:
 	return url
 
 
+def _assert_prioritised_arrives (source: str, target: str) -> None:
+	"""Assert a workspace's prioritised project is the same in the copy (`SR#3919`).
+
+	**The one reference to a table copied later**, which failed the copy outright; a copy that
+	got past the constraint by leaving it out would pass every count, so the value is compared.
+	"""
+
+	found = [_prioritised(url) for url in (source, target)]
+
+	assert None not in found[0], "the source prioritises nothing, so this proves nothing"
+	assert found[1] == found[0], found
+
+
+def _prioritised (url: str) -> list[typing.Any]:
+	"""Return each workspace's prioritised project, by the workspace's id."""
+
+	engine = subroutine.db.session.create_engine(url)
+	workspaces = subroutine.db.base.Base.metadata.tables["workspace"]
+
+	try:
+		with engine.connect() as connection:
+			return list(
+				connection.execute(
+					sqlalchemy.select(workspaces.c.prioritised_project_id).order_by(workspaces.c.id)
+				).scalars()
+			)
+
+	finally:
+		engine.dispose()
+
+
 def _counts (url: str) -> dict[str, int]:
 	"""Return every table's row count."""
 
@@ -97,6 +128,7 @@ def test_an_instance_moves_from_sqlite_to_postgresql (
 
 	assert copied.rows == sum(before.values())
 	assert _counts(postgres_database) == before
+	_assert_prioritised_arrives(sqlite_url, postgres_database)
 
 
 def test_an_instance_moves_back_from_postgresql_to_sqlite (
@@ -119,6 +151,7 @@ def test_an_instance_moves_back_from_postgresql_to_sqlite (
 
 	assert copied.rows == sum(before.values())
 	assert _counts(sqlite_url) == before
+	_assert_prioritised_arrives(postgres_database, sqlite_url)
 
 
 def test_the_copy_can_be_written_to_afterwards (

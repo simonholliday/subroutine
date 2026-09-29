@@ -205,10 +205,19 @@ def _move (
 	"""Copy every table's rows, parents first, and return how many of each."""
 
 	counts: dict[str, int] = {}
+	written: set[str] = set()
+	held: list[tuple[sqlalchemy.Table, list[dict[str, typing.Any]]]] = []
 
 	with source.connect() as reading, target.begin() as writing:
 		for table in _tables():
-			counts[table.name] = _copy_table(table, reading, writing)
+			counts[table.name], later = _copy_table(table, reading, writing, written=written)
+			written.add(table.name)
+			held.append((table, later))
+
+		# **Once every table is there**, so each reference held back has its row to point at,
+		# wherever in the order that row's table came.
+		for table, later in held:
+			_filled_in(table, later, writing)
 
 		_restart_sequences(target, writing)
 
@@ -219,19 +228,24 @@ def _copy_table (
 	table: sqlalchemy.Table,
 	reading: sqlalchemy.Connection,
 	writing: sqlalchemy.Connection,
-) -> int:
-	"""Copy one table in batches, and return how many rows moved.
+	*,
+	written: typing.AbstractSet[str],
+) -> tuple[int, list[dict[str, typing.Any]]]:
+	"""Copy one table in batches, and return how many rows moved and the references held back.
 
 	**Through the table object rather than raw SQL**, so every value passes through its
 	column's type in both directions. That is what makes a UUID stored as bare hex on SQLite
 	arrive as a native ``uuid`` on PostgreSQL, and a JSON blob arrive as ``jsonb``, without
 	this file knowing anything about either.
+
+	``written`` names the tables already copied; a reference to any other goes in as null and
+	comes back to be filled in by :func:`_filled_in`, once every table is there.
 	"""
 
-	inwards = _points_at_itself(table)
+	ahead = _points_ahead(table, written)
 	keys = [column.name for column in table.primary_key.columns]
 	moved = 0
-	deferred: list[dict[str, typing.Any]] = []
+	later: list[dict[str, typing.Any]] = []
 
 	result = reading.execution_options(stream_results=True).execute(
 		sqlalchemy.select(table)
@@ -241,34 +255,43 @@ def _copy_table (
 		rows = [dict(row) for row in batch]
 
 		for row in rows:
-			if any(row[name] is not None for name in inwards):
-				deferred.append(
+			if any(row[name] is not None for name in ahead):
+				later.append(
 					{f"_{name}": row[name] for name in keys}
-					| {name: row[name] for name in inwards}
+					| {name: row[name] for name in ahead}
 				)
 
-				for name in inwards:
+				for name in ahead:
 					row[name] = None
 
 		writing.execute(sqlalchemy.insert(table), rows)
 		moved += len(batch)
 
-	if deferred:
-		writing.execute(
-			sqlalchemy.update(table).where(
-				*(
-					table.columns[name] == sqlalchemy.bindparam(f"_{name}")
-					for name in keys
-				)
-			),
-			deferred,
-		)
-
-	return moved
+	return moved, later
 
 
-def _points_at_itself (table: sqlalchemy.Table) -> list[str]:
-	"""Return the columns of a table that reference the same table.
+def _filled_in (
+	table: sqlalchemy.Table,
+	later: list[dict[str, typing.Any]],
+	writing: sqlalchemy.Connection,
+) -> None:
+	"""Write the references a table's rows went in without, now that what they name is there."""
+
+	if not later:
+		return
+
+	keys = [column.name for column in table.primary_key.columns]
+
+	writing.execute(
+		sqlalchemy.update(table).where(
+			*(table.columns[name] == sqlalchemy.bindparam(f"_{name}") for name in keys)
+		),
+		later,
+	)
+
+
+def _points_ahead (table: sqlalchemy.Table, written: typing.AbstractSet[str]) -> list[str]:
+	"""Return the columns of a table that reference a table not copied yet: itself, or a later one.
 
 	**``sorted_tables`` orders tables and says nothing about rows** (`#927`'s M-20), and five
 	of these point at *themselves*: a sub-task, a section of a document, a project inside a
@@ -277,17 +300,24 @@ def _points_at_itself (table: sqlalchemy.Table) -> list[str]:
 	make the SQLite-to-PostgreSQL migration this command exists for permanently impossible, on
 	an installation that had done nothing unusual.
 
+	**And one points at a table that comes later** (`#3919`): a workspace's prioritised
+	project, the foreign key that closes a cycle through ``project`` and ``status``, so no order
+	of tables puts both first. Held back for the same reason and in the same way, **by where it
+	points rather than by how it was declared**, so the next such key is covered without anybody
+	remembering this file.
+
 	**Written last rather than sorted first**, because sorting is only exact where the table
 	carries a depth — ``task``, ``document`` and ``project`` do; ``user`` and ``comment`` do
 	not, and an accountability chain is a tree with no such column. Inserting the reference as
 	null and filling it in afterwards is one mechanism that needs no order at all, and it goes
-	on streaming: only the rows that *have* a parent are held, as a pair of identifiers.
+	on streaming: only the rows that *have* a reference are held, as a pair of identifiers.
 	"""
 
 	return [
 		column.name
 		for column in table.columns
-		if column.nullable and any(key.column.table is table for key in column.foreign_keys)
+		if column.nullable
+		and any(key.column.table.name not in written for key in column.foreign_keys)
 	]
 
 

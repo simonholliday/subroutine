@@ -1525,6 +1525,16 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 		for table_name, values in rows:
 			_insert(connection, table_name, values)
 
+		# **A prioritised project, once there is one to point at** (`SR#3919`). It is the one
+		# foreign key that closes a cycle - `workspace` is copied before `project` - and nothing
+		# here had ever set it, so `db copy` failed on it and every test of the copy passed.
+		workspaces = subroutine.db.base.Base.metadata.tables["workspace"]
+		connection.execute(
+			sqlalchemy.update(workspaces)
+			.where(workspaces.c.id == workspace)
+			.values(prioritised_project_id=project)
+		)
+
 
 #: The tables the ref migration rebuilds. A SQLite batch rebuild drops and recreates the
 #: table, so every one of these needs referencing rows present for the test to mean anything.
