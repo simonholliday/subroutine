@@ -11,6 +11,7 @@ instance is what brings the next one into being.
 
 import concurrent.futures
 import datetime
+import functools
 import threading
 import typing
 import uuid
@@ -2262,10 +2263,12 @@ def test_clearing_a_date_on_a_repeat_is_not_an_internal_error (
 			now=NOW,
 		)
 
+	# **A rule naming its own day, 1 September 2026 being a Tuesday** (`SR#4026`): clearing the only
+	# date of one that does not is refused now, as making one is, and this is about the clearing.
 	for cleared, clear in (("due_at", _clear_the_deadline), ("starts_at", _clear_the_start)):
 		live = _repeating(
 			session,
-			recurrence="every week",
+			recurrence="every tuesday",
 			due=datetime.date(2026, 9, 1) if cleared == "due_at" else None,
 			starts=datetime.date(2026, 9, 1) if cleared == "starts_at" else None,
 		)
@@ -2649,6 +2652,74 @@ def test_finishing_a_trashed_occurrence_brings_nothing (
 			act(session, live, now=NOW)
 
 	assert subroutine.domain.tasks.live_occurrence(session, series) is None
+
+
+def test_the_last_occurrence_of_a_series_in_the_trash_can_still_be_finished (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4026`, L-1 (2) of the cold review of 2026-09-30: a trashed series blocked its last one.
+
+	An older build put a series in the trash, and with nothing to come, finishing its occurrence
+	went on to complete the series, which the trash refuses: so the one row the person can see
+	could be neither done nor skipped. **Finished, and the series left where it is.**
+	"""
+
+	live = _repeating(session, recurrence="FREQ=DAILY;COUNT=1")
+	series = _template(session, live)
+	series.deleted_at = NOW
+	session.flush()
+
+	subroutine.domain.tasks.complete(session, live, now=NOW)
+
+	assert live.completed_at is not None, live
+	assert series.completed_at is None and series.deleted_at is not None, series
+
+
+def test_a_stopped_series_is_refused_a_delete_as_the_record_of_what_it_ran (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4026`, L-1 (3) of the cold review of 2026-09-30: it was told to stop what had stopped."""
+
+	live = _repeating(session, recurrence="every week")
+	series = _template(session, live)
+	subroutine.domain.tasks.complete(session, series, now=NOW)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.delete(session, series, now=NOW)
+
+	assert "has stopped" in refused.value.detail, refused.value.detail
+	assert "to stop it" not in (refused.value.hint or ""), refused.value.hint
+
+
+@pytest.mark.parametrize(("recurrence", "refused"), [("every 14 days", True), ("every monday", False)])
+def test_a_series_is_not_left_with_no_date_to_repeat_from (
+	session: sqlalchemy.orm.Session, recurrence: str, refused: bool
+) -> None:
+	"""`SR#4026`, L-3 (1) of the cold review of 2026-09-30: its only date was cleared from now on.
+
+	*Every 14 days* says how often and not when, and clearing its deadline from now on was accepted,
+	so every completion after it was refused until it was dated again. **Refused at the edit**, as
+	such a series is refused being made; a rule naming its own day, *every monday*, needs none.
+	"""
+
+	live = _repeating(session, recurrence=recurrence, due=datetime.date(2026, 10, 5))
+	clearing = functools.partial(
+		subroutine.domain.tasks.update,
+		session,
+		live,
+		due=None,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+
+	if refused:
+		with pytest.raises(subroutine.errors.ValidationError) as said:
+			clearing()
+
+		assert "needs a date" in said.value.detail, said.value.detail
+
+	else:
+		clearing()
 
 
 def test_an_all_day_series_moved_across_a_clock_change_stays_on_its_day (

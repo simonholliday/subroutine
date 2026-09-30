@@ -229,6 +229,7 @@ def _event (
 			occasion.rule,
 			whole_day=bool(all_day),
 			timezone=subroutine.domain.schedule.series_zone(task),
+			at_its_end=occasion.field == "due_at",
 		)
 		lines.append(f"RRULE:{rule}")
 

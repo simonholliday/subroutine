@@ -744,7 +744,9 @@ def _on_the_clock (stored: str, zone: datetime.tzinfo) -> str:
 	return _UNTIL.sub(local, stored)
 
 
-def for_a_calendar (stored: str, *, whole_day: bool, timezone: str) -> str:
+def for_a_calendar (
+	stored: str, *, whole_day: bool, timezone: str, at_its_end: bool = False
+) -> str:
 	"""Return a rule with its ``UNTIL`` in the form its start takes, for a calendar - `#3935`.
 
 	**RFC 5545 §3.3.10 makes the two match**: a date beside a start that is a date, and a date-time
@@ -752,6 +754,11 @@ def for_a_calendar (stored: str, *, whole_day: bool, timezone: str) -> str:
 	copied it as stored, so an all-day series ending on a day was written with a date-time beside
 	its ``VALUE=DATE`` start, which a strict client refuses. The instant is read on ``timezone``'s
 	clock, the series' own, as :func:`_on_the_clock` reads it; one that cannot be read is left be.
+
+	**For a whole-day series, the last day it falls on** (`#4026`, L-3 (2) of the cold review of
+	2026-09-30), which ``at_its_end`` decides: a whole-day deadline falls at the end of its day,
+	so an ``UNTIL`` before that on its own day ends the series the day before. The instant's own
+	date was written, so a calendar showed a day the program never makes.
 	"""
 
 	zone = subroutine.domain.dates.zone(timezone)
@@ -774,7 +781,12 @@ def for_a_calendar (stored: str, *, whole_day: bool, timezone: str) -> str:
 			)
 
 			if whole_day:
-				return f"UNTIL={subroutine.domain.dates.basic(clock.date(), '%m%d')}"
+				day = clock.date()
+
+				if at_its_end and clock.time() < _LAST_SECOND:
+					day -= datetime.timedelta(days=1)
+
+				return f"UNTIL={subroutine.domain.dates.basic(day, '%m%d')}"
 
 			return (
 				f"UNTIL={subroutine.domain.dates.basic(clock.astimezone(datetime.UTC), '%m%dT%H%M%S')}Z"
@@ -942,6 +954,21 @@ def _described_weekdays (setting: str) -> str:
 #: put a clause on every repeating row to tell the reader nothing.
 _MEASURED_FROM_COMPLETION = "from when it is done"
 
+#: **The twelve months as a description names them** (`#4026`, L-3 (3) of the cold review of
+#: 2026-09-30). They were taken from :data:`_MONTHS` by length, which dropped *may*, three
+#: letters long, and let *sept* stand for September.
+_MONTH_NAMES = (
+	"January", "February", "March", "April", "May", "June",
+	"July", "August", "September", "October", "November", "December",
+)
+
+#: How a count of one or two is said (`#4026`, L-3 (6)): *1 times* read as a slip.
+_TIMES = {1: "once", 2: "twice"}
+
+#: Where on its own day a whole-day deadline falls, as a rule's occurrences carry it: the last
+#: second, since the rule keeps no part of one (`#1291`).
+_LAST_SECOND = datetime.time(23, 59, 59)
+
 
 def describe (stored: str, *, anchor: str | None = None) -> str:
 	"""Return a rule as a sentence somebody can check against what they meant.
@@ -990,12 +1017,23 @@ def describe (stored: str, *, anchor: str | None = None) -> str:
 		said = f"{said}, on {_described_weekdays(parts['BYDAY'])}"
 
 	# **Each of these may be a list** (`#3923`) - the 1st and the 15th, January and July - which
-	# is an ordinary rule, and reading one as a single number answered 500 on every write.
-	if "BYMONTH" in parts and "BYMONTHDAY" in parts:
-		names = {number: name for name, number in _MONTHS.items() if len(name) > 3}
-		months = " and ".join(
-			names.get(one, str(one)).title() for one in _numbers(parts["BYMONTH"])
+	# is an ordinary rule, and reading one as a single number answered 500 on every write. **And a
+	# month is said wherever the rule names one** (`#4026`, a3 NEW-3 of the verification of the cold
+	# review of 2026-09-30): only beside a day of the month, it read June's first Monday as every
+	# first Monday.
+	months = (
+		" and ".join(
+			_MONTH_NAMES[one - 1] if 1 <= one <= 12 else str(one)
+			for one in _numbers(parts["BYMONTH"])
 		)
+		if "BYMONTH" in parts
+		else None
+	)
+
+	if months is not None and "BYMONTHDAY" not in parts:
+		said = f"{said}, in {months}"
+
+	elif months is not None:
 		numbers = _numbers(parts["BYMONTHDAY"])
 
 		# **A day counted from the end is said as one** (`#3935`): *on -1 February* was the
@@ -1013,7 +1051,8 @@ def describe (stored: str, *, anchor: str | None = None) -> str:
 		said = f"{said}, on the {days}"
 
 	if "COUNT" in parts:
-		said = f"{said}, {int(parts['COUNT'])} times"
+		count = int(parts["COUNT"])
+		said = f"{said}, {_TIMES.get(count, f'{count} times')}"
 
 	if "UNTIL" in parts:
 		said = f"{said}, until {parts['UNTIL']}"

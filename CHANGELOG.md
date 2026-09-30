@@ -43,6 +43,11 @@ upgrade involves.
   its first stray byte is, `subroutine connections` leaves an address's password out, a marker's
   workspace is matched as workspace names are stored, a marker written before workspace ids files
   by its project again, and a bare `use` names the marker when nothing is chosen.
+- **Repeats**: the last occurrence of a series an older build put in the trash can be finished;
+  deleting a stopped series says it is kept as the record of what it ran; clearing the only date of
+  a repeat that needs one is refused, as making one is; a whole-day deadline series ends in a
+  calendar feed on the last day it falls on; and a repeat's description names every month in
+  full, says *once* and *twice*, and names the month wherever the rule does.
 
 ## 0.9.13 — 2026-09-30
 

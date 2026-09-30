@@ -760,7 +760,10 @@ def materialise (
 
 	if occurrence is None:
 		# Finished rather than deleted: what repeated, and until when, is a fact worth keeping.
-		if template.completed_at is None:
+		# **Not a series in the trash** (`#4026`, L-1 (2) of the cold review of 2026-09-30): an older
+		# build put one there, and completing it is refused, so its last occurrence could be neither
+		# completed nor skipped, about a row the person never sees. It is out of sight already.
+		if template.completed_at is None and template.deleted_at is None:
 			complete(session, template, now=now, actor=actor)
 
 		return None
@@ -2297,6 +2300,19 @@ def _refuse_deleting_the_repeat_itself (
 	"""
 
 	itself = subroutine.domain.refs.format_ref(series.ref)
+
+	# **A series already stopped is kept as the record of what it ran** (`#4026`, L-1 (3) of the cold
+	# review of 2026-09-30), and the refusal told its reader to stop it. Whether one may be deleted
+	# after all is decision `#1294`'s to take.
+	if series.completed_at is not None:
+		kept = "A repeat that has stopped is kept as the record of what it ran."
+
+		raise subroutine.errors.ValidationError(
+			f"{itself} is a repeat that has stopped, and is kept as the record of what it ran.",
+			code="invalid_field_value",
+			errors=[subroutine.errors.FieldError(field="ref", code="invalid_field_value", message=kept)],
+		)
+
 	occurrence = live_occurrence(session, series)
 	stopping = f"Mark {itself} done to stop it, keeping what it was and what it ran"
 	hint = (
@@ -3150,6 +3166,17 @@ def _applied_to_the_series (
 	# slot nothing left. Applied to whichever row was addressed; the other gets it in
 	# :func:`_carried`.
 	#
+	# **A series is not left with no date to repeat from** (`#4026`, L-3 (1) of the cold review of
+	# 2026-09-30), as :func:`_series_anchor` refuses one being made: clearing the only date of
+	# *every 14 days* from now on was accepted, and every completion after it was refused until it
+	# was dated again. Asked only where this edit cleared the date the series hangs on, of the
+	# dates this row now holds, which the series is about to carry.
+	if was.get(grid_field_for(was.get("due_at"))) is not None and grid_date(task) is None:
+		ruling = task if task.is_template else series_of(session, task)
+
+		if ruling is not None and ruling.recurrence_rule is not None:
+			_series_anchor(ruling.recurrence_rule, grid=None, filed=instant)
+
 	# ``was`` is this row's own before, so it is the grid test :func:`_kept_on_its_grid` needs.
 	# **In the zone the row is in now**: `update` has already moved its dates onto it.
 	zone = task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE

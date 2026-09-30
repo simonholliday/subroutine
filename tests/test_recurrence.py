@@ -463,6 +463,31 @@ def test_a_rule_s_end_is_written_for_a_calendar_as_its_start_is (
 	) == written
 
 
+@pytest.mark.parametrize(("at_its_end", "day"), [(True, "20261009"), (False, "20261010")])
+def test_a_whole_day_series_ends_for_a_calendar_on_the_last_day_it_falls_on (
+	at_its_end: bool, day: str
+) -> None:
+	"""`SR#4026`, L-3 (2) of the cold review of 2026-09-30: the feed wrote a day the series never made.
+
+	A whole-day deadline falls at the end of its day, so ``UNTIL`` at noon on 10 October ends it on
+	the 9th, which is what the program makes; the feed wrote the 10th, and a calendar showed it. A
+	whole-day start falls at the day's beginning and still falls on the 10th.
+	"""
+
+	stored = "FREQ=DAILY;UNTIL=20261010T120000Z"
+	written = subroutine.domain.recurrence.for_a_calendar(
+		stored, whole_day=True, timezone=LONDON, at_its_end=at_its_end
+	)
+	start = datetime.datetime(2026, 10, 7, 23, 59, 59) if at_its_end else datetime.datetime(2026, 10, 7)
+	made = subroutine.domain.recurrence.occurrences(
+		stored, start=start.replace(tzinfo=zoneinfo.ZoneInfo(LONDON)), timezone=LONDON
+	)
+	last = made[-1].astimezone(zoneinfo.ZoneInfo(LONDON)).date()
+
+	assert written == f"FREQ=DAILY;UNTIL={day}", written
+	assert last.strftime("%Y%m%d") == day, made
+
+
 def test_a_rule_that_names_a_real_part_and_means_nothing_is_still_refused () -> None:
 	"""The part list says a name is allowed; only building the rule says the value parses."""
 
@@ -507,6 +532,15 @@ DESCRIBED: tuple[tuple[str, str], ...] = (
 	("FREQ=MONTHLY;BYMONTHDAY=1,-1", "every month, on the 1st and last day"),
 	("FREQ=MONTHLY;BYMONTHDAY=-2", "every month, on the 2nd to last day"),
 	("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1", "every year, on the last day of February"),
+	# **Every month by its whole name, and a count of one or two said as a word** (`SR#4026`),
+	# which read *on 1 5*, *on 1 Sept* and *1 times*.
+	("FREQ=YEARLY;BYMONTH=5;BYMONTHDAY=1", "every year, on 1 May"),
+	("FREQ=YEARLY;BYMONTH=9;BYMONTHDAY=1", "every year, on 1 September"),
+	("FREQ=DAILY;COUNT=1", "every day, once"),
+	("FREQ=DAILY;COUNT=2", "every day, twice"),
+	# **A month said without a day of the month too** (`SR#4026`), which read as every month.
+	("FREQ=YEARLY;BYMONTH=6;BYDAY=1MO", "every year, on the first Monday, in June"),
+	("FREQ=MONTHLY;BYMONTH=6,12;BYDAY=-1FR", "every month, on the last Friday, in June and December"),
 )
 
 
