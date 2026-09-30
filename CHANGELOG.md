@@ -17,6 +17,9 @@ upgrade involves.
 - **`subroutine -c work mcp` serves the connection it names**, as `mcp --connection work` does. It
   served the default connection, so an agent's work went to another instance without a word. Two
   different names, one before `mcp` and one after it, are refused.
+- **`document edit` with nothing named no longer waits for ever under an agent's shell.** It reads
+  standard input only when text was piped in, as `document create` does, and otherwise says there
+  is nothing to change.
 
 ## 0.9.13 — 2026-09-30
 

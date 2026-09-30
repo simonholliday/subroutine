@@ -7726,7 +7726,11 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					revised = _in_an_editor(program, document.body or "")
 
 				else:
-					revised = sys.stdin.read()
+					# **Only what was handed over is read** (`#4017`, M-18 of the cold review of
+					# 2026-09-30), as ``document create`` reads it. Under an agent's shell standard input
+					# is a socket that never closes, and reading it waited for ever; with nothing piped,
+					# this is the empty pipe below and refused as one.
+					revised = sys.stdin.read() if _something_was_piped() else ""
 
 					# **An empty pipe is not an instruction to empty the document.**
 					# `subroutine doc edit 42 < /dev/null` would otherwise silently replace a

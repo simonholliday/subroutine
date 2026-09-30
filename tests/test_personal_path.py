@@ -8574,6 +8574,7 @@ def test_editing_a_document_in_the_trash_is_refused_before_the_editor_opens (
 
 def test_changing_a_documents_title_is_not_guarded_by_a_version (
 	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	"""The other half, and it is why the rule is *replacing the body* rather than *revising*.
 
@@ -8584,6 +8585,9 @@ def test_changing_a_documents_title_is_not_guarded_by_a_version (
 	retitling something while a colleague is writing in it.
 	"""
 
+	# Told a pipe is attached, since ``CliRunner``'s stream is not one and only a pipe or a file is
+	# read (`SR#4017`).
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
 	run("init")
 	run("doc", "create", "A conclusion", "--body", "First thoughts.")
 	run("doc", "edit", "1", input="Somebody else's revision.\n")
@@ -8600,20 +8604,47 @@ def test_changing_a_documents_title_is_not_guarded_by_a_version (
 
 def test_revising_a_document_reads_a_pipe_like_writing_one_does (
 	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	"""The same three sources ``doc create`` takes, in the same order.
 
 	Piped input is how anybody writes more than a sentence at a terminal, and it is the path
 	an agent takes — so ``edit`` reading it differently from ``create`` would be a surface
 	disagreeing with itself, which is the family `#282` was.
+
+	**Told a pipe is attached**, since ``CliRunner``'s stream is not one, and only a pipe or a
+	file is read (`SR#4017`).
 	"""
 
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
 	run("init")
 	run("doc", "create", "A conclusion", "--body", "Before.")
 
 	run("doc", "edit", "1", input="After, from a pipe.\n")
 
 	assert "After, from a pipe." in run("show", "1").output
+
+
+def test_a_document_is_not_revised_from_input_nobody_piped (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4017`, M-18 of the cold review of 2026-09-30: ``document edit`` hung under an agent.
+
+	With nothing named and no terminal, it read standard input to the end, and under an agent's
+	shell standard input is a socket that never closes, so it waited for ever. **Only what was
+	piped is read**, as ``document create`` reads it, and otherwise the edit is refused as an
+	empty pipe is: the input here is left where it is.
+	"""
+
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: False)
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+
+	refused = run("doc", "edit", "1", input="Never read.\n", expect=1)
+
+	assert "Nothing was piped in" in refused.output, refused.output
+	assert "Never read." not in run("show", "1").output
 
 
 def test_text_piped_beside_a_named_field_is_said_to_be_unread (
