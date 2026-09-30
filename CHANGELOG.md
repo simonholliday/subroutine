@@ -232,6 +232,8 @@ upgrade involves.
   text typed there was thrown away.
 - **The agent's tools name a new private project by its whole address** when they say how to
   share it or open it, so the advice for `alpha/web` no longer reaches a project called `web`.
+- **A timed series moved *from now on* keeps its time of day** when the occurrence moved had been
+  made all-day for itself alone, where it was put at midnight.
 
 ## 0.9.12 — 2026-09-29
 

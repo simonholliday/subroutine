@@ -2947,7 +2947,12 @@ def _carried (
 	def moved (column: str, held: datetime.datetime) -> datetime.datetime | None:
 		"""Move one of this row's dates as the source's moved."""
 
-		if now_holds.get(ALL_DAY_FLAG[column]):
+		# **By this row's own shape, not the source's** (`#4001`, M-4 of the cold review of
+		# 2026-09-30). A timed series moved from now on by an occurrence made all-day for itself
+		# alone was moved as a whole day: snapped to midnight and to the last microsecond, still
+		# flagged timed, and every later occurrence minted there. A change of shape never reaches
+		# here, since :func:`_deltas` leaves it out, so the row's flag is the shape being moved.
+		if getattr(target, ALL_DAY_FLAG[column]):
 			# **In the zone this row was written in**: a zone carried to it is applied after
 			# the loop, and :func:`_resnapped` moves these onto the same days in it.
 			return _days_moved(

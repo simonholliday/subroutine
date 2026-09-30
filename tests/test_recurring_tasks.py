@@ -1462,6 +1462,56 @@ def test_a_series_changed_to_a_rule_that_never_comes_round_is_refused (
 	assert series.recurrence_rule == before
 
 
+def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_time (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4001`, M-4 of the cold review of 2026-09-30: the series lost its time of day.
+
+	A weekly Monday series at 10:00, due at 17:00. One occurrence is made all-day for itself
+	alone, and then moved to Tuesday from now on. The move was read in the occurrence's shape,
+	so the series landed at midnight with its deadline at the day's last microsecond, still
+	flagged timed. **The series moves a day and keeps its times.**
+	"""
+
+	london = zoneinfo.ZoneInfo(LONDON)
+	made = _repeating(
+		session,
+		recurrence="every monday",
+		starts=datetime.datetime(2026, 10, 12, 10, 0, tzinfo=london),
+		due=datetime.datetime(2026, 10, 12, 17, 0, tzinfo=london),
+	)
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		starts="2026-10-12",
+		due="2026-10-12",
+		applies_to=subroutine.domain.tasks.THIS_ONE,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.starts_is_all_day and not series.starts_is_all_day, "the occurrence alone is all-day"
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		starts="2026-10-13",
+		due="2026-10-13",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	starts = test_schedule._instant(series.starts_at).astimezone(london)
+	due = test_schedule._instant(series.due_at).astimezone(london)
+
+	assert not series.starts_is_all_day and not series.due_is_all_day
+	assert (starts.date(), starts.time()) == (datetime.date(2026, 10, 13), datetime.time(10, 0)), starts
+	assert (due.date(), due.time()) == (datetime.date(2026, 10, 13), datetime.time(17, 0)), due
+
+
 def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
 	session: sqlalchemy.orm.Session,
 ) -> None:
