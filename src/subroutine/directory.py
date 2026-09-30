@@ -44,6 +44,8 @@ import tomllib
 import typing
 import urllib.parse
 
+import subroutine.addressing
+
 #: What the file is called. A dotfile because it is machine-written configuration rather than
 #: something a reader of the repository needs to meet, and TOML because every other file this
 #: program writes is — one parser, one set of quoting rules, one thing to explain.
@@ -348,10 +350,13 @@ def resolve_workspace (marker: Marker, workspaces: typing.Iterable[Slugged]) -> 
 
 	# **Whatever case it was written in** (`#3893`), as a connection's name is compared and as the
 	# program reads a workspace everywhere else: a marker written with the workspace as it is shown,
-	# ``Projects``, was ignored by the agent's tools and by the terminal alike.
+	# ``Projects``, was ignored by the agent's tools and by the terminal alike. **By the rule that
+	# stores a workspace's name** (`#4022`), where ``casefold`` missed *My Team* and found *Maße*.
 	if marker.workspace is not None:
+		wanted = subroutine.addressing.normalize_slug(marker.workspace)
+
 		for row in workspaces:
-			if row.slug.casefold() == marker.workspace.casefold():
+			if subroutine.addressing.normalize_slug(row.slug) == wanted:
 				return row.slug
 
 	return None

@@ -227,3 +227,21 @@ def spans_segments (template: str) -> bool:
 	"""
 
 	return any(parameter.group(2) == "path" for parameter in _PARAMETER.finditer(template))
+
+
+def normalize_slug (slug: str) -> str:
+	"""Return the stored form of a workspace short name.
+
+	**Here, where the marker's reader can ask it** (`#4022`, L-5 (5) of the cold review of
+	2026-09-30). ``subroutine.directory`` runs inside the agent's relay and imports nothing heavy,
+	so it compared a marker's workspace by ``casefold``: *My Team* missed ``my-team``, and *Maße*
+	filed into ``masse``. ``domain.workspaces.normalize_slug`` hands this on, so the rule is one.
+	"""
+
+	kept = [character if character.isalnum() else "-" for character in slug.strip().lower()]
+	collapsed = "".join(kept).strip("-")
+
+	while "--" in collapsed:
+		collapsed = collapsed.replace("--", "-")
+
+	return collapsed

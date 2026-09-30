@@ -474,7 +474,15 @@ def _trimmed_url (value: str) -> str | None:
 	"""
 
 	text = value.strip().rstrip("/")
-	parsed = urllib.parse.urlsplit(text)
+
+	# **An address ``urlsplit`` cannot split is not one either** (`#4022`, L-5 (1) of the cold review
+	# of 2026-09-30): ``http://[::1`` raised through ``connections add``, and once it was in the file,
+	# through every command.
+	try:
+		parsed = urllib.parse.urlsplit(text)
+
+	except ValueError:
+		return None
 
 	if parsed.scheme not in SCHEMES or not parsed.netloc:
 		return None

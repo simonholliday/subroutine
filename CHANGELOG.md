@@ -38,6 +38,11 @@ upgrade involves.
 - **Three values that answered 500 are refused by name**: half of a character in any text, a tag or
   a username that outgrows its limit once written in lower case, as `İ` does, and an estimate with
   more digits than a number can be read with.
+- **Configuration and checkout markers that are slightly off are said rather than crashed on.** An
+  address with an unclosed `[` is refused by name, a `config.toml` that is not UTF-8 says where
+  its first stray byte is, `subroutine connections` leaves an address's password out, a marker's
+  workspace is matched as workspace names are stored, a marker written before workspace ids files
+  by its project again, and a bare `use` names the marker when nothing is chosen.
 
 ## 0.9.13 — 2026-09-30
 

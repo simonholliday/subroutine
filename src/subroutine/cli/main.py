@@ -509,7 +509,8 @@ def _settings_or_why_not () -> subroutine.config.Settings | subroutine.errors.Va
 		try:
 			unknown = subroutine.config.describe_unknown_settings()
 
-		except tomllib.TOMLDecodeError:
+		# **Nor does one that is not UTF-8** (`#4022`), refused just below in its own sentence.
+		except (tomllib.TOMLDecodeError, subroutine.errors.SubroutineError):
 			unknown = []
 
 		for line in unknown:
@@ -523,6 +524,11 @@ def _settings_or_why_not () -> subroutine.config.Settings | subroutine.errors.Va
 			f"{subroutine.config.config_file_path()} is not valid TOML: {error}",
 			hint="Fix the file, or move it aside and run 'subroutine init' to write a new one.",
 		)
+
+	# **A file that is not UTF-8 is refused where it is read** (`#4022`), and answered here as the
+	# others are, so ``mcp`` says it at the handshake.
+	except subroutine.errors.ValidationError as error:
+		return error
 
 	except pydantic.ValidationError as error:
 		problems = "; ".join(

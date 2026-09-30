@@ -25,6 +25,7 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 import typing
 import uuid
 import zoneinfo
@@ -801,6 +802,103 @@ def test_a_checkout_s_project_is_taken_only_in_the_workspace_it_names (
 
 	assert "in team, and this is going to personal. Ignoring it." in added.output, added.output
 	assert "from .subroutine" not in added.output, added.output
+
+
+def test_a_checkout_marked_before_workspace_ids_still_files_by_its_project_id (
+	tmp_path: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4022`, L-5 (6) of the cold review of 2026-09-30: an old marker stopped filing.
+
+	A marker written before workspace ids names its workspace by name, and one renamed since names
+	nothing here: the terminal ignored the whole marker, though its project id names the project
+	exactly and could never match one it was not written for. **Filed by the id.**
+	"""
+
+	run("init")
+	run("project", "create", "web", "Website")
+
+	checkout = tmp_path / "marked"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+	run("use", "--here", "--project", "web")
+
+	marker = checkout / ".subroutine"
+	kept = {**tomllib.loads(marker.read_text("utf-8")), "workspace": "oldname"}
+	kept.pop("workspace_id", None)
+	marker.write_text("".join(f'{name} = "{value}"\n' for name, value in kept.items()), "utf-8")
+
+	added = run("add", "Fix the header")
+
+	# The workspace it names is still said to be missing, which is true; the project is not.
+	assert "in web, from .subroutine" in added.output, added.output
+	assert "names project" not in added.output, added.output
+
+
+@pytest.mark.parametrize("address", ["http://[::1", "http://[zz]"])
+def test_an_address_urlsplit_cannot_split_is_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path, address: str
+) -> None:
+	"""`SR#4022`, L-5 (1) of the cold review of 2026-09-30: an unbalanced bracket crashed.
+
+	``connections add v6 --url 'http://[::1'`` ended in a crash report, and once such an address
+	was in the file, so did every command. **Refused by name, both where it is written and where
+	it is read.**
+	"""
+
+	run("init")
+
+	added = run("connections", "add", "v6", "--url", address, expect=1)
+
+	assert isinstance(added.exception, SystemExit), repr(added.exception)
+
+	declare(home, f'\n[connections.v6]\nurl = "{address}"\n')
+
+	listed = run("list", expect=1)
+
+	assert isinstance(listed.exception, SystemExit), repr(listed.exception)
+	assert "cannot be used" in listed.output, listed.output
+
+
+def test_a_configuration_file_that_is_not_utf_8_is_refused_in_a_sentence (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#4022`, L-5 (3) of the cold review of 2026-09-30: one Latin-1 line crashed every command.
+
+	**Refused in a sentence naming where the byte is**, at the terminal and at the agent's handshake.
+	"""
+
+	run("init")
+
+	with (home / "xdg_config_home" / "subroutine" / "config.toml").open("ab") as handle:
+		handle.write(b"\n# caf\xe9\n")
+
+	listed = run("list", expect=1)
+
+	assert isinstance(listed.exception, SystemExit), repr(listed.exception)
+	assert "is not UTF-8" in listed.output, listed.output
+
+	answers = answered(run("mcp", input=INITIALIZE))
+
+	assert "is not UTF-8" in answers[0].get("error", {}).get("message", ""), answers
+
+
+def test_the_connections_listing_leaves_out_an_address_s_password (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#4022`, L-5 (4) of the cold review of 2026-09-30: the address was printed whole.
+
+	The local connection's database address has always been masked; a served one's went out with
+	its user and password. **Left out, as a refusal quoting it leaves them out.**
+	"""
+
+	run("init")
+	declare(home, '\n[connections.work]\nurl = "https://ada:hunter2secret@tasks.example.com"\n')
+
+	listed = run("connections").output
+
+	assert "hunter2secret" not in listed and "tasks.example.com" in listed, listed
 
 
 def test_use_changes_what_a_bare_number_means_and_not_what_can_be_seen (

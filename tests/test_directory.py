@@ -545,6 +545,25 @@ def test_a_marker_names_a_workspace_in_whatever_case_it_was_written (tmp_path: p
 	) == "projects"
 
 
+@pytest.mark.parametrize(
+	("written", "stored", "found"),
+	[("My Team", "my-team", True), ("Maße", "masse", False), ("MAßE", "maße", True)],
+)
+def test_a_marker_names_a_workspace_as_its_name_is_stored (
+	tmp_path: pathlib.Path, written: str, stored: str, found: bool
+) -> None:
+	"""`SR#4022`, L-5 (5) of the cold review of 2026-09-30: ``casefold`` is not the stored rule.
+
+	*My Team* missed ``my-team``, and *Maße* matched ``masse``, a workspace of its own. **Compared
+	by the rule that stores a workspace's name.**
+	"""
+
+	marker = subroutine.directory.Marker(path=tmp_path / subroutine.directory.FILE_NAME, workspace=written)
+	answered = subroutine.directory.resolve_workspace(marker, [_Space(uuid.uuid4(), stored)])
+
+	assert answered == (stored if found else None), answered
+
+
 def test_composing_an_address_terminates_when_a_parent_is_absent (
 	tmp_path: pathlib.Path,
 ) -> None:

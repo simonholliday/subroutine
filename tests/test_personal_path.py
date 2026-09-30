@@ -7572,6 +7572,8 @@ def test_a_rename_says_what_will_stop_working_before_it_does_it (
 
 def test_use_with_nothing_chosen_says_it_works_everywhere (
 	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	"""`SR#3944`, L-12 of the cold review of 2026-09-28: *(not chosen yet) (from nothing)*.
 
@@ -7591,6 +7593,18 @@ def test_use_with_nothing_chosen_says_it_works_everywhere (
 	assert "Working everywhere - nothing is chosen." in bare, bare
 	assert "use --reset" not in bare, bare
 	assert "not chosen yet" not in reset + bare, reset + bare
+
+	# **And the marker, which that branch dropped** (`SR#4022`, L-5 (7) of the cold review of
+	# 2026-09-30): here one written for a connection this machine does not have, so it chooses
+	# nothing and is ignored, which is when somebody asks why.
+	monkeypatch.chdir(tmp_path)
+	(tmp_path / ".subroutine").write_text(
+		'connection = "elsewhere"\nworkspace = "zion"\n', encoding="utf-8"
+	)
+	marked = " ".join(run("use").output.split())
+
+	assert "Working everywhere - nothing is chosen." in marked, marked
+	assert "This directory says" in marked, marked
 
 
 def test_a_link_a_part_or_an_unlink_across_two_workspaces_on_one_instance_is_refused (

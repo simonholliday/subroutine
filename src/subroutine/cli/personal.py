@@ -2429,15 +2429,22 @@ def _project_named_by (
 	# a marker for ``team``'s ``web``, used with ``-w personal``, missed its id there and matched
 	# ``personal``'s own ``web`` by key, and said the checkout had filed it. The agent's tools
 	# already refused that marker; this is the same rule at the terminal.
-	if marker.workspace is not None or marker.workspace_id is not None:
-		named = subroutine.directory.resolve_workspace(marker, where.identity.workspaces)
+	named = (
+		subroutine.directory.resolve_workspace(marker, where.identity.workspaces)
+		if marker.workspace is not None or marker.workspace_id is not None
+		else writing
+	)
+	elsewhere = (
+		f"{FILE_NAME} here names project {shown!r} in "
+		f"{named or marker.workspace or marker.workspace_id}, and this is going to {writing}. "
+		"Ignoring it."
+	)
 
-		if named != writing:
-			return None, (
-				f"{FILE_NAME} here names project {shown!r} in "
-				f"{named or marker.workspace or marker.workspace_id}, and this is going to "
-				f"{writing}. Ignoring it."
-			)
+	# **Unless the marker's own project id is here** (`#4022`, L-5 (6) of the cold review of
+	# 2026-09-30), looked for below: an id cannot match a project it was not written for, and a
+	# marker written before workspace ids, naming a workspace renamed since, stopped filing by it.
+	if named != writing and marker.project_id is None:
+		return None, elsewhere
 
 	try:
 		found = subroutine.clients.base.every_project(where.client, workspace=writing)
@@ -2449,6 +2456,9 @@ def _project_named_by (
 		sent = str(marker.project_id) if marker.project_id is not None else (marker.project or "")
 
 		return _Filed(sent=sent, shown=marker.project or sent), None
+
+	if named != writing and not any(str(row.id) == marker.project_id for row in found):
+		return None, elsewhere
 
 	resolved = subroutine.directory.resolve(marker, found)
 
@@ -5405,6 +5415,11 @@ def _where_work_goes (program: Program, world: World) -> None:
 	if world.current.workspace is None:
 		program.say("Working everywhere - nothing is chosen.")
 
+		# **The marker too** (`#4022`, L-5 (7) of the cold review of 2026-09-30), which this branch
+		# dropped: a directory whose marker was ignored is where somebody asks why.
+		if world.marker is not None:
+			program.say(f"This directory says {world.marker.describe()}.")
+
 		return
 
 	program.say(f"Working in {world.current.describe(qualified=world.qualifies_connection)}.")
@@ -5675,7 +5690,13 @@ def _connection_row (
 	# The local connection's "address" is its database URL, masked — it is the one piece
 	# of configuration that routinely carries a password, and this output is exactly what
 	# ends up pasted into a bug report.
-	where = program.mask(resolved.database_url) if connection.is_local else str(connection.url)
+	# **And a served one's without the user and password it may carry** (`#4022`, L-5 (4) of the
+	# cold review of 2026-09-30), for the same reason: ``https://ada:hunter2@...`` was printed whole.
+	where = (
+		program.mask(resolved.database_url)
+		if connection.is_local
+		else subroutine.connections.shown(connection.url)
+	)
 
 	return (connection.name, where, token, ", ".join(notes))
 

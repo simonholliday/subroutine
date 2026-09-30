@@ -29,6 +29,8 @@ import pydantic.fields
 import pydantic_settings
 import sqlalchemy.engine
 
+import subroutine.errors
+
 APPLICATION_NAME = "subroutine"
 
 #: Filesystems on which SQLite cannot reliably take a lock. WAL mode needs a shared
@@ -559,8 +561,21 @@ def read_config_file () -> dict[str, typing.Any]:
 	if not path.is_file():
 		return {}
 
-	with path.open("rb") as handle:
-		return tomllib.load(handle)
+	# **Refused in a sentence where it is not UTF-8** (`#4022`, L-5 (3) of the cold review of
+	# 2026-09-30), which TOML must be: one Latin-1 ``# café`` raised through every command. Said where
+	# the file is read, since six things read it, with where the first byte that is not text is.
+	try:
+		with path.open("rb") as handle:
+			return tomllib.load(handle)
+
+	except UnicodeDecodeError as error:
+		raise subroutine.errors.ValidationError(
+			f"{path} cannot be used: the byte at offset {error.start} is not UTF-8, which the file "
+			"must be written in.",
+			code="invalid_field_value",
+			hint="Save it as UTF-8, which any editor can do, or move it aside and run "
+			"'subroutine init' to write a new one.",
+		) from None
 
 
 #: Top-level keys the configuration file legitimately carries that are **not** settings, and

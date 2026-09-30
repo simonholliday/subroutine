@@ -1311,15 +1311,9 @@ def validated_slug (
 
 
 def normalize_slug (slug: str) -> str:
-	"""Return the stored form of a workspace short name."""
+	"""Return the stored form of a workspace short name: :func:`subroutine.addressing.normalize_slug`."""
 
-	kept = [character if character.isalnum() else "-" for character in slug.strip().lower()]
-	collapsed = "".join(kept).strip("-")
-
-	while "--" in collapsed:
-		collapsed = collapsed.replace("--", "-")
-
-	return collapsed
+	return subroutine.addressing.normalize_slug(slug)
 
 
 def _slug_taken (
