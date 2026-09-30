@@ -5418,6 +5418,48 @@ def test_an_explicit_none_for_a_field_that_cannot_be_emptied_changes_nothing (
 		assert kept.type == moved.type, kept
 
 
+@pytest.mark.parametrize(
+	"name", ["project", "assignee", "claimed_by", "status", "status_category", "type", "tag"]
+)
+def test_a_nul_in_a_filter_is_refused_alike_on_both (pair: Pair, name: str) -> None:
+	"""`SR#4023`, L-6 (3) of the cold review of 2026-09-30: a NUL had three answers.
+
+	Over HTTP it is refused by name, before anything is looked up. Here it was *There is no account
+	called ...* on SQLite and the driver's refusal on PostgreSQL. **One answer, under the name the
+	API gives the value.**
+	"""
+
+	said = []
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(**typing.cast(dict[str, typing.Any], {name: "we\x00b"}))
+
+		said.append(raised.value.detail)
+
+	assert said[0] == said[1] and "control character" in said[0], said
+
+
+def test_a_null_title_is_refused_alike_on_both (pair: Pair) -> None:
+	"""`SR#4023`, L-6 (4) of the cold review of 2026-09-30: ``title=None`` was ignored here.
+
+	`SR#3936` read an explicit None as not given, which is the API's answer for a project or a
+	type, and not for a title: the API refuses it as a missing title. **Refused on both.**
+	"""
+
+	said = []
+
+	for client in pair.both():
+		made = client.capture(text="Brief the crew")
+
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.update(ref=made.task.ref, title=typing.cast(typing.Any, None))
+
+		said.append(raised.value.detail)
+
+	assert said[0] == said[1] and "title" in said[0].lower(), said
+
+
 def test_every_answer_the_http_client_reads_goes_through_its_parser () -> None:
 	"""`SR#3936`: twenty-two reads went round ``_parsed``.
 

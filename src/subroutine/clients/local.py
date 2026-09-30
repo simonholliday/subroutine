@@ -78,6 +78,7 @@ import subroutine.domain.settings
 import subroutine.domain.sounds
 import subroutine.domain.tags
 import subroutine.domain.tasks
+import subroutine.domain.text
 import subroutine.domain.tokens
 import subroutine.domain.users
 import subroutine.domain.verifications
@@ -97,6 +98,20 @@ def _asked (**values: typing.Any) -> dict[str, typing.Any]:
 	"""
 
 	return {name: value for name, value in values.items() if value is not None}
+
+
+def _named_readably (named: typing.Iterable[tuple[str, str | None]]) -> None:
+	"""Refuse a name or a filter carrying a character no text here holds, as the API does - `#4023`.
+
+	**``api/query.refuse_unreadable``'s rule, asked under the name the API gives the value**, so
+	a NUL in ``assignee`` is refused in one sentence on both transports: here it was *There is no
+	account called ...* on SQLite and the driver's own refusal on PostgreSQL. Pairs rather than a
+	mapping, because a filter may be given twice, and the API asks each.
+	"""
+
+	for field, value in named:
+		if isinstance(value, str):
+			subroutine.domain.text.readable(value, field=field)
 
 
 def _owner_names (
@@ -335,6 +350,8 @@ class Client:
 	) -> subroutine.views.Agenda:
 		"""Return the agenda's buckets, across every workspace this credential reaches."""
 
+		_named_readably([("project", project)])
+
 		with self._opened() as (session, actor):
 			# **Refused here rather than resolved against a guess** (`#1215`). The endpoint
 			# refuses the same pair for the same reason, and both have to: a project key is per
@@ -462,6 +479,12 @@ class Client:
 		filters: subroutine.domain.filtering.Terms | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
+
+		_named_readably([
+			("project", project), ("assignee", assignee), ("claimed_by", claimed_by),
+			("status", status), ("status_category", status_category), ("type", type), ("tag", tag),
+			*(filters or ()),
+		])
 
 		model = subroutine.db.models.work.Task
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
@@ -1314,6 +1337,11 @@ class Client:
 	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
+		_named_readably([
+			("project", project), ("status", status), ("status_category", status_category),
+			("type", type), ("tag", tag), *(filters or ()),
+		])
+
 		model = subroutine.db.models.work.Document
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
 
@@ -2015,6 +2043,8 @@ class Client:
 		prevent.
 		"""
 
+		_named_readably([("actor", by)])
+
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
 
 		with self._opened() as (session, actor):
@@ -2088,6 +2118,8 @@ class Client:
 		Spans every readable workspace unless one is named, which is what makes "what did I
 		miss" answerable in one call by somebody working across two.
 		"""
+
+		_named_readably([("actor", by)])
 
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
 
@@ -2168,6 +2200,8 @@ class Client:
 		order: str | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
+
+		_named_readably([("parent", parent)])
 
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
 		model = subroutine.db.models.project.Project
@@ -3718,10 +3752,11 @@ class Client:
 
 		# **An explicit None for a field that cannot be emptied is not given** (`#3936`), which is
 		# what the API has always read it as: a PATCH carrying ``"project": null`` changes nothing,
-		# where here it moved the item to the Inbox and ``type=None`` was refused.
-		title, status, type, project = (
-			subroutine.clients.base.UNSET if one is None else one
-			for one in (title, status, type, project)
+		# where here it moved the item to the Inbox and ``type=None`` was refused. **Not a title**
+		# (`#4023`, L-6 (4) of the cold review of 2026-09-30): the API refuses ``"title": null`` as a
+		# missing title, and the service here gives the same refusal when it is handed one.
+		status, type, project = (
+			subroutine.clients.base.UNSET if one is None else one for one in (status, type, project)
 		)
 
 		# `status` is `status_key` in the service, and the rest are spelled the same. Built by

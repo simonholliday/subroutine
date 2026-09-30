@@ -32,6 +32,9 @@ upgrade involves.
 - **A credential that may write only in some projects makes and moves projects only into them.**
   One writing only in `web` could make `ops/sub` and move `web` under `ops`, while it was refused
   a task in `ops`.
+- **A name or a filter holding a character no text can hold is refused in one sentence on this
+  machine's own database**, as it is over a connection. It was a missing account on SQLite, and the
+  database driver's own error on PostgreSQL.
 
 ## 0.9.13 — 2026-09-30
 

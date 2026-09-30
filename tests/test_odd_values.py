@@ -410,8 +410,9 @@ def test_an_agent_s_nul_is_not_answered_as_a_missing_instance (
 	assert "set up" not in said, said
 	assert "could not be read" not in said, said
 
-	if world.session.get_bind().dialect.name == "postgresql":
-		assert "NUL" in said, said
+	# **One answer on both backends since `SR#4023`**, the API's own, where PostgreSQL's was the
+	# driver's refusal translated and SQLite's a lookup that found nothing.
+	assert "control character" in said, said
 
 
 class _Refused(Exception):
