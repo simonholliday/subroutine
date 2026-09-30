@@ -5435,6 +5435,11 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	**And a refusal, on a page that reads no agenda** (`SR#3902`): the fallback for a project that
 	has gone acted on a refusal that arrived after the reader had gone to the journal, which keeps
 	the arrangement it was reached from, so neither the ticket nor the arrangement noticed.
+
+	**And the listing, which had no ticket** (`SR#4018`, a4 NEW-1 and L-6 (1) of the cold review of
+	2026-09-30): one project's list, still loading when the reader moved to another's, drew its
+	rows there when they landed, and a refusal landing late said the first project had gone and
+	read the whole workspace under the second's address.
 	"""
 
 	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
@@ -5715,6 +5720,70 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	assert not lands(lambda: bool(held) or "any more" in page.inner_text("body")), (
 		f"a project's agenda refused after the reader had left acted on {page.url}"
 	)
+
+	# **And the listing** (`SR#4018`): subroutine/ui's rows are held until the reader is on websites'
+	# list, then let through - once with rows, once refused.
+	kept: list[typing.Any] = []
+
+	def keeping (route: typing.Any) -> None:
+		"""Keep a listing of subroutine/ui back until the test lets it through."""
+
+		kept.append(route)
+
+	page.route(
+		lambda url: url.split("?")[0].endswith("/v1/tasks") and "project=subroutine%2Fui" in url,
+		keeping,
+	)
+
+	def moved (path: str) -> None:
+		"""Go to ``path`` as Back and Forward do."""
+
+		page.evaluate(
+			"(path) => { history.pushState({}, '', path); "
+			"window.dispatchEvent(new PopStateEvent('popstate')); }",
+			path,
+		)
+
+	for answer in ("rows", "refused"):
+		moved("/projects/subroutine/ui?view=list")
+		_until(page, lambda: bool(kept))
+
+		assert kept, "the list of subroutine/ui was never asked for, so this proves nothing"
+
+		reads.clear()
+		moved("/projects/websites?view=list")
+		_until(page, lambda: any("project=websites" in one for one in listings()))
+		page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
+
+		if answer == "rows":
+			kept.pop().fulfill(
+				status=200,
+				content_type="application/json",
+				body=json.dumps({
+					"items": [_row("w1", ref=97, title="Landed after the reader left")],
+					"page": {"has_more": False, "next_cursor": None, "total": None, "limit": 100},
+				}),
+			)
+
+			assert not lands(lambda: "Landed after the reader left" in page.inner_text("body")), (
+				f"subroutine/ui's list answered late and was drawn at {page.url}"
+			)
+		else:
+			reads.clear()
+			kept.pop().fulfill(
+				status=404,
+				content_type="application/problem+json",
+				body=json.dumps({
+					"type": "about:blank", "title": "Not found", "status": 404, "code": "not_found",
+					"detail": "There is no project 'subroutine/ui' here.",
+					"errors": [{"field": "query.project", "code": "not_found",
+						"message": "No project in projects answers to 'subroutine/ui'.", "hint": None}],
+				}),
+			)
+
+			assert not lands(lambda: "any more" in page.inner_text("body") or bool(listings())), (
+				f"subroutine/ui's list refused after the reader had left acted on {page.url}: {reads}"
+			)
 
 	page.close()
 

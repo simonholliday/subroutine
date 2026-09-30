@@ -585,8 +585,34 @@ export function App () {
 		setTheirs(answered.assigned_elsewhere_total || 0);
 	}, []);
 
+	/*
+		**Which listing read is the latest** - `#4018`, a4 NEW-1 and L-6 (1) of the cold review of
+		2026-09-30: `readAgenda`'s ticket, given to the listing. Moving from one project's list to
+		another's while the first was still being read drew the first project's rows under the
+		second's address when they landed, and on a quiet workspace they stayed until the reader
+		moved again; a refusal landing late said the first project had gone, on the second's page,
+		and read the whole workspace there. **A poll or a refresh that starts while *Show more* is in
+		flight drops the page it appended**, and the next click asks for it again.
+	*/
+	const listingAsked = useRef(0);
+
 	const load = useCallback(async (slug, key = null, after = null, columns = null) => {
 		if (!slug) return;
+
+		listingAsked.current += 1;
+
+		const ticket = listingAsked.current;
+		/* **Acted on only while it is still wanted**, as an agenda read is: the answer to the latest
+		   read, on a page still arranged as a listing and not an area or a journal, whose address
+		   names the project asked for - or names no place, as `/` does when a list is shown there. */
+		const current = () => {
+			const place = parseAddress(window.location.pathname);
+
+			return ticket === listingAsked.current
+				&& areaOf(window.location.pathname) === null
+				&& (shown.current.view || DEFAULT_VIEW) !== AGENDA_VIEW
+				&& (place === null || (place.project || null) === (key || null));
+		};
 
 		/*
 			**The selection is read from the ref, not from state and not from an argument** —
@@ -620,6 +646,9 @@ export function App () {
 			   forgiven by `forgiven`, which is pure and checked, where `Promise.all` threw on it. */
 			answers = forgiven(await Promise.allSettled(wanted.map(sent)));
 		} catch (failure) {
+			/* **A refusal is asked the same question first** (`#4018`), as `readAgenda` asks it. */
+			if (!current()) return;
+
 			/*
 				**A project named in an address may not be there any more, and that is the case
 				this whole design exists for.** `sr` became `subroutine` on 2026-08-08 across
@@ -649,6 +678,8 @@ export function App () {
 		/* **Whichever shape arrived** (`#1790`) — `unpacked` is pure and driven, so the rule
 		   for reading a grouped answer is not a branch buried in this callback. */
 		const { rows: fetched, cut, more: left, unread: unreadable } = unpacked(answers, wanted);
+
+		if (!current()) return;
 
 		/*
 			**What the list becomes is `accumulated`, which is pure and driven** (`#660`, `#706`).

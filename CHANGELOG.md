@@ -26,6 +26,9 @@ upgrade involves.
 - **A line with two repeats keeps both in its title, and says a line takes one.** *Gym every monday
   every friday* repeated on Mondays with *every friday* gone and nothing said, and *every monday
   and every friday* lost the repeat and its second day together.
+- **The browser no longer draws one project's list on another's page.** A list still loading when
+  the reader moved on replaced the rows of the page they had moved to, and a refusal arriving late
+  said the first project had gone and showed the whole workspace there.
 
 ## 0.9.13 — 2026-09-30
 
