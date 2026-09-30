@@ -4121,8 +4121,10 @@ def test_the_agent_create_hint_names_whoever_may_run_it (
 	said: dict[str, str] = {}
 
 	for person in (setup.user, member):
+		# **Not pinned** (`SR#4006`): a token pinned to one workspace makes no accounts, so a pinned
+		# founder was never one who may run `agent create`, and this asserted that it was.
 		_row, issued = subroutine.domain.authentication.issue_token(
-			session, user=person, title="whoami", workspace_id=setup.workspace.id
+			session, user=person, title="whoami"
 		)
 		session.flush()
 
@@ -4181,8 +4183,10 @@ def test_here_is_offered_only_where_it_reaches_the_callers_tools (
 	setup = subroutine.domain.bootstrap.initialise(
 		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
 	)
+	# **Not pinned** (`SR#4006`): a token pinned to one workspace makes no accounts, so the
+	# founder the hint is offered to has to hold one that may.
 	_row, issued = subroutine.domain.authentication.issue_token(
-		session, user=setup.user, title="whoami", workspace_id=setup.workspace.id
+		session, user=setup.user, title="whoami"
 	)
 	session.flush()
 
@@ -4233,8 +4237,10 @@ def test_the_here_hint_says_it_cannot_reach_subroutine_remotes_tools (
 	setup = subroutine.domain.bootstrap.initialise(
 		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
 	)
+	# **Not pinned** (`SR#4006`): a token pinned to one workspace makes no accounts, so the
+	# founder the hint is offered to has to hold one that may.
 	_row, issued = subroutine.domain.authentication.issue_token(
-		session, user=setup.user, title="whoami", workspace_id=setup.workspace.id
+		session, user=setup.user, title="whoami"
 	)
 	session.flush()
 

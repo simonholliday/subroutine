@@ -15,6 +15,7 @@ import uuid
 
 import fastapi
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
@@ -226,6 +227,51 @@ def test_issuing_for_somebody_else_needs_the_authority_to_create_them (world: Wo
 
 	assert allowed.status_code == 201
 	assert allowed.json()["username"] == world.member.username
+
+
+def test_a_pinned_credential_cannot_mint_one_in_a_colleagues_name (world: World) -> None:
+	"""`SR#4006`, M-9 of the cold review of 2026-09-30: the pin was escaped sideways.
+
+	A superuser's token pinned to one workspace minted a credential for a colleague, pinned to the
+	same workspace, which then filed work as that colleague. **Refused**, as issuing for somebody
+	else is an act on the installation, and nothing was issued.
+	"""
+
+	identity = subroutine.db.models.identity
+	workspace_id = world.session.scalars(
+		sqlalchemy.select(identity.WorkspaceMember.workspace_id).where(
+			identity.WorkspaceMember.user_id == world.founder.id
+		)
+	).one()
+	slug = world.session.get_one(identity.Workspace, workspace_id).slug
+	_row, pinned = subroutine.domain.authentication.issue_token(
+		world.session, user=world.founder, title="pinned", workspace_id=workspace_id
+	)
+	world.session.flush()
+
+	before = world.session.scalars(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(identity.ApiToken).where(
+			identity.ApiToken.user_id == world.member.id
+		)
+	).one()
+
+	refused = api_support.call(
+		world.application,
+		"POST",
+		"/v1/tokens",
+		headers={"authorization": f"Bearer {pinned.value.get_secret_value()}"},
+		# **Pinned to the same workspace**, so the new credential is no wider than the one issuing
+		# it: an unpinned one is refused by the widening rule, which is not the rule this tests.
+		json={"title": "Thomas's laptop", "username": world.member.username, "workspace": slug},
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert "pinned to" in refused.json()["detail"], refused.json()
+	assert world.session.scalars(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(identity.ApiToken).where(
+			identity.ApiToken.user_id == world.member.id
+		)
+	).one() == before
 
 
 def test_no_credential_is_issued_for_an_account_that_could_not_use_it (world: World) -> None:

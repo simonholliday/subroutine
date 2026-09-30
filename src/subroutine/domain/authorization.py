@@ -55,6 +55,7 @@ class AuthorizationFailure(enum.StrEnum):
 	OUT_OF_PROJECT_SCOPE = "out_of_project_scope"
 	OUT_OF_PROJECT_WRITE_SCOPE = "out_of_project_write_scope"
 	NARROWED_TO_PROJECTS = "narrowed_to_projects"
+	PINNED_TO_A_WORKSPACE = "pinned_to_a_workspace"
 	PROJECT_INVISIBLE = "project_invisible"
 	NOT_A_SUPERUSER = "not_a_superuser"
 
@@ -105,6 +106,10 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 		"This affects the whole installation, and needs the {permission} permission. "
 		"Only an administrator of this instance holds it."
 	),
+	AuthorizationFailure.PINNED_TO_A_WORKSPACE: (
+		"This needs the {permission} permission, and acts on the whole installation, beyond the "
+		"one workspace the token you used is pinned to."
+	),
 }
 
 _HINTS: dict[AuthorizationFailure, str] = {
@@ -115,6 +120,7 @@ _HINTS: dict[AuthorizationFailure, str] = {
 		"Use a token issued without a workspace, or one issued for this workspace."
 	),
 	AuthorizationFailure.NARROWED_TO_PROJECTS: "Use a token that is not narrowed to projects.",
+	AuthorizationFailure.PINNED_TO_A_WORKSPACE: "Use a token issued without a workspace.",
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"Ask whoever runs this instance to do it, or to make your account an administrator."
 	),
@@ -481,6 +487,14 @@ def _instance_refusal (
 	# and sign-ins (`#3883` M-4). Everything that acts on the installation asks here.
 	if narrowed_to_projects(principal):
 		return AuthorizationFailure.NARROWED_TO_PROJECTS
+
+	# **Nor a pin to one workspace** (`#4006`, M-9 of the cold review of 2026-09-30, the half of
+	# `#3883` M-4 the narrowing above left). :func:`reaches_the_whole_installation` already said a
+	# pinned credential may not be asked about the installation, and nothing here asked it: a
+	# superuser's token pinned to one workspace listed and revoked a colleague's credentials, made
+	# a superuser, and minted a credential in a colleague's name and then acted as them.
+	if not reaches_the_whole_installation(principal):
+		return AuthorizationFailure.PINNED_TO_A_WORKSPACE
 
 	return None
 

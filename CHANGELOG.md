@@ -236,6 +236,9 @@ upgrade involves.
   made all-day for itself alone, where it was put at midnight.
 - **A whole-day series moved into a zone more than twelve hours away lands on the day given**,
   where it landed a day early and could make its next occurrence on the same day.
+- **A credential pinned to one workspace administers nothing on the installation**, a
+  superuser's included: it listed and revoked colleagues' credentials, made accounts, and could
+  make a credential in a colleague's name.
 
 ## 0.9.12 — 2026-09-29
 

@@ -1085,6 +1085,39 @@ def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
 	)
 
 
+def test_a_superusers_credential_pinned_to_a_workspace_administers_nothing_on_the_installation (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4006`, M-9 of the cold review of 2026-09-30: the other half of `#3883` M-4.
+
+	The refusal for a credential narrowed to projects never asked about a pin, so a superuser's
+	token pinned to one workspace was offered every instance permission and used them. **Refused
+	for every one, by its own reason**, while the same superuser's unpinned token still holds them.
+	"""
+
+	workspace = _seeded_workspace(session)
+	superuser = subroutine.domain.authentication.Principal(
+		user=_user(session, is_superuser=True)
+	)
+	pinned = _with_token(session, superuser, workspace_id=workspace.id)
+	unpinned = _with_token(session, superuser)
+
+	assert subroutine.domain.authorization.instance_permissions(pinned) == frozenset()
+	assert subroutine.domain.authorization.instance_permissions(unpinned) == frozenset(
+		subroutine.permissions.INSTANCE_LEVEL
+	)
+
+	for verb in sorted(subroutine.permissions.INSTANCE_LEVEL):
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError) as raised:
+			subroutine.domain.authorization.authorize_instance(pinned, verb)
+
+		assert (
+			raised.value.failure
+			is subroutine.domain.authorization.AuthorizationFailure.PINNED_TO_A_WORKSPACE
+		), verb
+		assert "pinned to" in raised.value.detail, raised.value.detail
+
+
 @pytest.mark.parametrize("narrowing", ["project_scope", "project_write_scope"])
 def test_a_superusers_credential_narrowed_to_projects_administers_nothing_on_the_installation (
 	session: sqlalchemy.orm.Session, narrowing: str
