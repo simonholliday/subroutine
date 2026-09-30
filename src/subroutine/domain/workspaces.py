@@ -18,6 +18,7 @@ import subroutine.db.models.project
 import subroutine.db.models.saved
 import subroutine.db.seed
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.dates
@@ -713,6 +714,7 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	workspace: subroutine.db.models.identity.Workspace,
 	*roles: subroutine.db.models.identity.Role,
 	actor: subroutine.domain.authentication.Principal | None,
+	making: subroutine.db.models.identity.Role | None = None,
 ) -> None:
 	"""Refuse making, demoting or removing an owner unless an owner asks - decision `#3808`.
 
@@ -725,14 +727,17 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 
 	**Asked by the permission, not by the role's key**, since a workspace's roles are its own to
 	rename and a key would stop naming its owners the day it did.
+
+	**Unless no owner can act, when an administrator may make one** (`#4004`, decision `#3808` as
+	revised on 2026-09-30). The only owner could demote or remove themselves while an administrator
+	remained, or be deactivated, and then nobody in the workspace could make an owner or delete it.
+	``making`` is the role being granted, so demoting and removing an owner stay an owner's.
 	"""
 
 	if actor is None:
 		return
 
-	if not any(
-		subroutine.permissions.WORKSPACE_DELETE in (role.permissions or []) for role in roles
-	):
+	if not any(_deletes(role) for role in roles):
 		return
 
 	if subroutine.domain.authorization.may(
@@ -740,9 +745,51 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	):
 		return
 
+	taking = [role for role in roles if role is not making]
+
+	if (
+		making is not None
+		and _deletes(making)
+		and not any(_deletes(role) for role in taking)
+		and not _an_owner_can_act(session, workspace)
+	):
+		return
+
 	raise subroutine.errors.Forbidden(
 		f"Only an owner of {workspace.slug} makes, demotes or removes an owner.",
 		hint="Ask an owner of this workspace, or whoever runs this instance.",
+	)
+
+
+def _deletes (role: subroutine.db.models.identity.Role) -> bool:
+	"""Report whether a role may delete its workspace, which is what makes it an owner's."""
+
+	return subroutine.permissions.WORKSPACE_DELETE in (role.permissions or [])
+
+
+def _an_owner_can_act (
+	session: sqlalchemy.orm.Session, workspace: subroutine.db.models.identity.Workspace
+) -> bool:
+	"""Report whether anybody holding an owner's role in a workspace can still act - `#4004`.
+
+	By the rule authentication uses, :func:`~subroutine.domain.accountability.can_act`, so an owner
+	who has been deactivated, or an agent whose person has left, is not counted.
+	"""
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+	user = subroutine.db.models.identity.User
+	rows = session.execute(
+		sqlalchemy.select(user, role.permissions)
+		.join(member, member.user_id == user.id)
+		.join(role, role.id == member.role_id)
+		.where(member.workspace_id == workspace.id)
+	).all()
+
+	return any(
+		subroutine.domain.accountability.can_act(session, holder)
+		for holder, permissions in rows
+		if subroutine.permissions.WORKSPACE_DELETE in (permissions or [])
 	)
 
 
@@ -789,7 +836,7 @@ def add_member (
 	_refuse_a_second_membership(session, workspace, user)
 
 	role = find_role(session, workspace.id, role_key)
-	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, role, actor=actor)
+	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, role, actor=actor, making=role)
 
 	membership = subroutine.db.models.identity.WorkspaceMember(
 		workspace_id=workspace.id, user_id=user.id, role_id=role.id
@@ -874,7 +921,9 @@ def set_member_role (
 		return found
 
 	# **Both ends**: making somebody owner, and moving an owner to anything else (`#3813`).
-	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, held, wanted, actor=actor)
+	_refuse_an_owner_to_anybody_but_an_owner(
+		session, workspace, held, wanted, actor=actor, making=wanted
+	)
 
 	# **The guard is reached from here too, and it was written for removals only** — a
 	# demotion strands a workspace exactly as a removal does, by a different verb, and the

@@ -1312,6 +1312,65 @@ def test_only_an_owner_makes_demotes_or_removes_an_owner (
 	workspaces.remove_member(session, workspace, hugo, actor=administering)
 
 
+@pytest.mark.parametrize("gone", ["demoted", "removed", "deactivated"])
+def test_an_administrator_makes_an_owner_where_no_owner_can_act (
+	session: sqlalchemy.orm.Session, gone: str
+) -> None:
+	"""`SR#4004`, M-7 of the cold review of 2026-09-30, and decision `#3808` as revised.
+
+	The only owner could demote or remove themselves while an administrator remained, or be
+	deactivated, and then every member was refused making an owner and nobody could delete the
+	workspace. **An administrator may make an owner once no owner can act**, themselves or
+	anybody else, and not before.
+	"""
+
+	workspace, keanu, carrie_anne, hugo = _metacortex(session)
+	administering = subroutine.domain.authentication.Principal(user=carrie_anne)
+	workspaces = subroutine.domain.workspaces
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		workspaces.set_member_role(
+			session, workspace, carrie_anne, role_key="owner", actor=administering
+		)
+
+	owning = subroutine.domain.authentication.Principal(user=keanu)
+
+	if gone == "demoted":
+		workspaces.set_member_role(session, workspace, keanu, role_key="member", actor=owning)
+
+	elif gone == "removed":
+		workspaces.remove_member(session, workspace, keanu, actor=owning)
+
+	else:
+		keanu.is_active = False
+
+	session.flush()
+
+	workspaces.set_member_role(session, workspace, carrie_anne, role_key="owner", actor=administering)
+	session.flush()
+
+	roles = {
+		holder.username: held.key
+		for _found, holder, held in workspaces.members(session, workspace)
+	}
+
+	assert roles["carrie-anne"] == "owner", roles
+
+	# **And with an owner able to act again, the rule is back**: the new owner's colleague, an
+	# administrator, may not make a second one.
+	workspaces.set_member_role(session, workspace, hugo, role_key="admin", actor=administering)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		workspaces.set_member_role(
+			session,
+			workspace,
+			hugo,
+			role_key="owner",
+			actor=subroutine.domain.authentication.Principal(user=hugo),
+		)
+
+
 def test_an_owner_or_the_operator_makes_and_removes_owners (
 	session: sqlalchemy.orm.Session,
 ) -> None:

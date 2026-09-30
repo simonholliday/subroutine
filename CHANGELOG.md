@@ -239,6 +239,9 @@ upgrade involves.
 - **A credential pinned to one workspace administers nothing on the installation**, a
   superuser's included: it listed and revoked colleagues' credentials, made accounts, and could
   make a credential in a colleague's name.
+- **An administrator may make an owner where no owner can still act**, so a workspace whose only
+  owner stepped down, left or was deactivated can be put right from inside it. While an owner can
+  act, only an owner makes one.
 
 ## 0.9.12 — 2026-09-29
 
