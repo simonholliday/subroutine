@@ -66,7 +66,13 @@ def _instance (path: pathlib.Path, slug: str, username: str) -> str:
 
 
 def _add (
-	url: str, *, title: str, ref: int, project: str = "inbox", description: str | None = None
+	url: str,
+	*,
+	title: str,
+	ref: int,
+	project: str = "inbox",
+	description: str | None = None,
+	project_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
 	"""Write one task straight into an instance, with a ref of our choosing."""
 
@@ -80,7 +86,8 @@ def _add (
 				sqlalchemy.select(tables["workspace"].c.id)
 			).scalar_one()
 			user: uuid.UUID = connection.execute(sqlalchemy.select(tables["user"].c.id)).scalar_one()
-			filed: uuid.UUID = connection.execute(
+			# By id where a key would name two (`SR#4029`).
+			filed: uuid.UUID = project_id or connection.execute(
 				sqlalchemy.select(tables["project"].c.id).where(
 					tables["project"].c.key == project
 				)
@@ -441,6 +448,28 @@ def test_a_key_the_target_holds_twice_stops_the_run (tmp_path: pathlib.Path) -> 
 		merge_instance.merge(source, target, "ours", projects={}, users={}, commit=True)
 
 	assert "more than once" in str(refused.value) and "notes" in str(refused.value), refused.value
+
+
+def test_two_of_the_source_s_projects_under_one_key_stop_the_run (tmp_path: pathlib.Path) -> None:
+	"""`SR#4029`, L-9 (2) of the cold review of 2026-09-30: the source was read by leaf key.
+
+	``clienta/web`` and ``clientb/web`` both mapped onto the target's one ``web``, silently, and
+	``--project`` could not tell them apart. **Refused, naming the key**, as the target side is.
+	"""
+
+	source = _instance(tmp_path / "theirs.db", "theirs", "oli")
+	target = _instance(tmp_path / "ours.db", "ours", "oli")
+
+	for number, parent in enumerate(("clienta", "clientb"), start=1):
+		web = _project(source, "web", parent=_project(source, parent))
+		_add(source, title=f"Fix the header for {parent}", ref=number, project_id=web)
+
+	_project(target, "web")
+
+	with pytest.raises(merge_instance.Refused) as refused:
+		merge_instance.merge(source, target, "ours", projects={}, users={}, commit=True)
+
+	assert "more than one of the source's" in str(refused.value) and "web" in str(refused.value)
 
 
 def test_a_word_the_target_has_not_agreed_stops_the_run (tmp_path: pathlib.Path) -> None:

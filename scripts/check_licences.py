@@ -59,10 +59,36 @@ DENIED = (
 	"sleepycat",
 )
 
-#: Packages whose metadata says nothing useful, with the licence established by reading
-#: their repository. A line here is a decision somebody made and can be checked; silence
-#: is not. Remove an entry when the package starts declaring its licence properly.
-ACKNOWLEDGED: dict[str, str] = {}
+#: **What is allowed, by the exact string a package declares** (`#4029`, L-9 (3) of the cold
+#: review of 2026-09-30). The gate was a deny-list, so ``GPL``, ``GNU GPL``, ``BUSL-1.1``,
+#: ``SSPL-1.0`` and *Commercial* each read as permissive, since no fragment matched them; under
+#: the FSL a copyleft dependency makes distributing unlawful, so the default has to be *not
+#: known*. Anything else goes to the unknown bucket, which fails the gate until somebody reads it.
+PERMITTED = frozenset(
+	{
+		"apache-2.0",
+		"apache software license",
+		"bsd license",
+		"bsd-2-clause",
+		"bsd-3-clause",
+		"isc license",
+		"isc license (iscl)",
+		"mit",
+		"mit license",
+		"mit-0",
+		"psf-2.0",
+	}
+)
+
+#: Packages whose metadata says nothing this can read - no licence, or one not on the list above -
+#: with the licence established by reading their repository. A line here is a decision somebody
+#: made and can be checked; silence is not. Remove an entry when the package starts declaring
+#: its licence in words the list knows.
+ACKNOWLEDGED: dict[str, str] = {
+	"python-dateutil": (
+		"Apache-2.0 and BSD-3-Clause, dual licensed; 'Dual License' is its word for the pair"
+	),
+}
 
 
 def main () -> int:
@@ -101,26 +127,28 @@ def main () -> int:
 		elif verdict == "flagged":
 			flagged.append(f"{name} ({shown})")
 
-		elif not licences:
+		elif verdict == "unknown":
 			acknowledged = ACKNOWLEDGED.get(packaging.utils.canonicalize_name(name))
 
 			if acknowledged is None:
-				unknown.append(name)
+				unknown.append(f"{name} ({shown})")
 
 	return _report(denied=denied, flagged=flagged, unknown=unknown)
 
 
 def _classify (licences: list[str]) -> str:
-	"""Return ``"denied"``, ``"flagged"`` or ``"permissive"`` for one package's licences.
+	"""Return ``"denied"``, ``"unknown"``, ``"flagged"`` or ``"permissive"`` for one package.
 
 	Each declared string is judged on its own and the worst verdict wins. Judging a joined
 	blob instead is what made "LGPL-3.0-only" read as GPL-3 on this script's first run.
+	**Permissive only by :data:`PERMITTED`** (`#4029`): a string no list knows is unknown, and so
+	is a package that declares nothing.
 	"""
 
-	verdicts = set()
+	verdicts = set() if licences else {"unknown"}
 
 	for licence in licences:
-		lowered = licence.lower()
+		lowered = licence.strip().lower()
 
 		# Weak copyleft first: every LGPL spelling contains a GPL spelling inside it.
 		if any(term in lowered for term in FLAGGED):
@@ -129,11 +157,12 @@ def _classify (licences: list[str]) -> str:
 		elif any(term in lowered for term in DENIED):
 			verdicts.add("denied")
 
-	if "denied" in verdicts:
-		return "denied"
+		elif lowered not in PERMITTED:
+			verdicts.add("unknown")
 
-	if "flagged" in verdicts:
-		return "flagged"
+	for worst in ("denied", "unknown", "flagged"):
+		if worst in verdicts:
+			return worst
 
 	return "permissive"
 
@@ -155,7 +184,7 @@ def _report (*, denied: list[str], flagged: list[str], unknown: list[str]) -> in
 		)
 
 	if unknown:
-		print("\nNo licence in the package metadata — check these by hand:")
+		print("\nNo licence this knows in the package metadata — check these by hand:")
 
 		for entry in unknown:
 			print(f"  {entry}")

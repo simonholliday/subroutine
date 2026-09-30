@@ -432,6 +432,19 @@ def _project_map (
 	):
 		ours_by_key[row.key].append(row.id)
 
+	# **Nor two of the source's own under one key** (`#4029`, L-9 (2) of the cold review of
+	# 2026-09-30). The source is read by leaf key, and so is ``--project``, so ``clienta/web`` and
+	# ``clientb/web`` both landed in the target's one ``web``, silently, and nothing on the command
+	# line could tell them apart. Refused, as two of the target's are.
+	sharing = collections.Counter(theirs_by_id[one] for one in used if one in theirs_by_id)
+	doubled = sorted(key for key, count in sharing.items() if count > 1)
+
+	if doubled:
+		raise Refused(
+			f"these keys each name more than one of the source's projects that hold items: "
+			f"{', '.join(doubled)}. Rename one of each in the source, so a key names one project."
+		)
+
 	mapped: dict[uuid.UUID, uuid.UUID] = {}
 	missing: list[str] = []
 	ambiguous: list[str] = []

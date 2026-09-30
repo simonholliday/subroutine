@@ -1032,6 +1032,90 @@ def test_a_backup_directory_round_a_loop_is_outside_the_data_directory (
 	assert _outcomes(printed, "backups") == ["SKIPPED"], printed
 
 
+def test_a_shim_under_a_home_reached_through_a_link_is_still_ours (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#4029`, L-9 (1) of the cold review of 2026-09-30: a symlinked home made our shim a stranger's.
+
+	The shim's target was read through every link and the uv tree beside it was not, so under a
+	home that is a link the shim was skipped as *not installed by this tool* while the tree it
+	pointed into was removed, leaving it dangling. **Compared once followed.**
+	"""
+
+	real = tmp_path / "real"
+	real.mkdir()
+	home = tmp_path / "home"
+	home.symlink_to(real)
+
+	for variable, parts in (
+		("XDG_CONFIG_HOME", (".config",)),
+		("XDG_STATE_HOME", (".local", "state")),
+		("XDG_DATA_HOME", (".local", "share")),
+	):
+		monkeypatch.setenv(variable, str(home.joinpath(*parts)))
+
+	name = subroutine.config.APPLICATION_NAME
+	tools = home / ".local" / "share" / "uv" / "tools" / name / "bin"
+	tools.mkdir(parents=True)
+	(tools / name).write_text("#!/bin/sh\n", encoding="utf-8")
+	binaries = home / ".local" / "bin"
+	binaries.mkdir(parents=True)
+	(binaries / name).symlink_to(tools / name)
+
+	deep_clean.main(["--yes"], home=home)
+
+	assert not (binaries / name).is_symlink(), capsys.readouterr().out
+
+
+def test_uv_s_own_directories_are_read_from_the_environment_on_the_real_machine_only (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4029`, a5 NEW-2: uv honours ``UV_TOOL_DIR`` and ``UV_TOOL_BIN_DIR``, and this did not.
+
+	So with either set, the shims were called strangers and the tool tree was missed. **Read where
+	this is the real machine**, and never for a scratch home, which must not reach outside itself.
+	"""
+
+	monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path / "uv-tools"))
+	monkeypatch.setenv("UV_TOOL_BIN_DIR", str(tmp_path / "uv-bin"))
+	monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda _cls: tmp_path))
+
+	assert deep_clean.uv_tools(tmp_path) == tmp_path / "uv-tools"
+	assert tmp_path / "uv-bin" in deep_clean.places(tmp_path)
+
+	elsewhere = tmp_path / "scratch"
+
+	assert deep_clean.uv_tools(elsewhere) == elsewhere / ".local" / "share" / "uv" / "tools"
+	assert tmp_path / "uv-bin" not in deep_clean.places(elsewhere)
+
+
+def test_a_data_directory_that_is_a_link_is_removed_as_one_and_said_so (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#4029`, L-9 (1) of the cold review of 2026-09-30: the database was said to be gone.
+
+	Removing a link takes the link, and the database's line, read through the missing link, said the
+	database had gone while it sat untouched where the link had led. **The link is removed, the
+	target is named as left, and the database's line says where it still is.**
+	"""
+
+	made = _installed()
+	data = subroutine.config.data_home()
+	moved = tmp_path / "elsewhere" / "data"
+	moved.parent.mkdir(parents=True)
+	data.rename(moved)
+	data.symlink_to(moved)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+
+	printed = capsys.readouterr().out
+
+	assert not data.is_symlink() and not data.exists(), "the link was left"
+	assert (moved / made["database"].name).exists(), "what the link led to was removed"
+	assert _outcomes(printed, "database") == ["SKIPPED"], printed
+	assert f"rm -rf {shlex.quote(str(moved))}" in printed, printed
+
+
 def test_the_names_a_clean_looks_for_come_from_the_package () -> None:
 	"""Derived rather than listed, so a third console script is covered on the day it ships.
 

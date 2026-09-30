@@ -227,7 +227,42 @@ def places (home: pathlib.Path) -> list[pathlib.Path]:
 	if home != pathlib.Path.home():
 		return inside
 
-	return [*inside, pathlib.Path("/usr/local/bin")]
+	# **And where uv puts its shims when the environment says** (`#4029`, a5 NEW-2 of the
+	# verification of the cold review of 2026-09-30), read only here, where there is no isolation.
+	named = [
+		pathlib.Path(value).expanduser()
+		for value in (
+			os.environ.get("UV_TOOL_BIN_DIR", "").strip(),
+			os.environ.get("XDG_BIN_HOME", "").strip(),
+		)
+		if value
+	]
+
+	return list(dict.fromkeys([*named, *inside, pathlib.Path("/usr/local/bin")]))
+
+
+def uv_tools (home: pathlib.Path) -> pathlib.Path:
+	"""Return the tree uv installs tools into, for this home - `#4029`.
+
+	a5 NEW-2 of the verification of the cold review of 2026-09-30: uv honours ``UV_TOOL_DIR`` and
+	``XDG_DATA_HOME``, and this looked only at ``~/.local/share/uv/tools``, so with either set the
+	shims were called strangers and the tree was missed. **The environment is read only when
+	this is the real machine**, for :func:`places`' reason: a run pointed at a scratch home must
+	not reach outside it.
+	"""
+
+	if home == pathlib.Path.home():
+		named = os.environ.get("UV_TOOL_DIR", "").strip()
+
+		if named:
+			return pathlib.Path(named).expanduser()
+
+		data = os.environ.get("XDG_DATA_HOME", "").strip()
+
+		if data:
+			return pathlib.Path(data).expanduser() / "uv" / "tools"
+
+	return home / ".local" / "share" / "uv" / "tools"
 
 
 def installed_names () -> list[str]:
@@ -365,10 +400,14 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 
 	name = subroutine.config.APPLICATION_NAME
 	steps: list[Step] = []
-	tools = home / ".local" / "share" / "uv" / "tools" / name
+	tools = uv_tools(home) / name
+	# **Compared once followed** (`#4029`, L-9 (1) of the cold review of 2026-09-30), as a shim's
+	# target already is: under a symlinked home the target was read through every link and this tree
+	# was not, so the shim was called a stranger's while the tree behind it was still removed.
+	reached = _followed(tools) or tools
 
 	for directory in places(home):
-		for binary in _candidates(directory, names=installed_names(), tools=tools):
+		for binary in _candidates(directory, names=installed_names(), tools=reached):
 			if not binary.exists() and not binary.is_symlink():
 				continue
 
@@ -385,7 +424,7 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 
 				continue
 
-			if tools in target.parents or (target == binary and _a_script_of_ours(binary)):
+			if reached in target.parents or (target == binary and _a_script_of_ours(binary)):
 				steps.append(_remove(binary, kind="executable", dry_run=dry_run))
 
 				continue
@@ -591,7 +630,9 @@ def _things_nobody_else_may_decide (
 					"drop it yourself if it was only for this install"
 				),
 			))
-		elif url and settings.sqlite_path != default:
+		# **Compared once followed** (`#4029`, a5 NEW-3), as the backup directory is below: the
+		# default file named through a link was called one somewhere this tool did not put it.
+		elif url and _followed(settings.sqlite_path) != _followed(default):
 			steps.append(Step(
 				"database",
 				url,
@@ -874,24 +915,44 @@ def main (
 	# reads most carefully. One root, two readers.
 	database = dict(roots)["data"] / f"{subroutine.config.APPLICATION_NAME}.db"
 	size = database.stat().st_size if database.exists() else None
+	# **Where each root that is a link leads, read before anything goes** (`#4029`, L-9 (1) of the
+	# cold review of 2026-09-30). Removing a link takes the link and leaves what it pointed at, and
+	# the database's line, read through the missing link afterwards, said it had gone.
+	linked = {kind: _followed(path) for kind, path in roots if path.is_symlink()}
+	held = _followed(database) or database
 	removals = [_remove(path, kind=kind, dry_run=options.dry_run) for kind, path in roots]
+
+	for kind, target in linked.items():
+		if target is not None:
+			removals.append(Step(
+				kind,
+				str(target),
+				"SKIPPED",
+				detail="where the link to it led; only the link is removed",
+				by_hand=f"rm -rf {shlex.quote(str(target))}",
+			))
 
 	# **Said from what is left, once the data directory has been tried** (`#3940`). It was said as
 	# removed before anything was, so a data directory that could not be removed was reported as
 	# FAILED under a line saying the database in it had gone.
 	if size is not None:
-		gone = options.dry_run or not database.exists()
+		through_a_link = "data" in linked
+		gone = not through_a_link and (options.dry_run or not held.exists())
 
 		steps.append(Step(
 			"database",
-			str(database),
-			("would remove" if options.dry_run else "removed") if gone else "FAILED",
+			str(held),
+			("would remove" if options.dry_run else "removed")
+			if gone
+			else ("SKIPPED" if through_a_link else "FAILED"),
 			detail=(
 				f"{size:,} bytes, with the data directory below"
 				if gone
+				else f"{size:,} bytes, left where the link to the data directory led"
+				if through_a_link
 				else "still there, since the data directory below could not be removed"
 			),
-			by_hand="" if gone else f"rm {shlex.quote(str(database))}",
+			by_hand="" if gone else f"rm {shlex.quote(str(held))}",
 		))
 
 	steps.extend(removals)

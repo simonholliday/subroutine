@@ -47,6 +47,38 @@ def test_a_package_that_says_unknown_has_declared_no_licence (
 	assert licences._licences("anything") == []
 
 
+@pytest.mark.parametrize(
+	"declared",
+	[
+		"GPL", "GPL v3", "GNU GPL", "Other/Proprietary License", "Commercial", "BUSL-1.1",
+		"SSPL-1.0", "EUPL-1.2", "OSL-3.0", "CC-BY-SA-4.0",
+	],
+)
+def test_a_licence_nobody_has_allowed_is_never_read_as_permissive (
+	licences: types.ModuleType, declared: str
+) -> None:
+	"""`SR#4029`, L-9 (3) of the cold review of 2026-09-30: the gate was a deny-list.
+
+	Every one of these read as permissive, since no fragment it denied matched. Under the FSL a
+	copyleft dependency makes distributing unlawful, so **what is not on the list is not known**,
+	and the gate fails on it until somebody reads it.
+	"""
+
+	assert licences._classify([declared]) != "permissive", declared
+
+
+def test_the_licences_the_closure_declares_today_are_all_allowed (
+	licences: types.ModuleType,
+) -> None:
+	"""The other side: an allow-list that turned down what ships today would stop every build."""
+
+	for declared in ("MIT", "MIT License", "MIT-0", "BSD-3-Clause", "BSD License", "Apache-2.0"):
+		assert licences._classify([declared]) == "permissive", declared
+
+	assert licences._classify(["LGPL-3.0-only"]) == "flagged"
+	assert licences._classify([]) == "unknown"
+
+
 def test_the_check_refuses_when_this_package_is_not_installed (
 	licences: types.ModuleType,
 	monkeypatch: pytest.MonkeyPatch,
