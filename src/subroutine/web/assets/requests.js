@@ -810,7 +810,12 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		.map((name) => `&${SENT_AS[name] || name}=${encodeURIComponent(asking[name])}`)
 		.join("");
 
-	const rows = sending("task");
+	/*
+		**And events left out, unless the address asks for them** (`#3704`, decision `#3807`), as the
+		terminal's list and the agents' listing leave them. The instance brings them back where the
+		request names them - a type, their category, a search.
+	*/
+	const rows = sending("task") + (asking.events ? "" : "&events=exclude");
 
 	/*
 		**The order goes to both collections, and it is the only part of the selection that
@@ -863,6 +868,38 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 	/* **Tagged with the kind rather than positional**, so a selection reading one collection
 	   cannot have its rows labelled by whichever slot they happened to arrive in. */
 	return collectionsFor(chose).map((kind) => asks[kind]);
+}
+
+//: What arranges a page rather than choosing its rows, so a count of what was left out leaves
+//: it off (`#3704`): the order, the grouping, and the events parameter the count replaces.
+const ARRANGING = ["order", "group_by", "events"];
+
+export function eventsLeftOutRequest (slug, key = null, selection = null) {
+	/*
+		Which events a list or a board left out - `#3704`, decision `#3807`. **Null where the address
+		asked for them**, since nothing was left out.
+
+		**The narrowing and nothing else**, so what is counted is what this selection held back: not
+		the order or the grouping, which arrange a page, and no cursor. `fields=id` because only which
+		rows is asked, and the caller counts those not already on the page - the instance brings events
+		back where the request names them, so an event it listed was never left out.
+	*/
+	const chose = selection || {};
+
+	if (chose.events) return null;
+
+	const narrowed = key ? `&project=${encodeURIComponent(key)}` : "";
+	const rows = Object.keys(SELECTABLE)
+		.filter((name) => !ARRANGING.includes(name))
+		.filter((name) => chose[name] !== undefined && chose[name] !== null)
+		.filter((name) => answers("task", name) === "sent")
+		.map((name) => `&${SENT_AS[name] || name}=${encodeURIComponent(chose[name])}`)
+		.join("");
+
+	return {
+		method: "GET",
+		path: scoped(`/tasks?limit=${PAGE}&fields=id&events=only${narrowed}${rows}`, slug),
+	};
 }
 
 export function commentsRequest (kind, ref, slug, cursor = null) {

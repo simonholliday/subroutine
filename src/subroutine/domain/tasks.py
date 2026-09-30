@@ -4178,11 +4178,72 @@ def statuses_in_category (
 	)
 
 
+class Categorised (typing.Protocol):
+	"""What :func:`completion_wanted` reads of a status or an item type a request named - `#3704`.
+
+	**Either, since events**: naming an event type brings events back as naming a finished status
+	brings finished work back, so the rule reads a key and a category and nothing else of the row.
+	"""
+
+	@property
+	def key (self) -> str:
+		"""The workspace's own word for it."""
+
+	@property
+	def category (self) -> str:
+		"""The product's fixed word for what kind of thing it is."""
+
+
+def events_kept (
+	choice: str,
+	*,
+	categories: typing.Sequence[str],
+	types_named: typing.Sequence[Categorised],
+	about_activity: bool,
+	about_deletion: bool,
+	searching: bool,
+) -> str:
+	"""Return how a listing treats events: as asked, or all of them where the request names them.
+
+	**Left out where the caller asked for that, and back wherever the request names them** - `#3704`,
+	decision `#3807`: an event type or the ``occasion`` category, as a parameter or in the search
+	line; the trash; or when something was touched. That is :func:`completion_wanted`'s rule for
+	finished work, which the open document listing already reuses (`#3549`), told the occasion is
+	what is left out - so the three cannot answer one question three ways, and nothing is refused.
+
+	**And a search keeps them**, the decision's own exception: a search is for something specific,
+	and an event is a live item rather than finished work. So words to look for bring them back -
+	one item's number among them - which is what lets every surface send ``exclude`` for a list
+	and none has to tell a search from a list first.
+
+	**Here, where both transports ask it**, which is the reason :mod:`subroutine.domain.ordering`
+	exists: a narrowing that gave way on one transport and not the other would answer one request
+	two ways.
+	"""
+
+	if choice != "exclude":
+		return choice
+
+	if searching:
+		return subroutine.domain.readiness.DEFAULT_EVENTS
+
+	wanted = completion_wanted(
+		categories,
+		None,
+		status_named=types_named,
+		about_activity=about_activity,
+		about_deletion=about_deletion,
+		finished=frozenset({subroutine.domain.readiness.OCCASION}),
+	)
+
+	return subroutine.domain.readiness.DEFAULT_EVENTS if wanted else choice
+
+
 def completion_wanted (
 	categories: typing.Sequence[str],
 	asked: bool | None,
 	*,
-	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status] = (),
+	status_named: typing.Sequence[Categorised] = (),
 	about_completion: bool = False,
 	about_activity: bool = False,
 	about_deletion: bool = False,
@@ -4346,7 +4407,7 @@ def completion_wanted (
 
 def _admits_nothing (
 	categories: typing.Sequence[str],
-	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
+	status_named: typing.Sequence[Categorised],
 	about_completion: bool,
 ) -> bool:
 	"""Report whether excluding finished work would leave this request with no rows at all.
@@ -4378,7 +4439,7 @@ def _admits_nothing (
 
 def _asking_for_it (
 	categories: typing.Sequence[str],
-	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
+	status_named: typing.Sequence[Categorised],
 ) -> str:
 	"""Name whichever part of the request asked for finished work.
 
@@ -4412,7 +4473,7 @@ def _asking_for_it (
 
 def _excluding_all_of_it (
 	categories: typing.Sequence[str],
-	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
+	status_named: typing.Sequence[Categorised],
 ) -> str:
 	"""Say what the contradiction was, in the caller's own terms."""
 

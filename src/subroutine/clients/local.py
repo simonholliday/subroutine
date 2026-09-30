@@ -462,6 +462,7 @@ class Client:
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		events: str = subroutine.domain.readiness.DEFAULT_EVENTS,
 		q: str | None = None,
 		parent: int | None = None,
 		subtree: bool = False,
@@ -489,6 +490,7 @@ class Client:
 		model = subroutine.db.models.work.Task
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
 		choice = subroutine.domain.readiness.refuse_unknown_deferral(deferred)
+		occasional = subroutine.domain.readiness.refuse_unknown_events(events)
 
 		# **The written search line, parsed by the domain rather than here** (`#1806`). The
 		# grammar is one implementation on purpose: three clients parsing one language would
@@ -762,11 +764,44 @@ class Client:
 					)
 				)
 
-			if type is not None:
-				statement = statement.where(
-					model.type_id
-					== subroutine.domain.tasks.item_type_for(session, chosen.id, type).id
+			# **Resolved once and read twice**, as `GET /v1/tasks` does (`#3704`): which type to narrow
+			# by, and whether the request names an event type.
+			typed = [
+				subroutine.domain.tasks.item_type_for(session, chosen.id, key)
+				for key in ([] if type is None else [type])
+				+ subroutine.domain.filtering.values_named(
+					terms,
+					entity="task",
+					field=subroutine.domain.filtering.TYPE,
+					only=subroutine.domain.filtering.ASKING_FOR,
 				)
+			]
+
+			if type is not None:
+				statement = statement.where(model.type_id == typed[0].id)
+
+			# **Events, by the rule `GET /v1/tasks` asks the domain** (`#3704`, decision `#3807`).
+			occasions = subroutine.domain.readiness.events(
+				model,
+				choice=subroutine.domain.tasks.events_kept(
+					occasional,
+					categories=subroutine.domain.filtering.values_named(
+						terms,
+						entity="task",
+						field=subroutine.domain.filtering.TYPE_CATEGORY,
+						only=subroutine.domain.filtering.ASKING_FOR,
+					),
+					types_named=typed,
+					about_activity=subroutine.domain.filtering.about(
+						[name for name, _ in terms], subroutine.domain.filtering.TOUCHED_AT
+					),
+					about_deletion=deleted,
+					searching=bool(q),
+				),
+			)
+
+			if occasions is not None:
+				statement = statement.where(occasions)
 
 			# **The same predicate the endpoint applies, from the same function** (`#1319`).
 			# A narrowing written twice is what this module keeps being about, and a tag that

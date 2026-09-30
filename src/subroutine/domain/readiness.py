@@ -1082,6 +1082,60 @@ def refuse_unknown_deferral (choice: str) -> str:
 	return chosen
 
 
+#: What a caller may say about events, and the default - `#3704`, decision `#3807`.
+#:
+#: **The deferral's three words, for the deferral's reasons**: ``only`` is what lets a listing say
+#: how many it left out without a second notion of counting. ``include`` is the default, as the
+#: open listing left ``GET /v1/documents`` alone (`#3549`), so nothing reading the API directly
+#: changes; the list, the board and the agents' listing ask for ``exclude``.
+EVENTS = ("include", "exclude", "only")
+
+DEFAULT_EVENTS = "include"
+
+
+def events (model: type[typing.Any], *, choice: str) -> sqlalchemy.ColumnElement[bool] | None:
+	"""Return the predicate for one of :data:`EVENTS`, or ``None`` to narrow nothing.
+
+	**An event is a type in the occasion category** (decision `#1235`), read by
+	:func:`is_occasion`, which ``--ready`` already uses, so a workspace's own types under it are
+	left out and brought back with the one it was seeded with.
+	"""
+
+	if choice == "exclude":
+		return ~is_occasion(model)
+
+	if choice == "only":
+		return is_occasion(model)
+
+	return None
+
+
+def refuse_unknown_events (choice: str) -> str:
+	"""Return the choice, or refuse with the ones that would have worked - `#3704`.
+
+	Shared by both transports, as :func:`refuse_unknown_deferral` is, so a bad value is refused
+	identically as ``?events=`` or as a flag, and named as the same field.
+	"""
+
+	chosen = choice.strip().lower()
+
+	if chosen not in EVENTS:
+		raise subroutine.errors.ValidationError(
+			f"{choice!r} is not a way to treat events.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="events",
+					code="invalid_field_value",
+					message=f"The choices are: {', '.join(EVENTS)}.",
+					hint="'include' is the default and needs no parameter at all; 'exclude' "
+					"leaves out what happens to you rather than what you do; 'only' lists just that.",
+				)
+			],
+		)
+
+	return chosen
+
+
 def held (
 	model: type[typing.Any], *, now: datetime.datetime
 ) -> sqlalchemy.ColumnElement[bool]:

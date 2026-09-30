@@ -188,6 +188,10 @@ class Listing(list[LISTED]):
 	#: rows alone cannot show, since a superseded document among them reads as one that was asked for.
 	retired_too: bool = False
 
+	#: Whether events are here too, because the instance was asked to leave them out and does not
+	#: know how (`#3704`). ``False`` on every other listing, for :attr:`retired_too`'s reason.
+	events_too: bool = False
+
 	def __init__ (
 		self,
 		rows: typing.Iterable[LISTED] = (),
@@ -435,6 +439,7 @@ class Client(typing.Protocol):
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		events: str = subroutine.domain.readiness.DEFAULT_EVENTS,
 		q: str | None = None,
 		parent: int | None = None,
 		subtree: bool = False,
@@ -493,6 +498,11 @@ class Client(typing.Protocol):
 		caller that says nothing sees what it always saw. ``only`` exists so that a listing
 		hiding deferred work can *say how much* it is hiding, which is the difference between
 		narrowing a list and truncating one in silence.
+
+		``events`` is one of ``domain.readiness.EVENTS`` and defaults to ``include`` too (`#3704`,
+		decision `#3807`). ``exclude`` leaves out what happens to you - a birthday, a payday - and
+		gives way where the request names them; ``only`` is how a listing leaving them out counts
+		them. An instance from before it lists them all, and :attr:`Listing.events_too` says so.
 
 		``q`` is §9.4's free-text match, over the title **and the description**.
 

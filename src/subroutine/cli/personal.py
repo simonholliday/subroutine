@@ -898,6 +898,14 @@ class Listing:
 	#: its answer, which the rows alone cannot show.
 	retired_too: bool = False
 
+	#: How many events this connection's list left out, not counting any it listed after all because
+	#: the request named them (`#3704`, decision `#3807`). Carried for ``parked``'s reason.
+	events: int = 0
+
+	#: Whether this connection listed its events too, because its instance cannot leave them out
+	#: (`#3704`). Carried for ``retired_too``'s reason.
+	events_too: bool = False
+
 
 # These live above every function that annotates with them. A module-level annotation is
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
@@ -3488,6 +3496,7 @@ def _listing (
 	order: str | None = None,
 	project: str | None = None,
 	deferred: bool = False,
+	events: bool = False,
 	q: str | None = None,
 	ready: bool = False,
 	to_act_on: bool = False,
@@ -3548,9 +3557,11 @@ def _listing (
 		cut = False
 
 		parked = 0
+		left_out = 0
 		held_back = 0
 		unread: list[str] = []
 		retired_too = False
+		events_too = False
 
 		# **A project belongs to one workspace, and this asks them all** (`#332`). Until
 		# 2026-08-03 every instance had exactly one, so the loop ran once and could not
@@ -3589,6 +3600,10 @@ def _listing (
 					order=order,
 					project=project,
 					deferred="include" if deferred else "exclude",
+					# **Events left out unless asked for** (`#3704`, decision `#3807`): what happens to you is
+					# not work, and a list holding a year of birthdays is one nobody reads. The instance
+					# brings them back where the request names them, or searches.
+					events="include" if events else "exclude",
 					q=q,
 					ready=ready,
 					to_act_on=to_act_on,
@@ -3673,6 +3688,7 @@ def _listing (
 
 			cut = cut or found_here.has_more
 			held_back += found_here.held_back or 0
+			events_too = events_too or found_here.events_too
 
 			# **Kept in the order first said and never repeated** (`SR#2268`). One line is
 			# asked of tasks and of documents, and of every reachable connection, so the same
@@ -3712,6 +3728,8 @@ def _listing (
 						limit=asked,
 						project=project,
 						deferred="only",
+						# Counted with the events the list left out, and never twice (`#3704`).
+						events="include" if events else "exclude",
 						q=q,
 						assignee=assignee,
 						claimed_by=claimed_by,
@@ -3721,6 +3739,33 @@ def _listing (
 						filters=filters,
 					)
 				)
+			# **And the events it left out, counted as the parked work is** (`#3704`, decision `#3807`),
+			# so a list leaving out a birthday says so. **Those it listed after all are not counted**: the
+			# instance brings events back where the request names them, which this cannot see from here,
+			# so an event on this page is one the reader was shown. Deferred ones too, since the reader's
+			# remedy is `--events`. Not asked of an instance that listed them all (`events_too`), where
+			# `only` would be refused and every one of them is on the page.
+			if not events and answered and not found_here.events_too:
+				shown_here = {found.id for found in found_here}
+				left_out += sum(
+					1
+					for found in client.tasks(
+						workspace=workspace.slug,
+						limit=asked,
+						project=project,
+						events="only",
+						q=q,
+						to_act_on=to_act_on,
+						assignee=assignee,
+						claimed_by=claimed_by,
+						status=status,
+						type=type,
+						tag=tag,
+						filters=filters,
+					)
+					if found.id not in shown_here
+				)
+
 			# **A document has no assignee and cannot be claimed, so a list narrowed to
 			# either is a list of tasks** (§6.14 — a document has an owner rather than a
 			# worker, and nobody works on one). The same argument `ready` makes above:
@@ -3881,6 +3926,8 @@ def _listing (
 			held_back=held_back,
 			unread=tuple(unread),
 			retired_too=retired_too,
+			events=left_out,
+			events_too=events_too,
 		)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
@@ -4570,6 +4617,7 @@ def _listed (
 	project: str | None = None,
 	connection: str | None = None,
 	deferred: bool = False,
+	events: bool = False,
 	q: str | None = None,
 	ready: bool = False,
 	to_act_on: bool = False,
@@ -4599,6 +4647,10 @@ def _listed (
 	# code is the same, the presentation rule is not applied.
 	hiding = not deferred and not json_output
 
+	# **Events, by the same argument** (`#3704`, decision `#3807`): left out of a list somebody
+	# reads, and every row a script asks for, which carries ``type_category`` to choose by.
+	leaving = not events and not json_output
+
 	# **Deferred work sinks to the bottom of a list it is in — `#877`, Simon's decision of
 	# 2026-08-14**: *"deferred items appearing last. That way they are not invisible, but
 	# neither are they confused with non-deferred items in lists."* A leading sort key, so
@@ -4624,6 +4676,7 @@ def _listed (
 			order=sunk,
 			project=project,
 			deferred=not hiding,
+			events=not leaving,
 			q=q,
 			ready=ready,
 			to_act_on=to_act_on,
@@ -4732,6 +4785,16 @@ def _listed (
 				if waiting:
 					_say_held_back(gathered, console=program.console)
 
+				_say_events(gathered, console=program.console, hidden=leaving)
+
+				return
+
+			# **Nor is it nothing when what is left is events** (`#3704`): they happen to you rather than
+			# being done, so there is nothing to do - and the list says what it left out.
+			if leaving and any(answer.value.events for answer in gathered.answers):
+				program.say("Nothing to do.")
+				_say_events(gathered, console=program.console, hidden=True)
+
 				return
 
 			program.say("Nothing on your list.")
@@ -4795,11 +4858,15 @@ def _listed (
 
 		_say_parked(gathered, console=program.console, hidden=hiding)
 
+		_say_events(gathered, console=program.console, hidden=leaving)
+
 		_say_held_back(gathered, console=program.console)
 
 		_say_unread(gathered, console=program.console)
 
 		_say_retired_too(world, gathered, shown, console=program.console)
+
+		_say_events_too(world, gathered, shown, console=program.console)
 
 		_say_where_a_bare_number_goes(world, console=program.console)
 
@@ -5143,6 +5210,14 @@ READY_OPTION = typer.Option(
 TO_ACT_ON_OPTION = typer.Option(
 	False, "--to-act-on", help="Only what is yours to act on - yours, nobody's, or held by you."
 )
+#: **Out here for the same ratchet** (`#3704`): ``--events`` joined ``list``, and ``--trash`` came
+#: out beside it, so the closure is shorter by one line rather than longer by one.
+TRASH_OPTION = typer.Option(
+	False, "--trash", help="Show what you have deleted, instead of the list."
+)
+EVENTS_OPTION = typer.Option(
+	False, "--events", help="Include events - what happens to you, like a birthday, not work."
+)
 
 
 def _only_once (program: Program, flag: str, given: typing.Sequence[str] | None) -> str | None:
@@ -5201,6 +5276,7 @@ def _shown_list (
 	tag: typing.Sequence[str] | None,
 	dated: typing.Sequence[str] | None,
 	context: typer.Context | None = None,
+	events: bool = False,
 ) -> None:
 	"""Print the list, for ``list`` and for its hidden synonym ``ls``.
 
@@ -5241,6 +5317,7 @@ def _shown_list (
 		tag=_only_once(program, "--tag", tag),
 		filters=_filters(program, dated),
 		context=context,
+		events=events,
 	)
 
 
@@ -10080,9 +10157,8 @@ def register (
 		),
 		ready: bool = READY_OPTION,
 		to_act_on: bool = TO_ACT_ON_OPTION,
-		trash: bool = typer.Option(
-			False, "--trash", help="Show what you have deleted, instead of the list."
-		),
+		trash: bool = TRASH_OPTION,
+		events: bool = EVENTS_OPTION,
 		assignee: list[str] | None = ASSIGNEE_OPTION,
 		claimed_by: list[str] | None = CLAIMED_BY_OPTION,
 		status: list[str] | None = STATUS_OPTION,
@@ -10129,7 +10205,7 @@ def register (
 			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
 			order=order, project=project, connection=connection, deferred=deferred,
 			ready=ready, to_act_on=to_act_on, trash=trash, assignee=assignee, claimed_by=claimed_by,
-			status=status, kind=kind, tag=tag, dated=dated, context=context,
+			status=status, kind=kind, tag=tag, dated=dated, context=context, events=events,
 		)
 
 	@app.command()
@@ -14742,6 +14818,36 @@ def _say_parked (
 	)
 
 
+def _say_events (
+	gathered: subroutine.fanout.Gathered[Listing],
+	*,
+	console: rich.console.Console,
+	hidden: bool,
+) -> None:
+	"""Say how many events a list left out, and how to see them - `#3704`, decision `#3807`.
+
+	**:func:`_say_parked`'s rule on a second axis**: a list that leaves out a birthday or a payday
+	without saying so stops supporting the inference refs exist for, that *not in the list* means
+	*not in the system*. Asked at the page limit, as that count is.
+	"""
+
+	if not hidden:
+		return
+
+	total = sum(answer.value.events for answer in gathered.answers)
+
+	if not total:
+		return
+
+	things = "event" if total == 1 else "events"
+	console.print(
+		rich.text.Text(
+			f"      {total} {things} not listed. 'subroutine list --events' to include them.",
+			style=DETAIL,
+		)
+	)
+
+
 def _say_held_back (
 	gathered: subroutine.fanout.Gathered[Listing],
 	*,
@@ -14853,6 +14959,40 @@ def _say_retired_too (
 			f"{name} lists superseded and archived documents too, until it is updated."
 			if world.qualifies_connection
 			else "Superseded and archived documents are listed too, until the instance is updated."
+		)
+
+		console.print(rich.text.Text(f"      {said}", style=DETAIL))
+
+
+def _say_events_too (
+	world: World,
+	gathered: subroutine.fanout.Gathered[Listing],
+	shown: typing.Sequence[Row],
+	*,
+	console: rich.console.Console,
+) -> None:
+	"""Say why an event is on the list, where its instance cannot leave one out - `#3704`.
+
+	:func:`_say_retired_too`'s case one field along: an instance from before events were left out
+	refuses to be asked, so the client asks again for everything, and an event on the list would
+	otherwise read as one the reader asked for. **Only when one is on the page**, and per
+	connection where a listing names them.
+	"""
+
+	older = {answer.connection.name for answer in gathered.answers if answer.value.events_too}
+	showing = sorted({
+		name
+		for name, item in shown
+		if name in older
+		and isinstance(item, subroutine.views.Task)
+		and item.type_category == subroutine.domain.readiness.OCCASION
+	})
+
+	for name in showing:
+		said = (
+			f"{name} lists events too, until it is updated."
+			if world.qualifies_connection
+			else "Events are listed too, until the instance is updated."
 		)
 
 		console.print(rich.text.Text(f"      {said}", style=DETAIL))

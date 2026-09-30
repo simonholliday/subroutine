@@ -48,7 +48,7 @@ import {
 	ANCHORS, Adding, Asking, CAPTURE_HINT, Conflict, DATE_FIELDS, DOCUMENT_HINT,
 	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, NOT_JUDGED,
 	Narrowed, IMPORTANT_AT_LEAST, URGENT_AT_LEAST, Unread,
-	PRIORITIES, Reading, Repeats, TIMED, UNSET_VALUE,
+	PRIORITIES, Reading, Repeats, TIMED, UNSET_VALUE, EventsLeftOut,
 } from "./forms.js";
 import {
 	CLOSED_BY_DEFAULT, NOT_SHOWN, agendaBuckets, blockersDone, choicesIn, collapsedColumns,
@@ -80,6 +80,7 @@ import {
 	journalRequest, linkAsked,
 	linkChoices, linkRequest,
 	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
+	eventsLeftOutRequest,
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
 	savedViewsRequest, saveViewRequest, forgetViewRequest,
 	readForm,
@@ -202,6 +203,8 @@ export function App () {
 	   and `cut` because it is the same kind of fact: something the instance did with the
 	   request that the rows alone cannot show. An array, empty when there is nothing to say. */
 	const [unread, setUnread] = useState([]);
+	/* **How many events the page left out** (`#3704`), held beside `unread` for its reason. */
+	const [eventsLeft, setEventsLeft] = useState(0);
 	/* What each of a board's columns held back — `#1790`. Null unless the answer was grouped. */
 	const [cut, setCut] = useState(null);
 	/*
@@ -730,6 +733,33 @@ export function App () {
 		   previous one left; a stale complaint about a term no longer in the box is worse than
 		   never having said it. */
 		setUnread(unreadable);
+
+		/*
+			**And the events it left out, counted** (`#3704`, decision `#3807`): a second, bounded request
+			with `events=only`, as the terminal counts them, **and only those not on the page**, since the
+			instance brings events back where the request names them. On the first page alone - *Show
+			more* appends rows and leaves the count to the read that asked it - and asked the listing's
+			own question first, so a count landing after the reader moved on draws nothing.
+		*/
+		if (after) return;
+
+		const counting = eventsLeftOutRequest(slug, key, chose);
+		let leftOut = 0;
+
+		if (counting !== null) {
+			try {
+				const only = await sent(counting);
+				const here = new Set(fetched.map((row) => row.id));
+
+				leftOut = (only.items || []).filter((row) => !here.has(row.id)).length;
+			} catch (_) {
+				/* A count that could not be read says nothing, rather than something that may be wrong. */
+			}
+		}
+
+		if (!current()) return;
+
+		setEventsLeft(leftOut);
 	}, []);
 
 	const words = useCallback(async (slug) => {
@@ -3312,6 +3342,13 @@ export function App () {
 		return chooseView(widened(showing));
 	}, [chooseView, showing]);
 
+	const showEvents = useCallback(() => {
+		/* **The way back from the count** (`#3704`): the same page with events included, through
+		   `chooseView` as *Show everything* goes, and the link beside it is built from the same
+		   selection. */
+		return chooseView({ ...showing, selection: { ...showing.selection, events: "include" } });
+	}, [chooseView, showing]);
+
 	const readSavedViews = useCallback(async (slug) => {
 		/*
 			What this workspace has saved — `#3096`.
@@ -3818,6 +3855,14 @@ export function App () {
 			     line — a notice about a query on a page that made none is a sentence with no
 			     subject. */ null}
 			${area === null && !open && html`<${Unread} terms=${unread} />`}
+			${/* **What a list or a board left out of events** (`#3704`), beside what the search line could
+			     not read and for its reason: a fact about the answer. Never on the agenda, which reads
+			     another endpoint and has its own account of what happens today. */ null}
+			${area === null && !open && (showing.view || DEFAULT_VIEW) !== AGENDA_VIEW
+				&& html`<${EventsLeftOut} count=${eventsLeft} onShow=${showEvents}
+					showTo=${withShowing(behind, {
+						...showing, selection: { ...showing.selection, events: "include" },
+					})} />`}
 
 			${/*
 				**The administrative area is the first branch, and it takes no arguments from
@@ -4308,6 +4353,7 @@ export {
 	Unread,
 	whoseAsked,
 	whoseValue,
+	EventsLeftOut,
 } from "./forms.js";
 export {
 	CLOSED_BY_DEFAULT,
@@ -4453,6 +4499,7 @@ export {
 	linkRequest,
 	linkableTypes,
 	listingRequests,
+	eventsLeftOutRequest,
 	localMoment,
 	issueRequest,
 	peopleRequest,

@@ -53,6 +53,7 @@ import typer.testing
 
 import api_support
 import subroutine.api.documents
+import subroutine.api.tasks
 import subroutine.api.users
 import subroutine.cli.main
 import subroutine.clients.http
@@ -867,6 +868,212 @@ EVERY_DOCUMENT_AT_0_9_10: dict[str, typing.Any] = {
 	},
 }
 
+#: What ``v0.9.13`` answered when asked to leave events out, which it cannot (`SR#3704`): by
+#: name, as it refused ``open`` a release before. Captured from the tag, ids renumbered.
+EVENTS_REFUSED_AT_0_9_13: dict[str, typing.Any] = {
+	"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#unknown_field",
+	"title": "Unknown field",
+	"status": 422,
+	"detail": "This endpoint does not accept 'events'.",
+	"hint": "Refused rather than ignored, because a parameter that is quietly ignored is one you believe you set.",
+	"code": "unknown_field",
+	"instance": "/v1/tasks",
+	"request_id": "01a0f3d7-0000-7000-8000-000000000009",
+	"errors": [
+		{
+			"field": "events",
+			"code": "unknown_field",
+			"message": "'events' is not a parameter of this endpoint.",
+			"hint": "It accepts: assignee, claimed_by, cursor, deferred, deleted, due_after, due_before, fields, format, group_by, group_limit, include, include_completed, include_total, limit, order, parent, project, q, ready, status, status_category, subtree, tag, to_act_on, type, workspace_id.",
+		},
+	],
+}
+
+#: And what it answered to the same request without ``events``: the payday beside the work,
+#: which is what that release lists.
+EVERY_TASK_AT_0_9_13: dict[str, typing.Any] = {
+	"items": [
+		{
+			"id": "01a0f3d7-0000-7000-8000-000000000001",
+			"ref": 2,
+			"title": "Payday",
+			"description": None,
+			"size_bytes": 0,
+			"workspace": "projects",
+			"workspace_id": "01a0f3d7-0000-7000-8000-000000000002",
+			"project_id": "01a0f3d7-0000-7000-8000-000000000003",
+			"project_key": "inbox",
+			"project_path": "inbox",
+			"project_colour": None,
+			"parent_task_id": None,
+			"claimed_by_id": None,
+			"claimed_at": None,
+			"claim_expires_at": None,
+			"claimed_by": None,
+			"claimed_by_is_agent": False,
+			"claimed_by_answers_to": None,
+			"blocked": False,
+			"blocking": False,
+			"sub_tasks_done": False,
+			"included_done": False,
+			"included_count": 0,
+			"included_done_count": 0,
+			"included_unseen": False,
+			"blocked_by": None,
+			"blocks_others": None,
+			"revisions": None,
+			"beneath": None,
+			"parent_ref": None,
+			"parent_title": None,
+			"status": "open",
+			"status_category": "todo",
+			"status_id": "01a0f3d7-0000-7000-8000-000000000004",
+			"status_is_default": True,
+			"status_label": "Open",
+			"type": "event",
+			"type_label": "Event",
+			"type_category": "occasion",
+			"type_is_default": False,
+			"type_id": "01a0f3d7-0000-7000-8000-000000000005",
+			"assignee_id": None,
+			"assignee": None,
+			"assignee_is_agent": False,
+			"assignee_answers_to": None,
+			"assigned_by_id": None,
+			"assigned_by": None,
+			"importance": None,
+			"urgency": None,
+			"priority_score": None,
+			"rank": None,
+			"relevance": None,
+			"due_at": None,
+			"due_is_all_day": False,
+			"starts_at": "2026-10-01T00:00:00Z",
+			"starts_is_all_day": True,
+			"ends_at": None,
+			"snoozed_until": None,
+			"snoozed_is_all_day": False,
+			"timezone": "UTC",
+			"recurrence_rule": None,
+			"recurrence_text": None,
+			"recurrence_anchor": None,
+			"recurrence_trigger": None,
+			"recurrence_description": None,
+			"occurrence_at": None,
+			"recurrence_template_ref": None,
+			"is_template": False,
+			"estimate_minutes": None,
+			"estimate_human": None,
+			"reminder_minutes": None,
+			"reminder_human": None,
+			"tags": [],
+			"completed_at": None,
+			"is_complete": False,
+			"archived_at": None,
+			"deleted_at": None,
+			"created_at": "2026-09-30T19:43:08.968297Z",
+			"updated_at": "2026-09-30T19:43:08.968298Z",
+			"content_updated_at": "2026-09-30T19:43:08.968296Z",
+			"created_by": "01a0f3d7-0000-7000-8000-000000000006",
+			"updated_by": None,
+			"version": 1,
+		},
+		{
+			"id": "01a0f3d7-0000-7000-8000-000000000007",
+			"ref": 1,
+			"title": "Fix the footer",
+			"description": None,
+			"size_bytes": 0,
+			"workspace": "projects",
+			"workspace_id": "01a0f3d7-0000-7000-8000-000000000002",
+			"project_id": "01a0f3d7-0000-7000-8000-000000000003",
+			"project_key": "inbox",
+			"project_path": "inbox",
+			"project_colour": None,
+			"parent_task_id": None,
+			"claimed_by_id": None,
+			"claimed_at": None,
+			"claim_expires_at": None,
+			"claimed_by": None,
+			"claimed_by_is_agent": False,
+			"claimed_by_answers_to": None,
+			"blocked": False,
+			"blocking": False,
+			"sub_tasks_done": False,
+			"included_done": False,
+			"included_count": 0,
+			"included_done_count": 0,
+			"included_unseen": False,
+			"blocked_by": None,
+			"blocks_others": None,
+			"revisions": None,
+			"beneath": None,
+			"parent_ref": None,
+			"parent_title": None,
+			"status": "open",
+			"status_category": "todo",
+			"status_id": "01a0f3d7-0000-7000-8000-000000000004",
+			"status_is_default": True,
+			"status_label": "Open",
+			"type": "task",
+			"type_label": "Task",
+			"type_category": "work",
+			"type_is_default": True,
+			"type_id": "01a0f3d7-0000-7000-8000-000000000008",
+			"assignee_id": None,
+			"assignee": None,
+			"assignee_is_agent": False,
+			"assignee_answers_to": None,
+			"assigned_by_id": None,
+			"assigned_by": None,
+			"importance": None,
+			"urgency": None,
+			"priority_score": None,
+			"rank": None,
+			"relevance": None,
+			"due_at": None,
+			"due_is_all_day": False,
+			"starts_at": None,
+			"starts_is_all_day": False,
+			"ends_at": None,
+			"snoozed_until": None,
+			"snoozed_is_all_day": False,
+			"timezone": "UTC",
+			"recurrence_rule": None,
+			"recurrence_text": None,
+			"recurrence_anchor": None,
+			"recurrence_trigger": None,
+			"recurrence_description": None,
+			"occurrence_at": None,
+			"recurrence_template_ref": None,
+			"is_template": False,
+			"estimate_minutes": None,
+			"estimate_human": None,
+			"reminder_minutes": None,
+			"reminder_human": None,
+			"tags": [],
+			"completed_at": None,
+			"is_complete": False,
+			"archived_at": None,
+			"deleted_at": None,
+			"created_at": "2026-09-30T19:43:08.922027Z",
+			"updated_at": "2026-09-30T19:43:08.922027Z",
+			"content_updated_at": "2026-09-30T19:43:08.922025Z",
+			"created_by": "01a0f3d7-0000-7000-8000-000000000006",
+			"updated_by": None,
+			"version": 1,
+		},
+	],
+	"page": {
+		"limit": 50,
+		"next_cursor": None,
+		"has_more": False,
+		"total": None,
+		"held_back": None,
+		"unread": None,
+	},
+}
+
 #: The open listing, as this build's client asks it of the one workspace there.
 OPEN_LISTING = "/v1/documents?workspace_id=projects&limit=50&open=true"
 
@@ -971,6 +1178,116 @@ def test_the_captured_documents_refusal_is_of_a_release_before_this_build () -> 
 	assert "open" not in accepted.removeprefix("It accepts: ").rstrip(".").split(", ")
 
 
+#: Leaving events out, as this build's client asks it of the one workspace there.
+LEAVING_EVENTS_OUT = "/v1/tasks?workspace_id=projects&limit=50&events=exclude"
+
+
+def _tasks_at_0_9_13 (
+	asked: list[str], *, refusing: dict[str, typing.Any] = EVENTS_REFUSED_AT_0_9_13
+) -> subroutine.clients.http.Client:
+	"""Return a client whose instance answers as ``v0.9.13`` did, noting each listing it is asked."""
+
+	def answer (request: httpx.Request) -> httpx.Response:
+		"""Answer one request with what the tag answered to it."""
+
+		if request.url.path == "/v1/me":
+			return httpx.Response(200, json=ME_AT_0_9_10)
+
+		asked.append(request.url.raw_path.decode())
+
+		if "events" in request.url.params:
+			return httpx.Response(
+				422,
+				headers={"content-type": "application/problem+json"},
+				content=json.dumps(refusing).encode(),
+			)
+
+		return httpx.Response(200, json=EVERY_TASK_AT_0_9_13)
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token="sr_x",
+		transport=httpx.MockTransport(answer),
+	)
+
+
+def test_leaving_events_out_is_asked_again_of_the_release_before_without_it () -> None:
+	"""`SR#3704`, as `SR#3714` for the open listing: the release before refuses ``events`` by name.
+
+	Asked again without it, that instance lists its events with the rest, which is what its release
+	lists, and the listing says so, since the rows alone would present the payday as asked for.
+	"""
+
+	asked: list[str] = []
+
+	with _tasks_at_0_9_13(asked) as client:
+		listed = client.tasks(workspace="projects", limit=50, events="exclude")
+
+	assert [(one.ref, one.type) for one in listed] == [(2, "event"), (1, "task")]
+	assert listed.events_too
+	assert asked == [LEAVING_EVENTS_OUT, "/v1/tasks?workspace_id=projects&limit=50"]
+
+
+def test_counting_events_is_not_asked_again_of_the_release_before () -> None:
+	"""``only`` asked again without it answers every task, which a count would call all events."""
+
+	asked: list[str] = []
+
+	with (
+		_tasks_at_0_9_13(asked) as client,
+		pytest.raises(subroutine.errors.ValidationError),
+	):
+		client.tasks(workspace="projects", limit=50, events="only")
+
+	assert asked == ["/v1/tasks?workspace_id=projects&limit=50&events=only"]
+
+
+def test_a_tasks_refusal_about_anything_else_is_raised_without_asking_again () -> None:
+	"""The fallback swallows one refusal, the tag's own with its field renamed here."""
+
+	asked: list[str] = []
+	about_status = {
+		**EVENTS_REFUSED_AT_0_9_13,
+		"errors": [{**EVENTS_REFUSED_AT_0_9_13["errors"][0], "field": "status"}],
+	}
+
+	with (
+		_tasks_at_0_9_13(asked, refusing=about_status) as client,
+		pytest.raises(subroutine.errors.ValidationError),
+	):
+		client.tasks(workspace="projects", limit=50, events="exclude")
+
+	assert asked == [LEAVING_EVENTS_OUT]
+
+
+def test_a_listing_this_build_answers_says_nothing_about_events (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The instance that can leave events out is asked once and says nothing extra."""
+
+	world = test_api_tasks._world(session)
+
+	with subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token=world.secret,
+		transport=api_support.SyncTransport(world.application),
+		base_url=api_support.BASE_URL,
+	) as client:
+		listed = client.tasks(events="exclude")
+
+	assert not listed.events_too
+
+
+def test_the_captured_tasks_refusal_is_of_a_release_before_this_build () -> None:
+	"""The guard on the guard: this build's task listing declares what the tag refused."""
+
+	declared = inspect.signature(subroutine.api.tasks.listing).parameters
+	accepted = EVENTS_REFUSED_AT_0_9_13["errors"][0]["hint"]
+
+	assert "events" in declared
+	assert "events" not in accepted.removeprefix("It accepts: ").rstrip(".").split(", ")
+
+
 class _BeforeTheOpenListing(api_support.SyncTransport):
 	"""This build's application, with its documents listing answering ``open`` as ``v0.9.10`` did."""
 
@@ -985,6 +1302,86 @@ class _BeforeTheOpenListing(api_support.SyncTransport):
 			)
 
 		return super().handle_request(request)
+
+
+class _BeforeEvents(api_support.SyncTransport):
+	"""This build's application, with its task listing answering ``events`` as ``v0.9.13`` did."""
+
+	def handle_request (self, request: httpx.Request) -> httpx.Response:
+		"""Refuse leaving events out in the tag's own words, and pass everything else through."""
+
+		if request.url.path == "/v1/tasks" and "events" in request.url.params:
+			return httpx.Response(
+				422,
+				headers={"content-type": "application/problem+json"},
+				content=json.dumps(EVENTS_REFUSED_AT_0_9_13).encode(),
+			)
+
+		return super().handle_request(request)
+
+
+def test_list_reads_an_older_instance_s_events_and_says_why_one_is_there (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3704`, as `SR#3714` for documents: the release before cannot leave events out.
+
+	Asked again without it, its events are on the list, and the list says why. **Not counted**,
+	since every one is on the page and counting them would be refused, and **said only under a list
+	showing one**, and never under ``--json``.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call("POST", "/v1/tasks", json={"text": "Buy milk"})
+
+	written = subroutine.config.config_file_path()
+	written.parent.mkdir(parents=True, exist_ok=True)
+	written.write_text(
+		'default_connection = "work"\n\n[connections.local]\nenabled = false\n\n'
+		'[connections.work]\nurl = "https://tasks.example.com"\n',
+		encoding="utf-8",
+	)
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", world.secret)
+
+	def opened (
+		connection: subroutine.connections.Connection,
+		_roster: subroutine.connections.Roster,
+		_settings: subroutine.config.Settings,
+		*,
+		token: str | None = None,
+	) -> subroutine.clients.http.Client:
+		"""Reach the test's instance in process, as one release behind for its events."""
+
+		return subroutine.clients.http.Client(
+			connection,
+			token=token or world.secret,
+			transport=_BeforeEvents(world.application),
+			base_url=api_support.BASE_URL,
+		)
+
+	monkeypatch.setattr(subroutine.clients.opening, "for_connection", opened)
+
+	runner = typer.testing.CliRunner()
+	notice = "Events are listed too, until the instance is updated."
+	before = runner.invoke(subroutine.cli.main.app, ["list"])
+
+	assert before.exit_code == 0, before.output
+	assert notice not in " ".join(before.output.split()), "said under a list with no events"
+
+	world.call(
+		"POST", "/v1/tasks", json={"title": "Payday", "type": "event", "starts": "2026-10-01"}
+	)
+
+	listed = runner.invoke(subroutine.cli.main.app, ["list"])
+	said = " ".join(listed.output.split())
+
+	assert listed.exit_code == 0, listed.output
+	assert "Payday" in said and "Buy milk" in said, listed.output
+	assert said.count(notice) == 1, listed.output
+	assert "not listed" not in said, listed.output
+
+	scripted = runner.invoke(subroutine.cli.main.app, ["list", "--json"])
+
+	assert notice not in " ".join(scripted.output.split()), "a notice under --json"
 
 
 def test_list_reads_an_older_instance_s_documents_and_says_why_a_retired_one_is_there (

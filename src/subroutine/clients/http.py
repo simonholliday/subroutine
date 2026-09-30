@@ -274,6 +274,7 @@ class Client:
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		events: str = subroutine.domain.readiness.DEFAULT_EVENTS,
 		q: str | None = None,
 		parent: int | None = None,
 		subtree: bool = False,
@@ -292,6 +293,7 @@ class Client:
 	) -> subroutine.clients.base.Listing[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
+		occasional = subroutine.domain.readiness.refuse_unknown_events(events)
 		asking = _dated(
 			filters,
 			_given(
@@ -324,6 +326,7 @@ class Client:
 					if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
 					else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
 				),
+				events=None if occasional == subroutine.domain.readiness.DEFAULT_EVENTS else occasional,
 				q=q,
 				ready="true" if ready else None,
 				to_act_on="true" if to_act_on else None,
@@ -332,14 +335,35 @@ class Client:
 			),
 		)
 
-		return self._collected(
+		# **An instance from before events were left out refuses ``events`` by name** (`#3704`), as
+		# one before the open listing refused ``open`` (`#3714`). Asked again without it, that instance
+		# lists them all, which is what its release lists, and the listing says so. **Only for
+		# ``exclude``**: ``only`` asked again without it would answer every task, which a count of
+		# events would report as all of them.
+		events_too = False
+
+		try:
+			body = self._json("GET", "/v1/tasks", params=asking)
+
+		except subroutine.errors.ValidationError as refused:
+			if occasional != "exclude" or not _lacks(refused, "events"):
+				raise
+
+			asking = [(name, value) for name, value in asking if name != "events"]
+			body = self._json("GET", "/v1/tasks", params=asking)
+			events_too = True
+
+		listed = self._collected(
 			subroutine.views.Task,
-			self._json("GET", "/v1/tasks", params=asking),
+			body,
 			endpoint="tasks",
 			path="/v1/tasks",
 			params=asking,
 			wanted=limit,
 		)
+		listed.events_too = events_too
+
+		return listed
 
 	def task (
 		self, *, ref: int, workspace: str | None = None

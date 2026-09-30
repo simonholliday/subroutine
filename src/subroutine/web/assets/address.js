@@ -190,6 +190,14 @@ export const SELECTABLE = {
 	status_category: ["todo", "in_progress", "done", "cancelled"],
 	include_completed: ["true"],
 	/*
+		**Events, which the list and the board leave out unless the address asks** (`#3704`, decision
+		`#3807`): a birthday or a payday happens to you rather than being done, and a page holding a
+		year of them is one nobody reads. `include` is the one value, the way back the page offers
+		beside its count - **a widening, like `include_completed`**, so it narrows nothing and *Show
+		everything* has nothing of it to drop.
+	*/
+	events: ["include"],
+	/*
 		**Every order a reader can choose, and the finished view's** (`#782`, `#661`).
 
 		It was one value until `#782` — the finished view's — because until a control existed,
@@ -370,6 +378,8 @@ export const SELECTABLE = {
 export const ANSWERED_BY = {
 	status_category: { task: "sent", document: "cannot" },
 	include_completed: { task: "sent", document: "already" },
+	/* **A document is never an event**, so its half has nothing to leave out (`#3704`). */
+	events: { task: "sent", document: "already" },
 	order: { task: "sent", document: "sent" },
 	q: { task: "sent", document: "sent" },
 	/* **The one entry whose answer depends on the value** — `#1425`.

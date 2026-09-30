@@ -401,6 +401,12 @@ class Property (typing.NamedTuple):
 	#: which register a property belongs in, and by the guard that reads them.
 	groupable_from_rows: bool = False
 
+	#: **The words an ``ENUM`` takes where it is not an axis** - `#3704`. :attr:`groupable` is every
+	#: other ``ENUM``'s vocabulary, and declaring one makes the property a board axis too, which
+	#: grouping would then have to build: ``type_category`` asks whether an item's type is of a
+	#: category, which is a narrowing, and nobody has asked to arrange a board by it.
+	words: tuple[str, ...] | None = None
+
 	#: Which properties compile into one predicate. See :class:`Filterable`.
 	group: str | None = None
 
@@ -803,6 +809,12 @@ FROM_THE_VOCABULARY = "vocabulary"
 #: on the item. A join would multiply the rows, which is :func:`_tagged`'s rule and its reason.
 A_FIXED_VOCABULARY = "fixed_vocabulary"
 
+#: Which group compiles ``type_category`` - `#3704`. **Not :data:`A_FIXED_VOCABULARY`**, whose
+#: statuses belong to one workspace and are read from that workspace's table: a type's category
+#: is asked as a correlated ``EXISTS`` on the item's own type, as ``readiness.is_occasion`` asks
+#: it, so a listing reading several workspaces can ask it too.
+OF_A_CATEGORY = "of_a_category"
+
 #: Which group compiles ``project``, the one filter that resolves an *address* — `#1829`.
 #:
 #: **Alone rather than beside the vocabulary keys**, because what it needs from :class:`Where`
@@ -962,6 +974,11 @@ _ORDERABLE: dict[str, Property] = {
 #: its axes from this registry now, so it cannot also be where their names are decided — and a
 #: name spelled in both is the duplication the registry exists to remove.
 STATUS_CATEGORY = "status_category"
+
+#: Whether an item's type is of a category - `#3704`, decision `#3807`. **How a request names
+#: events**: ``type_category.eq=occasion`` asks for them, and a listing that leaves them out by
+#: default brings them back for it.
+TYPE_CATEGORY = "type_category"
 
 #: The task properties whose value names something the instance resolves — an account, a tag,
 #: a vocabulary key, a project or an item — `#1804` and `#1829`.
@@ -1216,6 +1233,17 @@ TASK_PROPERTIES: dict[str, Property] = {
 			"a workspace's own status order turns out to be what people mean."
 		),
 	),
+	TYPE_CATEGORY: Property(
+		column=subroutine.db.models.work.Task.type_id,
+		kind=ENUM,
+		words=subroutine.db.mixins.TASK_TYPE_CATEGORIES,
+		group=OF_A_CATEGORY,
+		because=(
+			"the product's own five words, so a refusal lists them. A narrowing and nothing else "
+			"(`#3704`): nobody has asked to sort or arrange by the kind of an item's type, and the "
+			"category is a fact about the type one table along, so it compiles to an EXISTS."
+		),
+	),
 	**_RESOLVED_BY_NAME,
 }
 
@@ -1465,7 +1493,7 @@ def filters (entity: str) -> dict[str, Filterable]:
 		found[name] = Filterable(
 			column=held.column,
 			kind=held.kind,
-			vocabulary=held.groupable if held.kind is ENUM else None,
+			vocabulary=(held.groupable or held.words) if held.kind is ENUM else None,
 			group=held.group,
 			operators=_allowed(held.kind, held.column),
 		)
@@ -2515,6 +2543,50 @@ def _vocabulary_key (comparisons: list[Comparison], where: Where) -> typing.Any:
 	return sqlalchemy.and_(*narrowing)
 
 
+def _of_a_category (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``type_category`` - `#3704`, decision `#3807`.
+
+	**A correlated ``EXISTS`` on the item's own type**, :func:`subroutine.domain.readiness.is_occasion`'s
+	shape and its reasoning: a semi-join both planners short-circuit, and no one-workspace rule,
+	since the type row carries its category whichever workspace it is in.
+
+	**An unknown word is refused by listing the ones that work**, as a status category's is: the set
+	is the product's, so the refusal can be complete without going and looking.
+	"""
+
+	owner = typing.cast(typing.Any, comparisons[0].against.column).parent.class_
+	narrowing = []
+
+	for comparison in comparisons:
+		allowed = comparison.against.vocabulary or ()
+		values = _values(comparison)
+
+		for value in values:
+			if value not in allowed:
+				raise subroutine.errors.ValidationError(
+					f"There is no type category called '{value}'.",
+					errors=[
+						subroutine.errors.FieldError(
+							field=comparison.field,
+							code="invalid_field_value",
+							message=f"A type is of one of {', '.join(allowed)}.",
+							hint=f"Try '{comparison.field}.eq={allowed[0]}'.",
+						)
+					],
+				)
+
+		kind = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.ItemType)
+		of_them = sqlalchemy.exists(
+			sqlalchemy.select(kind.id)
+			.where(kind.id == comparison.against.column, kind.category.in_(values))
+			.correlate(owner)
+		)
+
+		narrowing.append(~of_them if comparison.operator == "ne" else of_them)
+
+	return sqlalchemy.and_(*narrowing)
+
+
 def _a_fixed_vocabulary (comparisons: list[Comparison], where: Where) -> typing.Any:
 	"""Compile ``status_category`` — `#3093`, and `#1804`'s ``ENUM`` finally wired up.
 
@@ -2728,6 +2800,7 @@ GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	TAGGED: _tagged,
 	FROM_THE_VOCABULARY: _vocabulary_key,
 	A_FIXED_VOCABULARY: _a_fixed_vocabulary,
+	OF_A_CATEGORY: _of_a_category,
 	IN_PROJECT: _in_project,
 	IN_THE_TREE: _in_the_tree,
 	ANSWERABLE_TO: _answerable_to,

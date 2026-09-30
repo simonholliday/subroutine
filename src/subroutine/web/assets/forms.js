@@ -839,6 +839,28 @@ export function Focus ({ prioritised = [], onStop = null, busy = false }) {
 }
 
 
+export function EventsLeftOut ({ count = 0, showTo = null, onShow = null }) {
+	/*
+		How many events a list or a board left out, and the way to see them - `#3704`, decision `#3807`.
+
+		**Never a silent drop** (§12.2a): a page that leaves out a birthday without saying so stops
+		supporting the inference refs exist for, that *not on the page* means *not in the system*. In
+		`.narrowed`'s family, which says why a page is what it is, and **nothing when nothing was left
+		out**, which is `#2266`'s rule.
+	*/
+	if (!count) return null;
+
+	const things = count === 1 ? "event" : "events";
+
+	return html`
+		<div class="narrowed">
+			<span>${count} ${things} not listed.</span>
+			${onShow && html`<a class="widen" href=${showTo}
+				onClick=${(event) => followed(event, onShow)}>Show them</a>`}
+		</div>
+	`;
+}
+
 export function Narrowed ({
 	onWiden, widenTo,
 	/* What narrowed the rows — `#1020`. Defaulted, because a page nothing narrowed passes none,

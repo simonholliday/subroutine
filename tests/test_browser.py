@@ -2084,8 +2084,6 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.mark.context',
 		'.meta .quiet',
 		'.meta .when',
-		'.narrowed a.widen',
-		'.narrowed a.widen:hover',
 		'.note.bad',
 		'.ordered',
 		'.ordered .says',

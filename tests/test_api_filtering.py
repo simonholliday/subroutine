@@ -1448,6 +1448,11 @@ NOT_A_PROPERTY: dict[tuple[str, str], str] = {
 	# filterable and orderable, and *startable against put off* is a fact about an instant that
 	# a comparison cannot state.
 	("task", "deferred"): "a band over `snoozed_until` against now, not a comparison with it",
+	# **The deferral's shape, and decided to be** (`SR#3704`, decision `SR#3807`): which listing this
+	# is - with events, without them, or only them - not a comparison with a field. Naming the
+	# category is the comparison, and it is `type_category`.
+	("task", "events"): "which listing this is, with events or without them or only them, as "
+	"`deferred` says for deferred work - `type_category` is the field it reads",
 	# **Defaults about the absence of a filter.** Each decides what an unnarrowed listing
 	# means, so neither has a value to compare; a property would have to be *the default*,
 	# which is not a field.

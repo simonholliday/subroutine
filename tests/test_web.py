@@ -246,6 +246,9 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"It takes gt, gte, lt, lte.",
 		"'urgency:soon' was searched for as text: 'urgency' expects a whole number.",
 	]},
+	# How many events a list or a board left out, and the way back (`SR#3704`). With a link, so the
+	# anchor renders rather than nothing: `_rendered` supplies ``onShow`` as a no-op.
+	"EventsLeftOut": {"count": 3, "showTo": "/projects?view=list&events=include"},
 	# The line above the rows saying why they are ordered as they are, and — since `SR#2265` —
 	# the one act available to it. **`onStop` is deliberately absent**, for the reason written
 	# against `Marks`' `onGo`: `_rendered` supplies every `on…` prop as a real no-op, so naming
@@ -10165,6 +10168,10 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("projectsRequest", [place.slug]),
 		("listingRequests", [place.slug, None, None]),
 		("listingRequests", [place.slug, place.project, None]),
+		# **What a list or a board left out of events** (`SR#3704`), bare and narrowed, since the
+		# narrowing is the part it carries over from the listing.
+		("eventsLeftOutRequest", [place.slug, None, {}]),
+		("eventsLeftOutRequest", [place.slug, place.project, {"status_category": "todo"}]),
 		("listingRequests", [
 			place.slug, None, {"tasks": place.cursor, "documents": place.document_cursor},
 		]),
@@ -14092,6 +14099,91 @@ def test_the_finished_order_is_not_offered_as_a_choice (tmp_path: pathlib.Path) 
 	assert "-created_at" in offered and "-priority_score" in offered
 
 
+#: A list's answer holding a piece of work and an event it was given back, for `SR#3704`.
+LISTED_WITH_AN_EVENT = {
+	"items": [
+		{"id": "t1", "ref": 7, "kind": "task", "title": "Fix the footer",
+			"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"},
+		{"id": "e2", "ref": 8, "kind": "task", "title": "Payday", "type_category": "occasion",
+			"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"},
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
+#: The events a count reads: one the list left out, and the one it listed.
+TWO_EVENTS = {
+	"items": [{"id": "e1"}, {"id": "e2"}],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
+
+def _tasks_asked (driven: dict[str, typing.Any]) -> tuple[list[str], list[str]]:
+	"""Return the task listings a mounted page asked for, and its counts of events, apart."""
+
+	tasks = [call["path"] for call in driven["asked"] if call["path"].startswith("/v1/tasks?")]
+
+	return (
+		[path for path in tasks if "events=only" not in path],
+		[path for path in tasks if "events=only" in path],
+	)
+
+
+@pytest.mark.parametrize(
+	"search",
+	["?view=list", "?view=board&include_completed=true&group_by=status_category"],
+	ids=["the list", "the board"],
+)
+def test_a_list_or_a_board_leaves_events_out_and_says_how_many (
+	tmp_path: pathlib.Path, search: str
+) -> None:
+	"""`SR#3704`, decision `SR#3807`: the browser's list and board, as the terminal's list.
+
+	Asked for with events left out, and counted by a second request carrying the narrowing and
+	nothing that arranges the page. **An event the page shows is not counted**, since the instance
+	brings them back where the request names them - so one left out of two says *1*. The way back
+	is a link to the same page with events included.
+	"""
+
+	driven = _driven(
+		tmp_path, pathname="/projects", search=search,
+		answers={"events=only": TWO_EVENTS, "/v1/tasks": LISTED_WITH_AN_EVENT},
+	)
+	listing, counting = _tasks_asked(driven)
+
+	assert listing and all("events=exclude" in path for path in listing), listing
+	assert len(counting) == 1, counting
+	assert "order=" not in counting[0] and "group_by" not in counting[0], counting
+	assert "1 event not listed." in driven["said"], driven["said"]
+	assert any("events=include" in link for link in driven["links"]), driven["links"]
+	assert not any(
+		"events=" in call["path"]
+		for call in driven["asked"]
+		if call["path"].startswith("/v1/documents?")
+	), "a document request carried events, which a document never is"
+
+
+def test_a_list_that_asks_for_events_counts_none (tmp_path: pathlib.Path) -> None:
+	"""`SR#3704`: the address that includes them asks for them, and has nothing to count."""
+
+	driven = _driven(
+		tmp_path, pathname="/projects", search="?view=list&events=include",
+		answers={"events=only": TWO_EVENTS, "/v1/tasks": LISTED_WITH_AN_EVENT},
+	)
+	listing, counting = _tasks_asked(driven)
+
+	assert listing and all("events=include" in path for path in listing), listing
+	assert not counting, counting
+	assert "not listed" not in driven["said"], driven["said"]
+
+
+def test_the_agenda_asks_nothing_about_events (tmp_path: pathlib.Path) -> None:
+	"""`SR#3704`: the agenda reads another endpoint and has its own account of what happens."""
+
+	driven = _driven(tmp_path, pathname="/projects")
+
+	assert not any("events=" in call["path"] for call in driven["asked"]), driven["asked"]
+
+
 def test_choosing_an_order_puts_it_in_the_address (tmp_path: pathlib.Path) -> None:
 	"""Driven, because `SR#640` has cost six defects that a pure test could not see.
 
@@ -14107,7 +14199,12 @@ def test_choosing_an_order_puts_it_in_the_address (tmp_path: pathlib.Path) -> No
 		tmp_path, pathname="/projects", search="?view=list&order=title",
 		answers={"/v1/tasks": rows},
 	)
-	tasks = [call for call in driven["asked"] if call["path"].startswith("/v1/tasks?")]
+	# **Not the count of events it left out** (`SR#3704`), which arranges nothing and so carries no
+	# order.
+	tasks = [
+		call for call in driven["asked"]
+		if call["path"].startswith("/v1/tasks?") and "events=only" not in call["path"]
+	]
 	documents = [call for call in driven["asked"] if call["path"].startswith("/v1/documents?")]
 
 	assert tasks and documents, "the list asked for one collection or none"

@@ -66,6 +66,12 @@ upgrade involves.
   `setup claude` no longer says a session gives back what it holds where the hook cannot run, the
   agent's project tool says a key can be renamed, and the guides no longer promise a calendar is
   read every fifteen minutes or that `subroutine connections` names workspaces.
+- **Events are left out of the list, the board and the agents' listing, and counted.** A birthday
+  or a payday happens to you rather than being done, so `subroutine list`, `subroutine_list` and
+  the browser's list and board leave them out and say how many: *1 event not listed. 'subroutine
+  list --events' to include them.* `--events`, naming an event type or `type_category:occasion`,
+  a search, and the trash bring them back. `GET /v1/tasks` takes `events=include`, `exclude` or
+  `only`, still `include` unless asked, and filters by `type_category`.
 
 ## 0.9.13 — 2026-09-30
 

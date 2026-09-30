@@ -2293,7 +2293,12 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: first, and none was found**: ``subroutine_list`` names neither the field nor its words
 #: anywhere else, so this is not a second copy. The slack before it was one byte. The words are
 #: read from the registry, so the clause cannot drift from what the instance accepts.
-TOOL_BYTE_CEILING = 14_880
+#: **14,880 	 14,900 on 2026-09-30, for `type_category`'s words** (`SR#3704`, decision
+#: `SR#3807`): the list leaves events out, and naming the category is how an agent brings them
+#: back, since ``subroutine_list`` has no type argument - so the field has to be published, for
+#: `SR#821`'s reason above. 66 bytes, and writing every such clause as ``name: words``
+#: rather than ``name is one of words`` paid 18 of them. The slack was 30 before, and 2 after.
+TOOL_BYTE_CEILING = 14_900
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -11061,6 +11066,55 @@ def test_the_agents_project_listing_drops_its_summaries_where_none_would_fit (
 	assert all(f"p{number:02d}" in listed for number in range(24)), listed
 	assert "What this" not in listed and "…" not in listed, listed
 	assert "summaries cut so the list fits one answer" in listed, listed[-300:]
+
+
+def test_the_agents_listing_leaves_events_out_and_says_how_many (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3704`, decision `SR#3807`: the agents' listing leaves events out, as the terminal's does.
+
+	**Counted, with the filter that lists them**, since this tool has no argument for events and
+	naming their category is the request that brings them back. A search finds them.
+	"""
+
+	made, failed = _called(
+		bound, "subroutine_add", text="Payday on 2026-10-01", type="event"
+	)
+
+	assert not failed, made
+
+	_added(bound, "Water the plants")
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+	assert "Water the plants" in listed and "Payday" not in listed, listed
+	assert "1 event not listed. List with filter type_category.eq=occasion." in listed, listed
+
+	named, failed = _called(bound, "subroutine_list", filter={"type_category.eq": "occasion"})
+
+	assert not failed and "Payday" in named and "not listed" not in named, named
+
+	found, failed = _called(bound, "subroutine_search", q="payday")
+
+	assert not failed and "Payday" in found, found
+
+
+def test_the_agents_listing_of_nothing_but_events_says_there_is_nothing_to_do (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3704`: *Nothing open* would be false with an event open, so it says what is true."""
+
+	made, failed = _called(
+		bound, "subroutine_add", text="Payday on 2026-10-01", type="event"
+	)
+
+	assert not failed, made
+
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+	assert listed.splitlines()[0] == "Nothing to do.", listed
+	assert "1 event not listed." in listed, listed
 
 
 def test_the_project_tool_says_a_key_can_be_renamed () -> None:

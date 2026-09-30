@@ -350,6 +350,54 @@ def test_the_agenda_never_advises_ticking_off_somebody_s_birthday (
 	)
 
 
+def test_list_leaves_events_out_and_says_how_many (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3704`, decision `SR#3807`: a list holding a year of birthdays is one nobody reads.
+
+	**Left out, and counted**, never dropped in silence. ``--events`` brings them back, and so does
+	naming the type, where the count then says nothing, since they are on the page. A script asking
+	for the list gets every row, and a search finds them.
+	"""
+
+	run("init")
+	run("add", "Payday on 2026-10-01", "--type", "event")
+	run("add", "Water the plants")
+
+	listed = " ".join(run("list").output.split())
+
+	assert "Water the plants" in listed and "Payday" not in listed, listed
+	assert "1 event not listed. 'subroutine list --events' to include them." in listed, listed
+
+	for asked in (["--events"], ["--type", "event"]):
+		shown = " ".join(run("list", *asked).output.split())
+
+		assert "Payday" in shown and "not listed" not in shown, (asked, shown)
+
+	scripted = json.loads(run("list", "--json").output)
+
+	assert "Payday" in {row["title"] for row in scripted}, scripted
+
+	found = " ".join(run("search", "payday").output.split())
+
+	assert "Payday" in found and "not listed" not in found, found
+
+
+def test_a_list_of_nothing_but_events_says_there_is_nothing_to_do (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3704`: *Nothing on your list* would be false with an event on it, and so would the tip
+	to add something, where what is true is that there is nothing to do."""
+
+	run("init")
+	run("add", "Payday on 2026-10-01", "--type", "event")
+
+	listed = " ".join(run("list").output.split())
+
+	assert "Nothing to do." in listed and "Nothing on your list" not in listed, listed
+	assert "1 event not listed." in listed, listed
+
+
 def test_the_agenda_never_advises_ticking_off_a_milestone (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -1712,8 +1760,9 @@ def test_a_timed_event_says_its_o_clock_and_a_whole_day_one_does_not (
 		f"a whole day was given an o'clock nobody wrote:\n{birthday.output}"
 	)
 
+	# **``--events``, since a list leaves them out** (`SR#3704`): this is about how one is drawn.
 	for surface, output in (
-		("list", run("list").output),
+		("list", run("list", "--events").output),
 		("show", run("show", "1").output),
 		("agenda", run("agenda", "2026-12-01").output),
 	):

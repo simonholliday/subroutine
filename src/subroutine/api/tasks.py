@@ -426,6 +426,16 @@ def listing (
 		),
 		examples=["exclude"],
 	),
+	events: str = fastapi.Query(
+		subroutine.domain.readiness.DEFAULT_EVENTS,
+		description=(
+			"How to treat events - what happens to you, like a birthday, rather than what you do: "
+			"'include' (the default), 'exclude' to leave them out, or 'only' to see just them. "
+			"'exclude' gives way where the request names them - an event type, "
+			"type_category.eq=occasion, the trash or when something was touched - and to a search."
+		),
+		examples=["exclude"],
+	),
 	deleted: bool = fastapi.Query(
 		False,
 		description=(
@@ -592,10 +602,18 @@ def listing (
 			)
 		)
 
-	if type is not None:
-		statement = statement.where(
-			model.type_id == subroutine.domain.tasks.item_type_for(session, workspace.id, type).id
+	# **Resolved once and read twice**, as `named` is for the status (`#3704`): which type to narrow
+	# by, and whether the request names an event type, which brings events back.
+	typed = [
+		subroutine.domain.tasks.item_type_for(session, workspace.id, key)
+		for key in ([] if type is None else [type])
+		+ dates.values_for(
+			subroutine.domain.filtering.TYPE, only=subroutine.domain.filtering.ASKING_FOR
 		)
+	]
+
+	if type is not None:
+		statement = statement.where(model.type_id == typed[0].id)
 
 	if tag is not None:
 		# **The read side a tag never had** (`#1319`). Written as a subquery rather than a join
@@ -680,6 +698,25 @@ def listing (
 
 	if narrowing is not None:
 		statement = statement.where(narrowing)
+
+	# **Events, left out where the caller asked and back wherever the request names them** (`#3704`,
+	# decision `#3807`), by the rule both transports ask the domain.
+	occasions = subroutine.domain.readiness.events(
+		model,
+		choice=subroutine.domain.tasks.events_kept(
+			subroutine.domain.readiness.refuse_unknown_events(events),
+			categories=dates.values_for(
+				subroutine.domain.filtering.TYPE_CATEGORY, only=subroutine.domain.filtering.ASKING_FOR
+			),
+			types_named=typed,
+			about_activity=dates.about(subroutine.domain.filtering.TOUCHED_AT),
+			about_deletion=deleted,
+			searching=bool(q),
+		),
+	)
+
+	if occasions is not None:
+		statement = statement.where(occasions)
 
 	held_back = None
 

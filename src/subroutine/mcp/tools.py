@@ -149,8 +149,12 @@ _ONLY_EMPTINESS = _fields_of(subroutine.domain.filtering.CONDITION)
 #: whole reason this kind exists is that the set is fixed and so can be listed. **Read from the
 #: registry's vocabulary**, never written here, which is the only version that cannot drift
 #: from what the instance accepts.
+#:
+#: **``name: words`` rather than ``name is one of words``** (`#3704`): ``type_category`` joined
+#: ``status_category`` here, which is how an agent names events to bring them back, and the
+#: shorter form paid for some of it.
 _ONE_OF = "".join(
-	f"{name} is one of {', '.join(field.vocabulary or ())}. "
+	f"{name}: {', '.join(field.vocabulary or ())}. "
 	for name, field in sorted(subroutine.domain.filtering.filters("task").items())
 	if field.kind is subroutine.domain.filtering.ENUM
 )
@@ -2329,6 +2333,9 @@ def _listed (
 			order=_text(arguments, "order"),
 			ready=ready,
 			to_act_on=to_act_on,
+			# **Events left out, as the terminal's list leaves them** (`#3704`, decision `#3807`), and
+			# back where the filter or the line names them, or searches.
+			events="exclude",
 			q=query,
 			assignee=assignee,
 			filters=filters,
@@ -2435,6 +2442,25 @@ def _listed (
 	moment = subroutine.db.types.utcnow()
 	rows = [_line(item, now=moment) for item in ordered[:limit]]
 
+	# **And the events it left out, counted as the terminal counts them** (`#3704`). Not under
+	# ``ready``, which has never offered an event (`#1236`), so there is nothing to count, and not
+	# where the tasks refused the request, which a count would ask again and be refused the same way.
+	left_out = (
+		0
+		if ready or refused is not None
+		else _events_left_out(
+			client,
+			tasks,
+			workspace=workspace,
+			project=project,
+			limit=limit,
+			to_act_on=to_act_on,
+			q=query,
+			assignee=assignee,
+			filters=filters,
+		)
+	)
+
 	if not rows:
 		# **An empty answer is where the unreadable term matters most** — `SR#2268`. The term
 		# was searched for as *text*, so it is the likeliest reason nothing matched: bare
@@ -2446,8 +2472,15 @@ def _listed (
 		# answer that cannot be interrogated — no rows at all — was the one that explained
 		# nothing. *Nothing open* and *all of it is waiting on something above it* are the same
 		# page to a model otherwise, and the second is the ordinary state of a real plan.
+		# **Not *Nothing open* where events were left out** (`#3704`): an event is open, and what is
+		# true is that there is nothing to do - as the terminal says.
 		return "\n".join(
-			["Nothing open.", *_waiting_on_a_parent(tasks), *_could_not_read(tasks, documents)]
+			[
+				"Nothing to do." if left_out else "Nothing open.",
+				*_said_of_events(left_out),
+				*_waiting_on_a_parent(tasks),
+				*_could_not_read(tasks, documents),
+			]
 		)
 
 	# **What is held back is said, never simply absent** — docs/design.md §12.2a, and this
@@ -2488,7 +2521,54 @@ def _listed (
 	# so an unreadable term comes back twice for one mistake.
 	rows.extend(_could_not_read(tasks, documents))
 
+	rows.extend(_said_of_events(left_out))
+
+	# **And an instance that could not leave them out** (`#3704`), where one is on the page, so an
+	# agent does not read a payday as work it asked for.
+	if getattr(tasks, "events_too", False) and any(
+		getattr(item, "type_category", None) == subroutine.domain.readiness.OCCASION
+		for item in ordered[:limit]
+	):
+		rows.append("Events are listed too, until the instance is updated.")
+
 	return "\n".join(rows)
+
+
+def _events_left_out (
+	client: subroutine.clients.base.Client,
+	tasks: typing.Any,
+	**asked: typing.Any,
+) -> int:
+	"""Return how many events a task listing left out, not counting any it listed - `#3704`.
+
+	**A second, bounded request with ``events=only``**, as the terminal's count is: the set is the
+	events alone, so it is small by construction, and asked at the caller's limit. **An event on
+	the page is not counted**, since the instance brings them back where the request names them
+	and this cannot see that from here. Nothing is asked of an instance that listed them all.
+	"""
+
+	if getattr(tasks, "events_too", False):
+		return 0
+
+	shown = {row.id for row in tasks}
+
+	return sum(1 for row in client.tasks(events="only", **asked) if row.id not in shown)
+
+
+def _said_of_events (left_out: int) -> list[str]:
+	"""Return the line that says how many events a listing left out, and how to list them.
+
+	**Named with the filter that lists them**, as every count here names its way to see the rows,
+	since a count nobody can act on is furniture: this tool has no argument for events, and
+	naming their category is the request that brings them back.
+	"""
+
+	if not left_out:
+		return []
+
+	things = "event" if left_out == 1 else "events"
+
+	return [f"{left_out} {things} not listed. List with filter type_category.eq=occasion."]
 
 
 def _waiting_on_a_parent (tasks: typing.Any) -> list[str]:
