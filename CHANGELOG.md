@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased
+## 0.9.13 — 2026-09-30
 
 - **An instance other people can reach stops sending OSC at this upgrade, until whoever runs it
   turns it on.** A workspace's administrator could have the server send a message to any machine
