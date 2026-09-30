@@ -20,6 +20,9 @@ upgrade involves.
 - **`document edit` with nothing named no longer waits for ever under an agent's shell.** It reads
   standard input only when text was piped in, as `document create` does, and otherwise says there
   is nothing to change.
+- **`db copy` carries a workspace where two projects share a key**, such as a root `web` beside
+  `shop/web`, or `clienta/web` beside `clientb/web`. It failed on the second and left the target
+  with no projects.
 
 ## 0.9.13 — 2026-09-30
 

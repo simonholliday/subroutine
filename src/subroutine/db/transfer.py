@@ -199,6 +199,16 @@ def _counts (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 	return found
 
 
+#: **The table copied in depth order, and the reference that order settles** (`#4015`, M-13 of
+#: the cold review of 2026-09-30). A project's key is unique among its siblings only (decision
+#: `#957`), and a partial index keeps a key unique among the roots, so a nested project written
+#: with its parent held back was a root while it waited, and a second ``web`` there failed the
+#: copy: a root ``web`` beside ``shop/web``, or ``clienta/web`` beside ``clientb/web``. **Only
+#: ``project``**: ``task`` points at itself through ``recurrence_template_id`` too, in no depth
+#: order, and nothing unique there depends on where a row hangs.
+IN_DEPTH_ORDER = {"project": "parent_id"}
+
+
 def _move (
 	source: sqlalchemy.engine.Engine, target: sqlalchemy.engine.Engine
 ) -> dict[str, int]:
@@ -246,23 +256,42 @@ def _copy_table (
 	keys = [column.name for column in table.primary_key.columns]
 	moved = 0
 	later: list[dict[str, typing.Any]] = []
+	query = sqlalchemy.select(table)
 
-	result = reading.execution_options(stream_results=True).execute(
-		sqlalchemy.select(table)
-	)
+	# **Parents first, where the table is read that way** (`#4015`): a reference to a row already
+	# written goes in with the row, and only one whose row is not there yet - a stale depth - waits
+	# for :func:`_filled_in`. A held row still carries every column held, so the batch that fills
+	# them in has one shape.
+	settled = IN_DEPTH_ORDER.get(table.name)
+	named = "" if settled is None else next(iter(table.columns[settled].foreign_keys)).column.name
+	arrived: set[typing.Any] = set()
+
+	if settled is not None:
+		query = query.order_by(table.columns["depth"], *table.primary_key.columns)
+
+	result = reading.execution_options(stream_results=True).execute(query)
 
 	while batch := result.mappings().fetchmany(BATCH):
 		rows = [dict(row) for row in batch]
 
 		for row in rows:
-			if any(row[name] is not None for name in ahead):
+			waiting = [
+				name
+				for name in ahead
+				if row[name] is not None and not (name == settled and row[name] in arrived)
+			]
+
+			if waiting:
 				later.append(
 					{f"_{name}": row[name] for name in keys}
 					| {name: row[name] for name in ahead}
 				)
 
-				for name in ahead:
+				for name in waiting:
 					row[name] = None
+
+			if settled is not None:
+				arrived.add(row[named])
 
 		writing.execute(sqlalchemy.insert(table), rows)
 		moved += len(batch)
@@ -311,6 +340,10 @@ def _points_ahead (table: sqlalchemy.Table, written: typing.AbstractSet[str]) ->
 	not, and an accountability chain is a tree with no such column. Inserting the reference as
 	null and filling it in afterwards is one mechanism that needs no order at all, and it goes
 	on streaming: only the rows that *have* a reference are held, as a pair of identifiers.
+
+	**With one exception, :data:`IN_DEPTH_ORDER`** (`#4015`): a project waiting for its parent
+	is a root meanwhile, and a key unique among the roots refuses a second of the same key, so
+	projects are read parents first and point at theirs as they go in.
 	"""
 
 	return [

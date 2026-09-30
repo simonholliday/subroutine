@@ -14,14 +14,18 @@ import uuid
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
+import sqlalchemy.orm
 import typer.testing
 
 import conftest
 import subroutine.cli.main
 import subroutine.db.base
 import subroutine.db.migrate
+import subroutine.db.models.identity
 import subroutine.db.session
 import subroutine.db.transfer
+import subroutine.domain.projects
+import subroutine.domain.workspaces
 import subroutine.errors
 import test_migrations
 
@@ -429,6 +433,78 @@ def test_a_child_stored_before_its_parent_still_copies (
 
 	finally:
 		target.dispose()
+
+
+def test_projects_that_share_a_key_all_copy (sqlite_url: str, postgres_database: str) -> None:
+	"""`SR#4015`, M-13 of the cold review of 2026-09-30: two projects of one key stopped the copy.
+
+	A key is unique among siblings only, so a root ``site`` beside ``clienta/site`` and
+	``clientb/site`` is ordinary. The copy wrote every nested project as a root and its parent
+	afterwards, so the second ``site`` at the root broke the index keeping root keys unique, and
+	the target was left with no projects. **Each goes in under its parent, and the tree arrives
+	as it was.**
+	"""
+
+	_filled(sqlite_url)
+
+	engine = subroutine.db.session.create_engine(sqlite_url)
+	projects = subroutine.db.base.Base.metadata.tables["project"]
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			owner = session.execute(sqlalchemy.select(subroutine.db.models.identity.User)).scalars().first()
+
+			assert owner is not None, "the source holds no account, so this proves nothing"
+
+			# A workspace of its own, since the one filled in holds no statuses to file a project with.
+			workspace_id = subroutine.domain.workspaces.create(
+				session, slug="copied", title="Copied", owner=owner
+			).id
+
+			subroutine.domain.projects.create(session, workspace_id=workspace_id, key="site", title="Site")
+
+			for client in ("clienta", "clientb"):
+				parent = subroutine.domain.projects.create(
+					session, workspace_id=workspace_id, key=client, title=client
+				)
+				subroutine.domain.projects.create(
+					session, workspace_id=workspace_id, key="site", title="Site", parent=parent
+				)
+
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	copied = subroutine.db.transfer.copy_into(sqlite_url, postgres_database)
+	trees = []
+
+	for url in (sqlite_url, postgres_database):
+		reading = subroutine.db.session.create_engine(url)
+
+		try:
+			with reading.connect() as connection:
+				trees.append(
+					[
+						tuple(row)
+						for row in connection.execute(
+							sqlalchemy.select(projects.c.id, projects.c.parent_id, projects.c.key).order_by(
+								projects.c.id
+							)
+						)
+					]
+				)
+
+		finally:
+			reading.dispose()
+
+	assert copied.rows == sum(_counts(sqlite_url).values())
+	assert [key for _, parent, key in trees[0] if key == "site" and parent is not None] == [
+		"site", "site"
+	], trees[0]
+	assert sorted((str(one), str(parent), key) for one, parent, key in trees[1]) == sorted(
+		(str(one), str(parent), key) for one, parent, key in trees[0]
+	), trees
 
 
 def test_a_database_holding_somebody_elses_tables_is_refused (
