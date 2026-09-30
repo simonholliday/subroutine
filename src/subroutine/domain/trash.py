@@ -23,7 +23,18 @@ def refuse (
 	if row.deleted_at is None:
 		return
 
-	raise subroutine.errors.ValidationError(
-		f"{subroutine.domain.refs.format_ref(row.ref)} is in the trash, so it cannot be {doing}.",
+	raise refusal(row.ref, doing=doing)
+
+
+def refusal (ref: int, *, doing: str) -> subroutine.errors.ValidationError:
+	"""Return :func:`refuse`'s sentence, for a caller that has to say it before it asks - `#4005`.
+
+	``document edit`` finds a document trash included and runs the editor before it saves, so the
+	domain's refusal arrived after the typing and the text was gone. The terminal asks first, in
+	these same words.
+	"""
+
+	return subroutine.errors.ValidationError(
+		f"{subroutine.domain.refs.format_ref(ref)} is in the trash, so it cannot be {doing}.",
 		hint="Restore it first if you meant to keep working on it.",
 	)

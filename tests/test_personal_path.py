@@ -8499,6 +8499,45 @@ def test_a_revision_that_would_lose_somebody_elses_paragraphs_is_refused (
 	)
 
 
+def test_editing_a_document_in_the_trash_is_refused_before_the_editor_opens (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4005`, M-8 of the cold review of 2026-09-30: the editor ran, then the text was thrown away.
+
+	The trash refusal belongs to the save, which comes after the editor has closed and its scratch
+	file has gone. **Refused before the editor opens**, so nothing is typed into a document that
+	will not take it, and the document is as it was.
+	"""
+
+	run("init")
+	run("doc", "create", "Plan", "--body", "The original text.")
+	run("delete", "1")
+
+	opened: list[str] = []
+
+	def editor (_program: typing.Any, text: str) -> str:
+		"""Stand in for the editor, and remember that it was opened."""
+
+		opened.append(text)
+
+		return "Text typed in the editor."
+
+	terminal = _NoInput()
+	terminal.stdin = _ATerminal()
+	monkeypatch.setattr(subroutine.cli.personal, "sys", terminal)
+	monkeypatch.setattr(subroutine.cli.personal, "_in_an_editor", editor)
+
+	refused = run("doc", "edit", "1", expect=1)
+
+	assert "#1 is in the trash, so it cannot be changed." in refused.output, refused.output
+	assert opened == [], "the editor opened for a document that could not take the text"
+
+	run("restore", "1")
+
+	assert "The original text." in run("show", "1").output
+
+
 def test_changing_a_documents_title_is_not_guarded_by_a_version (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

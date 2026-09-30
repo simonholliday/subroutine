@@ -228,6 +228,8 @@ upgrade involves.
   comes round, as a new one is.
 - **`serve` refuses a port it may not use, or an address this machine does not have, in a
   sentence**, where each ended in a crash report.
+- **`document edit` on a document in the trash is refused before the editor opens**, where the
+  text typed there was thrown away.
 
 ## 0.9.12 — 2026-09-29
 

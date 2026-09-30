@@ -76,6 +76,7 @@ import subroutine.domain.search
 import subroutine.domain.settings
 import subroutine.domain.tasks
 import subroutine.domain.text
+import subroutine.domain.trash
 import subroutine.domain.verifications
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -7629,6 +7630,12 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		# spent five minutes typing into vim.
 		with program.opened() as world:
 			located, document = _a_document(program, world, asked, verb="edit")
+
+			# **Refused before anything is typed or read** (`#4005`, M-8 of the cold review of
+			# 2026-09-30). The document is found trash included, and the domain refused the save only
+			# after the editor had closed and its scratch file gone, so the text typed there was lost.
+			if document.deleted_at is not None:
+				program.fail(subroutine.domain.trash.refusal(document.ref, doing="changed"))
 
 			# **Standard input is consulted only when nothing else was said at all** (`#299`).
 			# There is no way to tell an empty pipe from no pipe without blocking, so the
