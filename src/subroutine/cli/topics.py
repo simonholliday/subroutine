@@ -489,7 +489,7 @@ From then on one list shows both:
 
 Reading always spans everything you can reach, so nothing is hidden by
 being in the wrong place. Only writing picks one, and 'subroutine use
-work' is how you move it.
+work/acme' is how you move it.
 
 On a server other people use, whoever can see a project sees what is
 in it - in their lists, their searches and their calendars. Something

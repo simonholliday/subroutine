@@ -883,6 +883,26 @@ def test_a_setting_that_cannot_be_used_is_answered_at_the_agents_handshake (
 	assert "A configuration value could not be used: port" in answers[0]["error"]["message"], answers
 
 
+def test_the_command_explain_connecting_names_for_moving_writes_is_one_that_works (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#4011`, M-19 of the cold review of 2026-09-30: the topic named a refused command.
+
+	``explain connecting`` said *'subroutine use work' is how you move it*, and ``use work`` is
+	refused - *work* is a connection, not a workspace. **Whatever the topic names, run in the
+	world its own example draws, is accepted.**
+	"""
+
+	said = " ".join(run("explain", "connecting").output.split())
+	found = re.search(r"'subroutine use (\S+)' is how you move it", said)
+
+	assert found is not None, said
+
+	moved = run("use", found.group(1))
+
+	assert "Now working in" in moved.output, moved.output
+
+
 def test_use_reports_where_the_context_came_from (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

@@ -1150,8 +1150,10 @@ Name the project by its key. Keys are unique per workspace rather than per insta
 workspaces both hold a `web` the command refuses and asks which, rather than picking one - an
 agent pointed at the wrong tree works perfectly, against the wrong tree.
 
-**Give the token to the client as `SUBROUTINE_TOKEN`.** It is never accepted in a query string
-and never read from `config.toml`. `--store <connection>` writes it to `credentials.toml`
+**Give the token to the client as `SUBROUTINE_TOKEN_<CONNECTION>`**, the client's name for this
+instance in capitals, or in the `subroutine` plugin's token field. A bare `SUBROUTINE_TOKEN` is read
+for the client's default connection only - the whole order is below. It is never accepted in a
+query string and never read from `config.toml`. `--store <connection>` writes it to `credentials.toml`
 instead, and is deliberately opt-in: storing a narrow agent token under your own connection
 name would quietly narrow your own CLI.
 

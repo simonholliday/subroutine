@@ -245,6 +245,8 @@ upgrade involves.
 - **A connection whose address nothing can use fails alone**, and a configuration that cannot be
   read is said to the agent's tools when they start: either stopped every command, or left the
   agent with no tools and nothing said.
+- `explain connecting` names a `use` that works, and the hosting guide names the token variable
+  of one connection rather than the default's.
 
 ## 0.9.12 — 2026-09-29
 
