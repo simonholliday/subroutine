@@ -2695,6 +2695,41 @@ def test_a_note_quotes_only_words_the_title_keeps (line: str, left: str) -> None
 	assert all(token in read.title for token in read.unparsed), (read.title, read.unparsed)
 
 
+@pytest.mark.parametrize(
+	"line",
+	[
+		"Gym every monday every friday",
+		"Gym every monday and every friday",
+		"Water plants every monday and feed cat every friday",
+	],
+)
+def test_a_second_repeat_is_kept_in_the_title_and_said (line: str) -> None:
+	"""`SR#4016`, M-17 of the cold review of 2026-09-30: a second repeat was dropped without a word.
+
+	*Gym every monday every friday* repeated on Mondays with *every friday* gone from the title and
+	no note, and *Gym every monday and every friday* was filed as *Gym every monday and*, with no
+	repeat. **A line takes one repeat**: the second stays in the title, neither day is lost, and
+	the note says why nothing was set.
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.title == line, read
+	assert read.recurrence is None, read
+	assert "every friday" in read.unparsed, read.unparsed
+	assert "a line takes one repeat" in said, said
+
+
+def test_one_repeat_with_other_fields_after_it_is_still_read () -> None:
+	"""`SR#4016`'s other side: a single repeat, and a deadline after it, are read as before."""
+
+	read = _parse("Water plants every monday by friday")
+
+	assert read.recurrence is not None and read.title == "Water plants", read
+	assert read.due is not None, read
+
+
 def test_a_bare_time_is_still_told_how_a_time_is_read () -> None:
 	"""`SR#3896`: *Email Bob re: 3pm* is told the rule, and rightly, since it has no 'at'."""
 

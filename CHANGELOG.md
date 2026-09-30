@@ -23,6 +23,9 @@ upgrade involves.
 - **`db copy` carries a workspace where two projects share a key**, such as a root `web` beside
   `shop/web`, or `clienta/web` beside `clientb/web`. It failed on the second and left the target
   with no projects.
+- **A line with two repeats keeps both in its title, and says a line takes one.** *Gym every monday
+  every friday* repeated on Mondays with *every friday* gone and nothing said, and *every monday
+  and every friday* lost the repeat and its second day together.
 
 ## 0.9.13 — 2026-09-30
 

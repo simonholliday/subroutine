@@ -738,10 +738,15 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 
 	clauses = []
 
+	# **A second repeat on the line lands here too** (`#4016`), and its text is the text of one
+	# read out of the middle of a sentence, so the sentence names both conditions rather than
+	# asserting the one it cannot tell: *because words follow it* was false of a second repeat
+	# written at the end, and *put it at the end* told the writer to do what they had done.
 	if mid:
 		clauses.append(
 			f"Left as written: {', '.join(mid)} - read as part of the sentence rather than "
-			f"as a repeat, because words follow it. Put it at the end to make it one."
+			f"as a repeat: a line takes one repeat, and only where no words follow it. Put one "
+			f"at the end to make it a repeat."
 		)
 
 	if repeats:
@@ -1157,13 +1162,24 @@ def parse (
 		start = match.start()
 		ends = [token.end() for token in re.finditer(r"\S+", match.group(0))]
 		reach = (start, start + ends[len(words.split()) - 1])
+
+		# **One repeat to a line** (`#4016`, M-17 of the cold review of 2026-09-30). A second phrase
+		# this could read was claimed as well and set nothing, so *Gym every monday every friday*
+		# repeated on Mondays with *every friday* gone from the title and no note, and beside an
+		# *and* the first was withdrawn with the second already gone. **Reserved as a phrase this
+		# cannot read is**: it stays in the title, no other rule reads its day, and it is reported
+		# where nothing follows it. Following the first, it is words after it, so neither is read.
+		if "recurrence" in fields:
+			unread.append(reach)
+			reserved.append(reach)
+
+			continue
+
 		claimed.append(reach)
 		repeated.append(reach)
-
-		if "recurrence" not in fields:
-			fields["recurrence"] = rule
-			fields["recurrence_text"] = words
-			ruled = reach
+		fields["recurrence"] = rule
+		fields["recurrence_text"] = words
+		ruled = reach
 
 	# **Where each date landed, and which field it set** (`#2855`), so a time can be recognised
 	# as belonging to one date and then be put on that date's field. Each rule writes it on the
