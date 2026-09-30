@@ -251,6 +251,8 @@ upgrade involves.
   to the Inbox with the first status, and a sub-task after it was refused.
 - **The browser shows every comment on an item**, where it showed the oldest hundred, so on a
   busy item a new comment never appeared.
+- **A PostgreSQL restore that fails, or is stopped at its time limit, leaves the database as it
+  was**, and says so, where it left an empty database.
 
 ## 0.9.12 — 2026-09-29
 

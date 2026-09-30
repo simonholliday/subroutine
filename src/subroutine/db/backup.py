@@ -1875,25 +1875,75 @@ def _discard_the_replaced_log (target: pathlib.Path) -> None:
 			) from error
 
 
+#: What the schema a restore replaces is called while the backup loads beside it (`#4002`), with
+#: a few random characters after it so a set-aside left by a restore that died cannot block the next.
+_SET_ASIDE = "subroutine_before_restore"
+
+
 def _restore_postgresql (
 	engine: sqlalchemy.engine.Engine, source: pathlib.Path
 ) -> None:
-	"""Empty the PostgreSQL database and load the backup into it.
+	"""Replace the PostgreSQL database with the backup, or leave it as it was.
+
+	**The schema it replaces is set aside, not dropped, until the backup has loaded** (`#4002`,
+	M-5 of the cold review of 2026-09-30, and NEW-1 of its verification). It was dropped in a
+	transaction of its own and only then loaded, so a load that failed - or ran past the time a
+	tool is given, and was stopped - rolled back into an empty schema: every table gone, and the
+	message saying only that the tool had failed. **Renamed rather than copied**, so it costs
+	nothing whatever the database's size, and needs no privilege the drop did not.
+	"""
+
+	aside = f"{_SET_ASIDE}_{os.urandom(4).hex()}"
+
+	# The dump recreates every table it holds, so what is there now has to go first. Moving the
+	# *schema* rather than the database means no maintenance connection is needed, and the
+	# restore works on a managed server where creating databases is not permitted.
+	with engine.begin() as connection:
+		connection.exec_driver_sql(f'ALTER SCHEMA public RENAME TO "{aside}"')
+		connection.exec_driver_sql("CREATE SCHEMA public")
+
+	engine.dispose()
+
+	try:
+		_load_postgresql(engine, source)
+
+	except subroutine.errors.SubroutineError as failure:
+		_put_back(engine, aside)
+
+		raise type(failure)(
+			f"{failure.detail} The database was left as it was before the restore.",
+			hint=failure.hint,
+		) from failure
+
+	except BaseException:
+		_put_back(engine, aside)
+
+		raise
+
+	with engine.begin() as connection:
+		connection.exec_driver_sql(f'DROP SCHEMA "{aside}" CASCADE')
+
+	engine.dispose()
+
+
+def _put_back (engine: sqlalchemy.engine.Engine, aside: str) -> None:
+	"""Drop what a failed restore loaded, and put back the schema it was replacing - `#4002`."""
+
+	with engine.begin() as connection:
+		connection.exec_driver_sql("DROP SCHEMA public CASCADE")
+		connection.exec_driver_sql(f'ALTER SCHEMA "{aside}" RENAME TO public')
+
+	engine.dispose()
+
+
+def _load_postgresql (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None:
+	"""Load a backup into an empty ``public`` schema.
 
 	**Which tool does the loading is the whole of `SR#1554`.** An archive goes through
 	``pg_restore``, which executes no meta-commands; a plain script taken before that change
 	still goes through ``psql``, guarded by :func:`refuse_unsafe_commands` and by that
 	function's honest account of what it can and cannot see.
 	"""
-
-	# The dump recreates every table it holds, so what is there now has to go first. Dropping
-	# the *schema* rather than the database means no maintenance connection is needed, and the
-	# restore works on a managed server where creating databases is not permitted.
-	with engine.begin() as connection:
-		connection.exec_driver_sql("DROP SCHEMA public CASCADE")
-		connection.exec_driver_sql("CREATE SCHEMA public")
-
-	engine.dispose()
 
 	if is_archive(source):
 		_run(
@@ -1924,9 +1974,8 @@ def _restore_postgresql (
 			# The operator's ``~/.psqlrc`` is a script this process would otherwise run as a
 			# side effect of restoring somebody else's file (`#928`).
 			"--no-psqlrc",
-			# So a dump that fails part-way leaves nothing rather than half a schema and no
-			# data. The schema is dropped in its own committed transaction above, so the
-			# failure is visible either way — this decides whether it is also recoverable.
+			# So a dump that fails part-way leaves nothing rather than half a schema, which
+			# is what lets :func:`_restore_postgresql` put the schema it set aside back.
 			"--single-transaction",
 			"--set",
 			"ON_ERROR_STOP=on",

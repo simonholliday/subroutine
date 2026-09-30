@@ -768,6 +768,80 @@ def test_a_restore_puts_the_data_back (
 	assert _instance_id(own_database) == identity
 
 
+def test_a_postgresql_restore_that_is_stopped_leaves_the_database_as_it_was (
+	own_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4002`, M-5 of the cold review of 2026-09-30, and NEW-1 of its verification.
+
+	The schema was dropped in a transaction of its own and only then loaded, so a load stopped at
+	its time limit - or failing any other way - rolled back into an empty schema. **Stopped here
+	after it has begun, the database is as it was**, and says so; and a restore that goes through
+	leaves nothing set aside behind it.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	identity = _seed_instance(own_database)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+		postgresql = not subroutine.db.backup._is_sqlite(engine)
+
+	finally:
+		engine.dispose()
+
+	if not postgresql:
+		return
+
+	real = subroutine.db.backup._run
+
+	def stopped (command: list[str], *, what: str, secrets: dict[str, str] | None = None) -> str:
+		"""Stop the load as the time limit stops it, and let every other tool run."""
+
+		if "--single-transaction" in command:
+			raise subroutine.errors.ServiceUnavailable(
+				f"{what} was still running after 10 minutes, so it was stopped before it finished."
+			)
+
+		return real(command, what=what, secrets=secrets)
+
+	monkeypatch.setattr(subroutine.db.backup, "_run", stopped)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+			subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	assert "left as it was before the restore" in refused.value.detail, refused.value.detail
+	assert _instance_id(own_database) == identity, "a stopped restore took the database with it"
+
+	monkeypatch.setattr(subroutine.db.backup, "_run", real)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+		with engine.connect() as connection:
+			left: list[str] = list(
+				connection.execute(
+					sqlalchemy.text(
+						"SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE :aside"
+					),
+					{"aside": f"{subroutine.db.backup._SET_ASIDE}%"},
+				).scalars()
+			)
+
+	finally:
+		engine.dispose()
+
+	assert left == [], f"a restore that went through left the old schema behind: {left}"
+	assert _instance_id(own_database) == identity
+
+
 def test_a_postgresql_backup_is_an_archive_that_no_command_can_be_written_into (
 	own_database: str,
 ) -> None:
