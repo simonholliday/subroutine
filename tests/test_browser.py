@@ -3904,6 +3904,29 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	page.close()
 
 
+def _a_thread_of_two_pages (route: typing.Any) -> None:
+	"""Answer an item's comments as a hundred and then five, by the cursor - `SR#4009`."""
+
+	later = "cursor" in urllib.parse.parse_qs(urllib.parse.urlsplit(route.request.url).query)
+	numbers = range(100, 105) if later else range(100)
+	body = {
+		"items": [
+			{
+				"id": f"c{number:04d}", "author_id": "u1", "body": f"Comment number {number}",
+				"created_at": f"2026-09-{1 + number // 60:02d}T{(number // 60) % 24:02d}:{number % 60:02d}:00Z",
+				"updated_at": None, "entity_type": "task", "entity_ref": CARD["ref"],
+			}
+			for number in numbers
+		],
+		"page": {
+			"has_more": not later, "next_cursor": None if later else "second", "total": None,
+			"limit": 100,
+		},
+	}
+
+	route.fulfill(status=200, body=json.dumps(body), content_type="application/json")
+
+
 def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any) -> None:
 	"""The capture box emptied itself while the request was still in flight.
 
@@ -3927,6 +3950,10 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	typing costs most. The instance's real refusal, with the hint ``comments`` sends: a comment
 	too long is evidence that belongs in a finding document, and the page drops every other hint
 	because most of them name a terminal command.
+
+	**And every comment on an item is read** (`SR#4009`, M-15 of the cold review of 2026-09-30),
+	folded in beside the refused comment because both are what the item page does with a thread:
+	the page asked for a hundred and drew them, and the newest were the ones missing.
 
 	**And the note a landed write leaves is a way to what it made** (`SR#3566`, Simon: *"#27
 	Test item." should be a link so I can go straight to my new item*). Asked of the write this
@@ -4008,6 +4035,23 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	assert item.input_value(".detail form.saying textarea") == "Forty lines of a log."
 
 	item.close()
+
+	refusing[0] = None
+	thread = opened("/projects")
+	thread.route(f"**/v1/tasks/{CARD['ref']}/comments*", _a_thread_of_two_pages)
+	thread.goto(f"{OURS}/projects/{CARD['project_path']}/{CARD['ref']}")
+	thread.wait_for_selector(".detail", timeout=10_000)
+	_until(
+		thread,
+		lambda: thread.eval_on_selector_all(".detail ul.comments li", "all => all.length") == 105,
+	)
+
+	assert thread.eval_on_selector_all(".detail ul.comments li", "all => all.length") == 105, (
+		"the item page drew the first page of its comments and not the rest"
+	)
+	assert "Comment number 104" in thread.inner_text(".detail ul.comments")
+
+	thread.close()
 
 	# **And a choice on a settings page survives the page being drawn again** (`SR#2621`). Its two
 	# controls passed `checked`, which Preact re-applies against the live element on every render,

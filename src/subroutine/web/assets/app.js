@@ -71,6 +71,7 @@ import {
 	DOCUMENT_SAID, NEVER_CLEARED, PARENT_NEEDS_A_NUMBER, RELEASE_CHECK_POLLS, REPEATED,
 	SAID_AS_NUMBERS, SAID_AS_WRITTEN,
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
+	commentsRequest, pagesFrom,
 	completeRequest, conflictIn, dateFor, deferralOnly, documentRequest, edited, filed, freshly,
 	fromItem,
 	moveRequest, movingTo, unreadableParent,
@@ -1035,7 +1036,14 @@ export function App () {
 				);
 
 				return { item: { ...item, kind: trying }, links: links.items,
-					comments: comments.items, governing: governing.items,
+					/* **Every comment, not the first page** (`#4009`, M-15 of the cold review of
+					   2026-09-30). Comments come oldest first, so on a busy item the page drew the first
+					   hundred and the newest were the ones missing - a comment just written was noted and
+					   never appeared. The rest are asked for only when the answer says there are some. */
+					comments: await pagesFrom(
+						comments, (cursor) => sent(commentsRequest(trying, ref, slug, cursor)),
+					),
+					governing: governing.items,
 					/* **What refers to this** (`#1143`). Enveloped like every other collection
 					   and returned whole — what refers to an item is bounded by how much
 					   somebody wrote — so the rows are what this page needs and `has_more` is
@@ -4405,6 +4413,8 @@ export {
 	instanceRequest,
 	itemJournalRequest,
 	itemRequests,
+	commentsRequest,
+	pagesFrom,
 	journalItemsRequests,
 	journalRequest,
 	linkAsked,

@@ -249,6 +249,8 @@ upgrade involves.
   of one connection rather than the default's.
 - **The browser's add form keeps what was chosen after an item is added**: the second item went
   to the Inbox with the first status, and a sub-task after it was refused.
+- **The browser shows every comment on an item**, where it showed the oldest hundred, so on a
+  busy item a new comment never appeared.
 
 ## 0.9.12 — 2026-09-29
 

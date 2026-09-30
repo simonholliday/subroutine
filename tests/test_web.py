@@ -10141,6 +10141,9 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		]),
 		("itemRequests", ["task", place.task, place.slug]),
 		("itemRequests", ["document", place.document, place.slug]),
+		# The first page, as the item read asks it; a later one follows the answer's own cursor.
+		("commentsRequest", ["task", place.task, place.slug]),
+		("commentsRequest", ["document", place.document, place.slug]),
 		# **A workspace's journal, newest and from either edge** (`SR#2731`): an instant, and
 		# inclusive, in the dotted grammar the route reads.
 		("journalRequest", [place.slug]),
@@ -21283,6 +21286,46 @@ def test_a_credential_s_write_set_is_named_on_the_settings_page (tmp_path: pathl
 	assert said["keyed"] == "everything its owner can do, writing only in web", said
 	assert said["unkeyed"] == "everything its owner can do, writing only in p1", said
 	assert said["whole"] == "everything its owner can do", said
+
+
+def test_an_items_comments_are_followed_past_the_first_page (tmp_path: pathlib.Path) -> None:
+	"""`SR#4009`, M-15 of the cold review of 2026-09-30: the page drew the first hundred.
+
+	The item page read ``.items`` of its comments and never ``has_more``, so on a busy item the
+	newest were missing. **Followed to the end, by the named builder**, and not asked again where
+	the first answer said there was no more.
+	"""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const asked = [];
+		const read = async (cursor) => {{
+			asked.push(app.commentsRequest("task", 42, "projects", cursor).path);
+
+			return cursor === "second"
+				? {{ items: [3], page: {{ has_more: true, next_cursor: "third" }} }}
+				: {{ items: [4], page: {{ has_more: false, next_cursor: null }} }};
+		}};
+		const every = await app.pagesFrom(
+			{{ items: [1, 2], page: {{ has_more: true, next_cursor: "second" }} }}, read,
+		);
+		const whole = await app.pagesFrom(
+			{{ items: [9], page: {{ has_more: false, next_cursor: null }} }},
+			async () => {{ throw new Error("asked for more than there was"); }},
+		);
+
+		process.stdout.write(JSON.stringify({{
+			every, whole, asked, first: app.itemRequests("task", 42, "projects")[2].path,
+		}}));
+	""")
+
+	assert said["every"] == [1, 2, 3, 4], said
+	assert said["whole"] == [9], said
+	assert [("cursor=second" in one, "cursor=third" in one) for one in said["asked"]] == [
+		(True, False), (False, True)
+	], said
+	assert said["first"].startswith("/tasks/42/comments?limit=") and "cursor" not in said["first"], said
 
 
 def app_unnarrowed (said: dict[str, str]) -> str:

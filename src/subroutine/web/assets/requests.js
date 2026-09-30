@@ -59,17 +59,30 @@ export async function everyPage (read) {
 		This sent whatever builder it was handed, and a request sent from inside a helper is one
 		the check that every request is built by name cannot see — it failed, rightly.
 	*/
-	const items = [];
-	const seen = new Set();
-	let cursor = null;
+	return pagesFrom(await read(null), read);
+}
 
-	do {
+export async function pagesFrom (first, read) {
+	/*
+		Every item of a paged listing whose first page is already in hand, following its cursor to
+		the end - `#4009`.
+
+		**For an answer read beside others at once**, as an item's comments are read with the item:
+		asking for the first page again would be a request for nothing, and an answer that says there
+		is no more costs nothing further. **A cursor seen twice ends it**, as in `everyPage`, which is
+		this with its first page read.
+	*/
+	const items = [...(first.items || [])];
+	const seen = new Set([null]);
+	let cursor = first.page && first.page.has_more ? first.page.next_cursor || null : null;
+
+	while (cursor !== null && !seen.has(cursor)) {
 		const answer = await read(cursor);
 
 		items.push(...(answer.items || []));
 		seen.add(cursor);
 		cursor = answer.page && answer.page.has_more ? answer.page.next_cursor || null : null;
-	} while (cursor !== null && !seen.has(cursor));
+	}
 
 	return items;
 }
@@ -852,6 +865,17 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 	return collectionsFor(chose).map((kind) => asks[kind]);
 }
 
+export function commentsRequest (kind, ref, slug, cursor = null) {
+	/*
+		One page of an item's comments, oldest first - `#4009`. **Named**, as every request the page
+		sends is, so the pages after the first are sent by a builder the check can see.
+	*/
+	const collection = kind === "document" ? "documents" : "tasks";
+	const after = cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`;
+
+	return { path: scoped(`/${collection}/${ref}/comments?limit=${PAGE}${after}`, slug), method: "GET" };
+}
+
 export function itemRequests (kind, ref, slug) {
 	/*
 		One item in full: the thing, what governs it, what it links to, what refers to it, and
@@ -867,7 +891,7 @@ export function itemRequests (kind, ref, slug) {
 	return [
 		{ path: scoped(`/${collection}/${ref}`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/links`, slug), method: "GET" },
-		{ path: scoped(`/${collection}/${ref}/comments?limit=${PAGE}`, slug), method: "GET" },
+		commentsRequest(kind, ref, slug),
 		{ path: scoped(`/${collection}/${ref}/governing`, slug), method: "GET" },
 		/*
 			**What this item is made of** (`#1218`). The page could say *this is part of
