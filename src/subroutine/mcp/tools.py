@@ -1355,7 +1355,7 @@ def _tools (
 						# surface: `subroutine_call_api` reaches it, and the act is a
 						# person's, since no agent can see a private project it did not make.
 						"description": "Only you can see it. "
-						"POST /v1/projects/{key}/members lets somebody else in.",
+						"POST /v1/projects/{path}/members lets somebody else in.",
 					},
 					"workspace": WORKSPACE,
 				},
@@ -4898,7 +4898,12 @@ def _projected (
 		workspace=workspace,
 	)
 
-	made_line = f"Made {made.key}  {made.title}"
+	# **Named by its whole address** (`#4003`, M-6 of the cold review of 2026-09-30). A key is
+	# unique only among a project's siblings, so beside a private root `web` the advice for a new
+	# `alpha/web` added the person to the root and opened the root to the workspace. An instance
+	# older than `path` sends none, and the id reaches the same project.
+	address = made.path or str(made.id)
+	made_line = f"Made {address}  {made.title}"
 
 	# **Said at the moment it is chosen, not only in the schema** (`#1450`). A property
 	# description is read once when the tool list loads; this is read by the caller who just
@@ -4913,8 +4918,8 @@ def _projected (
 			# **The schema's sentence, not a contradiction of it** (`#3944`): this said nothing
 			# could let anybody else in, a release after `#1450` made the members route the way.
 			"Only you can see it. Through subroutine_call_api, POST "
-			f"/v1/projects/{made.key}/members lets somebody else in, and PATCH "
-			f"/v1/projects/{made.key} with {{\"visibility\": \"public\"}} opens it to the "
+			f"/v1/projects/{address}/members lets somebody else in, and PATCH "
+			f"/v1/projects/{address} with {{\"visibility\": \"public\"}} opens it to the "
 			"workspace."
 		)
 

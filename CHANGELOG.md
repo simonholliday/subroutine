@@ -230,6 +230,8 @@ upgrade involves.
   sentence**, where each ended in a crash report.
 - **`document edit` on a document in the trash is refused before the editor opens**, where the
   text typed there was thrown away.
+- **The agent's tools name a new private project by its whole address** when they say how to
+  share it or open it, so the advice for `alpha/web` no longer reaches a project called `web`.
 
 ## 0.9.12 — 2026-09-29
 

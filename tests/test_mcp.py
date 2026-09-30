@@ -2122,6 +2122,31 @@ def test_making_a_project_private_says_so_on_the_agent_surface (
 	assert "Nothing can add" not in made, made
 
 
+def test_a_new_private_project_is_named_by_its_whole_address_on_the_agent_surface (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#4003`, M-6 of the cold review of 2026-09-30: the advice named another project.
+
+	A key is unique only among siblings. Beside a private root ``web``, the reply for a new private
+	``alpha/web`` said ``/v1/projects/web/members``, and following it let somebody into the root,
+	while the PATCH it named opened the root to the workspace. **The whole address, in the
+	advice and on the line saying what was made.**
+	"""
+
+	_called(bound, "subroutine_project", key="alpha", title="Alpha")
+	_called(bound, "subroutine_project", key="web", title="Website", private=True)
+
+	made, failed = _called(
+		bound, "subroutine_project", key="web", title="Alpha's site", parent="alpha", private=True
+	)
+
+	assert not failed, made
+	assert made.startswith("Made alpha/web  Alpha's site"), made
+	assert "/v1/projects/alpha/web/members" in made, made
+	assert "PATCH /v1/projects/alpha/web with" in made, made
+	assert "/v1/projects/web/" not in made, made
+
+
 def test_an_ordinary_project_says_nothing_about_who_can_see_it_to_an_agent (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
