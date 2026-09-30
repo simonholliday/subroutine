@@ -766,6 +766,16 @@ def mcp (
 	# are not read here, as ever.
 	named = _named_on_the_command_line(workspace, "mcp")
 
+	# **And the connection by the same rule** (`#4014`, M-12 of the cold review of 2026-09-30): a
+	# ``-c`` before ``mcp`` was dropped without a word, so an agent's writes went to the default
+	# instance rather than the one named. A name nothing answers to is refused at the handshake,
+	# as ``--connection`` already was (`#3906`).
+	try:
+		chosen = subroutine.cli.personal.connection_named(connection, _selected)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
 	# **A configuration that cannot be read is answered at the handshake** (`#4000`, NEW-1 of the
 	# verification of the cold review of 2026-09-30): stopping here, as every other command does,
 	# left an agent's tools absent with the one sentence on standard error, which a client does
@@ -776,7 +786,7 @@ def mcp (
 	subroutine.mcp.relay.run(
 		sys.stdin,
 		sys.stdout,
-		connection=connection or None,
+		connection=chosen or None,
 		workspace=named or None,
 		settings=None if isinstance(settings, subroutine.errors.SubroutineError) else settings,
 		refused=refused,

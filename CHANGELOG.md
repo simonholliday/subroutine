@@ -12,6 +12,12 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+- **`subroutine -c work mcp` serves the connection it names**, as `mcp --connection work` does. It
+  served the default connection, so an agent's work went to another instance without a word. Two
+  different names, one before `mcp` and one after it, are refused.
+
 ## 0.9.13 — 2026-09-30
 
 - **An instance other people can reach stops sending OSC at this upgrade, until whoever runs it

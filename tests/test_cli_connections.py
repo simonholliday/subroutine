@@ -57,6 +57,7 @@ import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.errors
 import subroutine.installations
+import subroutine.mcp.relay
 import subroutine.releases
 import subroutine.views
 
@@ -882,6 +883,43 @@ def test_a_setting_that_cannot_be_used_is_answered_at_the_agents_handshake (
 
 	assert [one["id"] for one in answers] == [1], answers
 	assert "A configuration value could not be used: port" in answers[0]["error"]["message"], answers
+
+
+def test_mcp_serves_the_connection_c_names_before_it_or_after_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4014`, M-12 of the cold review of 2026-09-30: a ``-c`` before ``mcp`` was dropped.
+
+	``subroutine -c nope mcp`` answered the handshake from the default connection, where ``list``
+	refuses *There is no connection called 'nope'*, so an agent's writes went to another instance
+	from the one named, without a word. **Either spelling names it, whatever its case, and two
+	different ones are refused by name.**
+	"""
+
+	run("init")
+
+	answers = answered(run("-c", "nope", "mcp", input=INITIALIZE))
+
+	assert [one["id"] for one in answers] == [1], answers
+	assert "no connection called 'nope'" in answers[0].get("error", {}).get("message", ""), answers
+
+	served: list[str | None] = []
+
+	def serving (*_arguments: typing.Any, connection: str | None, **_options: typing.Any) -> None:
+		"""Record the connection the relay was started for, and serve nothing."""
+
+		served.append(connection)
+
+	monkeypatch.setattr(subroutine.mcp.relay, "run", serving)
+
+	run("-c", "work", "mcp")
+	run("mcp", "--connection", "work")
+	run("-c", "Work", "mcp", "--connection", "work")
+	run("mcp")
+	refused = run("-c", "work", "mcp", "--connection", "home", expect=1).output
+
+	assert served == ["work", "work", "work", None], served
+	assert "two different connections" in refused, refused
 
 
 def test_a_local_agent_session_closes_its_database_when_it_ends (

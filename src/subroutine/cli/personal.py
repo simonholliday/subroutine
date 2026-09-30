@@ -214,6 +214,28 @@ def workspace_named (own: str, selected: Selected, *, command: str | None = None
 	return after or before
 
 
+def connection_named (own: str, selected: Selected) -> str:
+	"""Return the connection the command line names, for a command with a ``--connection`` of its own.
+
+	`#4014`, M-12 of the cold review of 2026-09-30: :func:`workspace_named`'s rule one level up -
+	the command's own option after it, or ``-c`` before it, and **given both, they must agree**.
+	A name is compared as :meth:`subroutine.connections.Roster.find` looks one up, whatever its
+	case, so ``-c Work`` and ``--connection work`` are one connection.
+	"""
+
+	after = own.strip()
+	before = (selected.connection or "").strip()
+
+	if after and before and after.lower() != before.lower():
+		raise subroutine.errors.ValidationError(
+			f"'-c {before}' and '--connection {after}' name two different connections.",
+			code="invalid_field_value",
+			hint="Name the one you mean once, before the command or after it.",
+		)
+
+	return after or before
+
+
 @dataclasses.dataclass(frozen=True)
 class Reached:
 	"""One connection, open, and what it says it can reach."""
