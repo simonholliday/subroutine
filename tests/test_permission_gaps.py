@@ -58,6 +58,45 @@ def test_a_credential_narrowed_only_in_what_it_may_write_says_so_everywhere (
 	assert all(one["narrowed_by_credential"] for one in me["workspaces"]), me["workspaces"]
 
 
+def test_a_credential_writing_in_one_project_makes_and_moves_nothing_into_another (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4013`, M-10 of the cold review of 2026-09-30: a project's new parent was never asked.
+
+	A credential reaching ``web`` and ``ops`` and writing only in ``web`` was refused a task in
+	``ops``, and yet made ``ops/sub`` and moved ``web`` under ``ops``: ``create`` asked the
+	workspace and ``move`` the project moved. **The parent is asked as the project is**, and
+	``web`` is still its to build under. The top level waits on the review's second question.
+	"""
+
+	made = {
+		key: world.call("POST", "/v1/projects", json={"key": key, "title": key.title()}).json()
+		for key in ("web", "ops")
+	}
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session,
+		user=world.user,
+		title="Writes in web",
+		project_scope=[made["web"]["id"], made["ops"]["id"]],
+		project_write_scope=[made["web"]["id"]],
+	)
+	world.session.flush()
+	bearer = {"authorization": f"Bearer {issued.value.get_secret_value()}"}
+
+	under = world.call(
+		"POST", "/v1/projects", json={"key": "sub", "title": "Sub", "parent": "ops"}, headers=bearer
+	)
+	moved = world.call("POST", "/v1/projects/web/move", json={"parent": "ops"}, headers=bearer)
+	inside = world.call(
+		"POST", "/v1/projects", json={"key": "sub", "title": "Sub", "parent": "web"}, headers=bearer
+	)
+
+	assert under.status_code == 403, under.text
+	assert moved.status_code == 403, moved.text
+	assert inside.status_code == 201, inside.text
+	assert world.call("GET", "/v1/projects/web").json()["parent_id"] is None, "web was moved"
+
+
 def _inbox (world: test_api_tasks.World) -> uuid.UUID:
 	"""Return the id of the world's Inbox, to narrow a credential to."""
 

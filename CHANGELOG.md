@@ -29,6 +29,9 @@ upgrade involves.
 - **The browser no longer draws one project's list on another's page.** A list still loading when
   the reader moved on replaced the rows of the page they had moved to, and a refusal arriving late
   said the first project had gone and showed the whole workspace there.
+- **A credential that may write only in some projects makes and moves projects only into them.**
+  One writing only in `web` could make `ops/sub` and move `web` under `ops`, while it was refused
+  a task in `ops`.
 
 ## 0.9.13 — 2026-09-30
 

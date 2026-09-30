@@ -137,6 +137,13 @@ def create (
 	description = subroutine.domain.text.summary(description)
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id)
 
+	# **And of the project it goes into** (`#4013`, M-10 of the cold review of 2026-09-30), which
+	# checks the credential's reach and the projects it may write in together: asked of the
+	# workspace alone, a credential writing only in ``web`` made ``ops/sub``. A new top-level
+	# project is the question `#4032` asks, and is left as it was.
+	if parent is not None:
+		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=parent)
+
 	normalized_key = normalize_key(key)
 
 	check_key(normalized_key, given=key)
@@ -263,6 +270,11 @@ def move (
 	"""
 
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+
+	# **And of where it goes** (`#4013`), for :func:`create`'s reason: asked of the project moved
+	# alone, a credential writing only in ``web`` moved it under ``ops``. The top level is `#4032`'s.
+	if parent is not None:
+		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=parent)
 
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
