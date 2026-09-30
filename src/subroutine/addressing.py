@@ -13,6 +13,7 @@ what a valid key is would have the dependency exactly the wrong way round.
 
 import re
 import typing
+import uuid
 
 #: Words a literal route already claims in the task and project path spaces. Listed here
 #: rather than derived from the routing table, because a key is refused at creation —
@@ -227,6 +228,26 @@ def spans_segments (template: str) -> bool:
 	"""
 
 	return any(parameter.group(2) == "path" for parameter in _PARAMETER.finditer(template))
+
+
+def names_workspace (requested: str, *, slug: str, identifier: uuid.UUID) -> bool:
+	"""Say whether what somebody typed names this workspace, by its id or by its short name.
+
+	`#4021`, L-7 (4) and (5) of the cold review of 2026-09-30: **one reading for every lookup**.
+	Restoring compared the name as typed, so a workspace put in the trash as ``ZION`` could not be
+	restored by it, and an administrator's lookup compared the id as text, missing one in capitals
+	or with spaces round it. The id is parsed, and the name read as it is stored.
+	"""
+
+	wanted = requested.strip()
+
+	try:
+		parsed: uuid.UUID | None = uuid.UUID(wanted)
+
+	except ValueError:
+		parsed = None
+
+	return parsed == identifier or slug == normalize_slug(wanted)
 
 
 def normalize_slug (slug: str) -> str:

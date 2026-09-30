@@ -5460,6 +5460,21 @@ def test_a_null_title_is_refused_alike_on_both (pair: Pair) -> None:
 	assert said[0] == said[1] and "title" in said[0].lower(), said
 
 
+def test_an_explicit_none_for_a_documents_project_changes_nothing (pair: Pair) -> None:
+	"""`SR#4021`, L-7 (3) of the cold review of 2026-09-30: ``project=None`` moved it locally.
+
+	`SR#3936`'s rule for a task, one entity along: the API reads a null project as leaving it
+	alone, and the local client filed the document in the Inbox. **Not given, on both.**
+	"""
+
+	for client in pair.both():
+		project = client.create_project(key=f"notes-{uuid.uuid4().hex[:6]}", title="Notes")
+		made = client.create_document(title="What we settled", project=project.key)
+		kept = client.update_document(ref=made.ref, project=typing.cast(typing.Any, None))
+
+		assert kept.project_key == project.key, kept
+
+
 def test_every_answer_the_http_client_reads_goes_through_its_parser () -> None:
 	"""`SR#3936`: twenty-two reads went round ``_parsed``.
 

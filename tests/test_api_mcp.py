@@ -48,6 +48,7 @@ import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
 import subroutine.mcp.session
+import subroutine.views
 import test_api_tasks
 
 
@@ -1648,6 +1649,72 @@ def test_a_narrowed_agent_files_by_its_checkout_without_listing_projects (
 
 	assert "in web, from .subroutine" in by_marker, by_marker
 	assert _filed_under(world, by_marker) == "web"
+
+
+def test_a_marked_write_asks_who_its_caller_is_once (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4021`, L-7 (2) of the cold review of 2026-09-30: every marked write asked twice.
+
+	The checkout's workspace and the check that the marker speaks for this session each asked
+	``me()``, and over HTTP each is a round trip. **Asked once**, for a task and for a document.
+	"""
+
+	web = _a_project(world, "web")
+	# **A second workspace, so the session stands in none** and the checkout's is asked for.
+	assert world.call("POST", "/v1/workspaces", json={"slug": "zion", "title": "Zion"}).status_code == 201
+	marker = {
+		subroutine.directory.HEADER: f"workspace_id={world.workspace.id}; project_id={web}; project=web"
+	}
+	asked: list[int] = []
+	original = subroutine.clients.local.Client.me
+
+	def counting (self: subroutine.clients.local.Client) -> subroutine.views.Me:
+		"""Count one question of who the caller is, and answer it."""
+
+		asked.append(1)
+
+		return original(self)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "me", counting)
+
+	added = _as(world, world.secret, _adding("Fix the header"), **marker)
+	by_task = len(asked)
+	asked.clear()
+	written = _as(
+		world,
+		world.secret,
+		json.dumps({
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": {"name": "subroutine_document", "arguments": {"title": "What we settled"}},
+		}),
+		**marker,
+	)
+
+	assert "in web, from .subroutine" in added and "in web" in written, (added, written)
+	assert (by_task, len(asked)) == (1, 1), (by_task, len(asked))
+
+
+def test_a_marker_for_another_instance_is_said_as_that_without_its_id (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4021`, L-7 (6) of the cold review of 2026-09-30: the id was quoted as another workspace.
+
+	The relay sends a marker written for another connection with no workspace name, and the tools
+	said *.subroutine here names the workspace '0199...', not the one this session is in*. **Said as
+	another instance, or a workspace this session cannot reach, and without the id.**
+	"""
+
+	_a_project(world, "web")
+	elsewhere = uuid.uuid4()
+	said = _as(
+		world,
+		world.secret,
+		_adding("Fix the footer"),
+		**{subroutine.directory.HEADER: f"workspace_id={elsewhere}; project=web"},
+	)
+
+	assert "another instance" in said and str(elsewhere) not in said, said
 
 
 def test_a_checkout_marked_for_a_nested_project_files_there_by_its_id (

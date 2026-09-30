@@ -21,6 +21,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
@@ -153,17 +154,10 @@ def _named (
 ) -> subroutine.db.models.identity.Workspace:
 	"""Return the requested workspace, if the caller can reach it."""
 
-	wanted = requested.strip()
-	parsed: uuid.UUID | None = None
-
-	try:
-		parsed = uuid.UUID(wanted)
-
-	except ValueError:
-		parsed = None
-
 	for candidate in reachable:
-		if candidate.id == parsed or candidate.slug == subroutine.domain.workspaces.normalize_slug(wanted):
+		if subroutine.addressing.names_workspace(
+			requested, slug=candidate.slug, identifier=candidate.id
+		):
 			return candidate
 
 	# Not distinguishing "no such workspace" from "not yours", per §8.7: saying which would

@@ -53,6 +53,11 @@ upgrade involves.
   own token is told it is the token; a name two projects share is not listed to a credential that
   may not list projects; the compact token row says where a credential is pinned and what it
   reaches; and an agent whose person has left no longer counts as the administrator left behind.
+- **The agent's tools**: the project list keeps to its bound whatever the titles, a marked write
+  asks who the caller is once rather than twice, a checkout marked for another instance is said as
+  that without quoting an id, a workspace put in the trash by its name in capitals is restored by
+  it, and an administrator names a workspace by its id however it is written. Locally, a
+  document's project given as nothing is left alone, as it is over a connection.
 
 ## 0.9.13 — 2026-09-30
 

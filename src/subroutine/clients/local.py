@@ -1617,7 +1617,9 @@ class Client:
 			# asserting it is cheaper than a second refusal that could word it differently.
 			assert row is not None
 
-			if project is not subroutine.clients.base.UNSET:
+			# **Nor a None** (`#4021`, L-7 (3) of the cold review of 2026-09-30), which the API reads as
+			# leaving the project alone and this moved to the Inbox, as `update` did for a task (`#3936`).
+			if project not in (subroutine.clients.base.UNSET, None):
 				# Resolved here for the reason `update` gives: the service takes a row and a
 				# command line carries a key, and handing the key straight through raises
 				# `AttributeError` on `.id` rather than refusing by name.

@@ -202,6 +202,43 @@ def test_the_compact_row_says_where_a_credential_is_pinned_and_what_it_reaches (
 	assert f"in {world.workspace.slug} only" in row and "projects web" in row, row
 
 
+def test_a_workspace_trashed_by_its_name_in_capitals_is_restored_by_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4021`, L-7 (4) of the cold review of 2026-09-30: ``ZION`` trashed it and not restored it.
+
+	Restoring compared the name as typed, where every other door reads it as it is stored. **One
+	reading of a workspace's name**, for putting it in the trash and taking it out.
+	"""
+
+	made = world.call("POST", "/v1/workspaces", json={"slug": "zion", "title": "Zion"})
+	trashed = world.call("DELETE", "/v1/workspaces/ZION")
+	restored = world.call("POST", "/v1/workspaces/ZION/restore")
+
+	assert made.status_code == 201 and trashed.status_code in (200, 204), (made.text, trashed.text)
+	assert restored.status_code == 200, restored.text
+
+
+def test_an_administrator_names_a_workspace_by_its_id_in_capitals (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4021`, L-7 (5) of the cold review of 2026-09-30: the id was compared as text.
+
+	An administrator names a workspace they are not a member of through a lookup of its own, which
+	compared the id as written, so an id in capitals or with spaces round it named nothing.
+	"""
+
+	other = subroutine.domain.users.create(world.session, username=f"seraph-{uuid.uuid4().hex[:6]}")
+	theirs = subroutine.domain.workspaces.create(
+		world.session, slug=f"oracle-{uuid.uuid4().hex[:6]}", title="Oracle", owner=other
+	)
+	world.session.flush()
+
+	answered = world.call("GET", f"/v1/workspaces/{str(theirs.id).upper()}/members")
+
+	assert answered.status_code == 200, answered.text
+
+
 def _inbox (world: test_api_tasks.World) -> uuid.UUID:
 	"""Return the id of the world's Inbox, to narrow a credential to."""
 

@@ -524,11 +524,11 @@ def for_restore (
 	reachable = readable(session, principal, include_deleted=True)
 	deleted = [found for found in reachable if found.deleted_at is not None]
 
-	for found in deleted:
-		if str(found.id) == wanted:
-			return found
-
-	named = [found for found in deleted if found.slug == wanted]
+	named = [
+		found
+		for found in deleted
+		if subroutine.addressing.names_workspace(wanted, slug=found.slug, identifier=found.id)
+	]
 
 	if len(named) == 1:
 		return named[0]
@@ -554,7 +554,9 @@ def for_restore (
 	# Nothing in the trash answers to this, so a live one may — and restoring it is a no-op
 	# that reports the row, rather than a 404 about something the caller can plainly see.
 	for found in reachable:
-		if found.deleted_at is None and (found.slug == wanted or str(found.id) == wanted):
+		if found.deleted_at is None and subroutine.addressing.names_workspace(
+			wanted, slug=found.slug, identifier=found.id
+		):
 			return found
 
 	raise subroutine.errors.NotFound(

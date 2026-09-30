@@ -20,6 +20,7 @@ import sqlalchemy
 import sqlalchemy.orm
 import starlette.requests
 
+import subroutine.addressing
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
@@ -261,7 +262,7 @@ def _names (found: subroutine.db.models.identity.Workspace, wanted: str) -> bool
 	``selection.workspace`` while its ``/members`` and a ``DELETE`` of it answered 404.
 	"""
 
-	return found.slug == subroutine.domain.workspaces.normalize_slug(wanted) or str(found.id) == wanted
+	return subroutine.addressing.names_workspace(wanted, slug=found.slug, identifier=found.id)
 
 
 @router.post("", status_code=201, summary="Create a workspace")

@@ -3706,6 +3706,7 @@ def _checkout (
 	workspace: str | None,
 	overridden: bool,
 	standing: Standing = NOWHERE,
+	reached: typing.Sequence[subroutine.directory.Slugged] | None = None,
 ) -> _Checkout:
 	"""Return the project a ``.subroutine`` marker here files into, and the line that says so.
 
@@ -3773,7 +3774,7 @@ def _checkout (
 				f"`{subroutine.directory.FILE_NAME}` in this checkout",
 			)
 
-		elsewhere = _elsewhere(client, marker, projects)
+		elsewhere = _elsewhere(client, marker, projects, reached)
 		filed = None if elsewhere else subroutine.directory.resolve(marker, projects)
 
 		if filed is not None:
@@ -3838,8 +3839,28 @@ def _unplaced (named: str, several: list[str]) -> str:
 	return f"{named}, which is not on this instance. Ignoring it."
 
 
-def _checkouts_workspace (
+def _workspaces_reached (
 	client: subroutine.clients.base.Client, standing: Standing
+) -> typing.Sequence[subroutine.directory.Slugged] | None:
+	"""Read the workspaces this caller reaches, once, for a write whose checkout names one - `#4021`.
+
+	L-7 (2) of the cold review of 2026-09-30: the checkout's workspace and the check that the marker
+	speaks for this session each asked ``me()``, so every marked write asked twice, and over HTTP
+	each is a round trip. ``None`` where the marker names no workspace, and nothing is asked.
+	"""
+
+	marker = standing.checkout
+
+	if marker is None or (marker.workspace is None and marker.workspace_id is None):
+		return None
+
+	return client.me().workspaces
+
+
+def _checkouts_workspace (
+	client: subroutine.clients.base.Client,
+	standing: Standing,
+	reached: typing.Sequence[subroutine.directory.Slugged] | None = None,
 ) -> str | None:
 	"""Return the workspace the caller's checkout names, for a write naming none - `#3893`.
 
@@ -3855,13 +3876,16 @@ def _checkouts_workspace (
 	if marker is None or (marker.workspace is None and marker.workspace_id is None):
 		return None
 
-	return subroutine.directory.resolve_workspace(marker, client.me().workspaces)
+	return subroutine.directory.resolve_workspace(
+		marker, client.me().workspaces if reached is None else reached
+	)
 
 
 def _elsewhere (
 	client: subroutine.clients.base.Client,
 	marker: subroutine.directory.Marker,
 	projects: typing.Sequence[typing.Any],
+	reached: typing.Sequence[subroutine.directory.Slugged] | None = None,
 ) -> str | None:
 	"""Return why a marker does not speak for this session's workspace, or ``None`` where it does.
 
@@ -3885,15 +3909,24 @@ def _elsewhere (
 	# was written, among the workspaces this caller reaches. Compared by hand, a marker written
 	# with the workspace as it is shown, or with an id gone stale beside a name that still
 	# matches, sent the agent's work to the Inbox where the terminal filed it in the project.
-	reached = client.me().workspaces
+	reached = client.me().workspaces if reached is None else reached
 	named = subroutine.directory.resolve_workspace(marker, reached)
 
 	if named is not None and any(str(row.id) in here for row in reached if row.slug == named):
 		return None
 
+	# **A marker naming no workspace by name is one written for another instance** (`#4021`, L-7 (6)
+	# of the cold review of 2026-09-30), which is how the relay sends it: said as that, and without
+	# the raw id, where the sentence quoted the id and called it another workspace.
+	if marker.workspace is None:
+		return (
+			f"{subroutine.directory.FILE_NAME} here is marked for another instance, or for a "
+			"workspace this session cannot reach. Ignoring it."
+		)
+
 	return (
-		f"{subroutine.directory.FILE_NAME} here names the workspace "
-		f"{marker.workspace or marker.workspace_id!r}, not the one this session is in. Ignoring it."
+		f"{subroutine.directory.FILE_NAME} here names the workspace {marker.workspace!r}, not the "
+		"one this session is in. Ignoring it."
 	)
 
 
@@ -3918,7 +3951,8 @@ def _added (
 	"""
 
 	line = _text(arguments, "text") or ""
-	workspace = _text(arguments, "workspace") or _checkouts_workspace(client, standing)
+	reached = _workspaces_reached(client, standing)
+	workspace = _text(arguments, "workspace") or _checkouts_workspace(client, standing, reached)
 
 	# **A `+key` in the line is somebody speaking now, and outranks a file on disk** (§13.7a).
 	# **So does a parent** (`#3769`): a sub-task belongs to its parent's project, and the checkout's
@@ -3930,6 +3964,7 @@ def _added (
 			subroutine.domain.capture.names_a_project(line) or arguments.get("parent") is not None
 		),
 		standing=standing,
+		reached=reached,
 	)
 
 	captured = client.capture(
@@ -4062,7 +4097,8 @@ def _wrote (
 
 		# The checkout's workspace where nothing else named one, as a capture has it (`#3893`).
 		# Only for writing one: a ref is read where the caller says, never where a file suggests.
-		workspace = workspace or _checkouts_workspace(client, standing)
+		reached = _workspaces_reached(client, standing)
+		workspace = workspace or _checkouts_workspace(client, standing, reached)
 
 		# **The checkout decides where a conclusion is filed, exactly as it decides where a task
 		# is** (`#1219`). This read no marker at all until 2026-08-24, so a document written from
@@ -4081,6 +4117,7 @@ def _wrote (
 				_text(arguments, "project") is not None or arguments.get("parent") is not None
 			),
 			standing=standing,
+			reached=reached,
 		)
 
 		document = client.create_document(
@@ -4901,13 +4938,29 @@ def _projected (
 		# characters, spent in one call on context an agent needs for its work. No row is dropped,
 		# which would be the silent cut that was removed; the summaries share what is left, and the
 		# answer says so.
-		described = sum(1 for row in rows if row.description)
-		room = max(0, (PROJECTS_LISTED_WHOLE - len(listed(0))) // max(described, 1) - 3)
-
-		return (
-			f"{listed(room if room >= _SHORTEST_SUMMARY else 0)}\n"
-			f"(All {len(rows)} projects, with their summaries cut so the list fits one answer.)"
+		#
+		# **The largest room that fits, found by asking** (`#4021`, L-7 (1) of the cold review of
+		# 2026-09-30). The room was worked out from the tree with no summaries, which forgot the title
+		# padding every described row then carries and the closing line: 60 rows ran to 16,032
+		# characters, and 22,812 with one long title. A few renders, and the answer is within the bound
+		# whatever the titles; below the shortest summary worth a line, the summaries go.
+		note = f"(All {len(rows)} projects, with their summaries cut so the list fits one answer.)"
+		low = _SHORTEST_SUMMARY
+		high = max(
+			len(subroutine.domain.text.one_line(row.description)) for row in rows if row.description
 		)
+		room = 0
+
+		while low <= high:
+			middle = (low + high) // 2
+
+			if len(listed(middle)) + 1 + len(note) <= PROJECTS_LISTED_WHOLE:
+				room, low = middle, middle + 1
+
+			else:
+				high = middle - 1
+
+		return f"{listed(room)}\n{note}"
 
 	title = _text(arguments, "title")
 

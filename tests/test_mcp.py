@@ -10992,6 +10992,41 @@ def test_the_agents_project_listing_cuts_its_summaries_rather_than_its_projects 
 	assert "summaries cut so the list fits one answer" in listed, listed[-300:]
 
 
+def test_the_agents_project_listing_keeps_to_its_bound_whatever_the_titles (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#4021`, L-7 (1) of the cold review of 2026-09-30: the bound did not hold.
+
+	The room each summary was given was worked out from the tree with no summaries, which forgot
+	the title padding every described row then carries and the closing line, so sixty described
+	projects ran past the bound and one long title took them to 22,812 characters. **Within the
+	bound, every project listed, and the summaries still there.**
+	"""
+
+	summary = "What this project is for, written out at the length somebody might. " * 6
+	long_title = "A title long enough to widen the title column of every described row, " * 2
+
+	for number in range(60):
+		_called(
+			bound,
+			"subroutine_call_api",
+			method="POST",
+			path="/v1/projects",
+			body={
+				"key": f"p{number:02d}",
+				"title": long_title.strip() if number == 0 else f"Project {number}",
+				"description": summary,
+			},
+		)
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert all(f"p{number:02d}" in listed for number in range(60)), listed
+	assert len(listed) <= subroutine.mcp.tools.PROJECTS_LISTED_WHOLE, len(listed)
+	assert "What this project" in listed, "the summaries went, though there was room for them"
+
+
 def test_the_agents_project_listing_drops_the_column_when_nothing_is_described (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
