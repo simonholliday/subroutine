@@ -251,6 +251,27 @@ def test_a_rule_naming_two_days_of_the_month_works_everywhere_a_rule_is_read (
 	assert checked.json()["description"] == "every month, on the 1st and 15th", checked.json()
 
 
+def test_somebody_with_one_workspace_is_answered_in_its_zone (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4030`, gap 4 of L-10 of the cold review of 2026-09-30: only two workspaces were asked.
+
+	With one workspace reachable and none named there is nothing to choose, so **that workspace's
+	zone answers**, before the instance's - for a person with no zone of their own.
+	"""
+
+	world.workspace.timezone = "Asia/Tokyo"
+	world.user.timezone = None
+	world.session.flush()
+	instance = subroutine.domain.instances.get(world.session)
+
+	assert instance is not None and instance.timezone != "Asia/Tokyo"
+
+	answer = world.call("POST", "/v1/recurrence/parse", json={"text": "every monday"})
+
+	assert (answer.status_code, answer.json().get("timezone")) == (200, "Asia/Tokyo"), answer.text
+
+
 def test_somebody_with_two_workspaces_is_answered_rather_than_asked_which (
 	world: test_api_tasks.World,
 ) -> None:

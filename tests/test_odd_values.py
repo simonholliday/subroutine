@@ -18,6 +18,8 @@ import sqlalchemy.orm
 
 import subroutine.api.mcp
 import subroutine.db.failures
+import subroutine.db.models.vocabulary
+import subroutine.domain.agenda
 import subroutine.domain.instances
 import subroutine.errors
 import subroutine.mcp.protocol
@@ -122,8 +124,25 @@ def test_an_agenda_near_the_end_of_the_calendar_is_still_built (
 
 	assert built.status_code == 200, built.text
 
+	# **And the answer is the right one** (`SR#4030`, L-10 of the cold review of 2026-09-30): the
+	# defect was a 500, and a 200 alone would pass a wrong one. The day asked, every bucket there,
+	# the deadline today and nowhere else, and nothing late or past the calendar.
+	body = built.json()
+	buckets = {name: [row["ref"] for row in body.get(name, [])] for name in subroutine.domain.agenda.BUCKETS}
+	holding = [name for name, refs in buckets.items() if made.json()["ref"] in refs]
 
-@pytest.mark.parametrize("number", [40_000, 2**31, 2**63, -(2**63) - 1])
+	assert (body["date"], body["timezone"]) == ("9999-12-29", "America/Los_Angeles"), body
+	assert set(subroutine.domain.agenda.BUCKETS) <= set(body), sorted(body)
+	assert holding == ["today"], buckets
+	assert (buckets["overdue"], buckets["upcoming"]) == ([], []), buckets
+
+
+@pytest.mark.parametrize(
+	"number",
+	# **The first number past each end** (`SR#4030`, gap 2 of L-10 of the cold review of 2026-09-30),
+	# so a bound one out either way is refused: 40,000 is far past, and let 2**15 through.
+	[2**15, -(2**15) - 1, 40_000, 2**31, 2**63, -(2**63) - 1],
+)
 def test_a_rank_filter_past_what_the_column_holds_is_refused_by_name (
 	world: test_api_tasks.World, number: int
 ) -> None:
@@ -133,12 +152,14 @@ def test_a_rank_filter_past_what_the_column_holds_is_refused_by_name (
 	_named(world.call("GET", "/v1/tasks", params={"importance.gt": number}), "importance")
 
 
+@pytest.mark.parametrize("number", [2**15 - 1, -(2**15)])
 def test_a_rank_filter_at_the_edge_of_the_column_is_answered (
-	world: test_api_tasks.World,
+	world: test_api_tasks.World, number: int
 ) -> None:
-	"""The positive twin: the largest number the column holds is a question with an answer."""
+	"""The positive twin: the largest number the column holds is a question with an answer, and the
+	smallest (`SR#4030`, gap 2), so a bound moved in by one is caught at either end."""
 
-	answered = world.call("GET", "/v1/tasks", params={"urgency.lte": 2**15 - 1})
+	answered = world.call("GET", "/v1/tasks", params={"urgency.lte": number})
 
 	assert answered.status_code == 200, answered.text
 
@@ -393,7 +414,7 @@ def test_an_estimate_in_another_script_s_decimal_digits_is_still_read (
 	assert made.json()["estimate_minutes"] == 3
 
 
-@pytest.mark.parametrize("position", [2**40, -(2**40)])
+@pytest.mark.parametrize("position", [2**31, -(2**31) - 1, 2**40, -(2**40)])
 def test_a_status_position_past_its_column_is_refused_by_name (
 	world: test_api_tasks.World, position: int
 ) -> None:
@@ -415,7 +436,7 @@ def test_a_status_position_past_its_column_is_refused_by_name (
 	)
 
 
-@pytest.mark.parametrize("position", [2**40, -(2**40)])
+@pytest.mark.parametrize("position", [2**31, -(2**31) - 1, 2**40, -(2**40)])
 def test_a_status_moved_past_its_column_is_refused_by_name (
 	world: test_api_tasks.World, position: int
 ) -> None:
@@ -433,6 +454,50 @@ def test_a_status_moved_past_its_column_is_refused_by_name (
 		world.call("PATCH", f"/v1/statuses/{made.json()['id']}", json={"position": position}),
 		"position",
 	)
+
+
+@pytest.mark.parametrize("position", [2**31 - 1, -(2**31)])
+def test_a_status_position_at_the_edge_of_its_column_is_kept (
+	world: test_api_tasks.World, position: int
+) -> None:
+	"""`SR#4030`, gap 1 of L-10 of the cold review of 2026-09-30: only 2**40 was ever asked.
+
+	So a range one past the column's last value let 2**31 through, to PostgreSQL's 500. With the
+	first number past each end refused above, **the last one inside each end is kept**, on the
+	create and on the edit.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/statuses",
+		json={
+			"entity_type": "task",
+			"key": "edge",
+			"label": "Edge",
+			"category": "todo",
+			"position": position,
+		},
+	)
+
+	def stored () -> int:
+		"""Return the position the status holds, read from its row, since no view reports one."""
+
+		world.session.expire_all()
+
+		return world.session.scalars(
+			sqlalchemy.select(subroutine.db.models.vocabulary.Status.position).where(
+				subroutine.db.models.vocabulary.Status.workspace_id == world.workspace.id,
+				subroutine.db.models.vocabulary.Status.key == "edge",
+			)
+		).one()
+
+	assert made.status_code == 201, made.text
+	assert stored() == position
+
+	moved = world.call("PATCH", f"/v1/statuses/{made.json()['id']}", json={"position": -position - 1})
+
+	assert moved.status_code == 200, moved.text
+	assert stored() == -position - 1
 
 
 @pytest.mark.parametrize("path", ["/v1/tasks", "/v1/projects", "/v1/documents", "/v1/tags", "/v1/users"])

@@ -272,8 +272,17 @@ def test_a_milestone_refused_a_new_type_says_nothing_of_how_much_it_includes (
 	)
 
 	assert refused.status_code == 422, refused.text
-	assert "includes other work" in refused.text, refused.text
-	assert "1 item" not in refused.text, refused.text
+
+	# **The whole sentence, and no count in any spelling** (`SR#4030`, L-10 of the cold review of
+	# 2026-09-30): *1 item* absent passed *1 piece of work* and *one item* alike.
+	problem = refused.json()
+
+	assert problem["detail"] == (
+		f"#{milestone.json()['ref']} includes other work, so it cannot stop being a milestone."
+	), problem
+	assert [one["message"] for one in problem["errors"]] == [
+		"`type` cannot become 'task' while it includes other work."
+	], problem
 
 
 def test_an_agent_nobody_answers_for_is_refused_by_name_as_by_its_token (

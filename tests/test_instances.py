@@ -2122,6 +2122,40 @@ def test_a_listed_backup_says_what_could_not_be_counted (
 		assert "Holds nothing" not in cell, cell
 
 
+@pytest.mark.parametrize(
+	("holdings", "said"),
+	[
+		({}, "Could not count what it holds"),
+		({"workspace": 0, "project": 0, "task": 0, "document": 0}, "It holds nothing"),
+		({"workspace": 1, "project": 0, "task": 0}, "its documents could not be counted, so check"),
+		({"workspace": 1, "project": 2, "task": 3, "document": 0}, "1 workspace, 2 projects, 3 tasks."),
+	],
+	ids=["nothing counted", "an empty instance", "partly counted", "counted"],
+)
+def test_a_backup_says_what_it_holds_as_it_is_taken (
+	tmp_path: pathlib.Path, holdings: dict[str, int], said: str
+) -> None:
+	"""`SR#4030`, gap 12 of L-10 of the cold review of 2026-09-30: the listing's cell was asked.
+
+	The line said when a backup is taken has the same three states and was asked only where nothing
+	could be counted. **An empty instance is said in a whole sentence**, since that is the backup
+	somebody should not take comfort from, and it is said only where every kind counted zero.
+	"""
+
+	backup = subroutine.db.backup.Backup(
+		path=tmp_path / "subroutine-20260930T120000Z.db",
+		taken_at=datetime.datetime(2026, 9, 30, 12, tzinfo=datetime.UTC),
+		schema_head="58c81c09d101",
+		size_bytes=1,
+		profile=None,
+		holdings=holdings,
+	)
+	line = subroutine.cli.main._what_it_held(backup)
+
+	assert said in line, line
+	assert ("It holds nothing" in line) == (said == "It holds nothing"), line
+
+
 def test_a_postgresql_tool_that_runs_out_of_time_is_stopped_and_said (
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:

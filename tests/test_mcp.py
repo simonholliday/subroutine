@@ -6060,6 +6060,12 @@ def test_a_pair_joined_both_ways_by_one_kind_is_withdrawn_from_this_end (
 
 	assert not failed, named
 
+	# **Which one went** (`SR#4030`, L-10 of the cold review of 2026-09-30): the withdrawals succeed
+	# whichever link the first took, so the one left is read back.
+	left = " ".join(_called(bound, "subroutine_show", ref=first)[0].split())
+
+	assert f"Duplicated by #{second}" in left and f"Duplicates #{second}" not in left, left
+
 	unnamed, failed = _called(bound, "subroutine_link", ref=second, other=first, remove=True)
 
 	assert not failed, f"the link from the other end went with the first: {unnamed}"
@@ -11025,6 +11031,36 @@ def test_the_agents_project_listing_keeps_to_its_bound_whatever_the_titles (
 	assert all(f"p{number:02d}" in listed for number in range(60)), listed
 	assert len(listed) <= subroutine.mcp.tools.PROJECTS_LISTED_WHOLE, len(listed)
 	assert "What this project" in listed, "the summaries went, though there was room for them"
+
+
+def test_the_agents_project_listing_drops_its_summaries_where_none_would_fit (
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4030`, gap 11 of L-10 of the cold review of 2026-09-30: only the cut branch ran.
+
+	Twenty-four projects leave each summary about six hundred characters, so the branch for a
+	listing where not even the shortest summary worth a line would fit was never reached. **The
+	summaries go, every project is still listed**, and the answer says it was cut.
+	"""
+
+	summary = "What this project is for, written out at the length somebody might."
+
+	for number in range(24):
+		_called(
+			bound,
+			"subroutine_call_api",
+			method="POST",
+			path="/v1/projects",
+			body={"key": f"p{number:02d}", "title": f"Project {number}", "description": summary},
+		)
+
+	monkeypatch.setattr(subroutine.mcp.tools, "PROJECTS_LISTED_WHOLE", 800)
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert all(f"p{number:02d}" in listed for number in range(24)), listed
+	assert "What this" not in listed and "…" not in listed, listed
+	assert "summaries cut so the list fits one answer" in listed, listed[-300:]
 
 
 def test_the_project_tool_says_a_key_can_be_renamed () -> None:

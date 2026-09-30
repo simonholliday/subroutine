@@ -1903,6 +1903,47 @@ def test_a_checkout_names_the_workspace_where_the_session_names_none (
 	assert f"in web, from {subroutine.directory.FILE_NAME}" in said, said
 
 
+def test_a_document_is_written_in_the_workspace_its_checkout_names (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4030`, gap 9 of L-10 of the cold review of 2026-09-30: only a capture was asked.
+
+	A document takes the checkout's workspace where nothing else names one, as a capture does
+	(`SR#3893`), and only the capture had a test. With two workspaces, and a checkout naming one of
+	them and no project, **the document is written there** rather than refused as being about any of
+	several.
+	"""
+
+	here = world.workspace.slug
+	team = world.call("POST", "/v1/workspaces", json={"slug": "team", "title": "Team"})
+
+	assert team.status_code == 201, team.text
+
+	answered = _message(
+		world,
+		{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "tools/call",
+			"params": {
+				"name": "subroutine_document",
+				"arguments": {"title": "Why the footer moved", "body": "It hid the links."},
+			},
+		},
+		headers={subroutine.directory.HEADER: f"workspace={here}"},
+	)
+	result = answered.json()["result"]
+	said = str(result["content"][0]["text"])
+
+	assert not result.get("isError"), said
+
+	ref = said.split("#", 1)[1].split()[0]
+	shown = world.call("GET", f"/v1/documents/{ref}", params={"workspace_id": here})
+
+	assert shown.status_code == 200, shown.text
+	assert shown.json()["title"] == "Why the footer moved", shown.text
+
+
 def test_a_bare_key_several_projects_share_is_named_rather_than_guessed (
 	world: test_api_tasks.World,
 ) -> None:

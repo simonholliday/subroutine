@@ -6782,6 +6782,12 @@ def test_a_pair_joined_both_ways_by_one_kind_is_unlinked_from_this_end (
 	run("link", "2", "duplicates", "1")
 
 	assert "Mend the parser" in run("unlink", "1", "2", "--type", "duplicates").output
+
+	# **Which one went** (`SR#4030`, L-10 of the cold review of 2026-09-30): both reports name the
+	# other item whichever link was withdrawn, so the one left is read back.
+	left = " ".join(run("show", "1").output.split())
+
+	assert "Duplicated by #2" in left and "Duplicates #2" not in left, left
 	assert "Fix the parser" in run("unlink", "2", "1").output
 
 	run("unlink", "1", "2", expect=1)

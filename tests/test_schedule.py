@@ -1304,6 +1304,22 @@ def test_the_last_day_of_the_calendar_is_refused_where_its_end_cannot_be_shown (
 	).is_all_day
 
 
+def test_a_whole_day_left_in_a_line_is_asked_at_its_last_moment_too () -> None:
+	"""`SR#4030`, gap 7 of L-10 of the cold review of 2026-09-30: no test called this directly.
+
+	Told no zone, a day written without a time is asked at both its edges in the furthest clocks
+	either side. *9999-12-30* passes at its first moment everywhere and ends past the calendar sixteen
+	hours west, so **only its last moment says why it was left**; a time on the same day is asked
+	once, and the day before passes at both.
+	"""
+
+	beyond = subroutine.domain.schedule.beyond_every_clock
+
+	assert beyond("9999-12-30") is not None
+	assert beyond("9999-12-30T00:00") is None
+	assert beyond("9999-12-29") is None
+
+
 def test_a_zones_own_old_offset_is_not_refused_as_one_nobody_wrote () -> None:
 	"""`SR#3900`: an offset is asked of only where the writer wrote one.
 

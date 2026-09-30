@@ -2653,6 +2653,25 @@ def test_a_time_written_after_at_is_never_told_to_be (line: str) -> None:
 
 
 @pytest.mark.parametrize(
+	("line", "left"),
+	[
+		("Dentist 2 October at 3pm 5 October", "2 October at 3pm"),
+		("Dentist Monday at 3pm Friday", "Monday at 3pm"),
+	],
+)
+def test_a_time_between_two_unread_days_is_quoted_with_the_one_before (line: str, left: str) -> None:
+	"""`SR#4030`, gap 8 of L-10 of the cold review of 2026-09-30: the preference was never asked.
+
+	The nearest day before a time is the one it was written for, and one after it only where none
+	comes before - *at 3pm 2 October*. **With a day on each side, the one before is quoted.**
+	"""
+
+	read = _parse(line)
+
+	assert read.unparsed == (left,), read.unparsed
+
+
+@pytest.mark.parametrize(
 	"line", ["Call Bob 3pm tomorrow", "Pay rent 3pm today", "Call Bob 15:00 tomorrow"]
 )
 def test_a_time_beside_a_day_that_was_read_is_quoted_alone_and_told_the_rule (line: str) -> None:

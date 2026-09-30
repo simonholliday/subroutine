@@ -804,6 +804,35 @@ def test_a_checkout_s_project_is_taken_only_in_the_workspace_it_names (
 	assert "from .subroutine" not in added.output, added.output
 
 
+def test_a_checkout_marked_with_a_workspace_in_capitals_names_it_as_it_is (
+	tmp_path: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4030`, gap 10 of L-10 of the cold review of 2026-09-30: right, and never asked.
+
+	``-w TEAM use --here`` **writes the workspace's own short name and its id**, as ``-w team``
+	does, so a marker never carries a spelling that its id does not back.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "team", "Team")
+	run("-w", "team", "project", "create", "web", "Website")
+
+	written: dict[str, dict[str, typing.Any]] = {}
+
+	for typed in ("team", "TEAM"):
+		checkout = tmp_path / f"typed-{len(written)}"
+		checkout.mkdir()
+		monkeypatch.chdir(checkout)
+		run("-w", typed, "use", "--here", "--project", "web")
+		written[typed] = tomllib.loads((checkout / ".subroutine").read_text("utf-8"))
+
+	assert written["TEAM"]["workspace"] == "team", written
+	assert written["TEAM"].get("workspace_id"), written
+	assert written["TEAM"] == written["team"], written
+
+
 def test_a_checkout_marked_before_workspace_ids_still_files_by_its_project_id (
 	tmp_path: pathlib.Path,
 	run: typing.Callable[..., typer.testing.Result],

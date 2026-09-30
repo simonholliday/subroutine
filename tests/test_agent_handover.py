@@ -148,6 +148,23 @@ def test_handing_an_agent_to_its_own_descendant_is_refused (
 	assert "already answers to" in str(refusal.value)
 
 
+def test_handing_an_agent_to_itself_is_refused (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4030`, gap 3 of L-10 of the cold review of 2026-09-30: the loop of one was never asked.
+
+	``agents_answering_to`` never includes the agent itself, so without its own clause a transfer to
+	itself found nothing below, passed the depth check, and wrote an agent answering to itself.
+	"""
+
+	person = _person(session)
+	agent = _agent(session, person)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+		subroutine.domain.users.transfer(session, agent, to=agent, actor=_acting(person))
+
+	assert "already answers to" in str(refusal.value)
+	assert agent.responsible_user_id == person.id
+
+
 def test_a_refused_transfer_changes_nothing (session: sqlalchemy.orm.Session) -> None:
 	"""A refused transfer leaves the agent answering to whoever it answered to before.
 

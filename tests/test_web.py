@@ -9504,6 +9504,35 @@ def test_an_address_naming_a_project_gone_drops_it_in_place (
 	), driven["written"]
 
 
+def test_a_refusal_after_the_reader_moved_on_leaves_their_address_alone (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4030`, gap 13 of L-10 of the cold review of 2026-09-30: no test named the guard.
+
+	An address naming a project that has gone stops naming it (`SR#3917`), **only while it still
+	names that project**: a refusal can arrive after the reader has moved to another, and must not
+	rewrite where they went. The agenda's refusal is the one that reaches it, since it asks whether
+	the read is still wanted and not where the address points.
+	"""
+
+	world = test_api_tasks._world(session)
+	refused = world.call(
+		"GET", "/v1/agenda", params={"workspace_id": world.workspace.slug, "project": "gone"}
+	)
+
+	assert refused.status_code == 404, refused.text
+
+	driven = _driven(
+		tmp_path,
+		pathname="/projects/gone",
+		answers={"project=gone": refused.json()},
+		moved={"project=gone": "/projects/other"},
+	)
+
+	assert "There is no project called gone here any more" in driven["said"], driven["said"]
+	assert not any(one["how"] == "replace" for one in driven["written"]), driven["written"]
+
+
 def test_an_agenda_read_is_acted_on_only_while_the_reader_is_still_there () -> None:
 	"""`SR#3902`: the fallback above acted on a refusal that came after the reader had left.
 
@@ -12721,6 +12750,7 @@ def _driven (
 	answers: typing.Mapping[str, typing.Any] | None = None,
 	ticks: int = 0,
 	permissions: typing.Sequence[str] = ("task:write", "comment:write", "task:delete"),
+	moved: typing.Mapping[str, str] | None = None,
 ) -> dict[str, typing.Any]:
 	"""Mount the real app at one address and report what it asked the instance for.
 
@@ -12753,10 +12783,15 @@ def _driven (
 	broken. It is defensible here because the interval is not the subject — what the callback
 	*decides* is — and `clearInterval` is honoured, so a stale interval from a re-run effect
 	cannot be run by mistake.
+
+	**`moved` puts the reader somewhere else as a request goes out** (`SR#4030`): keyed like
+	`answers`, it sets the address before the answer arrives, as a reader moving on does, without
+	telling the app - which is the case a guard against a late answer exists for.
 	"""
 
 	module = _staged(tmp_path)
 	replies = dict(answers or {})
+	leaving = json.dumps(dict(moved or {}))
 	permitted = json.dumps(list(permissions))
 
 	return dict(_ran(tmp_path, f"""
@@ -12811,8 +12846,17 @@ def _driven (
 			return {{ items: [], page: {{ has_more: false, next_cursor: null, total: null }} }};
 		}}
 
+		const leaving = {leaving};
+
 		globalThis.fetch = async (path, options = {{}}) => {{
 			asked.push({{ method: (options.method || "GET"), path }});
+
+			for (const [fragment, to] of Object.entries(leaving)) {{
+				if (path.includes(fragment)) {{
+					globalThis.window.location.pathname = to;
+					globalThis.window.location.href = `http://instance${{to}}`;
+				}}
+			}}
 
 			/* **A problem document is answered as the refusal it is** (`SR#1428`), so a test can
 			   pose a 404 — which is how the app learns that a ref names a document rather than a
@@ -14633,6 +14677,9 @@ def test_every_project_is_read_where_a_workspace_has_more_than_a_page (
 	asked = [one["path"] for one in driven["asked"]]
 
 	assert any("/projects?fields=" in one and "cursor=later" in one for one in asked), asked
+	# **And what the second page held reaches the page** (`SR#4030`, L-10 of the cold review of
+	# 2026-09-30): asking for it proves only that it was asked for.
+	assert "Website" in driven["said"], driven["said"]
 
 
 def test_no_saved_views_means_no_menu_of_them_open () -> None:
