@@ -75,9 +75,11 @@ end - and a dead end is worth as much as a decision, because the next agent stop
 spending a day proving it again.
 
 **Conclusions that reach the work without anybody remembering to link them.** File a decision
-against a parent and everything filed beneath it inherits it, nearest first, labelled with where
+against a parent and every item beneath the parent lists it, nearest first, labelled with where
 it came from. The agent that opens a leaf three weeks later reads the rule that binds it under
-*Read first*, having done nothing to find it.
+*Read first*, having done nothing to find it. Nothing is copied down: the list is worked out
+from the tree each time an item is read, so correcting or withdrawing a decision reaches
+everything beneath it at once.
 
 **A roadmap that stops the tangents.** An agent that asks *what should I do next* gets the plan
 rather than whatever it thought of thirty seconds ago. Work that is blocked says what by, so
