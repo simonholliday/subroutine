@@ -415,18 +415,27 @@ def _told_to_the_log (asked: subroutine.releases.Asked) -> tuple[int, str] | Non
 
 @contextlib.asynccontextmanager
 async def _lifespan (application: fastapi.FastAPI) -> typing.AsyncIterator[None]:
-	"""Hold the application's own resources for as long as it is serving.
+	"""Hold the application's own resources for as long as it is serving, then release them."""
+
+	try:
+		yield
+
+	finally:
+		released(application)
+
+
+def released (application: fastapi.FastAPI) -> None:
+	"""Dispose of the engine this module built for ``application``, and of nothing handed in.
+
+	**One rule for both ways an application ends** (`#4038`): its lifespan, when it is served, and
+	the end of a stdio session, when ``subroutine mcp`` drives it in process and runs no lifespan.
 
 	Only an engine this module built is disposed. A session factory handed in by a test
 	belongs to the test, and disposing its engine underneath it would break the fixture
 	that owns it.
 	"""
 
-	try:
-		yield
+	engine = application.state.engine
 
-	finally:
-		engine = application.state.engine
-
-		if isinstance(engine, sqlalchemy.engine.Engine):
-			engine.dispose()
+	if isinstance(engine, sqlalchemy.engine.Engine):
+		engine.dispose()

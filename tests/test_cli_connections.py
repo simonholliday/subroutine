@@ -50,6 +50,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.credentials
 import subroutine.db.models.system
+import subroutine.db.session
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.profiles
@@ -881,6 +882,41 @@ def test_a_setting_that_cannot_be_used_is_answered_at_the_agents_handshake (
 
 	assert [one["id"] for one in answers] == [1], answers
 	assert "A configuration value could not be used: port" in answers[0]["error"]["message"], answers
+
+
+def test_a_local_agent_session_closes_its_database_when_it_ends (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4038`: ``subroutine mcp`` on a local connection held its database after it ended.
+
+	The relay drives the application in process, and the application disposes of its engine only
+	in a lifespan the relay never ran, so each session left a connection for the garbage collector.
+	Python 3.13 and later warn as one is collected, which made it an error in whichever test the
+	collector happened to run. **Every engine the session built holds no connection once it ends.**
+	"""
+
+	run("init")
+
+	built: list[sqlalchemy.engine.Engine] = []
+	making = subroutine.db.session.create_engine
+
+	def recording (*arguments: typing.Any, **keywords: typing.Any) -> sqlalchemy.engine.Engine:
+		"""Build an engine as the program does, and keep it to be looked at afterwards."""
+
+		engine = making(*arguments, **keywords)
+		built.append(engine)
+
+		return engine
+
+	monkeypatch.setattr(subroutine.db.session, "create_engine", recording)
+
+	answers = answered(run("mcp", input=INITIALIZE))
+
+	assert [one["id"] for one in answers] == [1] and "result" in answers[0], answers
+	assert built, "the session built no engine, so this proves nothing"
+	assert [typing.cast(sqlalchemy.pool.QueuePool, one.pool).checkedin() for one in built] == [
+		0
+	] * len(built), "the session ended holding a database connection"
 
 
 def test_the_command_explain_connecting_names_for_moving_writes_is_one_that_works (

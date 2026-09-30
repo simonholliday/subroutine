@@ -25,6 +25,7 @@ import unittest.mock
 import uuid
 import zoneinfo
 
+import httpx
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
@@ -6186,7 +6187,9 @@ def test_the_binding_does_not_follow_subroutine_use (
 	monkeypatch.setattr(
 		subroutine.mcp.relay,
 		"answering",
-		lambda connection, roster, settings, workspace=None: handed.append(connection.name),
+		lambda connection, roster, settings, workspace=None, closing=None: handed.append(
+			connection.name
+		),
 	)
 
 	# The stored context says 'work'. Asserted first, so a fixture that failed to set it
@@ -8130,6 +8133,49 @@ def test_an_address_no_request_can_be_made_to_is_said_at_the_handshake (
 
 	assert [one["id"] for one in answers] == [1], answers
 	assert "has an address no request can be made to" in answers[0]["error"]["message"], answers
+
+
+def test_an_agent_session_over_http_closes_its_client_when_it_ends (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4038`: the relay's HTTP client was never closed, and nor was its in-process engine.
+
+	Both lasted as long as the process, which in the product is as long as the session. **Every
+	client a session builds is closed once its input has ended**; the engine's half is driven in
+	``test_cli_connections.py``, through ``subroutine mcp`` itself.
+	"""
+
+	roster = subroutine.connections.Roster(
+		connections=(
+			subroutine.connections.Connection(name="local", url=None),
+			subroutine.connections.Connection(name="work", url="http://127.0.0.1:9"),
+		),
+		default="local",
+	)
+	built: list[httpx.Client] = []
+
+	class Recording (httpx.Client):
+		"""An HTTP client kept to be looked at once the session is over."""
+
+		def __init__ (self, *arguments: typing.Any, **keywords: typing.Any) -> None:
+			"""Build the client the relay asks for, and keep it."""
+
+			super().__init__(*arguments, **keywords)
+			built.append(self)
+
+	monkeypatch.setattr(subroutine.connections, "roster", lambda settings: roster)
+	monkeypatch.setenv(subroutine.credentials.variable_for("work"), "sr_not_a_real_token")
+	monkeypatch.setattr(httpx, "Client", Recording)
+
+	subroutine.mcp.relay.run(
+		io.StringIO(""),
+		io.StringIO(),
+		connection="work",
+		settings=subroutine.config.Settings(dev_mode=True),
+	)
+
+	assert len(built) == 1, "the session built no client, so this proves nothing"
+	assert built[0].is_closed, "the session ended and left its client open"
 
 
 def test_a_machine_with_no_instance_is_told_which_command_makes_one (

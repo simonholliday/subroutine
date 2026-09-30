@@ -122,8 +122,14 @@ def answering (
 	settings: subroutine.config.Settings,
 	*,
 	workspace: str | None = None,
+	closing: contextlib.ExitStack | None = None,
 ) -> typing.Callable[[str], dict[str, typing.Any] | None]:
-	"""Return something that answers one raw JSON-RPC message from the chosen instance."""
+	"""Return something that answers one raw JSON-RPC message from the chosen instance.
+
+	``closing`` is given what the forwarder opens - the application driven in process, or the HTTP
+	client - so that :func:`run` closes it when the session ends (`#4038`). Without it, what was
+	opened lasts as long as the process.
+	"""
 
 	# **Resolved once, here, and handed to whichever forwarder is built.** A credential can come
 	# from a `token_command` - `pass show`, `gpg` - and asking per message would run it on every
@@ -131,9 +137,9 @@ def answering (
 	# learn where it came from, which the notice below needs (`#3603`), would prompt twice.
 	held = credential(connection, roster)
 	forward = (
-		_in_process(connection, held, settings, workspace=workspace)
+		_in_process(connection, held, settings, workspace=workspace, closing=closing)
 		if connection.is_local
-		else _over_http(connection, held, workspace=workspace)
+		else _over_http(connection, held, workspace=workspace, closing=closing)
 	)
 	elsewhere = tuple(name for name in roster.names if name != connection.name)
 	notice = _notice(connection, held)
@@ -226,6 +232,7 @@ def _over_http (
 	resolved: subroutine.credentials.Resolved,
 	*,
 	workspace: str | None,
+	closing: contextlib.ExitStack | None = None,
 ) -> typing.Callable[[str], tuple[int, str]]:
 	"""Return a forwarder that posts to a served instance, presenting this credential."""
 
@@ -280,6 +287,10 @@ def _over_http (
 		# Never quoted, for that one's reason: the value is the token.
 		raise subroutine.credentials.unsendable(connection.name) from None
 
+	# **Closed when the session ends** (`#4038`), as the in-process application is.
+	if closing is not None:
+		closing.callback(client.close)
+
 	def forward (raw: str) -> tuple[int, str]:
 		"""Post one message and return the status and body."""
 
@@ -317,6 +328,7 @@ def _in_process (
 	settings: subroutine.config.Settings,
 	*,
 	workspace: str | None,
+	closing: contextlib.ExitStack | None = None,
 ) -> typing.Callable[[str], tuple[int, str]]:
 	"""Return a forwarder that drives this installation's own application.
 
@@ -349,6 +361,14 @@ def _in_process (
 	from subroutine.domain import local as principals
 
 	application = api.create_app(settings=settings)
+
+	# **Its engine is disposed when the session ends** (`#4038`). A served application disposes of
+	# it in its lifespan, and one driven in process runs none, so a session held its database until
+	# the process exited: nothing lost in the product, where the two end together, and a connection
+	# left for the garbage collector by every session a test drove, an error on Python 3.13 and
+	# later in whichever test the collector happened to run.
+	if closing is not None:
+		closing.callback(api.released, application)
 
 	def resolve (
 		session: sqlalchemy.orm.Session,
@@ -842,15 +862,17 @@ def run (
 	# **And so is a roster that cannot be built** (`#4000`, M-3 of the cold review of 2026-09-30),
 	# which was built above this and so ended the process the way `#3906` stopped a connection
 	# ending it.
-	try:
-		roster = subroutine.connections.roster(resolved)
-		chosen = roster.require(connection or roster.default)
-		answer = answering(chosen, roster, resolved, workspace=workspace)
+	# **What the session opens is closed when its input ends** (`#4038`).
+	with contextlib.ExitStack() as closing:
+		try:
+			roster = subroutine.connections.roster(resolved)
+			chosen = roster.require(connection or roster.default)
+			answer = answering(chosen, roster, resolved, workspace=workspace, closing=closing)
 
-	except subroutine.errors.SubroutineError as failure:
-		answer = _refusing(failure)
+		except subroutine.errors.SubroutineError as failure:
+			answer = _refusing(failure)
 
-	subroutine.mcp.protocol.relay(answer, incoming, outgoing)
+		subroutine.mcp.protocol.relay(answer, incoming, outgoing)
 
 
 def _refusing (
