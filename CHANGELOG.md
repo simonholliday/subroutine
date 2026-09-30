@@ -253,6 +253,8 @@ upgrade involves.
   busy item a new comment never appeared.
 - **A PostgreSQL restore that fails, or is stopped at its time limit, leaves the database as it
   was**, and says so, where it left an empty database.
+- **Capture's note on a time left in the title no longer contradicts the line**: it said a day had
+  not been read when it had, and quoted words that had been read.
 
 ## 0.9.12 — 2026-09-29
 

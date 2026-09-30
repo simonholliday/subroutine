@@ -2652,6 +2652,49 @@ def test_a_time_written_after_at_is_never_told_to_be (line: str) -> None:
 	assert "a time after 'at' needs to be one a clock shows" in said, said
 
 
+@pytest.mark.parametrize(
+	"line", ["Call Bob 3pm tomorrow", "Pay rent 3pm today", "Call Bob 15:00 tomorrow"]
+)
+def test_a_time_beside_a_day_that_was_read_is_quoted_alone_and_told_the_rule (line: str) -> None:
+	"""`SR#3998`, M-1 of the cold review of 2026-09-30: the note said a read day was not read.
+
+	*Call Bob 3pm tomorrow* starts tomorrow - the day was read - and the note said *3pm tomorrow*
+	was left because *that day was not read*. The day is read after the time is collected, so the
+	token was cut before it was. **The time is quoted alone, and told the rule it missed.**
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.starts_at is not None, read
+	assert read.unparsed == (line.split()[2],), read.unparsed
+	assert "that day was not read" not in said, said
+	assert "a time is read after 'at', or straight after a day" in said, said
+
+
+@pytest.mark.parametrize(
+	("line", "left"),
+	[
+		("Meet Friday @bob ~1h at 10am", "Friday at 10am"),
+		("Meet Friday +web at 10am", "Friday at 10am"),
+		("Meet Friday #planning at 10am", "Friday at 10am"),
+		("Meet Friday !2 at 10am", "Friday at 10am"),
+	],
+)
+def test_a_note_quotes_only_words_the_title_keeps (line: str, left: str) -> None:
+	"""`SR#3998`, M-1 of the cold review of 2026-09-30: the quoted token ran through read words.
+
+	*Meet Friday @bob ~1h at 10am* is assigned and estimated, and the note said *Left as written:
+	Friday @bob ~1h at 10am*. `SR#3896` promised the token is what the title holds. **It is**:
+	every token a note quotes is in the title.
+	"""
+
+	read = _parse(line)
+
+	assert left in read.unparsed, read.unparsed
+	assert all(token in read.title for token in read.unparsed), (read.title, read.unparsed)
+
+
 def test_a_bare_time_is_still_told_how_a_time_is_read () -> None:
 	"""`SR#3896`: *Email Bob re: 3pm* is told the rule, and rightly, since it has no 'at'."""
 

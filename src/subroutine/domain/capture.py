@@ -1130,6 +1130,10 @@ def parse (
 	unread: list[tuple[int, int]] = []
 	#: Where the repeat that set the rule landed, so that withdrawing it is asked of its place.
 	ruled: tuple[int, int] | None = None
+	#: **Each time left as written, and whether only a day written against it counts** (`#3998`).
+	#: Quoted once every rule has read what it reads, since a day read after the time was quoted
+	#: with it as the day that was not read, and the words between were quoted though read.
+	loose: list[tuple[tuple[int, int], bool]] = []
 
 	for match in _EVERY.finditer(text):
 		read = _repeat_in(match.group(0))
@@ -1184,7 +1188,7 @@ def parse (
 	# `Solar eclipse today at 18:30` into `Solar eclipse today` for its purposes — and the
 	# end-anchor that makes `today` mean something, which is deliberate and well argued, needs
 	# no change at all. Reading the time was the missing half; the anchor was never the defect.
-	clock = _collect_times(text, claimed, reserved, unparsed, after=list(placed))
+	clock = _collect_times(text, claimed, reserved, loose, after=list(placed))
 
 	_collect_bare_days(text, claimed, reserved, fields, placed, today=today)
 
@@ -1219,9 +1223,7 @@ def parse (
 	if clock is not None and not used:
 		claimed.remove(clock.span)
 		# **With the day that stopped it, where a day did** (`#3896`), wherever the line wrote it.
-		unparsed.append(
-			_with_its_day(text, clock.span, [*claimed, *reserved], near=not unread_day)
-		)
+		loose.append((clock.span, not unread_day))
 
 	# **A repeat is read only where nothing unclaimed follows it** (`#1401`), which is §6.13's
 	# existing rule for a bare ``today`` applied to the grammar that shipped after it — see
@@ -1252,6 +1254,14 @@ def parse (
 	unparsed.extend(
 		text[start:end] for start, end in unread if _nothing_follows(settled, (start, end))
 	)
+
+	# **The times left as written, quoted off the settled line** (`#3998`, M-1 of the cold review of
+	# 2026-09-30): only a day nothing read is the day that stopped one, and only words the title keeps
+	# are quoted. *Call Bob 3pm tomorrow* reads *tomorrow* after its time was collected, and the note
+	# said that day was not read; *Meet Friday @bob ~1h at 10am* quoted the assignee and estimate.
+	unclaimed = _blanked(text, [*claimed, *reserved])
+
+	unparsed.extend(_with_its_day(unclaimed, settled, span, near=near) for span, near in loose)
 
 	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
 	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
@@ -1746,11 +1756,14 @@ def _collect_times (
 	text: str,
 	claimed: list[tuple[int, int]],
 	reserved: list[tuple[int, int]],
-	unparsed: list[str],
+	loose: list[tuple[tuple[int, int], bool]],
 	*,
 	after: list[tuple[int, int]],
 ) -> _Clock | None:
-	"""Consume a time of day or a range of two, and report anything time-shaped left over.
+	"""Consume a time of day or a range of two, and note anything time-shaped left over.
+
+	**Noted in ``loose`` rather than quoted** (`#3998`): what to quote with a time depends on the
+	days read after this, so :func:`parse` quotes it once the line is settled.
 
 	**A range is read first and whole** (`#675`), because every one of its halves is a time
 	this would otherwise read on its own: *at 2pm til 3pm* would become a 2pm start with the
@@ -1814,14 +1827,12 @@ def _collect_times (
 			# **With a day written straight against it**, which is the day it was written for and
 			# was not read (`#3896`): *Dentist 2 Oct 3pm* was told a time is read straight after
 			# a day, about a time straight after one.
-			unparsed.append(_with_its_day(text, match.span(), [*claimed, *reserved], near=True))
+			loose.append((match.span(), True))
 
 	return found
 
 
-def _with_its_day (
-	text: str, span: tuple[int, int], taken: typing.Sequence[tuple[int, int]], *, near: bool
-) -> str:
+def _with_its_day (unclaimed: str, settled: str, span: tuple[int, int], *, near: bool) -> str:
 	"""Return a time left as written together with the unread day it was written for - `#3896`.
 
 	*Dentist 2 October at 3pm* sets nothing (decision `#3836`), and the note on the time alone
@@ -1831,31 +1842,38 @@ def _with_its_day (
 
 	``near`` asks only for a day written straight against the time, where nothing says a day is
 	why it was left; otherwise the nearest day before it, or after it where none comes before.
+
+	**Asked of the settled line** (`#3998`, M-1 of the cold review of 2026-09-30). ``unclaimed`` is
+	the line with everything any rule read or reserved blanked, so a day read after the time was
+	collected - *3pm tomorrow*, where *tomorrow* is read - is not taken for the day that stopped it,
+	and the time is quoted alone and told the rule. What is quoted is what ``settled`` still holds,
+	the words the title keeps, so *Friday @bob ~1h at 10am* is quoted *Friday at 10am*: the note
+	never names an assignee or an estimate that was read as a word left behind.
 	"""
 
-	blanked = _blanked(text, taken)
 	# **Not a day with its word in front**, which was read, or reported on its own for a reason of its
 	# own - *on 31 April* is a date there is not, and its note says so.
-	prefaced = [match.span() for match in _DATED.finditer(blanked)]
+	prefaced = [match.span() for match in _DATED.finditer(unclaimed)]
 	days = [
 		match.span()
-		for match in _A_DAY_UNREAD.finditer(blanked)
+		for match in _A_DAY_UNREAD.finditer(unclaimed)
 		if not _overlaps(match.span(), prefaced)
 	]
 	before = [
-		day for day in days if day[1] <= span[0] and not (near and blanked[day[1]:span[0]].strip())
+		day for day in days if day[1] <= span[0] and not (near and unclaimed[day[1]:span[0]].strip())
 	]
 	after = [
-		day for day in days if day[0] >= span[1] and not (near and blanked[span[1]:day[0]].strip())
+		day for day in days if day[0] >= span[1] and not (near and unclaimed[span[1]:day[0]].strip())
 	]
+	start, end = span
 
 	if before:
-		return text[max(before)[0]:span[1]]
+		start = max(before)[0]
 
-	if after:
-		return text[span[0]:min(after)[1]]
+	elif after:
+		end = min(after)[1]
 
-	return text[span[0]:span[1]]
+	return " ".join(settled[start:end].split())
 
 
 def _named_day (value: typing.Any, *, now: datetime.datetime, timezone: str) -> datetime.date | None:
