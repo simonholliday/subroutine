@@ -328,7 +328,7 @@ def test_an_estimate_padded_with_zeros_is_still_read (world: test_api_tasks.Worl
 def test_half_a_character_is_refused_by_name (world: test_api_tasks.World) -> None:
 	"""`SR#4027`, L-4 (1) of the cold review of 2026-09-30: a lone surrogate answered 500.
 
-	``\ud800`` is half of a character, sent as a JSON escape, and cannot be written as UTF-8. It
+	``\\ud800`` is half of a character, sent as a JSON escape, and cannot be written as UTF-8. It
 	passed every text check, since none asked about it. **Refused as a control character is.**
 	"""
 

@@ -153,6 +153,32 @@ def _undocumented (path: pathlib.Path) -> list[str]:
 	]
 
 
+def _halves (path: pathlib.Path) -> tuple[int, list[str]]:
+	"""Return how many docstrings one file has, and where one holds half of a character - `SR#4044`.
+
+	A lone surrogate is a legal Python string and cannot be encoded as UTF-8. **Python 3.13 began
+	cleaning docstrings inside the compiler, which encodes them**, so a docstring writing
+	``\\ud800`` with one backslash compiled on 3.12 and stopped its module compiling on 3.13 and
+	3.14: CI's two newest jobs, and not the interpreter the local gate runs. Any other string
+	may hold one, as a test of one does, and every version compiles it.
+	"""
+
+	tree = ast.parse(path.read_text(encoding="utf-8"))
+	documented = [
+		node
+		for node in ast.walk(tree)
+		if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+		and ast.get_docstring(node, clean=False) is not None
+	]
+	halved = [
+		str(node.body[0].lineno)
+		for node in documented
+		if any(0xD800 <= ord(one) <= 0xDFFF for one in ast.get_docstring(node, clean=False) or "")
+	]
+
+	return len(documented), halved
+
+
 def _values_imported (path: pathlib.Path) -> tuple[int, list[str]]:
 	"""Return how many ``from`` imports one file has, and those outside the one exception.
 
@@ -278,6 +304,51 @@ def test_a_from_import_brings_in_a_module () -> None:
 
 	assert examined >= 10, f"only {examined} from-imports were examined, so this checks little"
 	assert not found, "a from-import of something that is not a module:\n" + "\n".join(found)
+
+
+def test_no_docstring_holds_half_a_character () -> None:
+	"""`SR#4044`: a docstring holding a lone surrogate compiles on 3.12 and on no later Python.
+
+	CI runs 3.13 and 3.14 and the local gate runs 3.12, so the gate passed a module CI could not
+	import. **Read from the tree's own source**, which says so on any version. Floored by how many
+	docstrings were examined, so a scan that reads none passes nothing.
+	"""
+
+	examined = 0
+	found: list[str] = []
+
+	for path in _files():
+		seen, halved = _halves(path)
+		examined += seen
+		found.extend(f"{path.relative_to(ROOT)}:{line}" for line in halved)
+
+	assert examined >= 8_000, f"only {examined} docstrings were examined, so this checks little"
+	assert not found, (
+		"a docstring holding half of a character, which Python 3.13 cannot compile - write its "
+		"escape with two backslashes:\n" + "\n".join(found)
+	)
+
+
+@pytest.mark.parametrize(
+	("planted", "halved"),
+	[
+		('"""Half of one: \\ud800."""\n', ["1"]),
+		('"""A module."""\n\n\ndef helper ():\n\t"""Half of one: \\udfff."""\n', ["5"]),
+		# **Shown rather than held**, which is the fix, and a string that is not a docstring, which
+		# every version compiles: both pass.
+		('"""Shown: \\\\ud800."""\n\nHELD = "\\ud800"\n', []),
+	],
+	ids=["a module's", "a function's", "shown, and not a docstring"],
+)
+def test_the_docstring_rule_catches_half_a_character_and_passes_the_rest (
+	tmp_path: pathlib.Path, planted: str, halved: list[str]
+) -> None:
+	"""`SR#4044`'s scanner, handed files built to break it and one that must not (`SR#405`)."""
+
+	path = tmp_path / "planted.py"
+	path.write_text(planted, encoding="utf-8")
+
+	assert _halves(path)[1] == halved
 
 
 @pytest.mark.parametrize(
