@@ -58,6 +58,9 @@ upgrade involves.
   that without quoting an id, a workspace put in the trash by its name in capitals is restored by
   it, and an administrator names a workspace by its id however it is written. Locally, a
   document's project given as nothing is left alone, as it is over a connection.
+- **In the browser, a sub-task added from a form whose projects arrived late keeps its parent's
+  project**, as one added from any other form does. The form sent the project it showed once the
+  projects arrived, and was refused.
 
 ## 0.9.13 — 2026-09-30
 

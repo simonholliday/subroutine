@@ -100,22 +100,6 @@ export const DATE_FIELDS = [
 */
 export const TIMED = DATE_FIELDS.filter(([, , , time]) => time).map(([name]) => name);
 
-/*
-	**What each select showed when it was drawn** (`#3769`), keyed by the control and read once, when
-	it is attached. The add form's details are drawn only when *More* opens them, long after the form
-	itself, so the form cannot be what is keyed; and a select, not the item or the page, is what knows
-	which option it fell back to. A sub-task's project is its parent's, so the add form sends its
-	Project control beside a parent only where the reader changed it from this.
-
-	**A ref rather than a hook**, for `OPENED`'s reason below: the text harness renders a form by
-	calling it as a function, where there is no component for a hook to belong to.
-*/
-const DRAWN = new WeakMap();
-
-const drawing = (control) => {
-	if (control && !DRAWN.has(control)) DRAWN.set(control, control.value);
-};
-
 export function Fields ({
 	busy, vocabulary, projects, members, project, values, reading, onReading,
 	/* The prioritised project's address, so the dropdown can mark it (`#986`). */
@@ -170,15 +154,26 @@ export function Fields ({
 			</select></label>
 	`;
 
+	/*
+		**Each option says whether it is the one the control shows unless somebody chooses** (`#4025`,
+		L-6 (2) of the cold review of 2026-09-30), by the rule that selects it. A sub-task's project is
+		its parent's, so the add form sends its Project control beside a parent only where the reader
+		changed it from this (`#3769`). That was a snapshot of the value taken when the select was first
+		attached - empty, where *More* opened before the projects arrived - so a sub-task sent the
+		default it later showed, and was refused. Marked as drawn now, it cannot go stale.
+	*/
 	const vocabularySelect = (name, label, options) => html`
 		<label><span>${label}</span>
-			<select class="field" name=${name} disabled=${busy || options.length === 0}
-				ref=${drawing}>
-				${options.map((one) => html`
-					<option key=${one.key} value=${one.key}
-						selected=${held[name] ? held[name] === one.key : one.chosen}>
-						${one.label}</option>
-				`)}
+			<select class="field" name=${name} disabled=${busy || options.length === 0}>
+				${options.map((one) => {
+					const chosen = held[name] ? held[name] === one.key : Boolean(one.chosen);
+
+					return html`
+						<option key=${one.key} value=${one.key} selected=${chosen}
+							data-chosen=${String(chosen)}>
+							${one.label}</option>
+					`;
+				})}
 			</select></label>
 	`;
 
@@ -528,11 +523,13 @@ export function Adding ({
 
 		if (form.elements.text.value.trim() === "" || busy) return;
 
-		/* **What the Project control showed when it was drawn** (`#3769`), so that `filed` sends a
-		   sub-task with its parent's project unless the reader chose another. Nothing while the
+		/* **What the Project control shows unless somebody chooses** (`#3769`), so that `filed` sends
+		   a sub-task with its parent's project unless the reader chose another: the option marked as
+		   drawn now (`#4025`), never a value kept from before the projects arrived. Nothing while the
 		   details are closed, when there is no control to have chosen with. */
 		const project = form.elements.project;
-		const drawn = project && DRAWN.has(project) ? { project: DRAWN.get(project) } : null;
+		const chosen = project && project.querySelector("option[data-chosen='true']");
+		const drawn = chosen ? { project: chosen.value } : null;
 
 		/* **Cleared once the write has landed, never before it** (`#927`'s M-24). This reset
 		   ran synchronously while the request was still in flight, so a 403, a 409, a 429 or a

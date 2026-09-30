@@ -6909,6 +6909,38 @@ def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
 
 	page.close()
 
+	# **And a select drawn before its projects arrived** (`SR#4025`, L-6 (2) of the cold review of
+	# 2026-09-30): moving to personal with its words held, *More* opened in the gap drew the Project
+	# select with nothing in it, and that empty value was kept as what it showed. Once the words
+	# arrived it showed the Inbox, untouched, and a sub-task sent that beside its parent.
+	page = opened("/projects")
+	held: list[typing.Any] = []
+
+	def holding (route: typing.Any) -> None:
+		"""Keep personal's words back until the test lets them through."""
+
+		held.append(route)
+
+	page.route(
+		lambda url: url.split("?")[0].endswith("/v1/meta") and "workspace_id=personal" in url,
+		holding,
+	)
+	page.locator("header .where select").select_option("/personal")
+	_until(page, lambda: bool(held))
+	page.click(".adding .more")
+	page.wait_for_selector(".adding .details select[name=project]", timeout=10_000)
+	held.pop().fallback()
+	_until(
+		page,
+		lambda: page.eval_on_selector(".adding select[name=project]", "e => e.options.length") > 0,
+	)
+
+	late = added("Water the plants", parent="42")
+
+	assert "project" not in late, f"a sub-task sent the default drawn after More opened: {late}"
+
+	page.close()
+
 
 def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typing.Any) -> None:
 	"""`SR#3568`: an edit form left open on one item wrote what was typed there onto the next.
