@@ -242,6 +242,35 @@ def test_a_deactivated_administrator_does_not_count_as_one_staying (
 	assert "nobody who can administer it" in str(refusal.value), str(refusal.value)
 
 
+def test_an_agent_whose_person_has_left_does_not_count_as_one_staying (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4020`, L-2 (6) of the cold review of 2026-09-30: an agent that cannot act was counted.
+
+	An administrator agent answering to somebody who has left cannot act, and the guard counted
+	any active account, so the only owner could leave the workspace to it. **Counted as
+	authentication decides who can act.**
+	"""
+
+	keeping = _superuser(session, "keanu")
+	gone = _superuser(session, "hugo")
+	bot = _agent(session, gone, name="bot")
+	workspace = subroutine.domain.workspaces.create(
+		session, slug=f"shared-{uuid.uuid4().hex[:8]}", title="Shared", owner=keeping
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace, bot, role_key="admin", actor=_acting(keeping)
+	)
+	subroutine.domain.users.set_active(session, gone, active=False, actor=_acting(keeping))
+
+	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+		subroutine.domain.workspaces.remove_member(
+			session, workspace, keeping, actor=_acting(keeping)
+		)
+
+	assert "nobody who can administer it" in str(refusal.value), str(refusal.value)
+
+
 def test_an_agent_does_not_count_as_somebody_who_can_administer (
 	session: sqlalchemy.orm.Session,
 ) -> None:

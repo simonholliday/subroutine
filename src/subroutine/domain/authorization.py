@@ -306,6 +306,24 @@ def may (
 	)
 
 
+def refusal (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	permission: str,
+	*,
+	workspace_id: uuid.UUID,
+	project: subroutine.db.models.project.Project | None = None,
+) -> AuthorizationFailure | None:
+	"""Say why a principal may not do this, or ``None`` if they may - :func:`may`, with its reason.
+
+	For a rule of its own that refuses in its own words (`#4020`): the owner rule said *only an owner
+	may* to an owner whose token was not given the permission, where the token's own sentence says
+	what to do about it.
+	"""
+
+	return _refusal(session, principal, permission, workspace_id=workspace_id, project=project)
+
+
 def authorize (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,

@@ -97,6 +97,111 @@ def test_a_credential_writing_in_one_project_makes_and_moves_nothing_into_anothe
 	assert world.call("GET", "/v1/projects/web").json()["parent_id"] is None, "web was moved"
 
 
+def _bearer (world: test_api_tasks.World, **narrowing: typing.Any) -> dict[str, str]:
+	"""Issue the world's first account a credential narrowed as asked, and return its header."""
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Narrowed", **narrowing
+	)
+	world.session.flush()
+
+	return {"authorization": f"Bearer {issued.value.get_secret_value()}"}
+
+
+def test_a_credential_that_may_change_projects_names_one_without_reading_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4020`, L-2 (1) of the cold review of 2026-09-30: HTTP asked ``project:read`` to name it.
+
+	The local client named a project for a change as it names one for filing (`SR#3909`), and the
+	routes that change one asked ``project:read``, so a credential that may change projects and not
+	list them was refused over HTTP what it was allowed locally. **Named without reading it**, and
+	asked ``project:write`` by the change itself.
+	"""
+
+	for key in ("web", "ops"):
+		assert world.call("POST", "/v1/projects", json={"key": key, "title": key}).status_code == 201
+
+	bearer = _bearer(world, scopes=["project:write"])
+	changed = world.call("PATCH", "/v1/projects/web", json={"title": "Website"}, headers=bearer)
+	moved = world.call("POST", "/v1/projects/web/move", json={"parent": "ops"}, headers=bearer)
+
+	assert changed.status_code == 200, changed.text
+	assert moved.status_code == 200, moved.text
+
+
+def test_an_owner_refused_by_their_own_token_is_told_it_is_the_token (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4020`, L-2 (2) of the cold review of 2026-09-30: an owner was told only an owner may.
+
+	Making an owner asks ``workspace:delete``, and the owner rule answered every refusal with *Only
+	an owner makes, demotes or removes an owner* - to an owner whose token was not given it. **The
+	token's own sentence**, which says what to do about it.
+	"""
+
+	slug = world.workspace.slug
+	made = world.call("POST", "/v1/users", json={"username": "trinity"})
+	joined = world.call(
+		"POST", f"/v1/workspaces/{slug}/members", json={"username": "trinity", "role": "member"}
+	)
+
+	assert made.status_code == 201 and joined.status_code == 201, (made.text, joined.text)
+
+	refused = world.call(
+		"PATCH",
+		f"/v1/workspaces/{slug}/members/trinity",
+		json={"role": "owner"},
+		headers=_bearer(world, scopes=["user:admin"]),
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert "Only an owner" not in refused.json()["detail"], refused.text
+
+
+def test_a_shared_name_is_not_listed_to_a_credential_that_may_not_list_projects (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4020`, L-2 (4) of the cold review of 2026-09-30: the refusal listed every address.
+
+	A credential without ``project:read`` names a project to file into, and a name two projects
+	share was refused with both addresses - the listing that permission gates. **Said without
+	them**, and still listed to a credential that may list projects.
+	"""
+
+	for parent in ("alpha", "beta"):
+		world.call("POST", "/v1/projects", json={"key": parent, "title": parent})
+		world.call("POST", "/v1/projects", json={"key": "dist", "title": "Dist", "parent": parent})
+
+	filing = {"title": "Ship it", "project": "dist"}
+	withheld = world.call("POST", "/v1/tasks", json=filing, headers=_bearer(world, scopes=["task:write"]))
+	listed = world.call("POST", "/v1/tasks", json=filing)
+
+	assert withheld.status_code == 422 and "alpha/dist" not in withheld.text, withheld.text
+	assert listed.status_code == 422 and "alpha/dist" in listed.text, listed.text
+
+
+def test_the_compact_row_says_where_a_credential_is_pinned_and_what_it_reaches (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4020`, L-2 (5) of the cold review of 2026-09-30: it said *everything its owner can do*.
+
+	The compact row said the permissions and the write set, so a credential pinned to one
+	workspace and narrowed to ``web`` read as unnarrowed, beside ``narrows`` saying it was not.
+	**The words ``token list`` uses**, from one description.
+	"""
+
+	made = world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
+
+	assert made.status_code == 201, made.text
+
+	_bearer(world, workspace_id=world.workspace.id, project_scope=[made.json()["id"]])
+	listed = world.call("GET", "/v1/tokens?format=compact").text
+	row = next(one for one in listed.splitlines() if "Narrowed" in one)
+
+	assert f"in {world.workspace.slug} only" in row and "projects web" in row, row
+
+
 def _inbox (world: test_api_tasks.World) -> uuid.UUID:
 	"""Return the id of the world's Inbox, to narrow a credential to."""
 

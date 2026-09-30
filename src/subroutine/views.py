@@ -2487,6 +2487,11 @@ class Token(pydantic.BaseModel):
 	#: Set when the credential may only be used in one workspace.
 	workspace_id: uuid.UUID | None
 
+	#: That workspace's short name, as a person types it, where the instance could resolve it
+	#: (`#4020`), so what a credential may do can be said on both transports. **Defaulted**, so a
+	#: client can read a response from an instance that predates the field (`#345`).
+	workspace: str | None = None
+
 	#: Whether this credential restricts its owner at all. Spelled out so that reading
 	#: ``scopes: []`` the wrong way round is not the only thing between a caller and a wrong
 	#: conclusion about what a leaked token could do.
@@ -2518,17 +2523,16 @@ class Token(pydantic.BaseModel):
 		)
 
 	def _may (self) -> str:
-		"""Say what this credential may do, and where it may change things where that is narrower.
+		"""Say what this credential may do, as ``token list`` says it - :func:`may_do`.
 
-		**The write set is the second answer** (`#3944`, `#403`'s rule): a credential narrowed only
-		in where it writes still reads everything its owner can, and the compact row said that and
-		stopped, calling it unnarrowed. The words are ``token list``'s and ``agent create``'s.
+		**The write set is the second answer** (`#3944`, `#403`'s rule), and **the pin and the
+		projects it reaches the third and fourth** (`#4020`, L-2 (5) of the cold review of
+		2026-09-30): the row called a credential narrowed to ``web`` *everything its owner can do*.
 		"""
 
-		said = "everything its owner can do" if not self.scopes else ", ".join(self.scopes)
-		changing = writable(self)
+		pinned = self.workspace or (None if self.workspace_id is None else str(self.workspace_id))
 
-		return f"{said}, writing only in {', '.join(changing)}" if changing else said
+		return ", ".join(may_do(self, pinned=pinned))
 
 
 class IssuedToken(Token):
@@ -5805,6 +5809,39 @@ def comments_saying (recorded: typing.Sequence[Comment], words: str) -> list[Com
 	return [one for one in recorded if folded in one.body.casefold()]
 
 
+def may_do (credential: Token, *, pinned: str | None) -> list[str]:
+	"""Say what a credential may do, a part at a time: its permissions, its workspace, its projects.
+
+	`#4020`, L-2 (5) of the cold review of 2026-09-30: **one description for the compact row and
+	``token list``**, each joining the parts in its own way. The row said only the permissions and
+	the write set, so a credential pinned to one workspace, or narrowed to ``web``, read as
+	*everything its owner can do*. ``pinned`` is the workspace as the reader knows it.
+
+	An empty ``scopes`` means no narrowing rather than no permission (§12.1a), and that reversal is
+	exactly what nobody should have to remember while deciding whether to revoke something.
+	"""
+
+	parts = ["everything its owner can do" if not credential.scopes else ", ".join(credential.scopes)]
+
+	if pinned is not None:
+		parts.append(f"in {pinned} only")
+
+	named = reach(credential)
+
+	if named:
+		parts.append(f"projects {', '.join(named)}")
+
+	# **And where it may change things, which is a second answer** (`#3944`, `#403`'s rule, in the
+	# words `agent create`'s check line uses). A credential narrowed only in where it writes still
+	# reads everything its owner can, and saying only that described it as unnarrowed.
+	changing = writable(credential)
+
+	if changing:
+		parts.append(f"writing only in {', '.join(changing)}")
+
+	return parts
+
+
 def reach (credential: Credential | Token) -> list[str]:
 	"""Name the projects a credential is restricted to, as somebody would type them.
 
@@ -6594,6 +6631,13 @@ def token (
 			)
 		),
 		"workspace_id": row.workspace_id,
+		"workspace": (
+			None
+			if row.workspace_id is None or session is None
+			else getattr(
+				session.get(subroutine.db.models.identity.Workspace, row.workspace_id), "slug", None
+			)
+		),
 		"narrows": subroutine.domain.authentication.narrowing(
 			scopes=row.scopes,
 			project_scope=row.project_scope,

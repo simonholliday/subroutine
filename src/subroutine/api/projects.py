@@ -448,7 +448,7 @@ def evict (
 	"""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-	project = resolve(session, actor, workspace, id_or_key)
+	project = resolve(session, actor, workspace, id_or_key, nameable=True)
 	account = subroutine.domain.users.by_username(session, username)
 
 	subroutine.domain.projects.unshare(session, project, account, actor=actor)
@@ -497,7 +497,7 @@ def change (
 	"""Change a project. Omitted fields are untouched; nulls clear."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-	project = resolve(session, actor, workspace, id_or_key)
+	project = resolve(session, actor, workspace, id_or_key, nameable=True)
 
 	supplied = body.model_fields_set
 	changes: dict[str, typing.Any] = {
@@ -569,8 +569,12 @@ def move (
 		)
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-	project = resolve(session, actor, workspace, id_or_key)
-	parent = None if body.parent is None else resolve(session, actor, workspace, body.parent)
+	project = resolve(session, actor, workspace, id_or_key, nameable=True)
+	parent = (
+		None
+		if body.parent is None
+		else resolve(session, actor, workspace, body.parent, nameable=True)
+	)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
 		subroutine.domain.projects.move(
@@ -648,6 +652,7 @@ def resolve (
 	id_or_key: str,
 	*,
 	include_deleted: bool = False,
+	nameable: bool = False,
 ) -> subroutine.db.models.project.Project:
 	"""Find one project by id, address or name, or report that there is no such thing.
 
@@ -665,6 +670,10 @@ def resolve (
 	one is the single request that has to be able to name it.
 	"""
 
+	# **``nameable`` for a route that changes the project** (`#4020`, L-2 (1) of the cold review of
+	# 2026-09-30): naming it on the way to a change is not reading it (`#3909`), the change asks
+	# ``project:write`` of it, and the local client already named it that way, so the two transports
+	# answered one credential differently.
 	return subroutine.domain.selection.addressed(
 		session,
 		actor,
@@ -672,6 +681,7 @@ def resolve (
 		id_or_key,
 		field="id_or_key",
 		include_deleted=include_deleted,
+		nameable=nameable,
 	)
 
 

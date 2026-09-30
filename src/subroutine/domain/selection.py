@@ -420,7 +420,7 @@ def project_to_share (
 	candidates = ([visible] if visible is not None else []) + named
 
 	if len(candidates) > 1:
-		raise _named_twice(session, workspace, wanted, candidates, field="project")
+		raise _named_twice(session, workspace, wanted, candidates, field="project", actor=actor)
 
 	return candidates[0]
 
@@ -700,7 +700,9 @@ def addressed (
 		# instead would answer ``substation/nope`` with ``substation``, which is a different
 		# project and a plausible, complete, wrong answer.
 		if found is None and len(segments) == 1:
-			found = _by_name(session, statement, segments[0], wanted, workspace, field=field)
+			found = _by_name(
+				session, statement, segments[0], wanted, workspace, field=field, actor=actor
+			)
 
 	if found is None:
 		misread = _a_workspace_read_as_a_project(
@@ -901,6 +903,7 @@ def _by_name (
 	workspace: subroutine.db.models.identity.Workspace,
 	*,
 	field: str,
+	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project | None:
 	"""Find the project a bare name refers to, refusing rather than guessing between two.
 
@@ -920,7 +923,7 @@ def _by_name (
 	if len(candidates) < 2:
 		return candidates[0] if candidates else None
 
-	raise _named_twice(session, workspace, wanted, candidates, field=field)
+	raise _named_twice(session, workspace, wanted, candidates, field=field, actor=actor)
 
 
 def _named_twice (
@@ -930,13 +933,33 @@ def _named_twice (
 	candidates: typing.Sequence[subroutine.db.models.project.Project],
 	*,
 	field: str,
+	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.errors.ValidationError:
 	"""Say that a name answers to more than one project, naming each by its whole address.
 
 	**One sentence for both searches** - :func:`_by_name`'s over what a caller can see, and
 	:func:`project_to_share`'s over that and what nobody can reach (`#2620`) - so the two cannot
 	come to teach the address form in different words.
+
+	**Without the list to a credential that may not list projects** (`#4020`, L-2 (4) of the cold
+	review of 2026-09-30), as :func:`_alternative_projects` withholds it on a miss: the addresses
+	are what ``project:read`` gates, and naming one without reading it reaches here (`#3909`).
 	"""
+
+	if actor is not None and subroutine.domain.authorization.outside_token_scope(
+		actor, subroutine.permissions.PROJECT_READ
+	):
+		return subroutine.errors.ValidationError(
+			f"More than one project in {workspace.slug} is called {wanted!r}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"{wanted!r} names more than one project.",
+					hint="Say which, by its whole address - its parent's, then its own.",
+				)
+			],
+		)
 
 	addresses = subroutine.domain.projects.paths_for(
 		session, [candidate.id for candidate in candidates]

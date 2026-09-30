@@ -2535,23 +2535,8 @@ def _credential_reach (
 	revoke something. It is spelled out.
 	"""
 
-	parts = ["everything its owner can do" if not token.scopes else ", ".join(token.scopes)]
-
-	if pinned is not None:
-		parts.append(f"in {pinned} only")
-
-	named = subroutine.views.reach(token)
-
-	if named:
-		parts.append(f"projects {', '.join(named)}")
-
-	# **And where it may change things, which is a second answer** (`#3944`, `#403`'s rule, in the
-	# words `agent create`'s check line uses). A credential narrowed only in where it writes still
-	# reads everything its owner can, and saying only that described it as unnarrowed.
-	changing = subroutine.views.writable(token)
-
-	if changing:
-		parts.append(f"writing only in {', '.join(changing)}")
+	# **The compact row's description too** (`#4020`), which said less than this.
+	parts = subroutine.views.may_do(token, pinned=pinned)
 
 	# A credential issued and never presented is the interesting case here — it is either
 	# unused or was pasted somewhere that has not run yet — so it is stated rather than left

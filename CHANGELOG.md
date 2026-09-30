@@ -48,6 +48,11 @@ upgrade involves.
   a repeat that needs one is refused, as making one is; a whole-day deadline series ends in a
   calendar feed on the last day it falls on; and a repeat's description names every month in
   full, says *once* and *twice*, and names the month wherever the rule does.
+- **Smaller permission faults**: a credential that may change projects names one over a
+  connection without being allowed to list them, as it could locally; an owner refused by their
+  own token is told it is the token; a name two projects share is not listed to a credential that
+  may not list projects; the compact token row says where a credential is pinned and what it
+  reaches; and an agent whose person has left no longer counts as the administrator left behind.
 
 ## 0.9.13 — 2026-09-30
 

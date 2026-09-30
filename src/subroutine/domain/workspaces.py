@@ -740,9 +740,11 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	if not any(_deletes(role) for role in roles):
 		return
 
-	if subroutine.domain.authorization.may(
+	failure = subroutine.domain.authorization.refusal(
 		session, actor, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
-	):
+	)
+
+	if failure is None:
 		return
 
 	taking = [role for role in roles if role is not making]
@@ -754,6 +756,17 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 		and not _an_owner_can_act(session, workspace)
 	):
 		return
+
+	# **The token's own sentence where the token is what refused** (`#4020`, L-2 (2) of the cold
+	# review of 2026-09-30): an owner whose token was not given ``workspace:delete`` was told that
+	# only an owner may, about a workspace they own.
+	if failure in (
+		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
+		subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS,
+	):
+		raise subroutine.domain.authorization.AuthorizationError(
+			failure, permission=subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+		)
 
 	raise subroutine.errors.Forbidden(
 		f"Only an owner of {workspace.slug} makes, demotes or removes an owner.",
@@ -1118,10 +1131,12 @@ def _refuse_leaving_nobody_who_can_administer (
 	# command somebody runs while tidying up a team.
 	# **Only an account that can still act is counted as staying** (`#3942`). A deactivated or
 	# deleted administrator was, so the only active one could be removed or demoted while the
-	# other had left, and the workspace had nobody able to administer it.
+	# other had left, and the workspace had nobody able to administer it. **As authentication
+	# decides it** (`#4020`, L-2 (6) of the cold review of 2026-09-30): an agent whose person has
+	# left cannot act, and was counted, so the last person could leave it to that agent.
 	user = subroutine.db.models.identity.User
 	rows = session.execute(
-		sqlalchemy.select(member.id, role.permissions)
+		sqlalchemy.select(member.id, role.permissions, user)
 		.join(role, role.id == member.role_id)
 		.join(user, user.id == member.user_id)
 		.where(
@@ -1133,8 +1148,9 @@ def _refuse_leaving_nobody_who_can_administer (
 
 	administrators = {
 		found
-		for found, permissions in rows
+		for found, permissions, holder in rows
 		if subroutine.permissions.WORKSPACE_ADMIN in (permissions or [])
+		and subroutine.domain.accountability.can_act(session, holder)
 	}
 
 	if losing.id not in administrators or administrators - {losing.id}:
