@@ -80,7 +80,11 @@ CARRIED = ("workspace_id", "workspace", "project_id", "project")
 
 
 def as_header (marker: "Marker") -> str | None:
-	"""Return a marker as :data:`HEADER`'s value, or ``None`` where it names no project.
+	"""Return a marker as :data:`HEADER`'s value, or ``None`` where it names nothing at all.
+
+	**A marker naming only a workspace is sent too** (`#4007`, M-11 (c) of the cold review of
+	2026-09-30): ``use team --here`` writes one, the terminal files into ``team`` by it, and the
+	agent's tools, told nothing, answered that the write could be about any of several workspaces.
 
 	**Every value goes percent-encoded** (`#3746`), and :func:`from_header` decodes it. A header
 	carries ASCII on one line and nothing else, and httpx refuses anything more before a byte is
@@ -89,7 +93,7 @@ def as_header (marker: "Marker") -> str | None:
 	in a value from reading as the next pair, and a line break from ending the header.
 	"""
 
-	if marker.project is None and marker.project_id is None:
+	if all(getattr(marker, key) is None for key in CARRIED):
 		return None
 
 	return "; ".join(
@@ -124,10 +128,27 @@ def from_header (value: str | None) -> "Marker | None":
 		if equals and key.strip() in CARRIED and meant:
 			held[key.strip()] = meant
 
-	if "project" not in held and "project_id" not in held:
+	# **A workspace alone is something said** (`#4007`), as :func:`as_header` sends it.
+	if not held:
 		return None
 
 	return Marker(path=pathlib.Path(FILE_NAME), **held)
+
+
+def sendable (marker: "Marker", rows: typing.Sequence[typing.Any], resolved: str) -> str:
+	"""Return what a write sends for the project a marker resolved to: its id where it can - `#4007`.
+
+	**The id where the marker carries one this instance lists**, since the address was built from
+	the projects the credential can see: a token narrowed to ``web`` and ``alpha/web``, which cannot
+	see ``alpha``, resolved a checkout marked for ``alpha/web`` to the address ``web`` - and filed
+	its work in the root ``web``. The instance reads an id as exactly one project. A marker written
+	before ids has only its address to send.
+	"""
+
+	if marker.project_id is not None and any(str(row.id) == str(marker.project_id) for row in rows):
+		return str(marker.project_id)
+
+	return resolved
 
 
 class Marker(typing.NamedTuple):

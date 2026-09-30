@@ -255,6 +255,10 @@ upgrade involves.
   was**, and says so, where it left an empty database.
 - **Capture's note on a time left in the title no longer contradicts the line**: it said a day had
   not been read when it had, and quoted words that had been read.
+- **A checkout's `.subroutine` file reaches the terminal and the agent's tools alike.** An agent
+  narrowed to one project files by it without being asked for `project:read`; a checkout marked
+  for a nested project files there, not into a top-level project of the same key; `document
+  create` files where the file says; and a file naming only a workspace reaches the agent's tools.
 
 ## 0.9.12 — 2026-09-29
 

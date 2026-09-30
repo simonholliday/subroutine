@@ -3757,13 +3757,28 @@ def _checkout (
 		# which is what committing this file is *for* — refused every write with "there is no
 		# project 'SR' here". `#166` settled that the marker is advisory, and resolving also buys
 		# `#177`: a renamed project is followed by id.
-		projects = subroutine.clients.base.every_project(client, workspace=workspace)
+		try:
+			projects = subroutine.clients.base.every_project(client, workspace=workspace)
+
+		# **A credential that may not list projects sends the marker's own id** (`#4007`, M-11 (a) of
+		# the cold review of 2026-09-30). The instance resolves a project a write names without
+		# ``project:read`` (`#3909`), and listing them here to find it refused every write the hosting
+		# guide's own agent made from its checkout.
+		except subroutine.errors.Forbidden:
+			sent = str(marker.project_id) if marker.project_id is not None else marker.project
+
+			return _Checkout(
+				sent,
+				f"in {marker.project or sent}, from {subroutine.directory.FILE_NAME}",
+				f"`{subroutine.directory.FILE_NAME}` in this checkout",
+			)
+
 		elsewhere = _elsewhere(client, marker, projects)
 		filed = None if elsewhere else subroutine.directory.resolve(marker, projects)
 
 		if filed is not None:
 			return _Checkout(
-				filed,
+				subroutine.directory.sendable(marker, projects, filed),
 				f"in {filed}, from {subroutine.directory.FILE_NAME}",
 				f"`{subroutine.directory.FILE_NAME}` in this checkout",
 			)
@@ -3778,7 +3793,16 @@ def _checkout (
 
 	if standing.project is not None:
 		if projects is None:
-			projects = subroutine.clients.base.every_project(client, workspace=workspace)
+			try:
+				projects = subroutine.clients.base.every_project(client, workspace=workspace)
+
+			# **Sent as the address wrote it**, for the marker's reason just above (`#4007`).
+			except subroutine.errors.Forbidden:
+				return _Checkout(
+					standing.project,
+					" ".join([f"in {standing.project}, from the address", *ignored]),
+					"the address",
+				)
 
 		named = subroutine.directory.Marker(
 			path=pathlib.Path(subroutine.directory.FILE_NAME), project=standing.project

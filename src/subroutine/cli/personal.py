@@ -2358,9 +2358,16 @@ def _project_written_down (
 	return subroutine.directory.address(found, tree), str(found.id)
 
 
+class _Filed(typing.NamedTuple):
+	"""Where a checkout's marker files work: what a write sends, and what a reader is told - `#4007`."""
+
+	sent: str
+	shown: str
+
+
 def _project_named_by (
 	world: World, marker: subroutine.directory.Marker
-) -> tuple[str | None, str | None]:
+) -> tuple[_Filed | None, str | None]:
 	"""Return the current address of the project a marker names, or why there is none.
 
 	The matching itself is `subroutine.directory.resolve`, which is shared with the MCP
@@ -2410,11 +2417,21 @@ def _project_named_by (
 				f"{writing}. Ignoring it."
 			)
 
-	found = subroutine.clients.base.every_project(where.client, workspace=writing)
+	try:
+		found = subroutine.clients.base.every_project(where.client, workspace=writing)
+
+	# **A credential that may not list projects sends the marker's own id** (`#4007`, M-11 (a) of
+	# the cold review of 2026-09-30), which the instance resolves without ``project:read``
+	# (`#3909`): listing them here refused every ``add`` the hosting guide's agent made in a checkout.
+	except subroutine.errors.Forbidden:
+		sent = str(marker.project_id) if marker.project_id is not None else (marker.project or "")
+
+		return _Filed(sent=sent, shown=marker.project or sent), None
+
 	resolved = subroutine.directory.resolve(marker, found)
 
 	if resolved is not None:
-		return resolved, None
+		return _Filed(sent=subroutine.directory.sendable(marker, found, resolved), shown=resolved), None
 
 	several = subroutine.directory.ambiguous(marker, found)
 
@@ -5446,7 +5463,7 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 
 def _default_project (
 	program: Program, world: World, text: str, *, under: int | None = None
-) -> str | None:
+) -> _Filed | None:
 	"""Return the project a captured line should go to when it does not say (§13.7a).
 
 	``None`` whenever the answer is "wherever it went before" — no marker, no project in the
@@ -5495,22 +5512,22 @@ def _default_project (
 	# something no other surface agreed with and the one mechanism built to notice could
 	# not see it. *Resolution* stays case-insensitive, in `directory.resolve`, so those
 	# markers go on working; only the question "does this file agree with us" is exact.
-	if world.marker.project and world.marker.project != named:
+	if world.marker.project and world.marker.project != named.shown:
 		# **Two different things to be told.** A rename changed which project the key
 		# names; a respelling changed nothing but how it is written, and saying "that
 		# project is now reprobate" about a marker reading `REPROBATE` would read as a
 		# rename that half-failed — which is exactly how this was met on a real instance.
 		respelling = (
-			subroutine.domain.projects.normalize_key(world.marker.project) == named
+			subroutine.domain.projects.normalize_key(world.marker.project) == named.shown
 		)
 
 		program.warn(
 			f"{FILE_NAME} here says {world.marker.project!r}; the project's key is stored "
-			f"as {named!r}. It still resolves, so nothing is broken - 'subroutine use "
-			f"--here --project {named}' brings the file into line."
+			f"as {named.shown!r}. It still resolves, so nothing is broken - 'subroutine use "
+			f"--here --project {named.shown}' brings the file into line."
 			if respelling
 			else f"{FILE_NAME} here still says {world.marker.project!r}; that project is "
-			f"now {named}. Run 'subroutine use --here --project {named}' to bring it up "
+			f"now {named.shown}. Run 'subroutine use --here --project {named.shown}' to bring it up "
 			f"to date."
 		)
 
@@ -7546,13 +7563,19 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 
 		with program.opened() as world:
 			where = world.writing_to()
+			# **Filed where the checkout says, as `add` is** (`#4007`, M-11 (b) of the cold review of
+			# 2026-09-30): a decision written in a marked checkout went to the Inbox, where the agent's
+			# ``subroutine_document`` filed it in the project. A project or a parent named here wins.
+			filed = (
+				None if project.strip() or parent.strip() else _default_project(program, world, "")
+			)
 
 			created = where.client.create_document(
 				title=title,
 				body=written or None,
 				type=kind.strip() or None,
 				status=status.strip() or None,
-				project=project.strip() or None,
+				project=project.strip() or (None if filed is None else filed.sent),
 				tags=tag or None,
 				# **A ref, parsed here so a non-number is refused before a request is made**
 				# (`#2173`). `refs.parse_ref` takes `#7` and `7` alike, which is what somebody
@@ -7582,6 +7605,12 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					"Wrote",
 				)
 			)
+
+			if filed is not None:
+				program.console.print(
+					rich.text.Text(f"  in {filed.shown}, from {FILE_NAME}", style=DETAIL)
+				)
+
 			_suggest(
 				program.console,
 				f"subroutine show {_typeable(world, where.name, created)}",
@@ -9810,7 +9839,7 @@ def register (
 			captured = where.client.capture(
 				text=text,
 				workspace=_writing_workspace(world),
-				project=filed,
+				project=None if filed is None else filed.sent,
 				type=kind.strip() or None,
 				# **The same argument as `--type`, and it was missing for the same reason**
 				# (`#424`): the grammar cannot carry it, so nothing that reads the line could
@@ -9892,7 +9921,7 @@ def register (
 			# `context.py` calls the standing one in comparable tooling — not having a setting,
 			# but not knowing where it came from. One line is the whole cost of not having it.
 			if filed is not None:
-				console.print(rich.text.Text(f"  in {filed}, from {FILE_NAME}", style=DETAIL))
+				console.print(rich.text.Text(f"  in {filed.shown}, from {FILE_NAME}", style=DETAIL))
 
 			# The sentence itself is `domain.capture.explain`'s, so this surface and the MCP
 			# adapter cannot come to word §6.13's obligation differently.

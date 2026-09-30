@@ -599,11 +599,14 @@ def test_a_marker_travels_in_a_header_without_its_path_or_its_connection () -> N
 
 
 @pytest.mark.parametrize(
-	"said",
-	[None, "", "workspace=acme", "project", "nonsense=1; =2", "path=/etc; connection=x"],
+	"said", [None, "", "project", "nonsense=1; =2", "path=/etc; connection=x"]
 )
-def test_a_header_naming_no_project_is_no_checkout (said: str | None) -> None:
-	"""Anything that does not name a project is read as nothing said, never refused."""
+def test_a_header_carrying_nothing_this_reads_is_no_checkout (said: str | None) -> None:
+	"""Anything that carries none of a marker's keys is read as nothing said, never refused.
+
+	**A workspace alone is something said** since `SR#4007`: it is read back as a marker by
+	``test_a_marker_naming_only_a_workspace_is_sent_and_read_back``.
+	"""
 
 	assert subroutine.directory.from_header(said) is None
 
@@ -662,9 +665,19 @@ def test_a_header_leaves_ids_keys_and_addresses_as_they_are () -> None:
 	)
 
 
-def test_a_marker_naming_no_project_sends_nothing () -> None:
-	"""A marker that only names a workspace says nothing about where work is filed."""
+def test_a_marker_naming_only_a_workspace_is_sent_and_read_back () -> None:
+	"""`SR#4007`, M-11 (c) of the cold review of 2026-09-30: this said a workspace said nothing.
+
+	``use team --here`` writes a marker naming a workspace and no project; the terminal files into
+	``team`` by it, and the agent's tools were sent nothing and asked which workspace. **It is
+	sent, and read back as the same marker**; a marker naming nothing at all still sends nothing.
+	"""
 
 	marker = subroutine.directory.Marker(path=pathlib.Path(".subroutine"), workspace="acme")
+	sent = subroutine.directory.as_header(marker)
+	back = subroutine.directory.from_header(sent)
 
-	assert subroutine.directory.as_header(marker) is None
+	assert sent is not None
+	assert back is not None and back.workspace == "acme" and back.project is None, back
+	assert subroutine.directory.as_header(subroutine.directory.Marker(path=pathlib.Path(".subroutine"))) is None
+	assert subroutine.directory.from_header("") is None

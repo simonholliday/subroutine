@@ -903,6 +903,61 @@ def test_the_command_explain_connecting_names_for_moving_writes_is_one_that_work
 	assert "Now working in" in moved.output, moved.output
 
 
+def test_a_narrowed_agents_add_in_a_marked_checkout_files_there (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4007`, M-11 (a) of the cold review of 2026-09-30, the terminal's half.
+
+	The terminal's ``add`` in a marked checkout listed projects to resolve the marker, so the
+	hosting guide's narrowed agent - ``task:read`` and ``task:write`` - was refused
+	``project:read`` outright. **Filed where the marker says**, by its id.
+	"""
+
+	run("-c", "work", "project", "create", "web", "Website")
+	monkeypatch.chdir(tmp_path)
+	run("-c", "work", "use", "--here", "--project", "web")
+
+	made = run(
+		"-c", "work", "token", "create", "--title", "The guide's agent",
+		"--scope", "task:read", "--scope", "task:write",
+	)
+	secret = re.search(r"sr_[A-Za-z0-9_.-]+", made.output)
+
+	assert secret is not None, made.output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", secret.group(0))
+
+	added = run("-c", "work", "add", "Fix the header")
+
+	assert "in web, from .subroutine" in added.output, added.output
+
+
+def test_a_document_written_in_a_marked_checkout_files_there (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4007`, M-11 (b) of the cold review of 2026-09-30: a decision went to the Inbox.
+
+	``document create`` never read the marker, so a decision written in a checkout marked for
+	``web`` went to the Inbox, where the agent's ``subroutine_document`` filed it in ``web``.
+	**Filed where the checkout says, and said so, as ``add`` is.**
+	"""
+
+	run("init")
+	run("project", "create", "web", "Website")
+	monkeypatch.chdir(tmp_path)
+	run("use", "--here", "--project", "web")
+
+	written = run("document", "create", "Why we dropped the queue", "--type", "decision")
+
+	assert "in web, from .subroutine" in written.output, written.output
+	assert "Why we dropped the queue" in run("list", "--project", "web").output
+
+
 def test_use_reports_where_the_context_came_from (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

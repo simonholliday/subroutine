@@ -1605,6 +1605,80 @@ def test_the_address_names_where_a_write_goes_when_nothing_else_does (
 	assert "The address names 'nosuch', which is not on this instance. Ignoring it." in nowhere
 
 
+def _as (world: test_api_tasks.World, secret: str, payload: str, **headers: str) -> str:
+	"""Call one tool through the endpoint with another credential, and return what it said."""
+
+	answered = api_support.call(
+		world.application,
+		"POST",
+		subroutine.api.mcp.PATH,
+		content=payload,
+		headers={"content-type": "application/json", "authorization": f"Bearer {secret}", **headers},
+	)
+
+	assert answered.status_code == 200, answered.text
+
+	return str(answered.json()["result"]["content"][0]["text"])
+
+
+def test_a_narrowed_agent_files_by_its_checkout_without_listing_projects (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4007`, M-11 (a) of the cold review of 2026-09-30: the hosting guide's agent was refused.
+
+	The agent the guide makes - ``task:read`` and ``task:write``, narrowed to ``web`` - relying on
+	the marker ``use --here --project web`` wrote was refused ``project:read``, since the marker was
+	resolved by listing projects. The instance resolves a project a write names without it
+	(`SR#3909`). **Filed in web, by the marker and by the address.**
+	"""
+
+	web = _a_project(world, "web")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session,
+		user=world.user,
+		title="The guide's agent",
+		scopes=["task:read", "task:write"],
+		project_scope=[web],
+	)
+	world.session.flush()
+	secret = issued.value.get_secret_value()
+	marker = {subroutine.directory.HEADER: f"workspace_id={world.workspace.id}; project_id={web}; project=web"}
+
+	by_marker = _as(world, secret, _adding("Fix the header"), **marker)
+
+	assert "in web, from .subroutine" in by_marker, by_marker
+	assert _filed_under(world, by_marker) == "web"
+
+
+def test_a_checkout_marked_for_a_nested_project_files_there_by_its_id (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4007`, M-11 (a): a checkout marked for ``alpha/web`` filed into the root ``web``.
+
+	A token narrowed to ``web`` and ``alpha/web`` cannot see ``alpha``, so the marker resolved to
+	the address ``web``, which the instance reads as the root. **The marker's id is sent.**
+	"""
+
+	web = _a_project(world, "web")
+	_a_project(world, "alpha")
+	nested = world.call(
+		"POST", "/v1/projects", json={"key": "web", "title": "Alpha's site", "parent": "alpha"}
+	).json()["id"]
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Both webs", project_scope=[web, nested]
+	)
+	world.session.flush()
+	header = f"workspace_id={world.workspace.id}; project_id={nested}; project=alpha/web"
+
+	said = _as(
+		world, issued.value.get_secret_value(), _adding("Fix the menu"),
+		**{subroutine.directory.HEADER: header},
+	)
+	ref = said.split("#", 1)[1].split()[0]
+
+	assert world.call("GET", f"/v1/tasks/{ref}").json()["project_id"] == nested, said
+
+
 def test_a_server_standing_in_a_marked_checkout_does_not_file_by_its_marker (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
