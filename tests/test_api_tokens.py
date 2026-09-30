@@ -355,6 +355,37 @@ def test_a_bounded_credential_revokes_itself_and_none_of_its_owners_others (
 	assert api_support.call(world.application, "GET", "/v1/me", headers=holding).status_code == 401
 
 
+def test_a_bounded_credential_cannot_revoke_an_agents_credential_its_owner_issued (
+	world: World,
+) -> None:
+	"""`SR#4012`, M-20 of the cold review of 2026-09-30: half of `SR#3891`'s rule was untested.
+
+	A bounded credential revokes none of its owner's others, and *its owner's* means the ones
+	issued **to** the owner and the ones issued **by** them. Only the first was ever driven, so
+	dropping the second from the rule passed the whole suite. **An agent's credential its owner
+	issued is refused too**, and goes on working.
+	"""
+
+	agent = world.call(
+		"POST",
+		"/v1/tokens",
+		json={"title": "The agent's", "service_account": f"smith-{uuid.uuid4().hex[:8]}"},
+	).json()
+	bounded = world.call(
+		"POST", "/v1/tokens", json={"title": "Read only", "scopes": ["task:read"]}
+	).json()
+	holding = {"authorization": f"Bearer {bounded['token']}"}
+	acting = {"authorization": f"Bearer {agent['token']}"}
+
+	refused = api_support.call(
+		world.application, "DELETE", f"/v1/tokens/{agent['prefix']}", headers=holding
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert "bounded credential" in refused.json()["detail"], refused.json()
+	assert api_support.call(world.application, "GET", "/v1/me", headers=acting).status_code == 200
+
+
 def test_a_credential_that_is_nothing_to_do_with_you_is_not_there (world: World) -> None:
 	"""Absent rather than forbidden, so this endpoint discloses nothing a listing would not.
 

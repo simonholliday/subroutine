@@ -7593,6 +7593,40 @@ def test_use_with_nothing_chosen_says_it_works_everywhere (
 	assert "not chosen yet" not in reset + bare, reset + bare
 
 
+def test_a_link_a_part_or_an_unlink_across_two_workspaces_on_one_instance_is_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4012`, M-20 of the cold review of 2026-09-30: the rule was driven over two connections only.
+
+	``link``, ``unlink`` and ``move --under`` acted on the wrong item across two workspaces - the
+	last review's H-2 - and the rule that refuses them was only ever driven across two connections,
+	so a version comparing connections alone passed the suite. **Refused across two workspaces
+	on one instance, and nothing written.** Two different numbers, since the same one on both
+	sides is refused as an item linked to itself whichever rule holds.
+	"""
+
+	run("init")
+	run("workspace", "create", "acme", "Acme")
+	run("-w", "acme", "add", "Rotate the keys")
+	run("-w", "acme", "add", "Renew the certificate")
+	run("-w", "projects", "add", "Water the plants")
+	run("-w", "projects", "add", "Pay the gas bill")
+
+	for arguments in (
+		("link", "acme/1", "blocks", "projects/2"),
+		("move", "acme/1", "--under", "projects/2"),
+		("unlink", "acme/1", "projects/2"),
+	):
+		refused = run(*arguments, expect=1)
+
+		assert "are in different workspaces" in refused.output, (arguments, refused.output)
+
+	shown = run("-w", "acme", "show", "2").output
+
+	assert "Blocks" not in shown and "Blocked by" not in shown, shown
+	assert "Part of" not in shown and "acme/#1" not in shown, shown
+
+
 def test_a_rename_says_a_checkout_s_file_follows_it (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
