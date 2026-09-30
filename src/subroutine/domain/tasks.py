@@ -2693,7 +2693,14 @@ def _kept_on_its_grid (
 		# on the Sunday, and the occurrence minted after it was that Monday again.
 		if getattr(row, ALL_DAY_FLAG[tracked]):
 			row.occurrence_at = _days_moved(
-				row.occurrence_at, deltas[tracked], column=tracked, timezone=timezone, now=now
+				row.occurrence_at,
+				was=was[tracked],
+				now_holds=now_holds[tracked],
+				was_in=was.get("timezone") or clock,
+				now_in=clock,
+				column=tracked,
+				timezone=timezone,
+				now=now,
 			)
 
 		# A move of nothing leaves the slot as it is, rather than re-reading its clock time.
@@ -2848,8 +2855,11 @@ def _flags_held_back (
 
 def _days_moved (
 	held: datetime.datetime,
-	delta: datetime.timedelta,
 	*,
+	was: datetime.datetime,
+	now_holds: datetime.datetime,
+	was_in: str,
+	now_in: str,
 	column: str,
 	timezone: str,
 	now: datetime.datetime,
@@ -2870,12 +2880,22 @@ def _days_moved (
 	an occurrence at its own date, or one correcting a row written before `#1291`, reaches here
 	with such a delta. Snapping would read a row held off its zone's edge - a deadline at the end
 	of the UTC day, labelled London - as the next day, and move a series a day for nothing.
+
+	**Counted between the two calendar dates, each on its own clock** (`#4010`, M-16 of the cold
+	review of 2026-09-30), not by rounding the time between the instants. A move that also carries
+	the row into a zone more than twelve hours away is that far off whole days: an LA series moved
+	to Tuesday from Tokyo was eight hours on, which rounds to none, and moved on the same day was
+	sixteen hours back, which rounds to one - so it landed on the Sunday, and completing the
+	occurrence then minted the next one on the same day as itself.
 	"""
 
-	days = round(delta / datetime.timedelta(days=1))
+	days = (
+		now_holds.astimezone(subroutine.domain.dates.zone(now_in, "timezone")).date()
+		- was.astimezone(subroutine.domain.dates.zone(was_in, "timezone")).date()
+	).days
 
 	if days == 0:
-		return held + delta
+		return held
 
 	day = held.astimezone(subroutine.domain.dates.zone(timezone, "timezone")).date()
 
@@ -2956,7 +2976,14 @@ def _carried (
 			# **In the zone this row was written in**: a zone carried to it is applied after
 			# the loop, and :func:`_resnapped` moves these onto the same days in it.
 			return _days_moved(
-				held, deltas[column], column=column, timezone=held_in, now=instant
+				held,
+				was=was[column],
+				now_holds=now_holds[column],
+				was_in=was.get("timezone") or clock,
+				now_in=clock,
+				column=column,
+				timezone=held_in,
+				now=instant,
 			)
 
 		return _clock_moved(

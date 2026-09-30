@@ -1512,6 +1512,69 @@ def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_tim
 	assert (due.date(), due.time()) == (datetime.date(2026, 10, 13), datetime.time(17, 0)), due
 
 
+@pytest.mark.parametrize(
+	("was_in", "now_in", "first", "to"),
+	[
+		("America/Los_Angeles", "Asia/Tokyo", datetime.date(2026, 10, 12), datetime.date(2026, 10, 13)),
+		("America/Los_Angeles", "Asia/Tokyo", datetime.date(2026, 10, 12), datetime.date(2026, 10, 12)),
+		("Europe/London", "Pacific/Auckland", datetime.date(2026, 10, 26), datetime.date(2026, 10, 26)),
+		("Europe/London", "Pacific/Auckland", datetime.date(2026, 10, 26), datetime.date(2026, 11, 2)),
+	],
+	ids=["la-to-tokyo-a-day-on", "la-to-tokyo-same-day", "london-to-auckland-same-day", "london-to-auckland-a-week-on"],
+)
+def test_a_whole_day_series_moved_into_a_far_zone_lands_on_the_day_given (
+	session: sqlalchemy.orm.Session,
+	was_in: str,
+	now_in: str,
+	first: datetime.date,
+	to: datetime.date,
+) -> None:
+	"""`SR#4010`, M-16 of the cold review of 2026-09-30: a day off, and then a duplicate.
+
+	A whole-day series moved from now on into a zone more than twelve hours away was moved by the
+	time between two instants, rounded to days - eight hours on rounds to none and sixteen hours
+	back to one - so it landed a day early, and completing the occurrence minted the next one on
+	its own day. **It lands on the day given, and the next one comes after it.**
+	"""
+
+	live = _repeating(
+		session,
+		title="Bins",
+		due=None,
+		starts=first,
+		recurrence="every monday",
+		timezone=was_in,
+		workspace_timezone=was_in,
+	)
+	series = _template(session, live)
+
+	subroutine.domain.tasks.update(
+		session,
+		live,
+		starts=to.isoformat(),
+		timezone=now_in,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert series.timezone == now_in
+
+	landed = test_schedule._instant(series.starts_at).astimezone(zoneinfo.ZoneInfo(now_in))
+
+	assert (landed.date(), landed.time()) == (to, datetime.time(0, 0)), landed
+
+	subroutine.domain.tasks.complete(session, live, now=NOW)
+	session.flush()
+
+	following = _next_live(session, series)
+	after = test_schedule._instant(following.starts_at).astimezone(
+		zoneinfo.ZoneInfo(following.timezone or now_in)
+	)
+
+	assert after.date() > to, f"the next occurrence came on {after.date()}, not after {to}"
+
+
 def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
 	session: sqlalchemy.orm.Session,
 ) -> None:

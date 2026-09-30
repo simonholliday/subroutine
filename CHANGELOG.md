@@ -234,6 +234,8 @@ upgrade involves.
   share it or open it, so the advice for `alpha/web` no longer reaches a project called `web`.
 - **A timed series moved *from now on* keeps its time of day** when the occurrence moved had been
   made all-day for itself alone, where it was put at midnight.
+- **A whole-day series moved into a zone more than twelve hours away lands on the day given**,
+  where it landed a day early and could make its next occurrence on the same day.
 
 ## 0.9.12 — 2026-09-29
 
