@@ -247,6 +247,8 @@ upgrade involves.
   agent with no tools and nothing said.
 - `explain connecting` names a `use` that works, and the hosting guide names the token variable
   of one connection rather than the default's.
+- **The browser's add form keeps what was chosen after an item is added**: the second item went
+  to the Inbox with the first status, and a sub-task after it was refused.
 
 ## 0.9.12 — 2026-09-29
 

@@ -6699,9 +6699,14 @@ def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
 
 	**Each check waits for the new page first.** Between two pages there is a moment with no
 	form at all, and a form that is closed cannot be told from one that is not there yet.
+
+	**And an add keeps what was chosen** (`SR#4008`, M-14 of the cold review of 2026-09-30),
+	folded in because it is what the form holds from one write to the next, as the rest is what
+	it holds from one page to the next. A landed add reset every select to its first option, so
+	the second item went to the Inbox, and a sub-task after it sent the Inbox beside its parent.
 	"""
 
-	opened, *_ = running
+	opened, written, *_ = running
 	page = opened("/projects?view=list")
 	page.wait_for_selector(".rows li a.mark", timeout=10_000)
 
@@ -6754,6 +6759,40 @@ def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
 	_until(page, lambda: not disclosed())
 
 	assert not disclosed(), "the browser's Back left the add form open on the page before"
+
+	page.close()
+
+	page = opened("/projects/acme")
+	page.click(".adding .more")
+	page.wait_for_selector(".adding .details select[name=project]", timeout=10_000)
+	_until(page, lambda: page.eval_on_selector(".adding select[name=project]", "e => e.value") == "acme")
+
+	def added (title: str, *, parent: str = "") -> dict[str, typing.Any]:
+		"""Add one item from the open form, and return the body the page sent."""
+
+		written.clear()
+
+		if parent:
+			page.fill(".adding input[name=parent]", parent)
+
+		page.fill(".adding input[name=text]", title)
+		page.press(".adding input[name=text]", "Enter")
+		_until(page, lambda: any(one[:2] == ("POST", "v1/tasks") for one in written))
+		_until(page, lambda: page.input_value(".adding input[name=text]") == "")
+
+		return next(
+			json.loads(one[2] or "{}") for one in written if one[:2] == ("POST", "v1/tasks")
+		)
+
+	first = added("Rotate the keys")
+	second = added("Renew the certificate")
+	sub = added("Check the renewal", parent="42")
+
+	assert first.get("project") == "acme", first
+	assert (second.get("project"), second.get("status")) == (first.get("project"), first.get("status")), (
+		f"the second add went elsewhere than the first: {first} then {second}"
+	)
+	assert "project" not in sub, f"a sub-task after an add sent a project beside its parent: {sub}"
 
 	page.close()
 

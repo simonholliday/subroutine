@@ -539,8 +539,20 @@ export function Adding ({
 		   dropped connection answered *"That was not added"* over a box that had already been
 		   emptied — everything typed, gone, with nothing to retry from. `Conflict`'s own
 		   comment below calls exactly that the worst possible answer. */
+		/* **And the choices are put back after the reset** (`#4008`, M-14 of the cold review of
+		   2026-09-30). A reset returns every select to its first option, since the page sets which
+		   one is chosen as a property and never as the default - so after a landed add the second
+		   item went to the Inbox with the first status, a sub-task after it sent the Inbox beside its
+		   parent and was refused, and a form writing documents read *A task*. What was typed clears;
+		   what was chosen stays. */
+		const kept = [...form.querySelectorAll("select")].map((one) => [one, one.value]);
+
 		Promise.resolve(onAdd(readForm(form), Boolean(writing), drawn)).then((landed) => {
-			if (landed) form.reset();
+			if (!landed) return;
+
+			form.reset();
+
+			for (const [one, value] of kept) if (one.isConnected) one.value = value;
 		});
 	};
 
