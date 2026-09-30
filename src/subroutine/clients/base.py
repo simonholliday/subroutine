@@ -2068,11 +2068,13 @@ def refuse_a_write (connection: subroutine.connections.Connection) -> typing.NoR
 	)
 
 
-#: How many projects :func:`every_project` asks for (`#3767`, `#3942`): a number no installation
-#: reaches, since a client's ``limit`` counts rows rather than a response - the HTTP client follows
-#: the cursor to it and the local one asks the database once - so one call reads to the end on
-#: both, as the terminal's ``WHOLE_DIRECTORY`` does for accounts.
-_EVERY_PROJECT = 1_000_000
+#: How many rows a read that must reach the end asks for: every project (`#3767`, `#3942`), the
+#: whole directory of accounts (`#2624`) and every comment on an item (`#3928`). A number no
+#: installation reaches, since a client's ``limit`` counts rows rather than a response - the HTTP
+#: client follows the cursor to it and the local one asks the database once - so one call reads
+#: to the end on both. **One number for the three** (`#4031`, L-11 (4) of the cold review of
+#: 2026-09-30), which had three spellings of it.
+EVERY_ROW = 1_000_000
 
 
 def every_project (
@@ -2091,7 +2093,7 @@ def every_project (
 	Both clients honour a caller's limit whole, so one number no installation reaches does it.
 	"""
 
-	return list(client.projects(workspace=workspace, limit=_EVERY_PROJECT))
+	return list(client.projects(workspace=workspace, limit=EVERY_ROW))
 
 
 def from_this_end (links: typing.Sequence[subroutine.views.Link]) -> list[subroutine.views.Link]:

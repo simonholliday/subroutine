@@ -2651,7 +2651,7 @@ def test_finishing_a_trashed_occurrence_brings_nothing (
 		with pytest.raises(subroutine.errors.ValidationError):
 			act(session, live, now=NOW)
 
-	assert subroutine.domain.tasks.live_occurrence(session, series) is None
+	assert subroutine.domain.occurrences.live_occurrence(session, series) is None
 
 
 def test_the_last_occurrence_of_a_series_in_the_trash_can_still_be_finished (

@@ -94,6 +94,10 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"against it before writing; it never selects one",
 	"domain/bootstrap.py": "runs before any principal exists, by definition",
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
+	# **Moved out of `domain/tasks.py` with the reads it made** (`SR#4031`), so that `claims` can
+	# refuse a claim on a series without an import cycle.
+	"domain/occurrences.py": "reads the one open occurrence of a series by the series' id; the "
+	"series was resolved and authorized one caller up, and nothing here is a listing",
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",
 	"domain/settings.py": "resolves a setting upwards through a project's ancestors and its "
 	"workspace (`#1026`), for projects a caller already holds — so the rows are vetted before "

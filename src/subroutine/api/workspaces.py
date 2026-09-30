@@ -244,14 +244,21 @@ def _for_an_administrator (
 	# **Live only, like the search above it.** The trash is reached through
 	# ``workspaces.for_restore`` because a slug frees when a workspace is deleted and can name
 	# a deleted one and a live one at once — a rule an administrator does not get to skip.
+	#
+	# **Asked of the database, by the one reading of a written name** (`#4031`, L-11 (7) of the cold
+	# review of 2026-09-30): every workspace was loaded to compare each. An id first, where the text
+	# is one, so a short name that happens to read as an id cannot shadow the workspace it names.
 	model = subroutine.db.models.identity.Workspace
-	statement = sqlalchemy.select(model).where(model.deleted_at.is_(None))
+	named, short = subroutine.addressing.workspace_named(wanted)
+	live = sqlalchemy.select(model).where(model.deleted_at.is_(None))
 
-	for found in session.scalars(statement):
-		if _names(found, wanted):
+	if named is not None:
+		found = session.scalars(live.where(model.id == named)).first()
+
+		if found is not None:
 			return found
 
-	return None
+	return session.scalars(live.where(model.slug == short)).first()
 
 
 def _names (found: subroutine.db.models.identity.Workspace, wanted: str) -> bool:

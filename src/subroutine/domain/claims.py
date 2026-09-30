@@ -37,6 +37,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
+import subroutine.domain.occurrences
 import subroutine.domain.readiness
 import subroutine.domain.trash
 import subroutine.domain.versions
@@ -119,6 +120,16 @@ def claim (
 	# **Before the conflict is reported, not after.** Whether somebody else is working on this
 	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
 	_permitted(session, actor, task)
+
+	# **Nor the repeat itself** (`#3942`), which a deferral and a skip refuse too (decision `#3795`):
+	# claiming the series held the row nobody works on, and left its occurrence free for anybody.
+	# **Here, where every caller comes** (`#4031`, L-11 (6) of the cold review of 2026-09-30): both
+	# clients refused it before calling this, and a third would not have.
+	if task.is_template:
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
+			session, task, act="claiming", verb="claim", field="ref"
+		)
+
 	# **Nor one in the trash** (`#3935`): it holds work nobody is going to do.
 	subroutine.domain.trash.refuse(task, doing="claimed")
 

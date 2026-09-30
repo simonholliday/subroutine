@@ -249,19 +249,6 @@ COMPARED: frozenset[str] = frozenset(
 )
 
 
-def parents_project (
-	session: sqlalchemy.orm.Session, parent: subroutine.db.models.work.Document
-) -> subroutine.db.models.project.Project:
-	"""Return where a section goes when nothing names a project: its document's (`#3942`).
-
-	A section belongs to the same project as the document it is part of, so the default that
-	suits a document with no parent - the Inbox, or a checkout's project - refused every section
-	that named no project, as ``tasks.parents_project`` found for a sub-task (`#3769`).
-	"""
-
-	return session.get_one(subroutine.db.models.project.Project, parent.project_id)
-
-
 def create (
 	session: sqlalchemy.orm.Session,
 	*,

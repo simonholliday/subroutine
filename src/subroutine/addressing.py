@@ -239,6 +239,19 @@ def names_workspace (requested: str, *, slug: str, identifier: uuid.UUID) -> boo
 	or with spaces round it. The id is parsed, and the name read as it is stored.
 	"""
 
+	named, short = workspace_named(requested)
+
+	return named == identifier or slug == short
+
+
+def workspace_named (requested: str) -> tuple[uuid.UUID | None, str]:
+	"""Return what somebody typed as a workspace's id, where it is one, and as its short name.
+
+	**The one reading** :func:`names_workspace` compares a row with, on its own so that a query can
+	ask it too (`#4031`, L-11 (7) of the cold review of 2026-09-30): an administrator's lookup loaded
+	every workspace to compare each.
+	"""
+
 	wanted = requested.strip()
 
 	try:
@@ -247,7 +260,7 @@ def names_workspace (requested: str, *, slug: str, identifier: uuid.UUID) -> boo
 	except ValueError:
 		parsed = None
 
-	return parsed == identifier or slug == normalize_slug(wanted)
+	return parsed, normalize_slug(wanted)
 
 
 def normalize_slug (slug: str) -> str:

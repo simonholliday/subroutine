@@ -37,6 +37,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.claims
 import subroutine.domain.tasks
 import subroutine.errors
 import subroutine.mcp.protocol
@@ -513,6 +514,28 @@ def test_claiming_the_repeat_itself_is_refused_naming_the_occurrence (
 	)
 
 	assert over_http.status_code == 422, over_http.text
+
+
+def test_the_domain_refuses_a_claim_on_the_repeat_itself (instance: Instance) -> None:
+	"""`SR#4031`, L-11 (6) of the cold review of 2026-09-30: the refusal lived in the transports.
+
+	Both clients refused before calling ``claims.claim``, which refused nothing, so a third caller
+	would have claimed the series. **Refused where the claim is taken**, beside its refusal of work
+	in the trash.
+	"""
+
+	task = subroutine.db.models.work.Task
+	shown = instance.session.scalars(
+		sqlalchemy.select(task).where(task.ref == instance.repeating, task.title == "Stand-up")
+	).one()
+	series = instance.session.get_one(task, shown.recurrence_template_id)
+	principal = subroutine.domain.authentication.authenticate(instance.session, instance.token)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.claims.claim(instance.session, series, actor=principal)
+
+	assert f"#{series.ref} is the repeat itself" in str(refused.value), str(refused.value)
+	assert series.claimed_by_id is None
 
 
 def test_the_repeat_itself_is_refused_where_one_occurrence_is_meant (

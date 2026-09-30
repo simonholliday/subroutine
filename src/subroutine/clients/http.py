@@ -18,7 +18,6 @@ results it did get.
 """
 
 import datetime
-import sys
 import types
 import typing
 import urllib.parse
@@ -54,11 +53,6 @@ Parsed = typing.TypeVar("Parsed", bound=pydantic.BaseModel)
 #: name.
 BY_CURSOR = "cursor"
 BY_SEQ = "since"
-
-#: How many rows *every row* is asked as, for a collection a caller must read to the end - an
-#: item's comments (`#3928`). The instance caps each page at its own ``max_page_size`` and says
-#: when there is more, so this bounds nothing but the loop that follows the cursor.
-EVERY = sys.maxsize
 
 #: The same cursor read the other way — `#1097`. A ``newest`` page holds the *latest* events,
 #: so its ``has_more`` is about earlier ones and the number to resume from is its **first** row
@@ -954,7 +948,7 @@ class Client:
 			endpoint="comments",
 			path=f"/v1/{_plural(entity_type)}/{ref}/comments",
 			params=list(asking.items()),
-			wanted=EVERY,
+			wanted=subroutine.clients.base.EVERY_ROW,
 		)
 
 	def history (

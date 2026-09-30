@@ -331,9 +331,30 @@ def project (
 	"""
 
 	if wanted is None:
-		return _files_where(session, actor, workspace, nameable=True)
+		return _files_where(session, actor, workspace)
 
 	return addressed(session, actor, workspace, wanted, field="project", nameable=True)
+
+
+def document_project (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	wanted: str | None,
+	parent: subroutine.db.models.work.Document | None,
+) -> typing.Any:
+	"""Find where a document goes: the project named, or for a section its document's - `#4031`.
+
+	**A section goes where its document is, when nothing names a project** (`#3942`). The default
+	that suits a document with no parent - the Inbox, or a checkout's project - refused every
+	section that named no project, as a sub-task's did (`#3769`). **Chosen here, once** (L-11 (2)
+	of the cold review of 2026-09-30): each transport chose it, which is two copies of one rule.
+	"""
+
+	if wanted is None and parent is not None:
+		return session.get_one(subroutine.db.models.project.Project, parent.project_id)
+
+	return project(session, actor, workspace, wanted)
 
 
 def project_to_share (
@@ -977,8 +998,6 @@ def _files_where (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
-	*,
-	nameable: bool = False,
 ) -> typing.Any:
 	"""Return where a caller who named no project means, which is not always the Inbox.
 
@@ -1029,7 +1048,7 @@ def _files_where (
 	# it is *allowed* at the check cannot come apart.
 	writes = actor.project_write_scope
 	pointed = writes if writes is not None else actor.project_scope
-	candidates = _named_within(session, actor, workspace, pointed, nameable=nameable)
+	candidates = _named_within(session, actor, workspace, pointed)
 
 	if len(candidates) == 1:
 		return candidates[0]
@@ -1100,8 +1119,6 @@ def _named_within (
 	actor: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
 	identifiers: typing.Sequence[str] | None,
-	*,
-	nameable: bool = False,
 ) -> list[typing.Any]:
 	"""Return the projects a restricted credential is pointed at inside one workspace.
 
@@ -1109,9 +1126,11 @@ def _named_within (
 	``SR/WEB`` as well, and answering "which project did you mean" with the whole subtree would
 	make a one-project credential look ambiguous.
 
-	Still narrowed through :func:`subroutine.domain.scoping.readable_projects`, so a credential
-	is never offered somewhere it cannot see — the write set is a subset of the reach, but that
-	is enforced at issue and this is not the place to assume it held.
+	Still narrowed through :func:`_nameable`, what the caller may see without asking for
+	``project:read`` (`#3909`), so a credential is never offered somewhere it cannot see — the
+	write set is a subset of the reach, but that is enforced at issue and this is not the place to
+	assume it held. **Only ever that narrowing** (`#4031`, L-11 (3) of the cold review of
+	2026-09-30): a ``nameable`` switch chose between it and the listing's, and was always on.
 	"""
 
 	if identifiers is None:
@@ -1119,13 +1138,7 @@ def _named_within (
 
 	model = subroutine.db.models.project.Project
 	wanted = [uuid.UUID(item) for item in identifiers]
-	statement = (
-		_nameable(actor, workspace_ids=[workspace.id], include_archived=True)
-		if nameable
-		else subroutine.domain.scoping.readable_projects(
-			actor, workspace_ids=[workspace.id], include_archived=True
-		)
-	)
+	statement = _nameable(actor, workspace_ids=[workspace.id], include_archived=True)
 
 	return list(session.scalars(statement.where(model.id.in_(wanted))))
 

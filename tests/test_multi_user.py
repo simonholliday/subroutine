@@ -27,6 +27,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.cli.personal
+import subroutine.clients.base
 import subroutine.clients.local
 import subroutine.config
 import subroutine.db.models.activity
@@ -170,7 +171,7 @@ def test_a_directory_too_big_to_read_whole_still_keeps_the_operators_list (
 	run("init", "--workspace", "Acme")
 	run("agent", "create", "first")
 	run("agent", "create", "second")
-	monkeypatch.setattr(subroutine.cli.personal, "WHOLE_DIRECTORY", 2)
+	monkeypatch.setattr(subroutine.clients.base, "EVERY_ROW", 2)
 
 	created = run("user", "create", "thomas").output
 

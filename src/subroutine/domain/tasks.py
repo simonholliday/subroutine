@@ -33,6 +33,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.mentions
 import subroutine.domain.milestones
+import subroutine.domain.occurrences
 import subroutine.domain.ordering
 import subroutine.domain.patch
 import subroutine.domain.readiness
@@ -978,7 +979,7 @@ def create (
 	# it hung from a row nobody is shown. The local client turned a series away as it looked the
 	# parent up and the endpoint took one, so the refusal is here, for both.
 	if parent is not None and parent.is_template:
-		_refuse_the_repeat_itself(
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
 			session,
 			parent,
 			act="putting work under it",
@@ -1597,7 +1598,9 @@ def update (
 		and defer.instant is not None
 		and not _the_deferral_it_has(task, defer)
 	):
-		_refuse_the_repeat_itself(session, task, act="a deferral", verb="defer", field="snooze")
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
+			session, task, act="a deferral", verb="defer", field="snooze"
+		)
 
 	# **Both ends resolved against what the task will look like** — the rule the block below
 	# states for invariant 8, and it bites harder here: a caller moving only the start of a
@@ -2066,10 +2069,12 @@ def move (
 	# series hangs from a row no listing shows. The local client refused both as it looked the
 	# refs up, and the endpoint did both.
 	if task.is_template:
-		_refuse_the_repeat_itself(session, task, act="moving", verb="move", field="ref")
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
+			session, task, act="moving", verb="move", field="ref"
+		)
 
 	if parent is not None and parent.is_template:
-		_refuse_the_repeat_itself(
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
 			session, parent, act="putting work under it", verb="put it under", field="parent"
 		)
 
@@ -2246,57 +2251,16 @@ def _the_deferral_it_has (
 	return held.replace(second=0, microsecond=0) == defer.instant.replace(second=0, microsecond=0)
 
 
-def _refuse_the_repeat_itself (
-	session: sqlalchemy.orm.Session,
-	series: subroutine.db.models.work.Task,
-	*,
-	act: str,
-	verb: str,
-	field: str,
-) -> typing.NoReturn:
-	"""Refuse an act that is only ever for one occurrence, given the repeat itself - `#3748`.
-
-	**Refused by name rather than carried to the occurrence** (decision `#3795`). A series number
-	means the series to every verb - ``done`` completes the series row - so a verb that read it as
-	the occurrence would be the one exception a person had to learn. ``show`` prints that number as
-	*from repeat #3* so that a rename or a reminder can reach the series (`#1247`), which is why it
-	gets typed where the occurrence was meant: so the refusal names the occurrence, and the remedy
-	is one retype.
-	"""
-
-	itself = subroutine.domain.refs.format_ref(series.ref)
-	occurrence = live_occurrence(session, series)
-	hint = (
-		f"{verb.capitalize()} {subroutine.domain.refs.format_ref(occurrence.ref)}, the occurrence "
-		"in front of you."
-		if occurrence is not None
-		else f"It has no occurrence open to {verb}."
-	)
-
-	raise subroutine.errors.ValidationError(
-		f"{itself} is the repeat itself, and {act} is only ever for one occurrence of it.",
-		code="invalid_field_value",
-		hint=hint,
-		errors=[
-			subroutine.errors.FieldError(
-				field=field,
-				code="invalid_field_value",
-				message=f"{act[0].upper()}{act[1:]} is for one occurrence, never for the repeat itself.",
-				hint=hint,
-			)
-		],
-	)
-
-
 def _refuse_deleting_the_repeat_itself (
 	session: sqlalchemy.orm.Session, series: subroutine.db.models.work.Task
 ) -> typing.NoReturn:
 	"""Refuse a delete given the repeat itself, saying how a repeat is stopped - `#3936`.
 
-	**Not :func:`_refuse_the_repeat_itself`'s sentence**, because a delete is not only ever for an
-	occurrence: somebody deleting a series usually means *stop it*, which marking it done does
-	(decision `#1294`). So the hint says that first, and names the occurrence second, for
-	somebody who meant only the one in front of them, which may be deleted on its own.
+	**Not :func:`subroutine.domain.occurrences.refuse_the_repeat_itself`'s sentence**, because a
+	delete is not only ever for an occurrence: somebody deleting a series usually means *stop it*,
+	which marking it done does (decision `#1294`). So the hint says that first, and names the
+	occurrence second, for somebody who meant only the one in front of them, which may be deleted on
+	its own.
 	"""
 
 	itself = subroutine.domain.refs.format_ref(series.ref)
@@ -2313,7 +2277,7 @@ def _refuse_deleting_the_repeat_itself (
 			errors=[subroutine.errors.FieldError(field="ref", code="invalid_field_value", message=kept)],
 		)
 
-	occurrence = live_occurrence(session, series)
+	occurrence = subroutine.domain.occurrences.live_occurrence(session, series)
 	stopping = f"Mark {itself} done to stop it, keeping what it was and what it ran"
 	hint = (
 		f"{stopping}, or delete {subroutine.domain.refs.format_ref(occurrence.ref)} to drop only "
@@ -2349,22 +2313,9 @@ def refuse_linking_the_repeat_itself (
 	"""
 
 	if task.is_template:
-		_refuse_the_repeat_itself(session, task, act="a link", verb="link", field=field)
-
-
-def refuse_claiming_the_repeat_itself (
-	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
-) -> None:
-	"""Refuse a claim given the repeat itself, naming the occurrence - `#3942`.
-
-	**As a deferral and a skip are** (decision `#3795`). Claiming the series held the row nobody
-	works on, and its occurrence stayed unclaimed and ready for anybody else to take, while the
-	claim said *Claimed*. Called by both clients before they claim, since
-	:mod:`~subroutine.domain.claims` is imported by this module and cannot import it back.
-	"""
-
-	if task.is_template:
-		_refuse_the_repeat_itself(session, task, act="claiming", verb="claim", field="ref")
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
+			session, task, act="a link", verb="link", field=field
+		)
 
 
 def skip (
@@ -2393,7 +2344,9 @@ def skip (
 	# series of its own, so the refusal below would have called it *not one of a repeating
 	# series*, which is untrue of the very row the series is.
 	if task.is_template:
-		_refuse_the_repeat_itself(session, task, act="skipping", verb="skip", field="ref")
+		subroutine.domain.occurrences.refuse_the_repeat_itself(
+			session, task, act="skipping", verb="skip", field="ref"
+		)
 
 	if task.recurrence_template_id is None:
 		raise subroutine.errors.ValidationError(
@@ -3193,7 +3146,7 @@ def _applied_to_the_series (
 	session.flush()
 
 	if task.is_template:
-		occurrence = live_occurrence(session, task)
+		occurrence = subroutine.domain.occurrences.live_occurrence(session, task)
 
 		if occurrence is not None:
 			_carried(
@@ -3373,34 +3326,6 @@ def refuse_an_answer_that_means_nothing (
 				)
 			],
 		)
-
-
-def live_occurrence (
-	session: sqlalchemy.orm.Session, template: subroutine.db.models.work.Task
-) -> subroutine.db.models.work.Task | None:
-	"""Return the one unfinished occurrence of a series, or ``None`` if there is none.
-
-	**There is exactly one at a time**, which is what makes decision `#1249` §4's write-through
-	well defined: `materialise` mints the next only when the last is finished. ``None`` is an
-	ordinary answer rather than a failure — a series whose rule is spent has no live row, and
-	neither has a template somebody is holding mid-creation.
-
-	Ordered by the slot it was minted for so that a database which has somehow been left with
-	two answers the same question the same way twice, rather than differently each call.
-	"""
-
-	task = subroutine.db.models.work.Task
-
-	return session.scalars(
-		sqlalchemy.select(task)
-		.where(
-			task.recurrence_template_id == template.id,
-			task.completed_at.is_(None),
-			task.deleted_at.is_(None),
-		)
-		.order_by(task.occurrence_at.asc().nulls_last(), task.id.asc())
-		.limit(1)
-	).first()
 
 
 def series_of (

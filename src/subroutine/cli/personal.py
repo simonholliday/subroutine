@@ -116,13 +116,6 @@ DOCUMENT_TYPES = f"{subroutine.db.seed.named_types('document')}."
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
 DEFAULT_LIST_LIMIT = 50
 
-#: How many accounts a question about the whole directory asks for - `#2624`. The directory is
-#: paged, and a warning about who stops, a count of the people here or a list of everybody must
-#: not read one page as all of it. A client's ``limit`` counts rows rather than a response - the
-#: HTTP client follows the cursor to it and the local one asks the database once - so a number no
-#: installation reaches reads to the end on both.
-WHOLE_DIRECTORY = 1_000_000
-
 #: Styles, applied to the parts of a line this program wrote and never to the parts the
 #: user did. Rich turns them off by itself when the output is not a terminal, which is what
 #: §12.2a means by "detected, never configured" — there is no flag and no setting.
@@ -6130,7 +6123,9 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		# stopped with the rest and went unnamed.
 		stopping = [
 			one.username
-			for one in where.client.users(answers_to=username, limit=WHOLE_DIRECTORY)
+			for one in where.client.users(
+				answers_to=username, limit=subroutine.clients.base.EVERY_ROW
+			)
 		]
 
 		# **And what nobody will be able to see afterwards** - `#1453`, decided by Simon on
@@ -9190,7 +9185,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# Read *before* creating, because the question is how many accounts there were —
 			# see `_keep_the_operators_own_list` for why that is the one that matters.
 			before = (
-				where.client.users(limit=WHOLE_DIRECTORY)
+				where.client.users(limit=subroutine.clients.base.EVERY_ROW)
 				if where.client.connection.is_local
 				else subroutine.clients.base.Listing([])
 			)

@@ -1257,7 +1257,6 @@ def take (
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
-	subroutine.domain.tasks.refuse_claiming_the_repeat_itself(session, task)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		held = subroutine.domain.claims.claim(

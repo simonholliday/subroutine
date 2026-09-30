@@ -175,11 +175,8 @@ def create (
 	created = subroutine.domain.documents.create(
 		session,
 		settings=settings,
-		# **A section goes where its document is, when nothing names a project** (`#3942`).
-		project=(
-			subroutine.domain.documents.parents_project(session, parent)
-			if body.project is None and parent is not None
-			else subroutine.domain.selection.project(session, actor, workspace, body.project)
+		project=subroutine.domain.selection.document_project(
+			session, actor, workspace, body.project, parent
 		),
 		title=body.title,
 		body=body.body,

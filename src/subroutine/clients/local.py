@@ -3183,11 +3183,8 @@ class Client:
 			created = subroutine.domain.documents.create(
 				session,
 				settings=self.settings,
-				# **A section goes where its document is, when nothing names a project** (`#3942`).
-				project=(
-					subroutine.domain.documents.parents_project(session, above)
-					if project is None and above is not None
-					else subroutine.domain.selection.project(session, actor, chosen, project)
+				project=subroutine.domain.selection.document_project(
+					session, actor, chosen, project, above
 				),
 				title=title,
 				body=body,
@@ -3652,7 +3649,6 @@ class Client:
 
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
-			subroutine.domain.tasks.refuse_claiming_the_repeat_itself(session, row)
 			held = subroutine.domain.claims.claim(
 				session, row, minutes=minutes, settings=self.settings, actor=actor
 			)
