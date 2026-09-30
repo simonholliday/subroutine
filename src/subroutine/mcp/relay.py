@@ -267,6 +267,12 @@ def _over_http (
 			},
 		)
 
+	except httpx.InvalidURL:
+		# **An address httpx refuses is this connection's failure, said at the handshake** (`#4000`,
+		# L-5 (2) of the cold review of 2026-09-30), in the HTTP client's words: raised here, it
+		# ended the relay in a crash report before any message was read.
+		raise subroutine.connections.unusable_address(connection) from None
+
 	except UnicodeEncodeError:
 		# **A character no header can carry, refused while the client is built** (`#3772`). httpx
 		# encodes a header as ASCII, so a token holding a no-break space pasted with it stopped the
@@ -807,8 +813,12 @@ def run (
 	connection: str | None = None,
 	workspace: str | None = None,
 	settings: subroutine.config.Settings | None = None,
+	refused: subroutine.errors.SubroutineError | None = None,
 ) -> None:
 	"""Forward a stdio MCP session to the instance one connection names.
+
+	``refused`` is a configuration that could not be read at all (`#4000`): every message is
+	answered with why, ``initialize`` included, rather than the process ending before the first.
 
 	**The fallback is the configured default, not the current context** (`#276`). ``subroutine
 	use`` is working state that a person moves between tasks, and a server reads it once at
@@ -817,15 +827,23 @@ def run (
 	``default_connection`` is a decision somebody took and can read back.
 	"""
 
+	if refused is not None:
+		subroutine.mcp.protocol.relay(_refusing(refused), incoming, outgoing)
+
+		return
+
 	resolved = settings or subroutine.config.load_settings()
-	roster = subroutine.connections.roster(resolved)
 
 	# **A connection that cannot be reached is said at the handshake, and on every message after**
 	# (`#3906`). Naming one that does not exist, or one with no token, raised here, before the
 	# first message was read: the process exited with its one sentence on standard error, which a
 	# client does not show, and the agent's tools were simply absent. A failure reaching the
 	# instance mid-session was already answered this way.
+	# **And so is a roster that cannot be built** (`#4000`, M-3 of the cold review of 2026-09-30),
+	# which was built above this and so ended the process the way `#3906` stopped a connection
+	# ending it.
 	try:
+		roster = subroutine.connections.roster(resolved)
 		chosen = roster.require(connection or roster.default)
 		answer = answering(chosen, roster, resolved, workspace=workspace)
 

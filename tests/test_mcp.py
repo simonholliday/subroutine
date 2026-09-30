@@ -8097,6 +8097,41 @@ def test_a_connection_that_cannot_be_reached_is_said_at_the_handshake (
 		assert all(said in one["error"]["message"] for one in answers), (connection, answers)
 
 
+def test_an_address_no_request_can_be_made_to_is_said_at_the_handshake (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4000`, L-5 (2) of the cold review of 2026-09-30: the relay crashed on such an address.
+
+	A zero-width space pasted into a host passes the address check and is refused by httpx as the
+	relay builds its client, which raised past `SR#3906`'s answer. **Said at the handshake, in the
+	words the HTTP client uses for the same address.**
+	"""
+
+	roster = subroutine.connections.Roster(
+		connections=(
+			subroutine.connections.Connection(name="local", url=None),
+			subroutine.connections.Connection(name="zw", url="http://ex\u200bample.com"),
+		),
+		default="local",
+	)
+	monkeypatch.setattr(subroutine.connections, "roster", lambda settings: roster)
+	monkeypatch.setenv(subroutine.credentials.variable_for("zw"), "sr_not_a_real_token")
+
+	outgoing = io.StringIO()
+
+	subroutine.mcp.relay.run(
+		io.StringIO('{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}\n'),
+		outgoing,
+		connection="zw",
+		settings=subroutine.config.Settings(dev_mode=True),
+	)
+
+	answers = [json.loads(line) for line in outgoing.getvalue().splitlines() if line.strip()]
+
+	assert [one["id"] for one in answers] == [1], answers
+	assert "has an address no request can be made to" in answers[0]["error"]["message"], answers
+
+
 def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

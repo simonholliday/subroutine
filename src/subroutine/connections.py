@@ -362,7 +362,7 @@ def check_url (value: str) -> str:
 
 	text = _trimmed_url(value)
 
-	if text is not None:
+	if text is not None and _a_port_that_reaches(text):
 		return text
 
 	raise subroutine.errors.ValidationError(
@@ -479,17 +479,43 @@ def _trimmed_url (value: str) -> str | None:
 	if parsed.scheme not in SCHEMES or not parsed.netloc:
 		return None
 
-	# **A port is a number no larger than 65535** (`#3907`). ``urlsplit`` checks nothing about
-	# one until it is asked, so ``http://127.0.0.1:abc`` was stored, and every command after it
-	# ended in a crash report from the client that could not be built for it. Read for the refusal
-	# it raises, and nothing else.
+	return text
+
+
+def _a_port_that_reaches (text: str) -> bool:
+	"""Report whether an address's port, where it names one, is a number up to 65535 - `#3907`.
+
+	``urlsplit`` checks nothing about a port until it is asked, so ``http://127.0.0.1:abc`` was
+	stored, and every command after it ended in a crash report. **Asked where an address is
+	written, and not where the file is read** (`#4000`, M-3 of the cold review of 2026-09-30):
+	asked of the file as well, one such connection, never used, refused the whole configuration and
+	silenced the agent's tools, where the client refuses a connection it cannot reach as that
+	connection's failure alone.
+	"""
+
 	try:
-		_ = parsed.port
+		_ = urllib.parse.urlsplit(text).port
 
 	except ValueError:
-		return None
+		return False
 
-	return text
+	return True
+
+
+def unusable_address (connection: Connection) -> subroutine.errors.ValidationError:
+	"""Return the refusal for a connection whose address no request can be made to - `#4000`.
+
+	**One sentence for both clients that build a request from the address**, the HTTP client and
+	the stdio relay, so a connection's failure reads the same wherever it is met, and each fails
+	alone rather than taking a listing or the agent's tools with it (`#3907`).
+	"""
+
+	return subroutine.errors.ValidationError(
+		f"Connection {connection.name!r} has an address no request can be made to: "
+		f"{shown(connection.url)}.",
+		code="invalid_field_value",
+		hint=f"Put its url right in the [connections.{connection.name}] table of config.toml.",
+	)
 
 
 def _text (name: str, table: dict[str, typing.Any], key: str) -> str | None:

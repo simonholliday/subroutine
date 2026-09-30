@@ -481,6 +481,21 @@ def _settings () -> subroutine.config.Settings:
 	annoying until somebody fixes it.
 	"""
 
+	settings = _settings_or_why_not()
+
+	if isinstance(settings, subroutine.errors.SubroutineError):
+		_stop(settings.detail, settings.hint)
+
+	return settings
+
+
+def _settings_or_why_not () -> subroutine.config.Settings | subroutine.errors.ValidationError:
+	"""Resolve configuration, or return why it cannot be used - `#4000`.
+
+	:func:`_settings`'s body, with its refusal returned rather than stopped on, so ``mcp`` can
+	answer every message with it.
+	"""
+
 	# Once per process, not once per call: `_settings()` is reached more than once by some
 	# commands, and a warning printed twice reads as two problems.
 	global _said_unknown_settings
@@ -504,9 +519,9 @@ def _settings () -> subroutine.config.Settings:
 		return subroutine.config.load_settings()
 
 	except tomllib.TOMLDecodeError as error:
-		_stop(
+		return subroutine.errors.ValidationError(
 			f"{subroutine.config.config_file_path()} is not valid TOML: {error}",
-			"Fix the file, or move it aside and run 'subroutine init' to write a new one.",
+			hint="Fix the file, or move it aside and run 'subroutine init' to write a new one.",
 		)
 
 	except pydantic.ValidationError as error:
@@ -515,9 +530,9 @@ def _settings () -> subroutine.config.Settings:
 			for item in error.errors()
 		)
 
-		_stop(
+		return subroutine.errors.ValidationError(
 			f"A configuration value could not be used: {problems}",
-			"Check your SUBROUTINE_* environment variables and "
+			hint="Check your SUBROUTINE_* environment variables and "
 			f"{subroutine.config.config_file_path()}.",
 		)
 
@@ -751,12 +766,20 @@ def mcp (
 	# are not read here, as ever.
 	named = _named_on_the_command_line(workspace, "mcp")
 
+	# **A configuration that cannot be read is answered at the handshake** (`#4000`, NEW-1 of the
+	# verification of the cold review of 2026-09-30): stopping here, as every other command does,
+	# left an agent's tools absent with the one sentence on standard error, which a client does
+	# not show.
+	settings = _settings_or_why_not()
+	refused = settings if isinstance(settings, subroutine.errors.SubroutineError) else None
+
 	subroutine.mcp.relay.run(
 		sys.stdin,
 		sys.stdout,
 		connection=connection or None,
 		workspace=named or None,
-		settings=_settings(),
+		settings=None if isinstance(settings, subroutine.errors.SubroutineError) else settings,
+		refused=refused,
 	)
 
 

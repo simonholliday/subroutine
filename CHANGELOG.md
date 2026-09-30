@@ -242,6 +242,9 @@ upgrade involves.
 - **An administrator may make an owner where no owner can still act**, so a workspace whose only
   owner stepped down, left or was deactivated can be put right from inside it. While an owner can
   act, only an owner makes one.
+- **A connection whose address nothing can use fails alone**, and a configuration that cannot be
+  read is said to the agent's tools when they start: either stopped every command, or left the
+  agent with no tools and nothing said.
 
 ## 0.9.12 — 2026-09-29
 

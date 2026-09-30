@@ -141,6 +141,16 @@ def declare (home: pathlib.Path, text: str) -> None:
 		handle.write(text)
 
 
+#: The first message an agent's client sends, as one line of standard input.
+INITIALIZE = '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}\n'
+
+
+def answered (result: typer.testing.Result) -> list[dict[str, typing.Any]]:
+	"""Return the JSON-RPC answers ``subroutine mcp`` wrote, one per line."""
+
+	return [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+
+
 def free_port () -> int:
 	"""Return a port that was free a moment ago.
 
@@ -825,6 +835,52 @@ def test_a_calendar_made_over_a_connection_says_whose_address_is_missing (
 
 	assert "Whoever runs the instance sets 'public_url'" in made, made
 	assert "Set 'public_url' in config.toml" not in made, made
+
+
+def test_a_connection_whose_port_nothing_can_use_fails_alone (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#4000`, M-3 of the cold review of 2026-09-30: one such connection refused everything.
+
+	A ``[connections.work]`` whose url names port 99999, never used, made every command refuse the
+	whole configuration - in a sentence that never mentioned the port - and ``subroutine mcp`` exit
+	before it answered anything, so the agent's tools were gone. **Refused where it is written,
+	and otherwise that connection's failure alone.**
+	"""
+
+	run("init")
+	declare(home, '\n[connections.work]\nurl = "http://127.0.0.1:99999"\n')
+
+	listed = run("list")
+
+	assert "cannot be used" not in listed.output, listed.output
+
+	answers = answered(run("mcp", input=INITIALIZE))
+
+	assert [one["id"] for one in answers] == [1] and "result" in answers[0], answers
+
+	refused = run("connections", "add", "other", "--url", "http://127.0.0.1:99999", expect=1)
+
+	assert "any port a number up to 65535" in refused.output, refused.output
+
+
+def test_a_setting_that_cannot_be_used_is_answered_at_the_agents_handshake (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4000`, NEW-1 of the verification of the cold review of 2026-09-30.
+
+	``subroutine mcp`` loaded the settings before the relay's refusals began, so a value that could
+	not be used ended the process with its one sentence on standard error, which a client does not
+	show: the agent's tools were simply absent. **Every message is answered with the sentence.**
+	"""
+
+	run("init")
+	monkeypatch.setenv("SUBROUTINE_PORT", "eighty")
+
+	answers = answered(run("mcp", input=INITIALIZE))
+
+	assert [one["id"] for one in answers] == [1], answers
+	assert "A configuration value could not be used: port" in answers[0]["error"]["message"], answers
 
 
 def test_use_reports_where_the_context_came_from (
