@@ -1001,14 +1001,49 @@ def _refuse_a_port_in_use (host: str, port: int) -> None:
 			probe.bind((host, port))
 
 		except OSError as taken:
-			if taken.errno != errno.EADDRINUSE:
-				raise
+			if taken.errno == errno.EADDRINUSE:
+				_stop(
+					f"Port {port} is already in use, so nothing was started.",
+					"Another 'subroutine serve' may be running there. Stop it, or pass --port to "
+					"serve on another.",
+				)
 
-			_stop(
-				f"Port {port} is already in use, so nothing was started.",
-				"Another 'subroutine serve' may be running there. Stop it, or pass --port to "
-				"serve on another.",
-			)
+			_stop(*_not_served(host, port, taken))
+
+
+def _not_served (host: str, port: int, refused: OSError) -> tuple[str, str]:
+	"""Say why ``serve`` cannot bind where it was asked to, and what to pass instead - `#3999`.
+
+	**Every refusal by name**, where only a taken port was one: ``--port 80`` as an ordinary user,
+	and ``--host`` with an address this machine does not have or a name it cannot look up, were
+	raised on, and ended in a crash report asking to be sent upstream.
+	"""
+
+	if isinstance(refused, socket.gaierror):
+		return (
+			f"{host!r} is not a name this machine can look up, so nothing was started.",
+			"Pass --host with an address, such as 127.0.0.1, or 0.0.0.0 for every one this machine has.",
+		)
+
+	if refused.errno == errno.EACCES:
+		return (
+			f"This account may not serve on port {port}, so nothing was started.",
+			"Ports below 1024 need privileges: pass --port with a number above 1023."
+			if port < 1024
+			else "Pass --port with another number.",
+		)
+
+	if refused.errno == errno.EADDRNOTAVAIL:
+		return (
+			f"This machine has no address {host}, so nothing was started.",
+			"Pass --host with one of this machine's own addresses, or 0.0.0.0 for every one of them.",
+		)
+
+	return (
+		f"Port {port} on {host} could not be used ({refused.strerror or refused}), so nothing was "
+		"started.",
+		"Pass --host and --port with an address and a port this machine can serve on.",
+	)
 
 
 def _refuse_public_bind (

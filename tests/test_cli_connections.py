@@ -12,6 +12,7 @@ they are the same command surface.
 
 import contextlib
 import datetime
+import errno
 import io
 import json
 import os
@@ -1664,6 +1665,51 @@ def test_serve_on_a_port_in_use_says_so_before_anything_is_announced (
 		refused = run("serve", "--port", str(port), expect=1)
 
 	assert f"Port {port} is already in use" in refused.output, refused.output
+	assert "Serving on" not in refused.output, refused.output
+
+
+@pytest.mark.parametrize(
+	("raised", "said"),
+	[
+		(PermissionError(errno.EACCES, "Permission denied"), "This account may not serve on port 80"),
+		(OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address"), "This machine has no address"),
+		(
+			socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+			"is not a name this machine can look up",
+		),
+		(OSError(errno.ENETUNREACH, "Network is unreachable"), "(Network is unreachable)"),
+	],
+	ids=["no-privilege", "no-such-address", "no-such-name", "anything-else"],
+)
+def test_serve_refuses_an_address_it_cannot_bind_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	raised: OSError,
+	said: str,
+) -> None:
+	"""`SR#3999`, M-2 of the cold review of 2026-09-30: every refusal but a taken port crashed.
+
+	The probe `SR#3911` added re-raised every error but *address in use*, so ``serve --port 80`` as
+	an ordinary user, or ``--host`` with an address or a name this machine does not have, ended in
+	*Something went wrong that should not have*. **Refused by name, before anything is announced.**
+	Driven by the error rather than the port, since whether port 80 is refused depends on who runs
+	the suite.
+	"""
+
+	run("init")
+
+	def refuse (self: socket.socket, address: typing.Any) -> None:
+		"""Refuse the bind the way the operating system would."""
+
+		raise raised
+
+	monkeypatch.setattr(socket.socket, "bind", refuse)
+
+	refused = run("serve", "--port", "80", expect=1)
+
+	assert said in refused.output, refused.output
+	assert "nothing was started" in refused.output, refused.output
+	assert "Something went wrong" not in refused.output, refused.output
 	assert "Serving on" not in refused.output, refused.output
 
 
