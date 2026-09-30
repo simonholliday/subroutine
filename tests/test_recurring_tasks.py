@@ -1430,6 +1430,38 @@ def test_saving_an_occurrence_at_its_own_date_leaves_the_series_where_it_was (
 	), "a save that moved the date by nothing carried the occurrence's own date to the series"
 
 
+def test_a_series_changed_to_a_rule_that_never_comes_round_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3997`, H-1 of the cold review of 2026-09-30: a change stored a rule create refused.
+
+	Every seventh day from a Monday is never a Tuesday. Create refused that rule, because making a
+	series makes its first occurrence; a change made none, so it was stored and the next completion
+	finished the series without a word. **Refused as create refuses it, and nothing changed.**
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+	before = series.recurrence_rule
+
+	assert made.due_at is not None and made.due_at.date().weekday() == 0, "the due date is a Monday"
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session,
+			made,
+			now=NOW,
+			recurrence="FREQ=DAILY;INTERVAL=7;BYDAY=TU",
+			applies_to="from_now_on",
+		)
+
+	assert refused.value.detail == "That repeat names no dates that have not already passed."
+
+	session.refresh(series)
+
+	assert series.recurrence_rule == before
+
+
 def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
 	session: sqlalchemy.orm.Session,
 ) -> None:

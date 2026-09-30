@@ -59,6 +59,20 @@ PARTS: frozenset[str] = frozenset({
 #: land on the right weekday and a monthly one skip February, few enough to read at a glance.
 AHEAD = 5
 
+#: **How far apart a rule's occurrences may be: about a hundred years** (`#3997`). An interval of
+#: ten thousand years, or of a hundred billion days, stored and came round once, and then its next
+#: date lay beyond any calendar this can read. Written per frequency so a phrase and a rule
+#: sent directly are held to one number.
+_AT_MOST_APART: dict[str, int] = {
+	"DAILY": 36_500,
+	"WEEKLY": 5_200,
+	"MONTHLY": 1_200,
+	"YEARLY": 100,
+}
+
+#: One ``BYDAY`` entry: an optional count from the start or the end, then a weekday.
+_A_WEEKDAY = re.compile(r"(?P<count>[+-]?\d+)?(?P<day>MO|TU|WE|TH|FR|SA|SU)")
+
 
 #: What a caller may write instead of a rule, in the order somebody would reach for them.
 #: Published through every refusal, so the shapes that work are named where the failure is.
@@ -204,6 +218,29 @@ def _refuse (value: str, *, field: str, why: str) -> subroutine.errors.Validatio
 		],
 		hint=PHRASE_HINT,
 	)
+
+
+def _refuse_an_interval (value: str, frequency: str, interval: int, *, field: str) -> None:
+	"""Refuse occurrences nought, a negative number or more than about a century apart - `#3997`.
+
+	**Every 0 days never moves on**: dateutil hands back the same moment for ever, so completing
+	its occurrence never returned, holding a worker and its database connection. A negative
+	interval walks backwards into a day that does not exist, and a vast one past every calendar.
+	"""
+
+	if interval < 1:
+		raise _refuse(value, field=field, why="A repeat has to be at least one unit apart.")
+
+	most = _AT_MOST_APART[frequency]
+
+	if interval > most:
+		unit = {"DAILY": "days", "WEEKLY": "weeks", "MONTHLY": "months", "YEARLY": "years"}[frequency]
+
+		raise _refuse(
+			value,
+			field=field,
+			why=f"A repeat can be at most {most:,} {unit} apart, about a hundred years.",
+		)
 
 
 def _interval (match: re.Match[str], value: str, field: str) -> int:
@@ -368,6 +405,8 @@ def phrase (value: str, *, field: str = "recurrence") -> str:
 				why=f"{qualifier!r} only means something after 'every month' or 'every year'.",
 			)
 
+	_refuse_an_interval(value, parts[0].removeprefix("FREQ="), interval, field=field)
+
 	if interval != 1:
 		parts.insert(1, f"INTERVAL={interval}")
 
@@ -425,6 +464,12 @@ def _checked (value: str, *, field: str) -> str:
 				f"It reads {', '.join(sorted(PARTS))}.",
 			)
 
+		# **A part is named once** (`#3997`). dateutil reads the last of two, and the stored rule kept
+		# both: ``INTERVAL=1;INTERVAL=0`` read back as *every 0 days*, and a second ``UNTIL`` was
+		# rewritten over the first, so the end somebody wrote first was gone without a word.
+		if name in found:
+			raise _refuse(value, field=field, why=f"{name} is given twice. A rule names each part once.")
+
 		found[name] = setting.strip()
 
 	if found.get("FREQ", "").upper() not in FREQUENCIES:
@@ -439,6 +484,12 @@ def _checked (value: str, *, field: str) -> str:
 	# end beside a start that is one, so an all-day rule copied from a calendar carries it. It was
 	# refused with dateutil's sentence about zones, since dateutil takes one only beside a start
 	# with none - which is what it is built against here.
+	# **One end, not two** (`#3997`; RFC 5545 §3.3.10). dateutil warns while it builds the pair
+	# that a future version will refuse it, and which of the two it honours today is not a thing a
+	# person should have to know - so asked before it is built.
+	if "COUNT" in found and "UNTIL" in found:
+		raise _refuse(value, field=field, why="A rule ends after COUNT times or at UNTIL, not both.")
+
 	dated = _A_DATE.fullmatch(found.get("UNTIL", "")) is not None
 	built_from = datetime.datetime(2026, 1, 1)
 
@@ -463,6 +514,7 @@ def _checked (value: str, *, field: str) -> str:
 			why=f"It repeats {found['COUNT']} times, which is never. COUNT starts at 1.",
 		)
 
+	_refuse_a_part_that_never_comes(value, found, field=field)
 	_refuse_a_day_that_never_comes(value, found, field=field)
 
 	# **``UNTIL`` stored in the one spelling everything after this reads** (`#3897`). dateutil reads
@@ -496,15 +548,81 @@ def _until_in_utc (value: str, until: str, *, field: str) -> str:
 	refuses an ``UNTIL`` without one there.
 	"""
 
-	moment = dateutil.parser.parse(until)
-	why = subroutine.domain.schedule.beyond_every_clock(moment.isoformat())
+	# **An offset of a day or more is refused by name** (`#3997`, L-3.4 of the cold review of
+	# 2026-09-30): no clock is that far from UTC, and reading one raised past every refusal, a 500.
+	try:
+		moment = dateutil.parser.parse(until)
+		why = subroutine.domain.schedule.beyond_every_clock(moment.isoformat())
+		utc = moment.astimezone(datetime.UTC)
+
+	except (ValueError, OverflowError):
+		raise _refuse(
+			value, field=field, why=f"It ends at {until}, which is not a time any clock reads."
+		) from None
 
 	if why is not None:
 		raise _refuse(value, field=field, why=f"It ends at {until}: {why}.")
 
-	utc = moment.astimezone(datetime.UTC)
-
 	return f"{subroutine.domain.dates.basic(utc, '%m%dT%H%M%S')}Z"
+
+
+def _refuse_a_part_that_never_comes (
+	value: str, parts: dict[str, str], *, field: str
+) -> None:
+	"""Refuse a part whose value no calendar reaches, before anything walks it - `#3997`.
+
+	**H-1 of the cold review of 2026-09-30**: dateutil builds each of these, and then either walks
+	for ever, walks to the year 9999, or quietly reads them as something else - ``BYMONTHDAY=0``
+	came round every day and read back as *on the 0th to last day*. Each is decidable from the
+	rule alone, so it is refused here rather than bounded where it is expanded.
+	"""
+
+	frequency = parts["FREQ"].upper()
+
+	if "INTERVAL" in parts:
+		_refuse_an_interval(value, frequency, int(parts["INTERVAL"]), field=field)
+
+	days = [int(piece) for piece in parts.get("BYMONTHDAY", "").split(",") if piece.strip()]
+
+	if any(day == 0 or abs(day) > 31 for day in days):
+		raise _refuse(
+			value,
+			field=field,
+			why="A day of the month is 1 to 31, or -1 to -31 counting back from its last day.",
+		)
+
+	months = [int(piece) for piece in parts.get("BYMONTH", "").split(",") if piece.strip()]
+
+	if any(not 1 <= month <= 12 for month in months):
+		raise _refuse(value, field=field, why="A month is 1 to 12.")
+
+	# **A count before a weekday means something only where there is more than one of it**: the
+	# first Monday of a month or of a year. ``WEEKLY;BYDAY=1MO`` meant every Monday and read back
+	# as *every the first Monday*, and the sixth Monday of a month never comes.
+	within = 5 if frequency == "MONTHLY" or months else 53
+
+	for entry in parts.get("BYDAY", "").split(","):
+		found = _A_WEEKDAY.fullmatch(entry.strip().upper())
+
+		if found is None or found.group("count") is None:
+			continue
+
+		count = int(found.group("count"))
+
+		if frequency not in ("MONTHLY", "YEARLY"):
+			raise _refuse(
+				value,
+				field=field,
+				why=f"{entry.strip()} counts a weekday, which only a monthly or yearly repeat can do.",
+			)
+
+		if count == 0 or abs(count) > within:
+			raise _refuse(
+				value,
+				field=field,
+				why=f"{entry.strip()} counts past the {within} there can be in "
+				f"{'a month' if within == 5 else 'a year'}.",
+			)
 
 
 def _refuse_a_day_that_never_comes (
@@ -712,8 +830,9 @@ def occurrences (
 
 	found: list[datetime.datetime] = []
 	ceiling = None if until is None else until.astimezone(zone).replace(tzinfo=None)
+	walked = _walked(series, stored)
 
-	for moment in series:
+	for moment in walked:
 		if cursor is not None and moment <= cursor:
 			continue
 
@@ -753,6 +872,33 @@ def occurrences (
 			break
 
 	return found
+
+
+def _walked (
+	series: typing.Iterable[datetime.datetime], stored: str
+) -> typing.Iterator[datetime.datetime]:
+	"""Walk a rule's moments, stopping where it stops moving forward - `#3997`.
+
+	**A rule stored before its parts were checked can still hold** ``INTERVAL=0``, which dateutil
+	answers with the same moment for ever: every caller skipping the moments at or before a cursor
+	then never returned. Every rule this stores yields strictly later moments, so one that is not
+	later is the end of what the rule can say. A rule dateutil cannot walk at all is refused by
+	name rather than raised past every refusal.
+	"""
+
+	latest: datetime.datetime | None = None
+
+	try:
+		for moment in series:
+			if latest is not None and moment <= latest:
+				return
+
+			latest = moment
+
+			yield moment
+
+	except (ValueError, OverflowError) as unreadable:
+		raise _refuse(stored, field="recurrence", why=f"It cannot be followed: {unreadable}.") from None
 
 
 def following (

@@ -1190,18 +1190,7 @@ def create (
 		# **Refused rather than answered with a finished template.** A rule whose every date
 		# is already behind us — `UNTIL` in the past — is a mistake somebody wants told about
 		# now, not one they discover by the item never appearing.
-		raise subroutine.errors.ValidationError(
-			"That repeat names no dates that have not already passed.",
-			code="invalid_field_value",
-			hint="Check the UNTIL or COUNT on the rule, and the date it repeats from.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="recurrence",
-					code="invalid_field_value",
-					message="A repeat has to have at least one occurrence still to come.",
-				)
-			],
-		)
+		raise _nothing_to_come()
 
 	# **A deferral given with the repeat is for its first occurrence** (decision `#3915`, M-11 of
 	# the cold review of 2026-09-28): the one handed back, in front of the person. Written on the
@@ -3603,7 +3592,25 @@ def _repeat_read (
 	if rule is None:
 		return _Repeating(series=series, repeat=None, stopping=True)
 
+	replaced = series is not None and rule != series.recurrence_rule
 	repeat = _repeat(rule, anchor=anchor, trigger=trigger)
+
+	# **A new rule for a running series is asked what a new series is asked** (`#3997`): whether it
+	# ever comes round, from the date the series repeats from. Create refused one that never did,
+	# because making a series makes its first occurrence; a change made none, so it was stored and
+	# the next completion found nothing and finished the series without a word.
+	if (
+		replaced
+		and repeat is not None
+		and series is not None
+		and not subroutine.domain.recurrence.occurrences(
+			repeat.rule,
+			start=_series_anchor(repeat.rule, grid=grid_date(series), filed=series.created_at),
+			timezone=subroutine.domain.schedule.series_zone(series),
+			limit=1,
+		)
+	):
+		raise _nothing_to_come()
 
 	# **A new series is made from the task, so it needs a date among the ones the task will
 	# have** - asked here, as :func:`begin_repeating` would ask it of the row it makes.
@@ -3615,6 +3622,23 @@ def _repeat_read (
 		)
 
 	return _Repeating(series=series, repeat=repeat, stopping=False)
+
+
+def _nothing_to_come () -> subroutine.errors.ValidationError:
+	"""Return the refusal for a repeat with no occurrence still to come, made or changed."""
+
+	return subroutine.errors.ValidationError(
+		"That repeat names no dates that have not already passed.",
+		code="invalid_field_value",
+		hint="Check the UNTIL or COUNT on the rule, and the date it repeats from.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="recurrence",
+				code="invalid_field_value",
+				message="A repeat has to have at least one occurrence still to come.",
+			)
+		],
+	)
 
 
 def _repeat_changed (

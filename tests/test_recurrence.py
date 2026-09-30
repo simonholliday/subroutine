@@ -10,6 +10,7 @@ for everybody who does not live in one.
 """
 
 import datetime
+import threading
 import time
 import zoneinfo
 
@@ -294,6 +295,120 @@ def test_a_repeat_that_comes_round_no_times_is_refused (count: str) -> None:
 		subroutine.domain.recurrence.rule(f"FREQ=DAILY;COUNT={count}")
 
 	assert "COUNT starts at 1" in refused.value.errors[0].message, refused.value.errors
+
+
+NEVER_COMES_ROUND = [
+	("FREQ=DAILY;INTERVAL=0", "at least one unit apart"),
+	("FREQ=WEEKLY;INTERVAL=0;BYDAY=MO", "at least one unit apart"),
+	("FREQ=MONTHLY;INTERVAL=0", "at least one unit apart"),
+	("FREQ=YEARLY;INTERVAL=0", "at least one unit apart"),
+	("FREQ=DAILY;INTERVAL=-1", "at least one unit apart"),
+	("FREQ=DAILY;INTERVAL=99999999999", "at most 36,500 days"),
+	("FREQ=YEARLY;INTERVAL=10000", "at most 100 years"),
+	("FREQ=MONTHLY;BYMONTHDAY=0", "1 to 31"),
+	("FREQ=MONTHLY;BYMONTHDAY=32", "1 to 31"),
+	("FREQ=MONTHLY;BYMONTHDAY=-32", "1 to 31"),
+	("FREQ=YEARLY;BYMONTH=13", "1 to 12"),
+	("FREQ=YEARLY;BYMONTH=0;BYMONTHDAY=1", "1 to 12"),
+	("FREQ=DAILY;INTERVAL=1;INTERVAL=0", "INTERVAL is given twice"),
+	("FREQ=DAILY;UNTIL=20261231T000000Z;UNTIL=20270101T000000Z", "UNTIL is given twice"),
+	("FREQ=DAILY;COUNT=3;UNTIL=20261231T000000Z", "not both"),
+	("FREQ=WEEKLY;BYDAY=1MO", "only a monthly or yearly repeat"),
+	("FREQ=DAILY;BYDAY=-1FR", "only a monthly or yearly repeat"),
+	("FREQ=MONTHLY;BYDAY=6MO", "past the 5"),
+	("FREQ=YEARLY;BYDAY=54MO", "past the 53"),
+	("FREQ=YEARLY;BYMONTH=6;BYDAY=6MO", "past the 5"),
+	("FREQ=DAILY;UNTIL=20261231T000000+2400", "not a time any clock reads"),
+]
+
+
+@pytest.mark.parametrize(
+	("rule", "said"), NEVER_COMES_ROUND, ids=[one[0] for one in NEVER_COMES_ROUND]
+)
+def test_a_rule_part_no_calendar_reaches_is_refused_by_name (rule: str, said: str) -> None:
+	"""`SR#3997`, H-1 of the cold review of 2026-09-30: stored, then walked for ever or misread.
+
+	``FREQ=DAILY;INTERVAL=0`` was stored, and completing its occurrence never returned, holding a
+	worker and its connection. The same validator let through every value here. **Each is
+	refused by name**, as a ``ValidationError`` rather than whatever dateutil raises.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.rule(rule)
+
+	assert said in refused.value.errors[0].message, refused.value.errors[0].message
+
+
+@pytest.mark.parametrize(
+	"rule",
+	[
+		"FREQ=MONTHLY;BYDAY=-1FR",
+		"FREQ=MONTHLY;BYDAY=5MO",
+		"FREQ=YEARLY;BYMONTH=6;BYDAY=1MO",
+		"FREQ=YEARLY;BYDAY=53MO",
+		"FREQ=MONTHLY;BYMONTHDAY=31",
+		"FREQ=MONTHLY;BYMONTHDAY=-31",
+		"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29",
+		"FREQ=DAILY;INTERVAL=36500",
+		"FREQ=YEARLY;INTERVAL=100",
+		"FREQ=WEEKLY;BYDAY=MO,TH",
+	],
+)
+def test_the_edges_of_what_a_calendar_reaches_are_still_accepted (rule: str) -> None:
+	"""The other side of `SR#3997`'s refusals: the last Friday, the fifth Monday, the 31st."""
+
+	assert subroutine.domain.recurrence.rule(rule).rule == rule
+
+
+@pytest.mark.parametrize("phrase", ["every 0 days", "every 101 years", "every 36501 days"])
+def test_a_phrase_is_held_to_the_same_intervals (phrase: str) -> None:
+	"""`SR#3997`: a phrase never passes through the rule check, so it shares the interval's."""
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.recurrence.rule(phrase)
+
+
+@pytest.mark.parametrize("stored", ["FREQ=DAILY;INTERVAL=0", "FREQ=WEEKLY;INTERVAL=0;BYDAY=MO,TU"])
+def test_a_rule_stored_before_the_check_that_never_moves_on_still_returns (stored: str) -> None:
+	"""`SR#3997`: a row stored with ``INTERVAL=0`` before the check still exists somewhere.
+
+	dateutil answers it with the same moments for ever, so asking for what comes after its first
+	never returned. **The walk stops where the rule stops moving forward**: whatever it named up
+	to there, and nothing after.
+	"""
+
+	start = datetime.datetime(2026, 10, 5, 9, 0, tzinfo=datetime.UTC)
+	answered: list[list[datetime.datetime]] = []
+	walker = threading.Thread(
+		target=lambda: answered.append(
+			subroutine.domain.recurrence.occurrences(
+				stored, start=start, timezone="Europe/London", after=start + datetime.timedelta(days=2)
+			)
+		),
+		daemon=True,
+	)
+
+	walker.start()
+	walker.join(timeout=10)
+
+	assert not walker.is_alive(), "the walk never returned"
+	assert answered == [[]], answered
+
+
+def test_a_rule_stored_before_the_check_that_walks_backwards_is_refused_by_name () -> None:
+	"""`SR#3997`: ``INTERVAL=-1`` was a 500 when its occurrence was completed. **A refusal.**"""
+
+	start = datetime.datetime(2026, 10, 31, 9, 0, tzinfo=datetime.UTC)
+
+	try:
+		found = subroutine.domain.recurrence.occurrences(
+			"FREQ=MONTHLY;INTERVAL=-1", start=start, timezone="Europe/London", after=start, limit=1
+		)
+
+	except subroutine.errors.ValidationError:
+		return
+
+	assert found == [], found
 
 
 def test_a_date_ends_a_rule_as_the_whole_of_its_day () -> None:

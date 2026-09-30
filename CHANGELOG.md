@@ -220,6 +220,12 @@ upgrade involves.
   as the caller's own credential being wrong. `use` with nothing chosen says so, `project rename`
   and `workspace rename` no longer say a `.subroutine` file breaks, and the API's refusal of an
   unknown parameter speaks of `fields` only where that is what was meant.
+- **A repeat whose parts no calendar reaches is refused by name.** `INTERVAL=0` was stored, and
+  completing its occurrence never returned, holding the server; `BYMONTHDAY=0` came round every
+  day. An interval below one or past about a hundred years, a day of the month beyond 31, a month
+  beyond 12, a part named twice, `COUNT` beside `UNTIL` and a weekday counted where a repeat
+  cannot count one are refused as they are written, and a changed rule is asked whether it ever
+  comes round, as a new one is.
 
 ## 0.9.12 — 2026-09-29
 
