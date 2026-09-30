@@ -31,6 +31,11 @@ CONTROL_CHARACTERS = frozenset(
 	chr(code) for code in [*range(0x00, 0x20), 0x7F] if chr(code) not in "\t\n\r"
 )
 
+#: **Half of a character, which no text holds** (`#4027`, L-4 (1) of the cold review of
+#: 2026-09-30). A lone surrogate arrives from a JSON escape such as ``\ud800`` and cannot be
+#: written as UTF-8, so it passed every check here and answered 500 on both backends.
+SURROGATES = range(0xD800, 0xE000)
+
 #: How much of a title fits on one line of a compact listing before it is cut. Sixty
 #: characters is what leaves room for an address, a date and a priority inside eighty.
 ONE_LINE_LIMIT = 60
@@ -120,15 +125,18 @@ def _refuse_a_character_nobody_can_read (
 	field. One scan, so the two can never come to disagree.
 	"""
 
-	found = next((one for one in value if one in CONTROL_CHARACTERS), None)
+	found = next(
+		(one for one in value if one in CONTROL_CHARACTERS or ord(one) in SURROGATES), None
+	)
 
 	if found is None:
 		return
 
 	name = label or field
+	what = "half of a character" if ord(found) in SURROGATES else "a control character"
 
 	raise subroutine.errors.ValidationError(
-		f"That {name} contains a control character, which is not text anybody can read.",
+		f"That {name} contains {what}, which is not text anybody can read.",
 		code="invalid_field_value",
 		hint="Remove it and send the value again. A tab or a newline is fine.",
 		errors=[
@@ -245,6 +253,36 @@ def fit (
 				field=field,
 				code="payload_too_large",
 				message=f"A {name} is limited to {limit} characters.",
+			)
+		],
+	)
+
+
+def fits_folded (
+	value: str, folded: str, *, field: str, limit: int, label: str | None = None
+) -> str:
+	"""Return ``folded``, or refuse ``value`` because its form for comparing outgrows its column.
+
+	`#4027`, L-4 (2) of the cold review of 2026-09-30. **A name is stored twice, as written and
+	folded for comparing**, and folding can lengthen it: ``İ`` is one character and lower-cases
+	to two, so a name that fit its own column overflowed the folded one - a 500 on PostgreSQL,
+	which enforces the width, and stored on SQLite, which does not. Asked of the folded form, and
+	said in the terms of the one written.
+	"""
+
+	if len(folded) <= limit:
+		return folded
+
+	name = label or field
+
+	raise subroutine.errors.PayloadTooLarge(
+		f"That {name} is {len(value)} characters, and {len(folded)} once written in lower case "
+		f"to compare it with others; the limit is {limit}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="payload_too_large",
+				message=f"A {name} is limited to {limit} characters, written in lower case.",
 			)
 		],
 	)

@@ -135,7 +135,12 @@ def checked (name: str) -> str:
 		label="tag",
 	)
 
-	refuse_a_reference(normalize(cleaned))
+	# **Measured as it is compared, too** (`#4027`): folding can lengthen a name.
+	refuse_a_reference(
+		subroutine.domain.text.fits_folded(
+			cleaned, normalize(cleaned), field="tags", limit=MAX_NAME_LENGTH, label="tag"
+		)
+	)
 
 	return cleaned
 

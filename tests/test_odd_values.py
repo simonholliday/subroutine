@@ -296,6 +296,91 @@ def test_an_estimate_in_a_digit_int_cannot_read_is_refused_by_name (
 	_named(world.call("POST", "/v1/tasks", json={"title": "Fine", "estimate": "²"}), "estimate")
 
 
+@pytest.mark.parametrize(
+	"estimate",
+	["9" * 4301 + "m", "9" * 4301, "0" * 5000 + "999999999999m"],
+	ids=["nines and a unit", "nines", "zeros and then too many digits"],
+)
+def test_an_estimate_longer_than_a_number_can_be_read_is_refused_by_name (
+	world: test_api_tasks.World, estimate: str
+) -> None:
+	"""`SR#4027`, L-3 (7) of the cold review of 2026-09-30: 4,301 nines answered 500.
+
+	``int`` refuses more than 4,300 digits with an error of its own, leading zeros counted. **Refused
+	by name, saying how many digits** rather than quoting them all back.
+	"""
+
+	answered = world.call("POST", "/v1/tasks", json={"title": "Fine", "estimate": estimate})
+
+	_named(answered, "estimate")
+
+	assert len(answered.text) < 2_000, f"the refusal quoted the digits back: {len(answered.text)}"
+
+
+def test_an_estimate_padded_with_zeros_is_still_read (world: test_api_tasks.World) -> None:
+	"""`SR#4027`'s other side: leading zeros are not what makes a number too long to read."""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Fine", "estimate": "0" * 5000 + "90m"})
+
+	assert made.status_code == 201 and made.json()["estimate_minutes"] == 90, made.text
+
+
+def test_half_a_character_is_refused_by_name (world: test_api_tasks.World) -> None:
+	"""`SR#4027`, L-4 (1) of the cold review of 2026-09-30: a lone surrogate answered 500.
+
+	``\ud800`` is half of a character, sent as a JSON escape, and cannot be written as UTF-8. It
+	passed every text check, since none asked about it. **Refused as a control character is.**
+	"""
+
+	answered = world.call(
+		"POST",
+		"/v1/tasks",
+		content=b'{"title": "Plan \\ud800 it"}',
+		headers={"content-type": "application/json"},
+	)
+
+	_named(answered, "title")
+
+	assert "half of a character" in answered.json()["detail"], answered.text
+
+
+@pytest.mark.parametrize(
+	("path", "body", "field"),
+	[
+		("/v1/tasks", {"title": "Plan", "tags": ["İ" * 65]}, "tags"),
+		("/v1/users", {"username": "İ" * 40}, "username"),
+	],
+	ids=["a tag", "a username"],
+)
+def test_a_name_too_long_once_written_in_lower_case_is_refused_by_name (
+	world: test_api_tasks.World, path: str, body: dict[str, typing.Any], field: str
+) -> None:
+	"""`SR#4027`, L-4 (2) of the cold review of 2026-09-30: ``İ`` fits and its lower case does not.
+
+	A name is stored as written and lower-cased for comparing, both as wide, and ``İ`` lower-cases to
+	two characters: 65 in a tag and 40 in a username answered 500 on PostgreSQL and were stored by
+	SQLite. **Refused by name on both.**
+	"""
+
+	_named(world.call("POST", path, json=body), field, status=413)
+
+
+def test_a_tag_renamed_too_long_once_written_in_lower_case_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""The second door to the same column: renaming a tag."""
+
+	made = world.call("POST", "/v1/tags", json={"name": "ops"})
+
+	assert made.status_code == 201, made.text
+
+	_named(
+		world.call("PATCH", f"/v1/tags/{made.json()['id']}", json={"name": "İ" * 65}),
+		"name",
+		status=413,
+	)
+
+
 def test_an_estimate_in_another_script_s_decimal_digits_is_still_read (
 	world: test_api_tasks.World,
 ) -> None:

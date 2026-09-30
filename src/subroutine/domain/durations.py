@@ -81,7 +81,7 @@ def parse (value: int | str, *, field: str = "estimate") -> int:
 	# and `①`, which `int` refuses, so an estimate of `²` was a 500 where `2x` is refused by name.
 	# `\d` is the decimal ones, as :data:`_TERM` reads them.
 	if re.fullmatch(r"\d+", text):
-		return _checked(int(text), value, field)
+		return _checked(_counted(text, field), value, field)
 
 	return _checked(_sum_terms(text, value, field), value, field)
 
@@ -130,7 +130,7 @@ def _sum_terms (text: str, original: int | str, field: str) -> int:
 	previous = -1
 
 	for match in terms:
-		count, unit = int(match.group(1)), match.group(2)
+		count, unit = _counted(match.group(1), field), match.group(2)
 
 		if unit not in _UNIT_MINUTES:
 			raise _invalid(original, field, _unit_hint(unit))
@@ -168,6 +168,33 @@ def _unit_hint (unit: str) -> str:
 		)
 
 	return f"'{unit}' is not a duration unit. Valid units are {_VALID_UNITS}."
+
+
+def _counted (digits: str, field: str) -> int:
+	"""Read a run of digits as a count, refusing one too long to be any duration - `#4027`.
+
+	L-3 (7) of the cold review of 2026-09-30: ``int`` refuses more than 4,300 digits with an error
+	of its own, so an estimate of 4,301 nines answered 500. A count with more digits than the
+	longest duration, leading zeros aside, is out of range whatever its unit, and the refusal
+	says how many digits rather than quoting them all.
+	"""
+
+	significant = digits.lstrip("0") or "0"
+
+	# **Read without its leading zeros**, which ``int``'s limit counts as digits too.
+	if len(significant) <= len(str(MAX_MINUTES)):
+		return int(significant)
+
+	message = f"The longest duration this can store is {MAX_MINUTES} minutes."
+
+	raise subroutine.errors.ValidationError(
+		f"That {field} is {len(digits)} digits long, which is no duration this can store.",
+		code="invalid_field_value",
+		hint=message,
+		errors=[
+			subroutine.errors.FieldError(field=field, code="invalid_field_value", message=message)
+		],
+	)
 
 
 def _checked (minutes: int, original: int | str, field: str) -> int:

@@ -35,6 +35,9 @@ upgrade involves.
 - **A name or a filter holding a character no text can hold is refused in one sentence on this
   machine's own database**, as it is over a connection. It was a missing account on SQLite, and the
   database driver's own error on PostgreSQL.
+- **Three values that answered 500 are refused by name**: half of a character in any text, a tag or
+  a username that outgrows its limit once written in lower case, as `İ` does, and an estimate with
+  more digits than a number can be read with.
 
 ## 0.9.13 — 2026-09-30
 

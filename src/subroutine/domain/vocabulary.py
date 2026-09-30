@@ -833,7 +833,14 @@ def update_tag (
 			limit=subroutine.domain.tags.MAX_NAME_LENGTH,
 			label="tag",
 		)
-		normalized = subroutine.domain.tags.normalize(cleaned)
+		# Measured as it is compared, as a new tag is (`#4027`).
+		normalized = subroutine.domain.text.fits_folded(
+			cleaned,
+			subroutine.domain.tags.normalize(cleaned),
+			field="name",
+			limit=subroutine.domain.tags.MAX_NAME_LENGTH,
+			label="tag",
+		)
 
 		# **`ensure`'s own rule rather than a second copy of it** — a name that is entirely
 		# digits is a reference and not a tag (§6.15).

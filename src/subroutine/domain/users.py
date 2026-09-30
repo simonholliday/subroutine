@@ -89,6 +89,11 @@ def create (
 		field="username",
 		limit=MAX_USERNAME_LENGTH,
 	)
+	# **Measured as it is compared, too** (`#4027`): ``username_normalized`` is as wide as the
+	# name, and folding can lengthen it.
+	subroutine.domain.text.fits_folded(
+		name, normalize(name), field="username", limit=MAX_USERNAME_LENGTH
+	)
 
 	# **A username is an address segment** (`#3147`): every route about somebody puts it in a
 	# path, and ``..`` there is the level above - `subroutine user remove ..` over HTTP removed
