@@ -52,13 +52,13 @@ Parsed = typing.TypeVar("Parsed", bound=pydantic.BaseModel)
 #: hand back and never should: offering one would be a second way to page a feed that already
 #: says where it got to, and the two would be free to disagree about which end of a page they
 #: name.
+BY_CURSOR = "cursor"
+BY_SEQ = "since"
+
 #: How many rows *every row* is asked as, for a collection a caller must read to the end - an
 #: item's comments (`#3928`). The instance caps each page at its own ``max_page_size`` and says
 #: when there is more, so this bounds nothing but the loop that follows the cursor.
 EVERY = sys.maxsize
-
-BY_CURSOR = "cursor"
-BY_SEQ = "since"
 
 #: The same cursor read the other way — `#1097`. A ``newest`` page holds the *latest* events,
 #: so its ``has_more`` is about earlier ones and the number to resume from is its **first** row

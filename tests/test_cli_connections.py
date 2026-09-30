@@ -935,6 +935,8 @@ def test_a_calendar_made_over_a_connection_says_whose_address_is_missing (
 
 	assert "Whoever runs the instance sets 'public_url'" in made, made
 	assert "Set 'public_url' in config.toml" not in made, made
+	# **And the reset is named on the connection it is about** (`SR#4028`, L-8 (1)).
+	assert "subroutine -c work calendar reset" in made, made
 
 
 def test_a_connection_whose_port_nothing_can_use_fails_alone (
@@ -2323,6 +2325,8 @@ def test_a_token_is_printed_once_and_not_stored_by_default (
 	secret = next(word for word in result.output.split() if word.startswith("sr_"))
 
 	assert "only time it is shown" in result.output
+	# **The whole rule for the variable** (`SR#4028`, L-8 (4)): half of it names one no shell exports.
+	assert "not a letter or a digit as an underscore" in " ".join(result.output.split()), result.output
 	assert subroutine.credentials.read_file() == {}
 	assert secret not in (
 		home / "xdg_config_home" / "subroutine" / "config.toml"

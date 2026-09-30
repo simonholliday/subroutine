@@ -730,15 +730,16 @@ def refuse_unusable_cursor (
 	session: sqlalchemy.orm.Session,
 	*,
 	since: int | None,
-	workspace_ids: typing.Sequence[uuid.UUID],
 ) -> None:
 	"""Refuse a cursor that names nothing - and, once events are pruned, one below what is held.
 
-	``session`` and ``workspace_ids`` are what the second refusal will read, and are taken now
-	so that neither caller changes when it arrives.
+	``session`` is what the refusal of an expired cursor will read, the highest ``seq`` pruned, and
+	is taken now so that neither caller changes when it arrives. **Not the workspaces** (`#4028`,
+	L-8 (9) of the cold review of 2026-09-30): that refusal is instance-wide, as below says.
 
-	**Two refusals, and they must be in that order** (`#309`). ``since`` is a ``seq`` and the
-	first one is 1, so ``since=0`` names nothing — and, read as a cursor, it is below every
+	**Two refusals now: a ``seq`` past the last any column holds, and one below the first**
+	(`#309`, `#3933`). ``since`` is a ``seq`` and the first one is 1, so ``since=0`` names
+	nothing — and, read as a cursor, it is below every
 	surviving event and therefore looks exactly like one that expired. That is what happened:
 	the route checked ``since >= 1`` for itself and ``clients.local`` did not, so an
 	uninitialised cursor — zero, the ordinary default in most languages — got a ``422`` over

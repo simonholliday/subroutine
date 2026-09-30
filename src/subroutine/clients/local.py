@@ -2136,9 +2136,7 @@ class Client:
 
 			workspace_ids = [each.id for each in chosen]
 
-			subroutine.domain.events.refuse_unusable_cursor(
-				session, since=since, workspace_ids=workspace_ids
-			)
+			subroutine.domain.events.refuse_unusable_cursor(session, since=since)
 			subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
 			rows, more = subroutine.domain.events.page(

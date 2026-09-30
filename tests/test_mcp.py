@@ -11027,6 +11027,19 @@ def test_the_agents_project_listing_keeps_to_its_bound_whatever_the_titles (
 	assert "What this project" in listed, "the summaries went, though there was room for them"
 
 
+def test_the_project_tool_says_a_key_can_be_renamed () -> None:
+	"""`SR#4028`, L-8 (7) of the cold review of 2026-09-30: it called a key permanent.
+
+	``project rename`` exists and the skill says a key can be renamed, so an agent told otherwise
+	would treat a first choice of key as a decision it could not take back.
+	"""
+
+	tools = subroutine.mcp.tools.catalogue(typing.cast(typing.Any, None))
+	described = json.dumps([tool.described() for tool in tools if tool.name == "subroutine_project"])
+
+	assert "permanent" not in described and "renamed later" in described, described
+
+
 def test_the_agents_project_listing_drops_the_column_when_nothing_is_described (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

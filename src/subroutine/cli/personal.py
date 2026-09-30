@@ -9012,7 +9012,12 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 			)
 
 		program.say(f"Wired: {where}")
-		program.say("  A session ending here now gives back anything it is still holding.")
+
+		# **Only where the hook can find the program** (`#4028`, L-8 (5) of the cold review of
+		# 2026-09-30); where it cannot, the warning below is said instead. Both were printed, so the
+		# command said a session *now gives back* and then that the hook would find nothing to run.
+		if shutil.which("subroutine") is not None:
+			program.say("  A session ending here now gives back anything it is still holding.")
 
 		marker = subroutine.directory.find(root)
 

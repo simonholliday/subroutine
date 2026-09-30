@@ -2401,10 +2401,25 @@ def token_create (
 		_say(
 			# **The variable a client reads for this instance** (`#3910`): a bare one belongs to its
 			# default connection, which on a machine with a list of its own is not this instance.
+			# **And the whole of the rule** (`#4028`, L-8 (4) of the cold review of 2026-09-30):
+			# ``credentials.variable_for`` turns what is not a letter or a digit into ``_`` as well, so
+			# ``my-work`` is ``..._MY_WORK``, and a reader given half the rule wrote a name no shell exports.
 			f"Give it to a client as {subroutine.credentials.DEFAULT_VARIABLE}_<CONNECTION>, the "
-			f"client's name for this instance in capitals, or add it to "
-			f"{subroutine.credentials.credentials_file_path()}."
+			f"client's name for this instance in capitals, with anything that is not a letter or a "
+			f"digit as an underscore, or add it to {subroutine.credentials.credentials_file_path()}."
 		)
+
+
+def _resetting (connection: subroutine.connections.Connection, prefix: str) -> str:
+	"""Return the command that resets a calendar, as its connection is reached - `#4028`.
+
+	L-8 (1) of the cold review of 2026-09-30: over a connection the command was printed bare, which
+	runs on whichever connection is the default here.
+	"""
+
+	named = "" if connection.is_local else f"-c {connection.name} "
+
+	return f"  subroutine {named}calendar reset {prefix}"
 
 
 @token_app.command("list")
@@ -3182,6 +3197,7 @@ def calendar_create (
 
 	with _administering() as client:
 		local = client.connection.is_local
+		on_connection = client.connection
 
 		try:
 			made = client.create_calendar(
@@ -3219,7 +3235,7 @@ def calendar_create (
 		for line in _setting_the_address(local):
 			_say(line)
 
-		_say(f"  subroutine calendar reset {made.prefix}")
+		_say(_resetting(on_connection, made.prefix))
 
 		return
 
@@ -3359,6 +3375,7 @@ def calendar_reset (
 
 	with _administering() as client:
 		local = client.connection.is_local
+		on_connection = client.connection
 
 		try:
 			made = client.reset_calendar(id_or_prefix=named)
@@ -3376,7 +3393,7 @@ def calendar_reset (
 		for line in _setting_the_address(local):
 			_say(line)
 
-		_say(f"  subroutine calendar reset {made.prefix}")
+		_say(_resetting(on_connection, made.prefix))
 
 		return
 

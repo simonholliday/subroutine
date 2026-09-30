@@ -61,6 +61,11 @@ upgrade involves.
 - **In the browser, a sub-task added from a form whose projects arrived late keeps its parent's
   project**, as one added from any other form does. The form sent the project it showed once the
   projects arrived, and was refused.
+- **Smaller wording faults**: a calendar made or reset over a connection names the connection in
+  the command it gives, `token create` gives the whole rule for the variable a client reads,
+  `setup claude` no longer says a session gives back what it holds where the hook cannot run, the
+  agent's project tool says a key can be renamed, and the guides no longer promise a calendar is
+  read every fifteen minutes or that `subroutine connections` names workspaces.
 
 ## 0.9.13 — 2026-09-30
 

@@ -160,9 +160,7 @@ def listing (
 
 	# Both cursor refusals, in the domain so that this transport and `clients.local` cannot
 	# answer differently — which is what they were doing for `since=0` (`#309`).
-	subroutine.domain.events.refuse_unusable_cursor(
-		session, since=since, workspace_ids=workspace_ids
-	)
+	subroutine.domain.events.refuse_unusable_cursor(session, since=since)
 	subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
 	return _page(

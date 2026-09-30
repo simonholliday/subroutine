@@ -212,6 +212,8 @@ def test_it_says_when_the_hook_would_find_nothing_to_run (
 
 	assert "not on this PATH" in unfound, unfound
 	assert "not on this PATH" not in wired, wired
+	# **And one thing said about giving back, not two** (`SR#4028`, L-8 (5)).
+	assert "now gives back" not in unfound and "now gives back" in wired, (unfound, wired)
 
 
 def test_running_it_twice_changes_nothing (

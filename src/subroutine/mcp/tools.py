@@ -1335,14 +1335,14 @@ def _tools (
 			name="subroutine_project",
 			title="Projects",
 			description=(
-				"List the projects, or make one by passing a key and a title. A key is "
-				"permanent and lower case, like web or web-sales. Work is filed under a project "
+				"List the projects, or make one by passing a key and a title. A key is lower case, "
+				"like web or web-sales, and can be renamed later. Work is filed under a project "
 				"with '+KEY' in a captured line."
 			),
 			schema={
 				"type": "object",
 				"properties": {
-					"key": {"type": "string", "description": "Its permanent short name."},
+					"key": {"type": "string", "description": "Its short name, lower case."},
 					"title": {"type": "string", "description": "What it is called."},
 					"parent": {"type": "string", "description": "Put it inside this project."},
 					"private": {

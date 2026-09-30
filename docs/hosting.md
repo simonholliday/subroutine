@@ -1475,7 +1475,8 @@ you decide whether to leave it on.
 address mints the feed and says it cannot give you one. Set `public_url` and run
 `subroutine calendar reset <reference>`; the feed itself was never broken. Nothing guesses from
 the `Host` header, deliberately - a proxy rewrites that, and a guessed host is a secret sent
-somewhere nobody chose, every fifteen minutes, for as long as the subscription lives.
+somewhere nobody chose, every time a calendar application asks, for as long as the
+subscription lives.
 
 **The sign-in link does guess, and one rule covers both.** With `public_url` unset, Subroutine
 works its address out from the request only where the address goes straight back to the person
@@ -1725,8 +1726,9 @@ it does the same for an API token somebody has wrongly put in `?token=`, `?api_k
 `?access_token=`, which is refused but is a real credential by the time it is refused.
 
 **A calendar feed's address carries its credential in the path, not in the query**, and that is
-the one you should care most about: a subscription polls roughly every fifteen minutes for as
-long as somebody keeps it, and a feed secret does not expire. `subroutine serve` redacts it too -
+the one you should care most about: a subscription is polled on the calendar application's own
+schedule for as long as somebody keeps it, and a feed secret does not expire. `subroutine serve`
+redacts it too -
 `GET /v1/calendars/145ed614/REDACTED.ics` - keeping the short prefix, which identifies the feed
 so that you can still tell which subscription is polling. `subroutine calendar revoke <ref>`
 ends one, and `reset` gives it a new address without disturbing anything else.

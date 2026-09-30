@@ -268,7 +268,7 @@ $ subroutine list
 
   work
     work/acme/#1  Fix the deploy script
-        A bare number means local/personal. 'subroutine use' to change it.
+        A bare number means local/projects. 'subroutine use' to change it.
 
     Tip: subroutine show 1 - read one of them in full
 ```
@@ -296,8 +296,9 @@ instance's items print as, and two people reaching one server may call it differ
 **Your own database does not go anywhere.** It is a connection too, called `local`, and it is
 still where `subroutine add` files things - unless this machine has no list of its own, in which
 case `connections add` points writes at the server and says so. `subroutine use work/<workspace>`
-moves them either way - `subroutine connections` names the workspaces - and it never changes what
-you can *see*: reads always span everything you can reach, which is what makes switching safe.
+moves them either way - `subroutine list` shows each item's workspace in its address - and it
+never changes what you can *see*: reads always span everything you can reach, which is what makes
+switching safe.
 
 **If it does not:** `subroutine connections` lists what this machine reaches and, for each,
 which of the four places its token came from. It is worth knowing about because it stays out of
