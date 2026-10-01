@@ -320,7 +320,7 @@ OSC = Section(
 	# **Said where the operator has not let this instance send** (decision `#3804`), rather than
 	# letting a workspace send nothing in silence.
 	withheld=(
-		"This installation sends nothing over OSC, because whoever runs it has not turned sending "
+		"This server sends nothing over OSC, because whoever runs it has not turned sending "
 		"on - which they do by setting osc_enabled = true and restarting it. What is set here is "
 		"kept, and used once they have."
 	),

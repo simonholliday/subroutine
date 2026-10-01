@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **`serve` says when it and the rest of its machine would decide OSC differently.** Started with
+  `--host`, or with its address only in the service's environment, a server could send nothing
+  while a terminal on the same machine, reading `config.toml`, went on sending. It now says so as
+  it starts, and the workspace settings page says *this server* sends nothing rather than *this
+  installation*.
 - **A credential narrowed to some projects cannot make a project at the top level**, nor move one
   there unless it names that project. It could make one it then could not read, change or
   delete, while everybody in the workspace saw it. Inside a project it may change, it makes and

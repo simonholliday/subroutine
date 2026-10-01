@@ -939,6 +939,7 @@ def serve (
 		_say(f"  {surface.path:<{column}}  {surface.what} - {surface.note}")
 
 	_warn_about_an_open_origin_list(settings)
+	_warn_about_osc_elsewhere(settings)
 
 	level = (log_level.strip() or settings.log_level).lower()
 
@@ -1022,6 +1023,42 @@ def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> No
 	_say(
 		"  Warning: cors_origins is '*', so any page on any site can read and write as "
 		"anybody signed in who visits it. Name the origins that need it, or empty the list."
+	)
+
+
+def _warn_about_osc_elsewhere (settings: subroutine.config.Settings) -> None:
+	"""Say when this server and the rest of its machine would decide OSC differently - `#4024`.
+
+	Decision `#4098`. Each process decides for itself whether it sends OSC
+	(:func:`subroutine.config.sends_osc`), and every process but this one - the terminal on the
+	local connection, a stdio ``subroutine mcp``, the administrative commands - decides from
+	``config.toml`` alone. This one decides from what it was started with as well: ``--host``, or a
+	``SUBROUTINE_HOST`` or ``SUBROUTINE_PUBLIC_URL`` in the service's own environment. Where they
+	differ, a workspace's settings page says this server sends nothing while a terminal here sends
+	to the address that workspace chose, or the other way round.
+
+	**A line rather than a refusal**, for :func:`_warn_about_an_open_origin_list`'s reason: a refusal
+	would stop a machine that serves today from serving after an upgrade, for a feature that is off
+	until a workspace turns it on. The one person who can close the gap reads it as it opens.
+	"""
+
+	stated = subroutine.config.read_config_file()
+	fields = subroutine.config.Settings.model_fields
+	alone = settings.model_copy(
+		update={
+			name: stated.get(name, fields[name].default)
+			for name in ("host", "public_url", "osc_enabled")
+		}
+	)
+	here = subroutine.config.sends_osc(settings)
+
+	if subroutine.config.sends_osc(alone) == here:
+		return
+
+	_say(
+		f"  Warning: this server {'sends' if here else 'sends no'} OSC, and config.toml has every other "
+		f"process on this machine {'send none' if here else 'send it'}. Set osc_enabled in "
+		"config.toml, or put host and public_url there, so they agree."
 	)
 
 

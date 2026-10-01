@@ -24,7 +24,7 @@ the workspace's administrator can change it.
   same network could read what the messages carry.
 
 **Whoever runs the installation decides whether it sends at all.** On your own computer, with
-nothing reachable from outside it, it does. An installation other people can reach - one with a
+nothing reachable from outside it, it does. A server other people can reach - one with a
 public address, or listening beyond the machine it runs on - sends nothing until whoever runs it
 sets `osc_enabled = true` in its configuration and restarts it, because there the workspace's
 administrator need not be the person whose network the messages leave from. The settings page says
