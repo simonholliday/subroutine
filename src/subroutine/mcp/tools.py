@@ -2322,7 +2322,9 @@ def _listed (
 	#
 	# **Only when the other kind will be asked.** With documents left out a task's refusal is
 	# the whole answer, and swallowing it would say *Nothing open* about a word nobody has.
-	documents_asked = not ready and _asks_only_of_documents(filters)
+	documents_asked = subroutine.domain.filtering.documents_answer(
+		ready=ready, assignee=assignee, to_act_on=to_act_on, filters=filters
+	)
 	refused: subroutine.errors.SubroutineError | None = None
 
 	try:
@@ -2676,20 +2678,6 @@ def _filters (
 	# carry a name twice, so nothing is lost here and the client below takes one shape from
 	# both surfaces rather than a mapping from this one and a sequence from the other.
 	return list(given.items())
-
-
-def _asks_only_of_documents (filters: subroutine.domain.filtering.Terms) -> bool:
-	"""Report whether every filter names a field a document actually has — `#815`.
-
-	The same rule the CLI applies, and here for the same reason: a second call that dropped a
-	filter it could not honour would make a narrowed list *longer*.
-	"""
-
-	return all(
-		name.partition(subroutine.domain.filtering.SEPARATOR)[0]
-		in subroutine.domain.filtering.DOCUMENT_FILTERS
-		for name, _ in filters
-	)
 
 
 def _agenda_asked (arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:

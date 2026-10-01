@@ -3766,26 +3766,14 @@ def _listing (
 					if found.id not in shown_here
 				)
 
-			# **A document has no assignee and cannot be claimed, so a list narrowed to
-			# either is a list of tasks** (§6.14 — a document has an owner rather than a
-			# worker, and nobody works on one). The same argument `ready` makes above:
-			# including them would answer a question nobody asked, and "everything Simon is
-			# working on" ending in every specification in the workspace is worse than
-			# useless.
-			if assignee is not None or claimed_by is not None:
-				continue
-
-			# **A date field a document has not got means *no* documents, never all of
-			# them** (`#815`). `completed_at`, `due_at`, `snoozed_until` and `starts_at` are
-			# task fields — §6.14 says a document is not scheduled — so asking *what was
-			# completed yesterday* is a question about tasks, and a document half that
-			# ignored the filter would answer it by adding every decision in the workspace.
-			# That is precisely the `--type bug` defect described below, and the reason it
-			# is worth naming twice is that this one widens a list the user asked to narrow.
-			if any(
-				name.partition(subroutine.domain.filtering.SEPARATOR)[0]
-				not in subroutine.domain.filtering.DOCUMENT_FILTERS
-				for name, _ in (filters or ())
+			# **A document has no assignee, cannot be claimed and has no dates, so a list narrowed
+			# by any of them is a list of tasks** (§6.14, `#815`, decision `#4093`). The same argument
+			# `ready` makes above: "everything Simon is working on", or *what was completed
+			# yesterday*, ending in every decision in the workspace would widen a list the user asked
+			# to narrow. **One rule, which the agent tools read too** (`#3927`): each surface kept a
+			# copy, and the two disagreed about `assignee` and both missed `--to-act-on`.
+			if not subroutine.domain.filtering.documents_answer(
+				assignee=assignee, claimed_by=claimed_by, to_act_on=to_act_on, filters=filters or ()
 			):
 				continue
 

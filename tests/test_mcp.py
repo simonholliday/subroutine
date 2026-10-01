@@ -3588,6 +3588,33 @@ def test_an_agent_can_ask_what_has_been_assigned_to_it (
 	assert "For nobody" not in listed, f"the filter narrowed nothing: {listed}"
 
 
+def test_what_is_yours_to_act_on_or_was_handed_to_you_is_tasks_only (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#3927`, decision `#4093`: neither ``to_act_on`` nor ``assignee`` answers with documents.
+
+	A document has no assignee and cannot be claimed, so either question is about tasks, and an
+	agent asking what it was handed was given every decision in the workspace beside its work.
+	The test above had no document in it, which is how that went unseen.
+	"""
+
+	_added(bound, "For nobody")
+	written, failed = _called(bound, "subroutine_document", title="Why the deploy script moved")
+
+	assert not failed, written
+
+	for arguments in ({"to_act_on": True}, {"assignee": "me"}):
+		listed, failed = _called(bound, "subroutine_list", **arguments)
+
+		assert not failed, listed
+		assert "Why the deploy script moved" not in listed, (arguments, listed)
+
+	everything, failed = _called(bound, "subroutine_list")
+
+	assert not failed, everything
+	assert "Why the deploy script moved" in everything, "a bare list still spans both kinds"
+
+
 def test_an_agents_show_names_who_handed_the_item_over (
 	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
 ) -> None:

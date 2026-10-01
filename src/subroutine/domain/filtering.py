@@ -1579,6 +1579,33 @@ TASK_FILTERS: dict[str, Filterable] = filters("task")
 #: What a document listing can be asked about.
 DOCUMENT_FILTERS: dict[str, Filterable] = filters("document")
 
+
+def documents_answer (
+	*,
+	ready: bool = False,
+	assignee: str | None = None,
+	claimed_by: str | None = None,
+	to_act_on: bool = False,
+	filters: Terms = (),
+) -> bool:
+	"""Return whether the documents half of a listing over both kinds is asked at all - `#3927`.
+
+	**A filter on a field a document has not got means no documents, never all of them** (`#815`,
+	decision `#4093`). A document has no readiness, no assignee, no claim and no dates
+	(docs/design.md §6.14), so ``ready``, ``assignee``, ``claimed_by``, ``to_act_on`` and a date
+	filter each make a list of tasks: answered with documents beside it, *what was handed to me*
+	ends in every decision and finding in the workspace, each looking like work.
+
+	**One rule, read by the terminal and by the agent tools**, which each kept a copy of it and
+	disagreed: the terminal left documents out of an ``assignee`` listing and the tools did not,
+	and both left them in ``to_act_on``.
+	"""
+
+	if ready or to_act_on or assignee is not None or claimed_by is not None:
+		return False
+
+	return all(name.partition(SEPARATOR)[0] in DOCUMENT_FILTERS for name, _ in filters)
+
 #: **A project's and an event's have no name of their own**, and `#202`'s guard is what decided
 #: that: derived beside these two they were declared and read by nothing, where the pair above
 #: are read by the agent surface and the terminal. `filters("project")` is how to ask.

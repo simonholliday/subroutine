@@ -10576,6 +10576,28 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 	assert "A conclusion" not in shown
 
 
+def test_what_is_yours_to_act_on_returns_no_documents_either (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#3927`, decision `#4093`: ``--to-act-on`` asks ``--assignee``'s question, more widely.
+
+	Assigned to you, to nobody, or held by you - and a document is none of those, having no
+	assignee and no claim. It answered with every open document in the workspace, exactly as a
+	bare ``list`` does.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Mine to do @si")
+	run("add", "Nobody has this yet")
+	run("doc", "create", "A conclusion", "--body", "Why", "--type", "decision")
+
+	shown = run("list", "--to-act-on").output
+
+	assert "Mine to do" in shown and "Nobody has this yet" in shown, shown
+	assert "A conclusion" not in shown
+	assert "A conclusion" in run("list").output, "a bare list still spans both kinds"
+
+
 # **The duplicate-instance guard is no longer a spelling this file can scan for** (`#942`).
 # It used to be `merged=False` on `opened()`, and two tests here read the tree for it. The
 # guard moved onto the flatten — `World.merging()`, called from `_across` — so which

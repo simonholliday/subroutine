@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **What is yours to act on is tasks only**: `list --to-act-on` and `to_act_on=true` in the agent
+  tools no longer answer with every open document in the workspace, and neither does the agent
+  tools' `assignee`, as the terminal's `--assignee` already did not. A document has no assignee
+  and nobody claims one; a sign-off is a task linked to it.
 - **Nothing reaches an item in the trash but its restore.** Filing something under it, moving
   something under it, recording a check on it and linking to it or from it are refused, saying
   it is in the trash, as editing, finishing, claiming and commenting on it already were. A link
