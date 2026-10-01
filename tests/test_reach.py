@@ -359,12 +359,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
-	"export": (
-		"tracked",
-		"`#4053` builds `subroutine export` on it, writing each kind as a file of lines with a "
-		"manifest beside them. The route and the three clients landed first, as decision `#4049`'s "
-		"build order has it. **Deleting this entry is part of closing `#4053`.**",
-	),
 	"item_journal": (
 		"disclosure",
 		"`#2729`. Built for the browser's page of one item's history (`#1428`). At a terminal "

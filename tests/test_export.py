@@ -13,6 +13,12 @@ import typing
 
 import pytest
 
+import subroutine.db.models.activity
+import subroutine.db.models.identity
+import subroutine.db.models.project
+import subroutine.db.models.saved
+import subroutine.db.models.vocabulary
+import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.errors
@@ -278,3 +284,144 @@ def test_a_kind_nobody_has_heard_of_is_refused_by_name (pair: Pair) -> None:
 			list(client.export("everything"))
 
 		assert "tasks" in str(caught.value.errors), caught.value
+
+
+#: The table each kind's view reports, so a field can be told from a stored column.
+KIND_TABLES: dict[str, typing.Any] = {
+	"projects": subroutine.db.models.project.Project,
+	"tasks": subroutine.db.models.work.Task,
+	"documents": subroutine.db.models.work.Document,
+	"comments": subroutine.db.models.activity.Comment,
+	"links": subroutine.db.models.work.Link,
+	"verifications": subroutine.db.models.work.Verification,
+	"events": subroutine.db.models.activity.Event,
+	"tags": subroutine.db.models.vocabulary.Tag,
+	"statuses": subroutine.db.models.vocabulary.Status,
+	"item_types": subroutine.db.models.vocabulary.ItemType,
+	"link_types": subroutine.db.models.vocabulary.LinkType,
+	"saved_views": subroutine.db.models.saved.SavedView,
+	"users": subroutine.db.models.identity.User,
+}
+
+#: **Fields that are no column of their row and are kept, each a name for something it stores**
+#: (`#4053`, decision `#4049`): a key, a label, a username or a number beside the id it names.
+#: The other side is ``exporting.COMPUTED``. A field on neither fails below, so a field added to
+#: a view is placed before it can be exported.
+NAMED: dict[str, frozenset[str]] = {
+	"projects": frozenset({"status", "status_category", "status_is_default", "status_label"}),
+	"tasks": frozenset({
+		"workspace",
+		"project_key",
+		"project_path",
+		"claimed_by",
+		"claimed_by_is_agent",
+		"parent_ref",
+		"parent_title",
+		"status",
+		"status_category",
+		"status_is_default",
+		"status_label",
+		"type",
+		"type_label",
+		"type_category",
+		"type_is_default",
+		"assignee",
+		"assignee_is_agent",
+		"assigned_by",
+		"recurrence_template_ref",
+		"tags",
+	}),
+	"documents": frozenset({
+		"workspace",
+		"project_key",
+		"project_path",
+		"parent_ref",
+		"parent_title",
+		"status",
+		"status_category",
+		"status_is_default",
+		"status_label",
+		"type",
+		"type_label",
+		"type_category",
+		"type_is_default",
+		"tags",
+	}),
+	"comments": frozenset({"author"}),
+	"links": frozenset({"link_type", "label", "link_category", "source", "target"}),
+	"verifications": frozenset({"task_ref", "recorded_by"}),
+	"events": frozenset({"item_ref"}),
+	"tags": frozenset(),
+	"statuses": frozenset(),
+	"item_types": frozenset(),
+	"link_types": frozenset(),
+	"saved_views": frozenset({"owner"}),
+	"users": frozenset({"account_parent"}),
+}
+
+
+def _stored (kind: str) -> set[str]:
+	"""Return the columns of a kind's table: what is stored, not what the mapper computes."""
+
+	return {column.key for column in KIND_TABLES[kind].__table__.columns}
+
+
+@pytest.mark.parametrize("kind", list(subroutine.views.EXPORTED))
+def test_every_field_of_every_kind_is_kept_or_left_out_on_purpose (kind: str) -> None:
+	"""`#4053`: a field no column holds is either a name kept, or a working-out left out.
+
+	Read off the table rather than the mapper, because ``rank`` and ``relevance`` are mapped
+	expressions on a task and stored nowhere.
+	"""
+
+	fields = set(subroutine.views.EXPORTED[kind].model_fields)
+	left_out = subroutine.exporting.COMPUTED[kind]
+	unplaced = sorted(fields - _stored(kind) - left_out - NAMED[kind])
+
+	assert not unplaced, (
+		f"{kind} reports {unplaced}, which no column of its table holds. Keep each as a name "
+		f"in NAMED here, or leave it out in exporting.COMPUTED."
+	)
+	assert left_out <= fields and NAMED[kind] <= fields, f"{kind} names a field it has not got"
+	assert not left_out & NAMED[kind], f"{kind} both keeps and leaves out {left_out & NAMED[kind]}"
+	assert not (left_out | NAMED[kind]) & _stored(kind), f"{kind} classifies a stored column"
+
+
+def test_the_classification_can_see_a_field_nobody_placed () -> None:
+	"""Fed a task view with one field more, through the same comparison."""
+
+	class Grown(subroutine.views.Task):
+		"""A task view as it might be one release on."""
+
+		momentum: int = 0
+
+	fields = set(Grown.model_fields)
+	unplaced = fields - _stored("tasks") - subroutine.exporting.COMPUTED["tasks"] - NAMED["tasks"]
+
+	assert unplaced == {"momentum"}
+
+
+def test_a_line_keeps_what_was_stored_and_names_and_drops_what_was_worked_out (
+	pair: Pair,
+) -> None:
+	"""A task's line has its fields and the names beside its ids, and no ranking or flag."""
+
+	made = _seeded(pair)
+	(fix,) = [row for row in pair.local.export("tasks") if row.ref == made["fix"].ref]
+	written = subroutine.exporting.line("tasks", fix)
+
+	assert {"id", "ref", "title", "status", "status_id", "project_key", "created_by"} <= set(written)
+	assert not {"blocked", "rank", "relevance", "priority_score", "project_colour"} & set(written)
+
+
+def test_a_link_s_ends_say_which_item_and_nothing_of_its_state (pair: Pair) -> None:
+	"""The item's own file holds its state as stored; an end holds it worked out for a reader."""
+
+	_seeded(pair)
+	(edge,) = list(pair.local.export("links"))
+	written = subroutine.exporting.line("links", edge)
+
+	for end in ("source", "target"):
+		assert set(written[end]) == set(subroutine.exporting.END_KEPT), written[end]
+
+	assert written["created_by"] == str(pair.user.id) and written["label"]

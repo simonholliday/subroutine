@@ -9871,7 +9871,7 @@ def register (
 	warn: typing.Callable[[str], None],
 	refused: typing.Callable[[subroutine.errors.SubroutineError, str], None],
 	mask: typing.Callable[[str], str],
-) -> tuple[typing.Callable[[], list[str]], Selected]:
+) -> tuple[typing.Callable[[], list[str]], Selected, Program]:
 	"""Add the personal commands to the application.
 
 	Returns the bare-invocation callable and the object holding the options that appear
@@ -11271,7 +11271,7 @@ def register (
 
 	# **Handed back bound rather than defined here** (`#943`): the bare invocation reads the
 	# workspace when it runs, after `-w` has set it, which a partial over ``selected`` does too.
-	return functools.partial(_show_today, program, selected), selected
+	return functools.partial(_show_today, program, selected), selected, program
 
 
 def _named_changes (program: Program, **given: typing.Any) -> dict[str, typing.Any]:

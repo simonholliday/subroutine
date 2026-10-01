@@ -14,6 +14,13 @@ upgrade involves.
 
 ## Unreleased
 
+- **`subroutine export <folder>` takes away everything you can read, as files you can keep.** Each
+  workspace becomes a folder with one file of JSON lines per kind of thing - items, documents,
+  comments, links, changes, tags, statuses, saved views, accounts and the rest - and a
+  `manifest.json` saying what is in it, what an export never holds, and which version wrote it.
+  Done, archived and deleted items are included, and so is the history of changes; nothing you
+  could not already read is, and no password, token or sign-in link ever is. It works on any
+  connection, so you can leave somebody else's instance with your work too.
 - **`GET /v1/export/<kind>` answers everything of one kind your credential can read**, a page at
   a time: projects, tasks, documents, comments, links, verifications, events, tags, statuses,
   item types, link types, saved views and users. Done, archived and deleted items are included,

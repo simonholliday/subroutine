@@ -517,3 +517,96 @@ KINDS: dict[str, Kind] = {
 		Kind("users", subroutine.views.User, _User.id, _ordered(_User.id, _users), _render_users),
 	)
 }
+
+
+#: **What each kind's line leaves out of its view** - decision ``#4049``: an export keeps what was
+#: stored and drops what the system works out, since that is true only of the moment and the
+#: reader it was worked out for. So: a count, a state read off other rows, a ranking, a rendering
+#: for a reader, and the walk of whom an agent answers to.
+#:
+#: **A name for something the row stores is kept** - a key, a label, a username, a number -
+#: because that is what lets one line be read without the rest of the export, and the ids beside
+#: them are what join it to the rest. ``tests/test_export.py`` holds every field of every kind to
+#: one side or the other, so a field added to a view has to be placed before it can be exported.
+COMPUTED: dict[str, frozenset[str]] = {
+	"projects": frozenset({"hidden_statuses"}),
+	"tasks": frozenset({
+		"size_bytes",
+		"project_colour",
+		"blocked",
+		"blocking",
+		"sub_tasks_done",
+		"included_done",
+		"included_count",
+		"included_done_count",
+		"included_unseen",
+		"blocked_by",
+		"blocks_others",
+		"revisions",
+		"beneath",
+		"priority_score",
+		"rank",
+		"relevance",
+		"recurrence_description",
+		"estimate_human",
+		"reminder_human",
+		"is_complete",
+		"claimed_by_answers_to",
+		"assignee_answers_to",
+	}),
+	"documents": frozenset({
+		"size_bytes", "project_colour", "sub_documents", "revisions", "relevance"
+	}),
+	"comments": frozenset(),
+	"links": frozenset(),
+	"verifications": frozenset(),
+	"events": frozenset({"item_title"}),
+	"tags": frozenset(),
+	"statuses": frozenset(),
+	"item_types": frozenset(),
+	"link_types": frozenset(),
+	"saved_views": frozenset({"about_the_reader"}),
+	"users": frozenset({"answers_to"}),
+}
+
+#: **What an end of a link keeps**: which item it is, and what it is called. The rest of a
+#: :class:`~subroutine.views.LinkEnd` is that item's own state, which its own file holds - and
+#: holds as it was stored, where an end reports it worked out for the reader.
+END_KEPT = frozenset({"entity_type", "id", "ref", "title"})
+
+#: What an export never holds, said in its manifest so that nobody takes a quiet absence for a
+#: complete record.
+NEVER_IN_IT = (
+	"Anything the credential could not read: a private project it is not a member of, and "
+	"everything in one.",
+	"The last second of the event log, which the change feed holds back so a write still "
+	"being saved is never skipped.",
+	"A withdrawn link or a deleted comment, which cannot be put back; the event log records each.",
+	"Any password, token, sign-in link, session or calendar feed address.",
+	"What the system works out rather than stores - a count, a ranking, a state read off other "
+	"rows; each kind's own list is under 'fields_left_out'.",
+)
+
+#: How the version the manifest names is to be read.
+VERSIONING = (
+	"The version of Subroutine that wrote these lines. An export written by 1.x is read by "
+	"anything written for 1.y: a minor release may add fields, and only a major release removes "
+	"or renames one."
+)
+
+
+def line (kind: str, item: pydantic.BaseModel) -> dict[str, typing.Any]:
+	"""Return one row as its line in an export: the view, less what the system works out.
+
+	A link's two ends keep only :data:`END_KEPT`, for the reason that constant gives.
+	"""
+
+	if kind == "links":
+		ends = {
+			name: {field for field in subroutine.views.LinkEnd.model_fields if field not in END_KEPT}
+			for name in ("source", "target")
+		}
+
+		return item.model_dump(mode="json", exclude=ends)
+
+	return item.model_dump(mode="json", exclude=set(COMPUTED[kind]))

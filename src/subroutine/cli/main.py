@@ -33,6 +33,7 @@ import typer
 import subroutine
 import subroutine.auth
 import subroutine.claude_code
+import subroutine.cli.export
 import subroutine.cli.output
 import subroutine.cli.personal
 import subroutine.cli.topics
@@ -586,7 +587,7 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 # puts `add`, `today`, `ls`, `done`, `plan` first and says the ordering is deliberate: they
 # are the whole surface a personal user needs, and Typer lists commands in registration
 # order.
-_show_today, _selected = subroutine.cli.personal.register(
+_show_today, _selected, _program = subroutine.cli.personal.register(
 	app,
 	say=_say,
 	fail=_fail,
@@ -597,6 +598,9 @@ _show_today, _selected = subroutine.cli.personal.register(
 	refused=_refused,
 	mask=safe_url,
 )
+
+# **Its own module, with the same program** (`#4053`): ``register`` above only ever shrinks.
+subroutine.cli.export.register(app, _program)
 
 
 def _system_username () -> str:
