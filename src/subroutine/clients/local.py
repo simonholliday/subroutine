@@ -1315,7 +1315,10 @@ class Client:
 			rows = list(
 				session.scalars(
 					sqlalchemy.select(model)
-					.where(model.workspace_id == chosen.id)
+					.where(
+						model.workspace_id == chosen.id,
+						subroutine.domain.scoping.tags_seen_by(actor, workspace_ids=[chosen.id]),
+					)
 					.order_by(
 						*subroutine.domain.ordering.clauses(
 							None,
@@ -1364,9 +1367,7 @@ class Client:
 		changes = _asked(name=name, description=description)
 
 		with self._writing() as (session, actor):
-			row = self._vocabulary_row(
-				session, actor, subroutine.db.models.vocabulary.Tag, which, "tag"
-			)
+			row = self._tag_row(session, actor, which)
 
 			return subroutine.views.tag_entry(
 				subroutine.domain.vocabulary.update_tag(session, row, actor=actor, **changes)
@@ -1380,9 +1381,7 @@ class Client:
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_tag(
 				session,
-				self._vocabulary_row(
-					session, actor, subroutine.db.models.vocabulary.Tag, which, "tag"
-				),
+				self._tag_row(session, actor, which),
 				actor=actor,
 			)
 
@@ -4439,6 +4438,27 @@ class Client:
 				include_templates=True,
 			).where(model.ref == ref)
 		).one_or_none()
+
+	def _tag_row (
+		self,
+		session: sqlalchemy.orm.Session,
+		actor: subroutine.domain.authentication.Principal,
+		which: str,
+	) -> subroutine.db.models.vocabulary.Tag:
+		"""Return one tag this credential may see, or refuse as though there were none (`#4094`).
+
+		The endpoint's ``_tag`` asks the same of the same predicate, so a tag only private work
+		uses is out of reach on both transports alike.
+		"""
+
+		row: subroutine.db.models.vocabulary.Tag = self._vocabulary_row(
+			session, actor, subroutine.db.models.vocabulary.Tag, which, "tag"
+		)
+
+		if not subroutine.domain.scoping.tag_is_seen(session, actor, row):
+			raise subroutine.errors.NotFound("There is no tag with that id.")
+
+		return row
 
 	def _refuse_if_out_of_sight (
 		self,

@@ -711,9 +711,11 @@ def _tags (
 ) -> subroutine.views.Tags:
 	"""Return the most-used tags, capped, and say how many were left out.
 
-	Usage is counted over the tasks this caller can actually see, so a tag used only in a
-	private project they are not a member of does not appear — a tag list is a small
-	disclosure, but it is one, and there is no reason for it to be the exception.
+	**The tags the caller may see** (decision `#4094`), by the predicate every tag listing reads:
+	something they can read carries it, or nothing does. It read the tasks alone, so a tag only
+	hidden documents carry was listed with no uses, and an owner lost sight of a tag only their
+	trashed work carries. **Usage is still counted over the tasks they can see**, which is what a
+	count beside a tag is for.
 	"""
 
 	if workspace is None:
@@ -725,12 +727,17 @@ def _tags (
 		actor, workspace_ids=[workspace.id]
 	).subquery()
 
+	seen = subroutine.domain.scoping.tags_seen_by(actor, workspace_ids=[workspace.id])
 	usage = (
 		sqlalchemy.select(tag.name, sqlalchemy.func.count(joined.task_id).label("usage"))
 		.select_from(tag)
-		.outerjoin(joined, joined.tag_id == tag.id)
-		.outerjoin(visible, visible.c.id == joined.task_id)
-		.where(tag.workspace_id == workspace.id, joined.task_id.is_(None) | visible.c.id.isnot(None))
+		.outerjoin(
+			joined,
+			sqlalchemy.and_(
+				joined.tag_id == tag.id, joined.task_id.in_(sqlalchemy.select(visible.c.id))
+			),
+		)
+		.where(tag.workspace_id == workspace.id, seen)
 		.group_by(tag.id, tag.name)
 		.order_by(sqlalchemy.desc("usage"), tag.name)
 	)
@@ -738,7 +745,7 @@ def _tags (
 	rows = session.execute(usage.limit(TAG_LIMIT + 1)).all()
 	total = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(
-			sqlalchemy.select(tag.id).where(tag.workspace_id == workspace.id).subquery()
+			sqlalchemy.select(tag.id).where(tag.workspace_id == workspace.id, seen).subquery()
 		)
 	)
 

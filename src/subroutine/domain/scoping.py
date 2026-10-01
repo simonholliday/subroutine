@@ -32,6 +32,7 @@ import sqlalchemy.orm
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -550,6 +551,95 @@ def task_seen_by (
 		subroutine.domain.authorization.visible_projects(principal),
 		within_project_scope(principal),
 	)
+
+
+def tags_seen_by (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return a predicate selecting the tags this principal may see - decision `#4094`.
+
+	**A tag is seen when something the principal may read carries it, or when nothing carries
+	it.** A tag only private work uses is out of sight to anybody outside that work, as anything
+	else in it is (`#3922`): the listing handed its name to every member of the workspace. A tag
+	they can see is the workspace's vocabulary all the same, so renaming it reaches where they
+	cannot see, as renaming a status does.
+
+	*What they may read* is what an export of theirs holds - the trash, archived items and a
+	repeat's template included - so an owner keeps sight of a tag only their trashed work carries.
+	**A credential that may not read tasks sees only the tags nothing carries**, rather than being
+	refused: no tag listing asks for ``task:read``, so refusing here would refuse tags outright.
+	"""
+
+	tag = subroutine.db.models.vocabulary.Tag
+
+	# **Aliased, and correlated to the tag alone**, so a caller whose own query already joins these
+	# tables - `/v1/meta`'s count does - is not correlated away from under them.
+	on_task = sqlalchemy.orm.aliased(subroutine.db.models.work.TaskTag)
+	on_document = sqlalchemy.orm.aliased(subroutine.db.models.work.DocumentTag)
+
+	carried = sqlalchemy.or_(
+		sqlalchemy.exists(
+			sqlalchemy.select(on_task.tag_id).where(on_task.tag_id == tag.id).correlate(tag)
+		),
+		sqlalchemy.exists(
+			sqlalchemy.select(on_document.tag_id).where(on_document.tag_id == tag.id).correlate(tag)
+		),
+	)
+
+	if subroutine.domain.authorization.outside_token_scope(
+		principal, subroutine.permissions.TASK_READ
+	):
+		return sqlalchemy.not_(carried)
+
+	tasks = readable_tasks(
+		principal,
+		workspace_ids=workspace_ids,
+		include_deleted=True,
+		include_archived=True,
+		include_templates=True,
+		include_beneath_trash=True,
+	).with_only_columns(subroutine.db.models.work.Task.id)
+	documents = readable_documents(
+		principal,
+		workspace_ids=workspace_ids,
+		include_deleted=True,
+		include_archived=True,
+		include_beneath_trash=True,
+	).with_only_columns(subroutine.db.models.work.Document.id)
+
+	seen = sqlalchemy.or_(
+		sqlalchemy.exists(
+			sqlalchemy.select(on_task.tag_id)
+			.where(on_task.tag_id == tag.id, on_task.task_id.in_(tasks))
+			.correlate(tag)
+		),
+		sqlalchemy.exists(
+			sqlalchemy.select(on_document.tag_id)
+			.where(on_document.tag_id == tag.id, on_document.document_id.in_(documents))
+			.correlate(tag)
+		),
+	)
+
+	return sqlalchemy.or_(sqlalchemy.not_(carried), seen)
+
+
+def tag_is_seen (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	tag: subroutine.db.models.vocabulary.Tag,
+) -> bool:
+	"""Report whether one tag is one this principal may see, by :func:`tags_seen_by`."""
+
+	model = subroutine.db.models.vocabulary.Tag
+	found = session.scalar(
+		sqlalchemy.select(model.id).where(
+			model.id == tag.id, tags_seen_by(principal, workspace_ids=[tag.workspace_id])
+		)
+	)
+
+	return found is not None
 
 
 def the_other_kind (

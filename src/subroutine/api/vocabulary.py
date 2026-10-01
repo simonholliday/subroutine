@@ -32,6 +32,7 @@ import subroutine.db.models.vocabulary
 import subroutine.domain.authentication
 import subroutine.domain.ordering
 import subroutine.domain.paging
+import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
@@ -220,7 +221,13 @@ def _tag (
 
 	found = session.get(subroutine.db.models.vocabulary.Tag, which)
 
-	if found is None or found.workspace_id not in _reachable(session, actor):
+	# **Nor one only private work the caller cannot see uses** (decision `#4094`), answered as
+	# though there were none, as anything else hidden is.
+	if (
+		found is None
+		or found.workspace_id not in _reachable(session, actor)
+		or not subroutine.domain.scoping.tag_is_seen(session, actor, found)
+	):
 		raise subroutine.errors.NotFound("There is no tag with that id.")
 
 	return found
@@ -436,7 +443,12 @@ def list_tags (
 
 	workspace = _chosen(session, actor, workspace_id)
 	model = subroutine.db.models.vocabulary.Tag
-	statement = sqlalchemy.select(model).where(model.workspace_id == workspace.id)
+	# **The tags the caller may see** (decision `#4094`): one only private work they cannot read
+	# uses is not listed to them, where it was listed to everybody in the workspace.
+	statement = sqlalchemy.select(model).where(
+		model.workspace_id == workspace.id,
+		subroutine.domain.scoping.tags_seen_by(actor, workspace_ids=[workspace.id]),
+	)
 
 	keys = subroutine.api.pagination.parse_order(
 		None,

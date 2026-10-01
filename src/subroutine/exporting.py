@@ -288,6 +288,19 @@ def _in_workspace (model: typing.Any) -> Statement:
 	return rows
 
 
+def _tags (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return the tags the reader may see, as ``GET /v1/tags`` lists them (decision `#4094`)."""
+
+	model = subroutine.db.models.vocabulary.Tag
+
+	return sqlalchemy.select(model).where(
+		model.workspace_id == workspace_id,
+		subroutine.domain.scoping.tags_seen_by(reader, workspace_ids=[workspace_id]),
+	)
+
+
 def _saved_views (
 	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
 ) -> sqlalchemy.Select[typing.Any]:
@@ -655,7 +668,7 @@ KINDS: dict[str, Kind] = {
 		Kind("events", subroutine.views.Event, _Event.seq, _events, _render_events),
 		Kind(
 			"tags", subroutine.views.TagEntry, _Tag.id,
-			_ordered(_Tag.id, _in_workspace(_Tag)), _each(subroutine.views.tag_entry),
+			_ordered(_Tag.id, _tags), _each(subroutine.views.tag_entry),
 		),
 		Kind(
 			"statuses", subroutine.views.Status, _Status.id,
