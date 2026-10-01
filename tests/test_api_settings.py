@@ -151,9 +151,9 @@ def test_a_credential_narrowed_below_a_project_is_not_told_what_it_is_called (
 		"scope": "project", "address": "parent", "title": "The parent",
 	}
 
-	# **Who may see a project, not whether it is current.** A parent that is archived, or in the
-	# trash, is still one its member may see, so its title is still theirs to be told. Archived on
-	# the row, because no route sets `archived_at` yet.
+	# **Who may see a project, not whether it is current.** A parent that is archived is still one
+	# its member may see, so its title is still theirs to be told. Archived on the row, because no
+	# route sets `archived_at` yet.
 	model = subroutine.db.models.project.Project
 	parent = session.scalars(
 		sqlalchemy.select(model).where(model.workspace_id == world.workspace.id, model.key == "parent")
@@ -165,12 +165,12 @@ def test_a_credential_narrowed_below_a_project_is_not_told_what_it_is_called (
 		"The parent"
 	), "archived"
 
+	# **In the trash, the parent takes the child out of sight with it** (decision `#4091`), so
+	# there is no inherited value left to name: the child itself is not answered.
 	deleted = world.call("DELETE", f"/v1/projects/parent?workspace_id={slug}")
 
 	assert deleted.is_success, deleted.text
-	assert _by_key(world.call("GET", path))["appearance.colour"]["inherited_from"]["title"] == (
-		"The parent"
-	), "in the trash"
+	assert world.call("GET", path).status_code == 404, "beneath the trash"
 
 
 def test_clearing_a_value_set_here_puts_the_inherited_one_back (

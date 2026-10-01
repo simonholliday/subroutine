@@ -267,8 +267,11 @@ def test_a_project_under_a_deleted_one_is_not_restored_alone (
 
 	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
 	world.call("POST", "/v1/projects", json={"key": "api", "title": "api", "parent": "web"})
-	world.call("DELETE", "/v1/projects/WEB")
+
+	# **The child first** (decision `#4091`): once its parent is in the trash it is out of sight
+	# with it, so it can no longer be found to be deleted.
 	world.call("DELETE", "/v1/projects/API")
+	world.call("DELETE", "/v1/projects/WEB")
 
 	refused = world.call("POST", "/v1/projects/API/restore")
 

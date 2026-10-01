@@ -152,6 +152,98 @@ def within_project (
 	)
 
 
+def in_the_trash_at_or_above (project: typing.Any) -> sqlalchemy.ColumnElement[bool]:
+	"""Return whether this project, or any project above it, is in the trash - decision `#4091`.
+
+	**Deleting a project hides everything beneath it** (`#308`), and a project filed under it is
+	beneath it as much as a task is, so a row's own project's ``deleted_at`` answers only half the
+	question: tasks two projects down stayed listed, ready and blocking after the top one was
+	deleted (`#3921`, M-7 of the cold review of 2026-09-28).
+
+	``project`` is the :class:`~subroutine.db.models.project.Project` entity, or an alias of it,
+	that the caller has joined. Its own row is among its ancestors here, since a path is its own
+	prefix - the shape :func:`subroutine.domain.authorization.visible_projects` uses for privacy,
+	which inherits down the tree in the same way.
+	"""
+
+	ancestor = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(ancestor.id)
+		.where(
+			ancestor.workspace_id == project.workspace_id,
+			ancestor.deleted_at.is_not(None),
+			# A path is hex and separators, with no `%` or `_` to read as a wildcard, and a `LIKE`
+			# rather than a range, for the collation reason `hierarchy.subtree` records.
+			project.path.like(ancestor.path.concat("%")),
+		)
+		.correlate(project)
+	)
+
+
+#: Which column names a row's parent, for each kind that nests under its own kind.
+_PARENT: dict[type[typing.Any], str] = {
+	subroutine.db.models.work.Task: "parent_task_id",
+	subroutine.db.models.work.Document: "parent_id",
+}
+
+
+def _ancestor_paths (row: typing.Any) -> list[sqlalchemy.ColumnElement[str]]:
+	"""Return every path an ancestor of ``row`` could have, read off ``row``'s own path.
+
+	**A path is fixed-width**: a separator, then one 36-character id and a separator for each level
+	(:data:`~subroutine.domain.hierarchy.PATH_SEGMENT_LENGTH`). So the ancestor at depth *k* has as
+	its path exactly the first ``1 + (k + 1) * 37`` characters of the row's, and asking for those
+	by equality is answered by the ``(workspace_id, path)`` index, where *any path that is a prefix
+	of mine* is a leading-wildcard match no index can serve. A length past the row's own depth gives
+	back the row's own path, which the caller excludes by id.
+	"""
+
+	return [
+		sqlalchemy.func.substr(
+			row.path,
+			1,
+			len(subroutine.domain.hierarchy.PATH_SEPARATOR)
+			+ (depth + 1) * subroutine.domain.hierarchy.PATH_SEGMENT_LENGTH,
+		)
+		for depth in range(subroutine.domain.hierarchy.MAX_DEPTH)
+	]
+
+
+def beneath_the_trash (kind: type[typing.Any], row: typing.Any) -> sqlalchemy.ColumnElement[bool]:
+	"""Return whether a task or a document above this one, of its own kind, is in the trash.
+
+	Decision `#4091`: deleting one hides what is beneath it rather than deleting that too, so what
+	is beneath keeps a null ``deleted_at`` and is answered for by what is above it. ``kind`` is
+	:class:`~subroutine.db.models.work.Task` or :class:`~subroutine.db.models.work.Document`, and
+	``row`` is that entity, or an alias of it, that the caller has joined. The row itself is not
+	asked about: whether *it* is in the trash is ``include_deleted``'s question.
+
+	**Its ancestors are looked up by their paths, not matched against them** (`#3921`). Written as
+	*does any trashed row's path prefix mine*, it read the whole table for every row with a
+	parent, since nothing indexes ``deleted_at``: measured on SQLite at 2,000 tasks, a page ordered
+	by any unindexed column went from inside its 250 ms budget to 450 ms, and the same test worked
+	out once per statement cost 325 ms on an unordered page. :func:`_ancestor_paths` turns it into
+	a handful of index lookups for each nested row.
+	"""
+
+	ancestor = sqlalchemy.orm.aliased(kind)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(ancestor.id)
+		.where(
+			# **Inside the `EXISTS`, never beside it** (`#1827`), so a row with no parent, which is
+			# most of them, is answered without another row being looked at.
+			getattr(row, _PARENT[kind]).is_not(None),
+			ancestor.workspace_id == row.workspace_id,
+			ancestor.path.in_(_ancestor_paths(row)),
+			ancestor.id != row.id,
+			ancestor.deleted_at.is_not(None),
+		)
+		.correlate(row)
+	)
+
+
 def readable_projects (
 	principal: subroutine.domain.authentication.Principal,
 	*,
@@ -192,8 +284,10 @@ def readable_projects (
 		within_project_scope(principal),
 	)
 
+	# **In the trash, or beneath a project that is** (decision `#4091`): a project filed under a
+	# deleted one is out of sight with it, and comes back when it does.
 	if not include_deleted:
-		statement = statement.where(project.deleted_at.is_(None))
+		statement = statement.where(sqlalchemy.not_(in_the_trash_at_or_above(project)))
 
 	if not include_archived:
 		statement = statement.where(project.archived_at.is_(None))
@@ -325,7 +419,7 @@ def readable_documents (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	include_deleted: bool = False,
-	include_deleted_projects: bool = False,
+	include_beneath_trash: bool = False,
 	include_archived: bool = False,
 ) -> sqlalchemy.Select[subroutine.db.models.work.Document]:
 	"""Return a select over the documents this principal may see, and no others.
@@ -336,10 +430,10 @@ def readable_documents (
 	kind of privacy if it were not.
 
 	The two deletion flags are separate axes and must stay so (`#307`). ``include_deleted`` is
-	about *this row*; ``include_deleted_projects`` is about its container, which ``projects.
-	delete`` deliberately does not touch — a deleted project's documents are hidden by this
-	join rather than thrown away, so folding the two together would put a document nobody
-	deleted into the trash listing.
+	about *this row*; ``include_beneath_trash`` is about what it is beneath - its project, any
+	project above that, and any document above it - which deleting deliberately leaves alone
+	(decision `#4091`). What is beneath a deleted thing is hidden with it rather than thrown away,
+	so folding the two together would put a document nobody deleted into the trash listing.
 	"""
 
 	# A document is a work item under a task's permissions, so it is `task:read` that reaches
@@ -359,8 +453,11 @@ def readable_documents (
 		)
 	)
 
-	if not include_deleted_projects:
-		statement = statement.where(project.deleted_at.is_(None))
+	if not include_beneath_trash:
+		statement = statement.where(
+			sqlalchemy.not_(in_the_trash_at_or_above(project)),
+			sqlalchemy.not_(beneath_the_trash(document, document)),
+		)
 
 	if not include_deleted:
 		statement = statement.where(document.deleted_at.is_(None))
@@ -376,7 +473,7 @@ def readable_tasks (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	include_deleted: bool = False,
-	include_deleted_projects: bool = False,
+	include_beneath_trash: bool = False,
 	include_completed: bool = True,
 	include_archived: bool = False,
 	include_templates: bool = False,
@@ -388,11 +485,11 @@ def readable_tasks (
 	nothing deleted, nothing archived, and no recurrence templates, which are machinery
 	rather than work (§6.7).
 
-	``include_deleted`` and ``include_deleted_projects`` are separate axes and must stay so
-	(`#307`). The first is about *this row*; the second is about its container, which
-	``projects.delete`` deliberately leaves alone — "its tasks are not touched … they leave the
-	visible world with it and come back with it". One flag for both would put a task nobody
-	deleted into the trash.
+	``include_deleted`` and ``include_beneath_trash`` are separate axes and must stay so
+	(`#307`). The first is about *this row*; the second is about what it is beneath - its
+	project, any project above that, and any task above it - which deleting deliberately leaves
+	alone: what is beneath "leaves the visible world with it and comes back with it" (decision
+	`#4091`). One flag for both would put a task nobody deleted into the trash.
 	"""
 
 	refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
@@ -406,8 +503,11 @@ def readable_tasks (
 		.where(task.workspace_id.in_(workspace_ids), task_seen_by(principal))
 	)
 
-	if not include_deleted_projects:
-		statement = statement.where(project.deleted_at.is_(None))
+	if not include_beneath_trash:
+		statement = statement.where(
+			sqlalchemy.not_(in_the_trash_at_or_above(project)),
+			sqlalchemy.not_(beneath_the_trash(task, task)),
+		)
 
 	if not include_deleted:
 		statement = statement.where(task.deleted_at.is_(None))
@@ -576,7 +676,7 @@ def readable_identifiers (
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
-			include_deleted_projects=True,
+			include_beneath_trash=True,
 			include_archived=True,
 			include_templates=True,
 		).with_only_columns(subroutine.db.models.work.Task.id),
@@ -590,7 +690,7 @@ def readable_identifiers (
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
-			include_deleted_projects=True,
+			include_beneath_trash=True,
 			include_archived=True,
 		).with_only_columns(subroutine.db.models.work.Document.id),
 	}

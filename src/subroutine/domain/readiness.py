@@ -572,13 +572,16 @@ def _live_blocks_edge (
 		# suggest it — so reading that column alone would leave the deploy blocked for ever.
 		sqlalchemy.not_(over(other, now=now)),
 		other.deleted_at.is_(None),
-		# **And the project it is filed in is still there.** `projects.delete` does not touch
-		# its tasks — "every listing joins the project and excludes deleted ones, so they
-		# leave the visible world with it" — so a task in a binned project keeps a null
-		# `deleted_at` and went on blocking live work from outside every listing there is.
-		# Worse than a wrong answer: the caller was told an item was blocked and shown no
-		# link at all, because `links.edges` drops an end they cannot see.
-		filed_in.deleted_at.is_(None),
+		# **And nothing it is beneath is in the trash.** Deleting hides what is beneath it rather
+		# than deleting that too (decision `#4091`), so a task in a binned project, or under a
+		# binned project or task, keeps a null `deleted_at` and went on blocking live work from
+		# outside every listing there is (`#3921`). Worse than a wrong answer: the caller was told
+		# an item was blocked and shown no link at all, because `links.edges` drops an end they
+		# cannot see.
+		sqlalchemy.not_(subroutine.domain.scoping.in_the_trash_at_or_above(filed_in)),
+		sqlalchemy.not_(
+			subroutine.domain.scoping.beneath_the_trash(subroutine.db.models.work.Task, other)
+		),
 	)
 
 

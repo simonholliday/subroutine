@@ -59,6 +59,12 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"unnarrowed — a visibility-narrowed count would let somebody remove a status still in use "
 	"where they cannot see, and the constraint would refuse it as a 500.",
 	"domain/authorization.py": "defines the visibility predicate the helper applies",
+	# **Above a row the caller already reached** (`SR#3921`, decision `SR#4091`). Saying where a
+	# hidden item is asks which task, document or project above it is in the trash, and the row
+	# itself was found through `readable_tasks` or `readable_documents`, so only what is above
+	# something visible is named.
+	"domain/trash.py": "names what in the trash is above an item the caller has already been "
+	"allowed to reach, to say where it is",
 	# **One lookup, of numbers for ids already narrowed** (`SR#4052`). An export renders a page of
 	# verifications with the number of the task each records, and those tasks are the ones
 	# `readable_identifiers` let through; every row it exports comes from `domain/scoping.py`.

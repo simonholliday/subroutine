@@ -32,6 +32,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.trash
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -506,6 +507,15 @@ def task (
 			found = None
 
 	if found is None:
+		# **Hidden rather than absent** (decision `#4091`): beneath something in the trash, it is
+		# answered by saying where, so the reader can bring it back.
+		out_of_sight = subroutine.domain.trash.hidden(
+			session, actor, workspace_id=workspace.id, wanted=wanted
+		)
+
+		if out_of_sight is not None:
+			raise out_of_sight
+
 		instead = subroutine.domain.scoping.the_other_kind(
 			session, actor, workspace_id=workspace.id, ref=ref, asked_for="task"
 		)
@@ -581,6 +591,14 @@ def document (
 			found = None
 
 	if found is None:
+		# Hidden rather than absent, as for a task above (decision `#4091`).
+		out_of_sight = subroutine.domain.trash.hidden(
+			session, actor, workspace_id=workspace.id, wanted=wanted
+		)
+
+		if out_of_sight is not None:
+			raise out_of_sight
+
 		instead = subroutine.domain.scoping.the_other_kind(
 			session, actor, workspace_id=workspace.id, ref=ref, asked_for="document"
 		)

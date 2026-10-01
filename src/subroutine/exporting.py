@@ -181,7 +181,7 @@ def _tasks (
 		reader,
 		workspace_ids=[workspace_id],
 		include_deleted=True,
-		include_deleted_projects=True,
+		include_beneath_trash=True,
 		include_completed=True,
 		include_archived=True,
 		include_templates=True,
@@ -197,7 +197,7 @@ def _documents (
 		reader,
 		workspace_ids=[workspace_id],
 		include_deleted=True,
-		include_deleted_projects=True,
+		include_beneath_trash=True,
 		include_archived=True,
 	)
 

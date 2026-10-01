@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+- **Deleting a project, a task or a document takes everything beneath it out of sight with it**,
+  and restoring it brings everything back as it was. A sub-project's work, and a task's or a
+  document's own sub-items, were still listed, offered as ready and holding up other work while
+  what they sat under was in the trash. Only what you deleted is in the trash. Asked for by
+  number, something out of sight says what it is beneath, where it used to say there was no
+  such item, and it cannot be restored on its own until that comes back.
 - **Who is shared into a project says which project by its id**, beside its key, since a key is
   unique only among one parent project's children.
 - **`api_version` says what it promises**: it names the contract the API's base path names, so it

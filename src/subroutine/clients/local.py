@@ -80,6 +80,7 @@ import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.tokens
+import subroutine.domain.trash
 import subroutine.domain.users
 import subroutine.domain.verifications
 import subroutine.domain.versions
@@ -934,6 +935,8 @@ class Client:
 			row = self._row(session, actor, chosen.id, ref)
 
 			if row is None:
+				self._refuse_if_out_of_sight(session, actor, chosen.id, ref)
+
 				return None
 
 			return subroutine.views.task(
@@ -1627,6 +1630,8 @@ class Client:
 			).one_or_none()
 
 			if row is None:
+				self._refuse_if_out_of_sight(session, actor, chosen.id, ref)
+
 				return None
 
 			return subroutine.views.document(
@@ -4311,6 +4316,8 @@ class Client:
 		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
 
 		if row is None:
+			self._refuse_if_out_of_sight(session, actor, chosen.id, ref)
+
 			raise subroutine.errors.NotFound(
 				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} in {chosen.slug}.",
 				hint="Run 'subroutine list' to see what there is.",
@@ -4376,6 +4383,8 @@ class Client:
 		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
 
 		if row is None:
+			self._refuse_if_out_of_sight(session, actor, workspace_id, ref)
+
 			raise subroutine.errors.NotFound(
 				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} here.",
 				hint="Run 'subroutine list' to see what there is.",
@@ -4430,6 +4439,26 @@ class Client:
 				include_templates=True,
 			).where(model.ref == ref)
 		).one_or_none()
+
+	def _refuse_if_out_of_sight (
+		self,
+		session: sqlalchemy.orm.Session,
+		actor: subroutine.domain.authentication.Principal,
+		workspace_id: typing.Any,
+		ref: int,
+	) -> None:
+		"""Refuse by saying where an item is when it is hidden beneath the trash (`#4091`).
+
+		**The same sentence the endpoint gives**, from the same function, so the terminal and an
+		agent's tools say where it is on either transport rather than that it does not exist.
+		"""
+
+		out_of_sight = subroutine.domain.trash.hidden(
+			session, actor, workspace_id=workspace_id, wanted=str(ref)
+		)
+
+		if out_of_sight is not None:
+			raise out_of_sight
 
 	def _refuse_if_read_only (self) -> None:
 		"""Refuse a write to a connection configured read-only."""

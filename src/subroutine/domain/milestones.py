@@ -172,7 +172,12 @@ def progress_among (
 			kind.category == COUNTING,
 			typed.category == subroutine.domain.readiness.TARGET,
 			part.deleted_at.is_(None),
-			filed_in.deleted_at.is_(None),
+			# **Nor beneath anything in the trash** (decision `#4091`), which hides it as surely as
+			# its own deletion would.
+			sqlalchemy.not_(subroutine.domain.scoping.in_the_trash_at_or_above(filed_in)),
+			sqlalchemy.not_(
+				subroutine.domain.scoping.beneath_the_trash(subroutine.db.models.work.Task, part)
+			),
 		)
 		.group_by(link.source_id)
 	)
