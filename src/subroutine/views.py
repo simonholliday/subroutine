@@ -7318,6 +7318,12 @@ class Status(Named):
 	#: Defaulted for `#345`.
 	position: int | None = None
 
+	#: **Which kind of item it is a status of** - ``task``, ``project`` or ``document`` (`#4067`).
+	#: ``/v1/meta`` groups statuses by it, so a reader of that never needed it on the row; an
+	#: export's line is read on its own, and a fresh workspace has an *Archived* for projects and
+	#: another for documents, so without it the line cannot say which. Defaulted for `#345`.
+	entity_type: str | None = None
+
 
 class ItemType(Named):
 	"""An item type, with the fixed category a client may branch on.
@@ -7340,6 +7346,12 @@ class ItemType(Named):
 	#: it made a newer client refuse an older instance outright — measured against the served
 	#: one, which answered ``item_types.document.0.category: Field required``.
 	category: str = ""
+
+	#: **Where it stands in its kind's list, and which kind that is** (`#4067`), for
+	#: :class:`Status`'s reasons: an export's line is read without ``/v1/meta``'s grouping and
+	#: order around it. Defaulted for `#345`.
+	position: int | None = None
+	entity_type: str | None = None
 
 
 class LinkType(pydantic.BaseModel):
@@ -7403,6 +7415,7 @@ def status (row: typing.Any) -> Status:
 		category=row.category,
 		is_default=row.is_default,
 		position=row.position,
+		entity_type=row.entity_type,
 	)
 
 
@@ -7415,6 +7428,8 @@ def item_type (row: typing.Any) -> ItemType:
 		label=row.label,
 		category=row.category,
 		is_default=row.is_default,
+		position=row.position,
+		entity_type=row.entity_type,
 	)
 
 

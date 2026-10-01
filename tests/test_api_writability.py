@@ -803,11 +803,10 @@ INTERNAL: dict[str, str] = {
 		"The tenant key. Every view is already scoped to one workspace and a client that "
 		"reached a row has named it, so reporting it is reporting how this is partitioned."
 	),
-	"entity_type": (
-		"Which kind of item a vocabulary or a link end belongs to. Reported *as structure* "
-		"rather than as a field — `/v1/meta` keys `statuses` and `item_types` by it, and a "
-		"link end carries it — so publishing it again would be the same fact twice."
-	),
+	# **`entity_type` went on 2026-10-01** (`#4067`): reported as structure by `/v1/meta`, so
+	# never on the row, and so missing from an export's line, which has no structure around it.
+	# A fresh workspace's two *Archived* statuses, one for projects and one for documents, were
+	# one key twice in an export until the line said which.
 	"name_normalized": "The case-folded form a unique index compares. Never the name.",
 	"username_normalized": "The same, for §7.1's uniqueness.",
 	"email_normalized": "The same.",
@@ -865,10 +864,6 @@ INTERNAL: dict[str, str] = {
 		"workspace was made, which `Workspace.created_at` reports."
 	),
 	"ItemType.updated_at": "The same, for the same reason.",
-	"ItemType.position": (
-		"Item types cannot be changed, so this is the order the seeder wrote, and every listing "
-		"already returns them in it."
-	),
 	"Link.deleted_at": (
 		"Set when a link is withdrawn. A withdrawn link is not listed and cannot be put back, so "
 		"a link a caller reads never has one, and the withdrawal is the unlink event, which "

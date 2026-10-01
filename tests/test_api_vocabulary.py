@@ -86,6 +86,30 @@ def test_a_status_can_be_added_renamed_and_removed (world: test_api_tasks.World)
 	assert not [row for row in _statuses(world, entity_type="task") if row["key"] == "reviewing"]
 
 
+def test_a_status_and_an_item_type_say_what_kind_of_item_they_are_for (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#4067`: a fresh workspace has an *Archived* for projects and another for documents.
+
+	``/v1/meta`` groups them, so a reader there never needed the kind on the row; an export's line
+	is read alone, and without it the two were one key twice.
+	"""
+
+	rows = _statuses(world)
+	archived = sorted(row["entity_type"] for row in rows if row["key"] == "archived")
+
+	assert archived == ["document", "project"], archived
+
+	for kind in ("task", "project", "document"):
+		assert {row["entity_type"] for row in _statuses(world, entity_type=kind)} == {kind}
+
+	types = world.call("GET", "/v1/meta").json()["item_types"]
+
+	for kind, listed in types.items():
+		assert {row["entity_type"] for row in listed} == {kind}, kind
+		assert [row["position"] for row in listed] == sorted(row["position"] for row in listed), kind
+
+
 def test_a_status_says_where_it_stands (world: test_api_tasks.World) -> None:
 	"""`#4051`: a position could be set and never read back.
 

@@ -14,6 +14,8 @@ upgrade involves.
 
 ## Unreleased
 
+- **A status and an item type say what kind of item they are for**, `task`, `project` or
+  `document`, and an item type says where it stands in its list, as a status already does.
 - **`subroutine export <folder>` takes away everything you can read, as files you can keep.** Each
   workspace becomes a folder with one file of JSON lines per kind of thing - items, documents,
   comments, links, changes, tags, statuses, saved views, accounts and the rest - and a
