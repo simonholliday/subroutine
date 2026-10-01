@@ -20,7 +20,9 @@ upgrade involves.
   `manifest.json` saying what is in it, what an export never holds, and which version wrote it.
   Done, archived and deleted items are included, and so is the history of changes; nothing you
   could not already read is, and no password, token or sign-in link ever is. It works on any
-  connection, so you can leave somebody else's instance with your work too.
+  connection, so you can leave somebody else's instance with your work too. Beside the files is a
+  `markdown/` folder you can read: a page for each item and document, foldered by project, with
+  its comments under it.
 - **`GET /v1/export/<kind>` answers everything of one kind your credential can read**, a page at
   a time: projects, tasks, documents, comments, links, verifications, events, tags, statuses,
   item types, link types, saved views and users. Done, archived and deleted items are included,
