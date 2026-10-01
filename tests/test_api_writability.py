@@ -833,10 +833,9 @@ INTERNAL: dict[str, str] = {
 	"Link.source_type": "The same end.",
 	"Link.target_id": "The same, as `other`.",
 	"Link.target_type": "The same end.",
-	"ProjectMember.user_id": "Reported as the member themselves — `Member.user`.",
-	"ProjectMember.role_id": "Reported as `Member.role`, the name rather than the id (§7.2).",
-	"WorkspaceMember.user_id": "The same view, the same reason.",
-	"WorkspaceMember.role_id": "The same.",
+	"ProjectMember.user_id": "Reported as the member themselves — `ProjectMember.user`.",
+	"WorkspaceMember.user_id": "Reported as the member themselves — `Member.user`.",
+	"WorkspaceMember.role_id": "Reported as `Member.role`, the name rather than the id (§7.2).",
 	"User.email": (
 		"§7.1 makes an address a way to reach somebody rather than a fact about them, and "
 		"nothing in the product mails anybody yet. Publishing every member's address on a "
@@ -891,19 +890,22 @@ INTERNAL: dict[str, str] = {
 		"use, so it says nothing that `Token.last_used_at` and `Token.revoked_at` do not."
 	),
 	"ProjectMember.id": (
-		"A membership is addressed by its member, `Member.user`, and its id names nothing a "
-		"caller sends."
+		"A membership is addressed by its member, `ProjectMember.user` or `Member.user`, and its "
+		"id names nothing a caller sends."
 	),
 	"WorkspaceMember.id": "The same.",
 	"ProjectMember.project_id": (
 		"The project the route names, `/v1/projects/{key}/members`, so every row a listing "
 		"returns holds the same one."
 	),
-	"ProjectMember.updated_at": (
+	"WorkspaceMember.updated_at": (
 		"When the member's role last changed. The role is `Member.role`, and when it changed is "
 		"nothing a caller decides on."
 	),
-	"WorkspaceMember.updated_at": "The same.",
+	"ProjectMember.updated_at": (
+		"When the row last changed. Sight of a project is the row being there (§7.3a), and nothing "
+		"in it changes that a reader acts on."
+	),
 }
 
 #: Columns that exist ahead of the feature that will use them. **Each names the milestone**,
@@ -917,6 +919,13 @@ UNBUILT: dict[str, str] = {
 	"Task.position": "#28 — manual backlog order is specified and nothing exposes it.",
 	"Document.position": "#28 — the same order, on a document.",
 	"Project.position": "#28 — the same order, on a project.",
+	# **Paired with its own view since `#4086`**: this file read a project membership through
+	# ``views.Member``, a workspace's, and called this column reported as ``Member.role``. The
+	# view of a project membership has no role, deliberately, so nothing reports it.
+	"ProjectMember.role_id": (
+		"#1452 — a role for one project, which would replace the workspace one. Read by "
+		"`authorization._role_for` and NULL in every row anything writes."
+	),
 	"User.deleted_at": (
 		"#670 — kept and never set: 1.0 deletes no account (decision #4083), and erasure decides "
 		"what deleting one does, and whether its username may be taken again."
@@ -988,7 +997,7 @@ def _columns (model: type[typing.Any]) -> frozenset[str]:
 #: Models whose view is not named after them, so the pairing cannot be derived from the name.
 VIEWED_AS: dict[str, str] = {
 	"ApiToken": "Token",
-	"ProjectMember": "Member",
+	"ProjectMember": "ProjectMember",
 	"WorkspaceMember": "Member",
 	# **What ``/v1/tags`` returns** (`#4051`), not ``views.Tag``, which is the name-and-usage
 	# summary ``/v1/meta`` prints. Paired by name with that one, this file could not see a tag's
