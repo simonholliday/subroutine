@@ -918,8 +918,8 @@ UNBUILT: dict[str, str] = {
 	"Document.position": "#28 — the same order, on a document.",
 	"Project.position": "#28 — the same order, on a project.",
 	"User.deleted_at": (
-		"#4057 — nothing sets it, and five queries already leave out an account that has it. "
-		"Whether an account can be deleted at all is the question."
+		"#670 — kept and never set: 1.0 deletes no account (decision #4083), and erasure decides "
+		"what deleting one does, and whether its username may be taken again."
 	),
 
 	# **Kept and not published** — `#524`, closed on decision `#906` §7's reasoning.
