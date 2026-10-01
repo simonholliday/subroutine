@@ -139,10 +139,15 @@ def create (
 
 	# **And of the project it goes into** (`#4013`, M-10 of the cold review of 2026-09-30), which
 	# checks the credential's reach and the projects it may write in together: asked of the
-	# workspace alone, a credential writing only in ``web`` made ``ops/sub``. A new top-level
-	# project is the question `#4032` asks, and is left as it was.
+	# workspace alone, a credential writing only in ``web`` made ``ops/sub``.
 	if parent is not None:
 		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=parent)
+
+	# **Never at the top level for a narrowed credential** (decision `#4095`): a new project cannot
+	# already be named in a scope, so it would be beyond the credential's reach the moment it was
+	# made - unreadable, unchangeable and undeletable by what made it, and in front of everybody.
+	elif actor is not None and subroutine.domain.authorization.narrowed_to_projects(actor):
+		_refuse_the_top_level(session, actor)
 
 	normalized_key = normalize_key(key)
 
@@ -272,9 +277,13 @@ def move (
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
 
 	# **And of where it goes** (`#4013`), for :func:`create`'s reason: asked of the project moved
-	# alone, a credential writing only in ``web`` moved it under ``ops``. The top level is `#4032`'s.
+	# alone, a credential writing only in ``web`` moved it under ``ops``.
 	if parent is not None:
 		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=parent)
+
+	# **And to the top level only where it would still be reached there** (decision `#4095`).
+	elif actor is not None and _beyond_reach_at_the_top(actor, project):
+		_refuse_the_top_level(session, actor)
 
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
@@ -514,6 +523,55 @@ def update (
 	session.flush()
 
 	return project
+
+
+def _beyond_reach_at_the_top (
+	actor: subroutine.domain.authentication.Principal,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether a narrowed credential would lose sight of a project at the top level.
+
+	A scope names projects, each bringing its subtree, so at the top level a project is within a
+	scope only if the scope names that project itself: ``ops/x`` is reached through ``ops`` until it
+	is moved out from under it. Asked of both narrowings, since a credential may read everything
+	and change only some projects (`#371`).
+	"""
+
+	identifier = str(project.id)
+
+	return any(
+		scope is not None and identifier not in {str(each) for each in scope}
+		for scope in (actor.project_scope, actor.project_write_scope)
+	)
+
+
+def _refuse_the_top_level (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+) -> typing.NoReturn:
+	"""Refuse a narrowed credential a project at the top level - decision `#4095`.
+
+	**The sentence the rest of the narrowing uses**, so a caller meets one way of being told, and a
+	hint saying where it *can* put the project, which that sentence's own hint, *use a token that
+	is not narrowed*, does not. As `saved._refuse_sharing_from_a_narrowed_credential` (`#3151`)
+	names its alternative.
+	"""
+
+	refused = subroutine.domain.authorization.AuthorizationError(
+		subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS,
+		permission=subroutine.permissions.PROJECT_WRITE,
+	)
+	changes = (
+		actor.project_write_scope if actor.project_write_scope is not None else actor.project_scope
+	)
+	named = ", ".join(keys_for(session, actor, list(changes or ())))
+	inside = f"inside a project it may change ({named})" if named else "inside a project"
+	refused.hint = (
+		f"Make it {inside}: --parent in the terminal, parent in the agent tools, or use a token "
+		"that is not narrowed to projects."
+	)
+
+	raise refused
 
 
 def delete (

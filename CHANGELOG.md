@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **A credential narrowed to some projects cannot make a project at the top level**, nor move one
+  there unless it names that project. It could make one it then could not read, change or
+  delete, while everybody in the workspace saw it. Inside a project it may change, it makes and
+  moves projects as before, and the refusal says so.
 - **A tag only private work uses is out of sight to anybody outside it.** It was listed to
   everybody in the workspace - in the tag list, `/v1/meta` and an export - and somebody outside
   the project could rename or delete it. A tag you can see is still the workspace's, and renaming
