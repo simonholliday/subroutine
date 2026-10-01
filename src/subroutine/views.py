@@ -2353,12 +2353,14 @@ class Me(pydantic.BaseModel):
 	either.
 	"""
 
+	#: The contract the API's base path names, ``"1.0"`` while it is ``/v1`` (decision `#4076`):
+	#: see :data:`subroutine.API_VERSION`.
 	api_version: str
 	user: Caller
 
 	#: What the installation that answered this call is *running* — item ``#381``. Not
-	#: :attr:`api_version`, which is the wire contract and has read ``"1.0"`` since M1: this
-	#: is the program, and it is the only thing that says whether a feature an agent has read
+	#: :attr:`api_version`, which names only the path's contract and moves only with a ``/v2``:
+	#: this is the program, and it is the only thing that says whether a feature an agent has read
 	#: about exists here yet.
 	#:
 	#: **Defaulted, like everything added to this model after it shipped** (`#345`). An
@@ -7586,6 +7588,7 @@ class SettingSection(pydantic.BaseModel):
 class Meta(pydantic.BaseModel):
 	"""Everything needed to construct a valid request against *this* installation."""
 
+	#: The contract the API's base path names, as on :class:`Me` (decision `#4076`).
 	api_version: str
 	server_time: datetime.datetime
 	instance: Instance | None

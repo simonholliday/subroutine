@@ -9,6 +9,7 @@ found it, or something broke.
 import gzip
 import json
 import pathlib
+import re
 import typing
 
 import fastapi
@@ -545,6 +546,27 @@ def test_every_response_carries_the_correlation_and_version_headers (
 			subroutine.API_VERSION
 		)
 		assert response.headers[subroutine.api.middleware.REQUEST_ID_HEADER]
+
+
+def test_the_api_version_names_the_contract_its_path_names () -> None:
+	"""`#4081`, under decision `#4076`: ``api_version`` is ``"1.0"`` while the API is ``/v1``.
+
+	It becomes ``"2.0"`` only with a ``/v2``, and says nothing finer, since which additions an
+	instance has is ``instance_version``. So it is held to the paths the routers declare rather
+	than to a literal: a test pinning ``"1.0"`` is how it stood still through every change to the
+	contract in 0.x without saying what it meant.
+	"""
+
+	major, _, minor = subroutine.API_VERSION.partition(".")
+	declared = subroutine.api.routing.declarations(subroutine.api.app.ROUTERS)
+	paths = {
+		found.group(1)
+		for path, _methods in declared
+		if (found := re.match(r"/v(\d+)(?:/|$)", path))
+	}
+
+	assert paths == {major}, (paths, subroutine.API_VERSION)
+	assert minor == "0", "nothing finer than the path's contract: instance_version says that"
 
 
 def test_a_supplied_request_id_is_echoed_back (application: fastapi.FastAPI) -> None:

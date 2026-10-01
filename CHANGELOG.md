@@ -14,6 +14,9 @@ upgrade involves.
 
 ## Unreleased
 
+- **`api_version` says what it promises**: it names the contract the API's base path names, so it
+  reads `1.0` for as long as that path is `/v1` and becomes `2.0` only with a `/v2`. Which
+  additions an instance has is `instance_version`, beside it in `/v1/meta` and `/v1/me`.
 - **A status and an item type say what kind of item they are for**, `task`, `project` or
   `document`, and an item type says where it stands in its list, as a status already does.
 - **`subroutine export <folder>` takes away everything you can read, as files you can keep.** Each

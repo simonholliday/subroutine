@@ -39,12 +39,6 @@ def test_package_imports () -> None:
 	)
 
 
-def test_api_version_is_pinned () -> None:
-	"""The wire API version is declared, and is distinct from the package version."""
-
-	assert subroutine.API_VERSION == "1.0"
-
-
 def test_the_version_flag_reports_the_installed_release_and_the_expected_schema () -> None:
 	"""Both numbers are read from where they are actually defined, never written out here.
 

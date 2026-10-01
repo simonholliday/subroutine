@@ -20,8 +20,12 @@ def _installed_version () -> str:
 
 __version__ = _installed_version()
 
-#: The API version exposed at ``/v1`` and reported in ``X-Subroutine-Api-Version``.
-#: This tracks the wire contract, not the package release.
+#: **The contract the API's base path names** (decision `#4076`): ``"1.0"`` for as long as the
+#: path is ``/v1``, and ``"2.0"`` only with a ``/v2``. It says nothing finer. Which additions an
+#: instance has is ``instance_version``, the program's own number, so a release that adds a field
+#: leaves this alone. Published in ``/v1/meta``, ``/v1/me``, ``/healthz``, ``/readyz``, the
+#: ``X-Subroutine-Api-Version`` header, a client's ``User-Agent`` and the OpenAPI document, and
+#: held to the paths the routers declare by ``tests/test_api_app.py``.
 API_VERSION = "1.0"
 
 #: Where to send a defect. Named here rather than beside the one caller because it is the
