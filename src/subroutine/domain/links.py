@@ -41,6 +41,7 @@ import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tasks
+import subroutine.domain.trash
 import subroutine.errors
 import subroutine.permissions
 
@@ -420,6 +421,20 @@ def create (
 
 	if existing is not None:
 		return existing
+
+	# **Nothing in the trash is linked, at either end** (decision `#4096`). A link is a change to
+	# both its ends, and the API can make one stored row from either item's page, so refusing one
+	# direction only would turn the same link away from one page and take it from the other. After
+	# the lookup above, so a link already made is answered as `#3798` answers every one.
+	for end in (source, target):
+		reached: subroutine.domain.trash.Item | None = (
+			session.get(subroutine.db.models.work.Task, end.id)
+			if end.entity_type == "task"
+			else session.get(subroutine.db.models.work.Document, end.id)
+		)
+
+		if reached is not None:
+			subroutine.domain.trash.refuse_reaching(session, reached, doing="it cannot be linked")
 
 	# **The repeat itself is at neither end** (`#3936`), since a link is for one occurrence. The
 	# local client refused a series as it looked the ref up and the endpoint linked it, so the

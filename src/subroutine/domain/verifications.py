@@ -27,6 +27,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.text
+import subroutine.domain.trash
 import subroutine.errors
 import subroutine.permissions
 
@@ -81,6 +82,10 @@ def record (
 			workspace_id=task.workspace_id,
 			project=session.get(subroutine.db.models.project.Project, task.project_id),
 		)
+
+	# **Nothing is recorded against an item in the trash** (decision `#4096`): a check adds to its
+	# record, which the comment rule (`#535`) already closes while it is there.
+	subroutine.domain.trash.refuse_reaching(session, task, doing="nothing can be recorded against it")
 
 	written = subroutine.db.models.work.Verification(
 		id=subroutine.db.types.new_uuid(),

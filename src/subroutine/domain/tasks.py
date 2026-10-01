@@ -987,6 +987,12 @@ def create (
 			field="parent_task_id",
 		)
 
+	# **Nothing is filed under an item in the trash** (decision `#4096`): what is beneath the trash is
+	# out of sight with it (`#4091`), so it would vanish the moment it was made. A repeat's next
+	# occurrence is not filed here - it goes where its template sits (`#3935`) - so it is not refused.
+	if parent is not None:
+		subroutine.domain.trash.refuse_reaching(session, parent, doing="nothing can be filed under it")
+
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
 			"A sub-task belongs to the same project as its parent.",
@@ -2077,6 +2083,10 @@ def move (
 		subroutine.domain.occurrences.refuse_the_repeat_itself(
 			session, parent, act="putting work under it", verb="put it under", field="parent"
 		)
+
+	# Nor moved under one, for `create`'s reason (decision `#4096`).
+	if parent is not None:
+		subroutine.domain.trash.refuse_reaching(session, parent, doing="nothing can be moved under it")
 
 	if parent is not None and parent.project_id != task.project_id:
 		# **Refused rather than carried, and this is the decision worth reading** (`#44`).

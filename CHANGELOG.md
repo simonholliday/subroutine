@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **Nothing reaches an item in the trash but its restore.** Filing something under it, moving
+  something under it, recording a check on it and linking to it or from it are refused, saying
+  it is in the trash, as editing, finishing, claiming and commenting on it already were. A link
+  made before it was deleted stays, and is still answered when it is sent again.
 - **Deleting a project, a task or a document takes everything beneath it out of sight with it**,
   and restoring it brings everything back as it was. A sub-project's work, and a task's or a
   document's own sub-items, were still listed, offered as ready and holding up other work while

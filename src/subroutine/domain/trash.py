@@ -52,6 +52,28 @@ def refusal (ref: int, *, doing: str) -> subroutine.errors.ValidationError:
 	)
 
 
+def refuse_reaching (session: sqlalchemy.orm.Session, row: Item, *, doing: str) -> None:
+	"""Refuse ``doing`` to an item in the trash, or beneath one - decision `#4096`.
+
+	**For what is done to an item from elsewhere** - something filed or moved under it, a check
+	recorded on it, a link made to or from it - where :func:`refuse` is for a change to the row
+	itself. ``doing`` is the whole clause after *so*: *#42 is in the trash, so nothing can be filed
+	under it.* An item beneath one in the trash is refused with :func:`hidden`'s sentence, which
+	names the one to restore, since decision `#4091` hides it with its container.
+	"""
+
+	if row.deleted_at is not None:
+		raise subroutine.errors.ValidationError(
+			f"{subroutine.domain.refs.format_ref(row.ref)} is in the trash, so {doing}.",
+			hint="Restore it first if you meant to keep working on it.",
+		)
+
+	out_of_sight = _out_of_sight(session, row)
+
+	if out_of_sight is not None:
+		raise out_of_sight
+
+
 def hidden (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,

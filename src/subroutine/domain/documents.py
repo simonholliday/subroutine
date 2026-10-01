@@ -277,6 +277,11 @@ def create (
 			session, project.workspace_id, str(owner_id), field="owner_id"
 		)
 
+	# **Nothing is filed under a document in the trash** (decision `#4096`), for the reason
+	# ``tasks.create`` gives: what is beneath the trash is out of sight with it (`#4091`).
+	if parent is not None:
+		subroutine.domain.trash.refuse_reaching(session, parent, doing="nothing can be filed under it")
+
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
 			"A section belongs to the same project as the document it is part of.",
@@ -645,6 +650,10 @@ def move (
 
 	subroutine.domain.versions.require(document, expected_version, noun="document")
 	subroutine.domain.trash.refuse(document, doing="moved")
+
+	# Nor moved under one (decision `#4096`).
+	if parent is not None:
+		subroutine.domain.trash.refuse_reaching(session, parent, doing="nothing can be moved under it")
 
 	if parent is not None and parent.project_id != document.project_id:
 		destination = session.get(subroutine.db.models.project.Project, parent.project_id)
