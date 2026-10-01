@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **A link says when it was made and who made it, a project says who made it and who last
+  changed it, and a status says its position.** All three were stored and reported by nothing, so
+  a status's position could be set and never read back. Each is a new field in the API's
+  answers, beside the ones a task already has.
 - **`subroutine -c work mcp` serves the connection it names**, as `mcp --connection work` does. It
   served the default connection, so an agent's work went to another instance without a word. Two
   different names, one before `mcp` and one after it, are refused.

@@ -1687,6 +1687,16 @@ class Link(pydantic.BaseModel):
 	direction: str
 	other: LinkEnd
 
+	#: **When it was made and who made it** (`#4051`), as a task and a document report their own.
+	#: Stored on every link since the first and reported by nothing, so who joined two items, and
+	#: when, reached no reader and no export (decision `#4049`). ``created_by`` is an id, for
+	#: ``Task.created_by``'s reason, and ``None`` where a system action made the link.
+	#:
+	#: **Both defaulted, because this model is not new** (`#345`): an instance one release behind
+	#: sends a link without them, and a required field would make a newer client refuse it.
+	created_at: datetime.datetime | None = None
+	created_by: uuid.UUID | None = None
+
 	@pydantic.model_validator(mode="after")
 	def _read_the_key_when_the_server_did_not_say (self) -> "Link":
 		"""Fill the category from the key when the answer came from before there were any.
@@ -2762,6 +2772,13 @@ class Project(pydantic.BaseModel):
 	deleted_at: datetime.datetime | None
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
+
+	#: **Who made it and who last changed it** (`#4051`), as ``Task.created_by`` and
+	#: ``Task.updated_by`` say of a task, and for the same reasons: ids, and ``None`` where a system
+	#: action wrote the row. Both were stored and reported by nothing. Defaulted for `#345`.
+	created_by: uuid.UUID | None = None
+	updated_by: uuid.UUID | None = None
+
 	version: int
 
 	def address (self) -> str:
@@ -4569,6 +4586,8 @@ def link (related: subroutine.domain.links.Related, vocabulary: Vocabulary) -> L
 		label=related.label,
 		direction=related.direction,
 		other=_end(related.other, vocabulary),
+		created_at=related.created_at,
+		created_by=related.created_by,
 	)
 
 
@@ -4788,6 +4807,8 @@ def project (
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,
 		updated_at=row.updated_at,
+		created_by=row.created_by,
+		updated_by=row.updated_by,
 		version=row.version,
 	)
 
@@ -7278,6 +7299,12 @@ class Status(Named):
 	#: The key is renameable; the category is not. Branch on this.
 	category: str
 
+	#: **Where it stands among its kind's statuses** (`#4051`). ``PATCH /v1/statuses`` has
+	#: taken a position since SR#826, and nothing reported one, so a caller could set a value it
+	#: could never read back. Listings already come in this order; this says what the order is.
+	#: Defaulted for `#345`.
+	position: int | None = None
+
 
 class ItemType(Named):
 	"""An item type, with the fixed category a client may branch on.
@@ -7362,6 +7389,7 @@ def status (row: typing.Any) -> Status:
 		label=row.label,
 		category=row.category,
 		is_default=row.is_default,
+		position=row.position,
 	)
 
 

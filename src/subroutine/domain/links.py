@@ -271,6 +271,10 @@ class Related:
 	other: End
 	created_at: datetime.datetime
 
+	#: Who made it, or ``None`` where a system action did (`#4051`). Carried for the same reason
+	#: ``created_at`` is: the view reports both, and the domain is what read the row.
+	created_by: uuid.UUID | None = None
+
 
 @dataclasses.dataclass(frozen=True)
 class Edge:
@@ -1026,6 +1030,7 @@ def around (
 				direction="outgoing" if outgoing else "incoming",
 				other=other,
 				created_at=link.created_at,
+				created_by=link.created_by,
 			)
 		)
 

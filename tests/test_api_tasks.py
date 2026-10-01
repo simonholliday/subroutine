@@ -1799,6 +1799,39 @@ def test_a_task_says_who_made_it_and_who_last_changed_it (world: World) -> None:
 	assert changed["updated_by"] == str(world.user.id)
 
 
+def test_a_link_and_a_project_say_who_made_them (world: World) -> None:
+	"""`#4051`: the attribution a task reports, on two kinds that stored it and said nothing.
+
+	Who joined two items and when, and who made a project and last changed it, were columns no
+	response carried, so no reader saw them and an export built from the views (decision `#4049`)
+	would have left them behind. Read from both ends of the link, since each end lists it.
+	"""
+
+	one = world.call("POST", "/v1/tasks", json={"title": "Fix the deploy script"}).json()
+	two = world.call("POST", "/v1/tasks", json={"title": "Write the release notes"}).json()
+	made = world.call(
+		"POST", f"/v1/tasks/{one['ref']}/links", json={"target": two["ref"], "link_type": "blocks"}
+	)
+
+	assert made.status_code == 201, made.text
+	assert made.json()["created_by"] == str(world.user.id)
+
+	for end in (one, two):
+		listed = world.call("GET", f"/v1/tasks/{end['ref']}/links").json()["items"]
+
+		assert [row["created_by"] for row in listed] == [str(world.user.id)], listed
+		assert listed[0]["created_at"] == made.json()["created_at"], listed
+
+	project = world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"}).json()
+
+	assert project["created_by"] == str(world.user.id)
+	assert project["updated_by"] is None, "nothing has changed it yet"
+
+	changed = world.call("PATCH", "/v1/projects/web", json={"title": "Website rebuild"}).json()
+
+	assert changed["updated_by"] == str(world.user.id)
+
+
 def test_attribution_cannot_be_supplied_by_the_caller (world: World) -> None:
 	"""It comes from the credential, never from the body.
 

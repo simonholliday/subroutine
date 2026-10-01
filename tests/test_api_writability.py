@@ -741,6 +741,15 @@ def test_every_known_gap_names_the_item_tracking_it () -> None:
 		assert "#" in reason, f"{field!r} is recorded as a gap with no item tracking it."
 
 
+#: Why a vocabulary row's own timestamps are not reported - `#4051`. What the word is now is
+#: the view; *when* it was renamed or reordered belongs in the history, which records no edit to
+#: the vocabulary yet (`#4058`). Reporting the row's time would answer half of that question in
+#: the wrong place.
+_WHEN_A_WORD_CHANGED = (
+	"When the word was added, and when it was last renamed, reordered or made the default. No "
+	"caller decides anything on either; who changed it, and when, belongs in the history (#4058)."
+)
+
 #: Columns that are machinery rather than facts about the item. A client cannot act on them
 #: and reporting them would be reporting how this is stored rather than what it holds.
 INTERNAL: dict[str, str] = {
@@ -834,19 +843,89 @@ INTERNAL: dict[str, str] = {
 		"nothing in the product mails anybody yet. Publishing every member's address on a "
 		"listing any member can read is a decision nobody has taken."
 	),
+
+	# **Everything below was excused by a bare name in ``DERIVED`` until `#4051`**, which is a
+	# register for the *other* direction: a view field the system computes. ``created_at`` there
+	# excused the column on every table, reported or not, so who joined two items and when reached
+	# no reader. Each is qualified now, and the three that were facts a caller wrote are reported.
+	"Task.recurrence_template_id": (
+		"Reported as `Task.recurrence_template_ref`, the number of the repeating item an "
+		"occurrence came from, which is the form a caller addresses it by."
+	),
+	"Instance.created_at": "When `init` made the instance. No caller decides anything on it.",
+	"Instance.updated_at": "When its name or zone last changed. No caller decides anything on it.",
+	"Status.created_at": _WHEN_A_WORD_CHANGED,
+	"Status.updated_at": _WHEN_A_WORD_CHANGED,
+	"LinkType.created_at": _WHEN_A_WORD_CHANGED,
+	"LinkType.updated_at": _WHEN_A_WORD_CHANGED,
+	"Tag.created_at": _WHEN_A_WORD_CHANGED,
+	"Tag.updated_at": _WHEN_A_WORD_CHANGED,
+	"ItemType.created_at": (
+		"Item types cannot be changed - SR#826 left them out deliberately - so this is when the "
+		"workspace was made, which `Workspace.created_at` reports."
+	),
+	"ItemType.updated_at": "The same, for the same reason.",
+	"ItemType.position": (
+		"Item types cannot be changed, so this is the order the seeder wrote, and every listing "
+		"already returns them in it."
+	),
+	"Link.deleted_at": (
+		"Set when a link is withdrawn. A withdrawn link is not listed and cannot be put back, so "
+		"a link a caller reads never has one, and the withdrawal is the unlink event, which "
+		"records who and when."
+	),
+	"Verification.created_by": (
+		"Reported as `Verification.recorded_by`, the name of the account this column holds."
+	),
+	"Verification.updated_at": (
+		"A verification records one run and nothing edits it afterwards - "
+		"`domain/verifications.record` is its only writer - so this repeats "
+		"`Verification.created_at`."
+	),
+	"Verification.updated_by": "The same, repeating the account `Verification.recorded_by` names.",
+	"User.updated_at": (
+		"When the account's name, zone or standing last changed. No caller decides anything on it."
+	),
+	"User.version": (
+		"`VersionMixin`'s number, which keeps two writers inside the instance from overwriting "
+		"each other. No route takes `expected_version` for an account, so a caller would have "
+		"nothing to send it back to."
+	),
+	"ApiToken.updated_at": (
+		"Moves on every write to the row, including the throttled refresh of `last_used_at` on "
+		"use, so it says nothing that `Token.last_used_at` and `Token.revoked_at` do not."
+	),
+	"ProjectMember.id": (
+		"A membership is addressed by its member, `Member.user`, and its id names nothing a "
+		"caller sends."
+	),
+	"WorkspaceMember.id": "The same.",
+	"ProjectMember.project_id": (
+		"The project the route names, `/v1/projects/{key}/members`, so every row a listing "
+		"returns holds the same one."
+	),
+	"ProjectMember.updated_at": (
+		"When the member's role last changed. The role is `Member.role`, and when it changed is "
+		"nothing a caller decides on."
+	),
+	"WorkspaceMember.updated_at": "The same.",
 }
 
 #: Columns that exist ahead of the feature that will use them. **Each names the milestone**,
 #: because a column with no feature and no date is indistinguishable from one that was
 #: forgotten — which is how `spent_minutes` and `urgency` both survived.
 UNBUILT: dict[str, str] = {
-	"is_template": "Recurrence (M7). The template flag has no feature to belong to yet.",
-	"occurrence_at": "Recurrence (M7).",
-	"recurrence_rule": "Recurrence (M7).",
-	"recurrence_text": "Recurrence (M7).",
-	"recurrence_anchor": "Recurrence (M7).",
-	"recurrence_template_id": "Recurrence (M7).",
-	"position": "#28 — manual backlog order is specified and nothing exposes it.",
+	# **Qualified since `#4051`**, because the bare name excused a status's position too, which
+	# ``PATCH /v1/statuses`` sets and ``Status.position`` now reports. The six recurrence entries
+	# that stood above this went the same day: recurrence shipped, every one of them is reported,
+	# and nothing could say so until :func:`test_every_excuse_is_still_needed` asked.
+	"Task.position": "#28 — manual backlog order is specified and nothing exposes it.",
+	"Document.position": "#28 — the same order, on a document.",
+	"Project.position": "#28 — the same order, on a project.",
+	"User.deleted_at": (
+		"#4057 — nothing sets it, and five queries already leave out an account that has it. "
+		"Whether an account can be deleted at all is the question."
+	),
 
 	# **Kept and not published** — `#524`, closed on decision `#906` §7's reasoning.
 	#
@@ -885,6 +964,10 @@ UNREPORTED: dict[str, str] = {
 	"spent_minutes": (
 		"#55 — §6.4 names it beside estimate_minutes and nothing reads or writes it."
 	),
+	"ApiToken.created_by": (
+		"#4056 — who issued the token, written on every issue and reported by nothing."
+	),
+	"ProjectMember.created_by": "#4056 — who granted the membership; the same item.",
 	# **The four `#443` found on its first widened run**, which is what that item was for: it
 	# fixes nothing and finds the rest by itself. Every one was measured by grepping `src/`
 	# rather than inferred from the schema — `#427`'s lesson, whose hand-written exclusion list
@@ -892,11 +975,10 @@ UNREPORTED: dict[str, str] = {
 	# `#523` deleted the colours, and `#917`/`#525` deleted `Project.start_at`,
 	# `Project.due_at` and `Project.timezone` on 2026-08-23, which is what an entry naming its
 	# item is supposed to end as.
-	#: **`#905`, not `#523`.** Split out on 2026-08-15 because it is a different question:
-	#: the three colours were presentation and are gone, and this is *documentation* — what
-	#: `#2fa` means in this workspace — which `#102` says nothing about. The entry named the
-	#: wrong item for a week, and two separate surveys read it and repeated the mistake.
-	"Tag.description": "#905 — written by nothing and read by nothing; the one of the four kept.",
+	#
+	# **`Tag.description` went on 2026-10-01** (`#4051`): SR#826 made it writable on 2026-08-23
+	# and ``views.TagEntry`` reports it, while this file paired the table with ``views.Tag`` - the
+	# usage summary ``/v1/meta`` prints - and so went on calling `#905` open for five weeks.
 }
 
 
@@ -913,6 +995,10 @@ VIEWED_AS: dict[str, str] = {
 	"ApiToken": "Token",
 	"ProjectMember": "Member",
 	"WorkspaceMember": "Member",
+	# **What ``/v1/tags`` returns** (`#4051`), not ``views.Tag``, which is the name-and-usage
+	# summary ``/v1/meta`` prints. Paired by name with that one, this file could not see a tag's
+	# description reach a client, and called `#905` open for five weeks after it shipped.
+	"Tag": "TagEntry",
 }
 
 #: Mapped models that no view reports, and why that is right. **Each has to say what a reader
@@ -1023,6 +1109,58 @@ def _excused (model: type[typing.Any], column: str, register: dict[str, str]) ->
 	return column in register or f"{model.__name__}.{column}" in register
 
 
+#: The registers that may excuse a column no view reports. **Not ``DERIVED`` or
+#: ``WRITTEN_AS``** (`#4051`): both are keyed by *view* fields, for the other direction, so a
+#: name in either says the field is reported somewhere - and a bare ``created_at`` there
+#: excused thirty unreported columns on twelve tables, among them who joined two items and when.
+STORED_SIDE = (INTERNAL, UNBUILT, UNREPORTED)
+
+
+def _unexplained (
+	model: type[typing.Any],
+	view: type[pydantic.BaseModel],
+	registers: tuple[dict[str, str], ...] = STORED_SIDE,
+) -> list[str]:
+	"""Return the columns one table stores that its view does not report and nothing excuses.
+
+	Takes the registers, so a synthetic table can be put through the real check (`#405`).
+	"""
+
+	reported = set(view.model_fields)
+
+	return sorted(
+		column
+		for column in _columns(model)
+		if column not in reported
+		and not any(_excused(model, column, register) for register in registers)
+	)
+
+
+def _unneeded (
+	register: dict[str, str],
+	stored: typing.Iterable[tuple[str, type[typing.Any], type[pydantic.BaseModel]]],
+) -> list[str]:
+	"""Return the entries of one register that excuse no column any walked view leaves out.
+
+	**The question the stale-entry tests here never asked of these two registers** (`#4051`).
+	``UNREPORTED`` has had it since SR#1126; ``INTERNAL`` and ``UNBUILT`` were checked only for
+	naming a column that still exists, so six *Recurrence (M7)* entries went on excusing fields
+	the task view had reported since recurrence shipped.
+	"""
+
+	pairs = list(stored)
+
+	return sorted(
+		entry
+		for entry in register
+		if not any(
+			column not in view.model_fields and _excused(model, column, {entry: ""})
+			for _name, model, view in pairs
+			for column in _columns(model)
+		)
+	)
+
+
 @pytest.mark.parametrize(("name", "model", "view"), STORED, ids=[row[0] for row in STORED])
 def test_every_stored_column_is_reported_or_says_why_not (
 	name: str, model: type[typing.Any], view: type[pydantic.BaseModel]
@@ -1040,23 +1178,65 @@ def test_every_stored_column_is_reported_or_says_why_not (
 	only the comparison shows it.
 	"""
 
-	registers = (DERIVED, WRITTEN_AS, INTERNAL, UNBUILT, UNREPORTED)
-	reported = set(view.model_fields)
-
-	# A column may be reported under another name — `status_id` as `status`, `body` as
-	# itself. `WRITTEN_AS` already records those pairings for the other direction.
-	unexplained = sorted(
-		column
-		for column in _columns(model)
-		if column not in reported
-		and not any(_excused(model, column, register) for register in registers)
-	)
+	unexplained = _unexplained(model, view)
 
 	assert not unexplained, (
 		f"The {name} table stores {unexplained} and no response reports them. Add them to "
 		f"the view, or record them in INTERNAL, UNBUILT or UNREPORTED with a reason — "
 		f"qualified as {name}.<column> unless the name means the same on every model."
 	)
+
+
+def test_a_name_from_the_other_direction_excuses_nothing_here () -> None:
+	"""`#4051`, fed through the real check: a link view without who made it is refused.
+
+	``DERIVED`` names ``created_at`` and ``created_by``, as fields the system computes. Counted
+	here, those two names excused the link table's columns with no view reporting either, which
+	is how who joined two items and when reached no reader for as long as links existed.
+	"""
+
+	class Bare(pydantic.BaseModel):
+		"""A link view as it stood before `#4051`."""
+
+		id: uuid.UUID
+		link_type: str
+		link_category: str | None = None
+		label: str
+		direction: str
+
+	link = _mapped()["Link"]
+
+	assert "created_at" in DERIVED and "created_by" in DERIVED
+	assert {"created_at", "created_by"} <= set(_unexplained(link, Bare))
+	assert not _unexplained(link, subroutine.views.Link)
+
+
+@pytest.mark.parametrize(("label", "register"), [("INTERNAL", INTERNAL), ("UNBUILT", UNBUILT)])
+def test_every_excuse_is_still_needed (label: str, register: dict[str, str]) -> None:
+	"""An entry whose column every view now reports reads as a decision about nothing.
+
+	Worse, it waits: a bare name excuses whatever later takes it, on any table, unread.
+	"""
+
+	unneeded = _unneeded(register, STORED)
+
+	assert not unneeded, (
+		f"{label} excuses {unneeded}, which every view that stores them now reports. Delete the "
+		f"entries; if one names an item, deleting it is what closes that item."
+	)
+
+
+def test_the_needed_check_can_see_an_excuse_the_view_outgrew () -> None:
+	"""Fed one of the entries as it stood before `#4051`, through the real scan."""
+
+	as_it_stood = {"recurrence_rule": "Recurrence (M7)."}
+
+	assert "recurrence_rule" in subroutine.views.Task.model_fields
+	assert _unneeded(as_it_stood, STORED) == ["recurrence_rule"]
+
+	# And an entry still doing its work is left alone, which is what keeps this from being a
+	# check that flags everything.
+	assert not _unneeded({"Task.path": "machinery"}, STORED)
 
 
 def test_every_mapped_model_is_walked_or_says_why_not () -> None:

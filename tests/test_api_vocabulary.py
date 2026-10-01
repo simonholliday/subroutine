@@ -86,6 +86,39 @@ def test_a_status_can_be_added_renamed_and_removed (world: test_api_tasks.World)
 	assert not [row for row in _statuses(world, entity_type="task") if row["key"] == "reviewing"]
 
 
+def test_a_status_says_where_it_stands (world: test_api_tasks.World) -> None:
+	"""`#4051`: a position could be set and never read back.
+
+	``PATCH /v1/statuses`` has taken one since SR#826 and no answer carried it, so the only way
+	to learn it was the order of a listing. The answer to the move, the listing and its order
+	agree now.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/statuses",
+		json={
+			"entity_type": "task",
+			"key": "in_review",
+			"label": "In review",
+			"category": "in_progress",
+		},
+	)
+
+	assert made.status_code == 201, made.text
+
+	moved = world.call("PATCH", f"/v1/statuses/{made.json()['id']}", json={"position": -1})
+
+	assert moved.status_code == 200, moved.text
+	assert moved.json()["position"] == -1
+
+	rows = _statuses(world, entity_type="task")
+
+	assert _keyed(rows, "in_review")["position"] == -1
+	assert rows[0]["key"] == "in_review", "a listing comes in this order, so the move leads it"
+	assert [row["position"] for row in rows] == sorted(row["position"] for row in rows)
+
+
 def test_a_task_reports_the_word_its_workspace_uses_for_its_state (
 	world: test_api_tasks.World,
 ) -> None:
