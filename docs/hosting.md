@@ -1688,6 +1688,30 @@ A setting Subroutine does not recognise is named on every command rather than ig
 the nearest real one suggested. `protectd = true` is not a protected instance and never was;
 before, nothing said so.
 
+### An export is for leaving, not for putting back
+
+**A backup is the wrong copy to hand somebody who is leaving, and an export is the right one.**
+A backup is exact: the whole database as it stands, every account and every token's hash
+included, made for putting back. `subroutine export` is the other kind of copy. It writes what
+one credential can read, as a folder per workspace: a file of JSON lines for each kind of thing,
+a readable Markdown copy beside it, and a `manifest.json` saying what is in it, which version
+wrote it, and what an export never holds - no password, token or sign-in link, and nothing that
+credential could not read.
+
+It reads through a connection, so somebody you host can run it on their own machine and take
+their work without asking you:
+
+```console
+$ subroutine export leaving
+Exported metacortex to leaving/metacortex:
+  2 projects, 5 items, 1 comment, 13 changes, 2 accounts, 2 members, 2 project memberships, and the workspace's settings and the words it uses for states and types.
+  A readable copy is in markdown/, a page for each item with its comments.
+  manifest.json says what is in it, and what an export never holds.
+```
+
+**Nothing reads an export back in yet.** It is for keeping and for reading, and for whatever
+comes next. To move an instance, a backup and `subroutine db copy` are still the way.
+
 ## Credentials
 
 `subroutine token list` shows every credential this instance has issued - its prefix, who owns

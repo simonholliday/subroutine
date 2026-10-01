@@ -177,6 +177,12 @@ Three ways in, and they compose:
 
 Your own to-do list fits in the same install without being filed like work.
 
+**And you can leave with your work.** `subroutine export ~/leaving` writes everything you can
+read as a folder per workspace: a file of JSON lines for each kind of thing - items, documents,
+comments, links, the history of changes, and who belongs where - with a Markdown copy beside it
+that reads without Subroutine. It runs over any connection, so it works the same on somebody
+else's instance as on your own.
+
 ### About Claude
 
 Subroutine speaks MCP, so any agent that does can use it. **In practice it has only been tested
@@ -306,6 +312,7 @@ specified and not built - named here because a tool that overstates itself waste
 | `subroutine doctor` - whether this machine's installation is coherent | **Built** |
 | Being told when the program, the plugin or the instance is out of date - opt-in | **Built** |
 | Copying an instance between SQLite and PostgreSQL | **Built** |
+| Taking away everything you can read, as JSON lines and readable Markdown | **Built** |
 | Single-command deployment from a compose file | Planned |
 
 ---
