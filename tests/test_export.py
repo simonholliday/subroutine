@@ -156,7 +156,8 @@ def test_what_a_private_project_holds_is_left_out_for_somebody_outside_it (pair:
 	"""Read through the domain as the owner and as a colleague, so only the reader differs.
 
 	The project, its task, a comment on it, a link reaching it from outside, a verification of
-	it and what happened to it - each is in the owner's export and none in the colleague's.
+	it, what happened to it and who it is shared with - each is in the owner's export and none in
+	the colleague's. Who belongs to the workspace is in both, as its members listing is.
 	"""
 
 	made = _seeded(pair)
@@ -187,6 +188,14 @@ def test_what_a_private_project_holds_is_left_out_for_somebody_outside_it (pair:
 		assert any(hidden.ref in (row.source.ref, row.target.ref) for row in links) is sees
 		assert (hidden.ref in verified) is sees
 		assert (hidden.ref in {row.item_ref for row in _read(pair, reader, "events")}) is sees
+		shared = {row.project for row in _read(pair, reader, "project_members")}
+
+		assert ("ops" in shared) is sees
+		assert "web" in shared, "a public project's members are anybody's in the workspace to take"
+		assert {row.user.id for row in _read(pair, reader, "members")} == {
+			pair.user.id,
+			colleague.user.id,
+		}
 
 		# And what is outside the project is the colleague's to take as well.
 		assert made["fix"].ref in {row.ref for row in _read(pair, reader, "tasks")}
@@ -247,7 +256,9 @@ def test_a_credential_is_refused_what_its_own_listing_would_refuse_it (pair: Pai
 
 	Without ``task:read`` there are no tasks and no documents, which are read under it; without
 	``comment:read`` there are no comments, as ``GET /v1/tasks/<ref>/comments`` refuses them;
-	and with it, a comment on a task still goes only to somebody who may read the task.
+	and with it, a comment on a task still goes only to somebody who may read the task. Without
+	``workspace:read`` there are no members, as ``GET /v1/workspaces/<slug>/members`` refuses
+	them, while who is shared into a project goes with ``project:read``.
 	"""
 
 	_seeded(pair)
@@ -267,6 +278,11 @@ def test_a_credential_is_refused_what_its_own_listing_would_refuse_it (pair: Pai
 		_read(pair, without_comments, "comments")
 
 	assert _read(pair, without_comments, "tasks")
+
+	with pytest.raises(subroutine.errors.SubroutineError):
+		_read(pair, without_comments, "members")
+
+	assert _read(pair, without_comments, "project_members")
 
 	for kind in ("tasks", "documents"):
 		with pytest.raises(subroutine.errors.SubroutineError):
@@ -288,6 +304,7 @@ def test_a_kind_nobody_has_heard_of_is_refused_by_name (pair: Pair) -> None:
 
 #: The table each kind's view reports, so a field can be told from a stored column.
 KIND_TABLES: dict[str, typing.Any] = {
+	"workspace": subroutine.db.models.identity.Workspace,
 	"projects": subroutine.db.models.project.Project,
 	"tasks": subroutine.db.models.work.Task,
 	"documents": subroutine.db.models.work.Document,
@@ -301,6 +318,8 @@ KIND_TABLES: dict[str, typing.Any] = {
 	"link_types": subroutine.db.models.vocabulary.LinkType,
 	"saved_views": subroutine.db.models.saved.SavedView,
 	"users": subroutine.db.models.identity.User,
+	"members": subroutine.db.models.identity.WorkspaceMember,
+	"project_members": subroutine.db.models.project.ProjectMember,
 }
 
 #: **Fields that are no column of their row and are kept, each a name for something it stores**
@@ -308,6 +327,7 @@ KIND_TABLES: dict[str, typing.Any] = {
 #: The other side is ``exporting.COMPUTED``. A field on neither fails below, so a field added to
 #: a view is placed before it can be exported.
 NAMED: dict[str, frozenset[str]] = {
+	"workspace": frozenset({"prioritised_project"}),
 	"projects": frozenset({"status", "status_category", "status_is_default", "status_label"}),
 	"tasks": frozenset({
 		"workspace",
@@ -357,6 +377,8 @@ NAMED: dict[str, frozenset[str]] = {
 	"link_types": frozenset(),
 	"saved_views": frozenset({"owner"}),
 	"users": frozenset({"account_parent"}),
+	"members": frozenset({"user", "role", "workspace"}),
+	"project_members": frozenset({"user", "project"}),
 }
 
 
@@ -425,3 +447,47 @@ def test_a_link_s_ends_say_which_item_and_nothing_of_its_state (pair: Pair) -> N
 		assert set(written[end]) == set(subroutine.exporting.END_KEPT), written[end]
 
 	assert written["created_by"] == str(pair.user.id) and written["label"]
+
+
+def test_a_membership_says_whose_and_where_and_nothing_of_their_state (pair: Pair) -> None:
+	"""`#4075`: a member's line keeps which account it is and its name, as a link's end keeps an item.
+
+	The account is in ``users``, as it was stored, and the workspace in ``workspace``. A project
+	membership says which project by its id too, since a key is unique only under one parent.
+	"""
+
+	_seeded(pair)
+	(member,) = list(pair.local.export("members"))
+	written = subroutine.exporting.line("members", member)
+
+	assert set(written["user"]) == set(subroutine.exporting.ACCOUNT_KEPT), written["user"]
+	assert written["user"]["id"] == str(pair.user.id)
+	assert set(written["workspace"]) == {"id", "slug"}, written["workspace"]
+	assert written["role"] == "owner" and written["created_at"]
+
+	web = next(row for row in pair.local.export("projects") if row.key == "web")
+	(shared,) = [row for row in pair.local.export("project_members") if row.project == "web"]
+	written = subroutine.exporting.line("project_members", shared)
+
+	assert set(written["user"]) == set(subroutine.exporting.ACCOUNT_KEPT), written["user"]
+	assert written["project_id"] == str(web.id)
+
+
+def test_the_workspace_is_one_line_of_its_own_row (pair: Pair) -> None:
+	"""Its time zone, description, settings and prioritised project, which no other file holds."""
+
+	_seeded(pair)
+	pair.local.update_workspace(
+		pair.workspace.slug,
+		description="Where the website rebuild lives.",
+		timezone="Europe/London",
+		prioritised_project="web",
+	)
+	(own,) = [
+		subroutine.exporting.line("workspace", row) for row in pair.remote.export("workspace")
+	]
+
+	assert own["id"] == str(pair.workspace.id) and own["slug"] == pair.workspace.slug
+	assert own["description"] == "Where the website rebuild lives."
+	assert own["timezone"] == "Europe/London" and own["prioritised_project"] == "web"
+	assert isinstance(own["settings"], dict)

@@ -39,6 +39,7 @@ import subroutine.domain.tags
 import subroutine.domain.users
 import subroutine.exporting
 import subroutine.views
+import test_authorization
 import test_export
 import test_transport_equivalence
 
@@ -55,24 +56,22 @@ def _every_event_settled (monkeypatch: pytest.MonkeyPatch) -> None:
 
 #: **What the importer supplies because no line carries it**, and the item that would make it
 #: carry it. Each is a fact about the workspace an export cannot give back today.
-SUPPLIED: dict[str, str] = {
-	"workspace": (
-		"#4066 - only its id, short name and title reach the manifest. Its time zone, its "
-		"description, its settings and its prioritised project are in no file."
-	),
-	"membership": (
-		"#4066 - who is a member, with which role, and who belongs to a private project are in "
-		"no file. The importer makes the reader the owner and a member of every project they "
-		"own, which is what creating one writes."
-	),
-}
+#:
+#: **Empty since `#4075`**, which carried the workspace's own row and who belongs to it and to
+#: each project; those were its last two entries. A role is not one: every workspace is seeded
+#: with the same ones, no route makes another, and a membership names its role by key.
+SUPPLIED: dict[str, str] = {}
 
 
 def _lines (pair: Pair) -> Lines:
-	"""Return every kind's lines, as ``subroutine export`` writes them."""
+	"""Return every kind's lines, as ``subroutine export`` writes them over a connection.
+
+	**Through the HTTP client**, because the seed makes a second account, and the local client
+	stops at one: it reads as the single account an instance has.
+	"""
 
 	return {
-		kind: [subroutine.exporting.line(kind, row) for row in pair.local.export(kind)]
+		kind: [subroutine.exporting.line(kind, row) for row in pair.remote.export(kind)]
 		for kind in subroutine.views.EXPORTED
 	}
 
@@ -93,6 +92,17 @@ def _seeded (pair: Pair) -> None:
 	local.create_document(title="What moved with it", body="The cron line.", parent=decision.ref)
 	local.create_project(key="ops", title="Operations", visibility="private")
 	local.capture(text="Fix the leak on the third floor", project="ops")
+
+	# The workspace's own row, and somebody else in it, shared into the private project. The
+	# local client goes before the second account, which is the end of its single one.
+	local.update_workspace(
+		pair.workspace.slug,
+		description="Where the website rebuild lives.",
+		timezone="Europe/London",
+		prioritised_project="web",
+	)
+	colleague = test_authorization._member(pair.session, pair.workspace, "member")
+	pair.remote.share_project("ops", username=colleague.user.username)
 
 
 def _value (column: sqlalchemy.Column[typing.Any], value: typing.Any) -> typing.Any:
@@ -159,13 +169,7 @@ def _paths (
 	return found
 
 
-def _rebuilt (
-	session: sqlalchemy.orm.Session,
-	lines: Lines,
-	*,
-	workspace: subroutine.views.WorkspaceRef,
-	reader: uuid.UUID,
-) -> None:
+def _rebuilt (session: sqlalchemy.orm.Session, lines: Lines) -> None:
 	"""Write an export into an empty database, as an importer of it would."""
 
 	tables = {
@@ -188,15 +192,18 @@ def _rebuilt (
 		)
 		session.execute(sqlalchemy.insert(user), [row])
 
-	# SUPPLIED["workspace"]: everything but its id, short name and title.
-	rebuilt = subroutine.db.models.identity.Workspace(
-		id=workspace.id, slug=workspace.slug, title=workspace.title
+	# **Seeded under its own id, short name and title, for its roles**, which no line carries:
+	# every workspace is seeded with the same ones and no route makes another. Its own values go
+	# on once the project it may have prioritised is there to point at, below.
+	(own,) = lines["workspace"]
+	workspace = subroutine.db.models.identity.Workspace(
+		id=uuid.UUID(own["id"]), slug=own["slug"], title=own["title"]
 	)
-	subroutine.db.seed.seed_workspace(session, rebuilt)
+	subroutine.db.seed.seed_workspace(session, workspace)
 	session.flush()
 
-	# The seeded words go, so the exported ones can come back under their own ids; the roles
-	# stay, since no line carries them (SUPPLIED["membership"]).
+	# The seeded words go, so the exported ones can come back under their own ids. The roles
+	# stay, and a membership names its role by key.
 	for model in (
 		subroutine.db.models.vocabulary.Status,
 		subroutine.db.models.vocabulary.ItemType,
@@ -220,15 +227,25 @@ def _rebuilt (
 
 			session.execute(sqlalchemy.insert(tables[table]), [_row(tables[table], line, **extra)])
 
-	owner = subroutine.db.models.identity.Role
-	(role,) = session.scalars(
-		sqlalchemy.select(owner).where(owner.workspace_id == workspace.id, owner.key == "owner")
-	)
-	session.add(
-		subroutine.db.models.identity.WorkspaceMember(
-			workspace_id=workspace.id, user_id=reader, role_id=role.id
+	role = subroutine.db.models.identity.Role
+	roles = {
+		row.key: row.id
+		for row in session.scalars(sqlalchemy.select(role).where(role.workspace_id == workspace.id))
+	}
+
+	for line in lines["members"]:
+		session.execute(
+			sqlalchemy.insert(tables["workspace_member"]),
+			[
+				_row(
+					tables["workspace_member"],
+					line,
+					workspace_id=workspace.id,
+					user_id=uuid.UUID(line["user"]["id"]),
+					role_id=roles[line["role"]],
+				)
+			],
 		)
-	)
 
 	projects = _paths(lines["projects"], "parent_id")
 
@@ -239,15 +256,38 @@ def _rebuilt (
 			[_row(tables["project"], line, path=path, depth=depth)],
 		)
 
-		if line["owner_id"] is not None:
-			session.add(
-				subroutine.db.models.project.ProjectMember(
+	for line in lines["project_members"]:
+		session.execute(
+			sqlalchemy.insert(tables["project_member"]),
+			[
+				_row(
+					tables["project_member"],
+					line,
 					workspace_id=workspace.id,
-					project_id=uuid.UUID(line["id"]),
-					user_id=uuid.UUID(line["owner_id"]),
-					role_id=None,
+					user_id=uuid.UUID(line["user"]["id"]),
 				)
+			],
+		)
+
+	# **Written with its line's ``updated_at`` and version**, so this update moves neither. The ORM's
+	# copy, made by seeding, is stale after it and is let go. Nothing here keeps it past this
+	# function, so the session would drop it anyway, but a copy kept would be read as seeded.
+	addresses = {
+		line["path"]: uuid.UUID(line["id"]) for line in lines["projects"] if line["deleted_at"] is None
+	}
+	focus = own["prioritised_project"]
+	session.execute(
+		sqlalchemy.update(tables["workspace"])
+		.where(tables["workspace"].c.id == workspace.id)
+		.values(
+			_row(
+				tables["workspace"],
+				own,
+				prioritised_project_id=None if focus is None else addresses[focus],
 			)
+		)
+	)
+	session.expire(workspace)
 
 	tag_ids = {line["name"]: uuid.UUID(line["id"]) for line in lines["tags"]}
 	refs = {line["ref"]: uuid.UUID(line["id"]) for line in lines["tasks"]}
@@ -389,9 +429,8 @@ def test_an_export_rebuilt_into_an_empty_database_gives_back_every_line (
 
 	_seeded(pair)
 	before = _lines(pair)
-	workspace = pair.local.identity().workspaces[0]
 
-	_rebuilt(empty, before, workspace=workspace, reader=pair.user.id)
+	_rebuilt(empty, before)
 
 	rebuilt = empty.get(subroutine.db.models.identity.User, pair.user.id)
 
@@ -400,16 +439,20 @@ def test_an_export_rebuilt_into_an_empty_database_gives_back_every_line (
 	reader = subroutine.domain.authentication.Principal(user=rebuilt)
 
 	for kind in subroutine.views.EXPORTED:
-		again = [
-			subroutine.exporting.line(kind, row)
-			for row in _read(empty, reader, workspace.id, kind)
-		]
+		exported = _in_order(kind, before[kind])
+		again = _in_order(
+			kind,
+			[
+				subroutine.exporting.line(kind, row)
+				for row in _read(empty, reader, pair.workspace.id, kind)
+			],
+		)
 
-		assert before[kind], f"the seed made no {kind}, so this compared nothing"
-		assert len(again) == len(before[kind]), (kind, len(again), len(before[kind]))
+		assert exported, f"the seed made no {kind}, so this compared nothing"
+		assert len(again) == len(exported), (kind, len(again), len(exported))
 
 		# Field by field, so a failure names what changed rather than printing two rows.
-		for was, now in zip(before[kind], again, strict=True):
+		for was, now in zip(exported, again, strict=True):
 			changed = {
 				key: (was.get(key), now.get(key))
 				for key in was.keys() | now.keys()
@@ -419,8 +462,24 @@ def test_an_export_rebuilt_into_an_empty_database_gives_back_every_line (
 			assert not changed, (kind, was.get("ref", was.get("id")), changed)
 
 
-#: The table each kind is stored in, for the comparison of what is stored.
+def _in_order (kind: str, lines: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
+	"""Return a kind's lines in an order a rebuild keeps.
+
+	**A membership's line carries no id of its own**, since the id is the instance's and a rebuild
+	makes new ones, so its lines are put in the order of where and whose. Every other kind's are
+	in the order of the ids they carry, which a rebuild keeps.
+	"""
+
+	if kind not in ("members", "project_members"):
+		return lines
+
+	return sorted(lines, key=lambda line: (line.get("project_id") or "", line["user"]["id"]))
+
+
+#: The table each kind is stored in, for the comparison of what is stored. **Not the memberships**,
+#: whose lines carry no id to find their rows by: the test after this one compares those.
 TABLES = {
+	"workspace": "workspace",
 	"projects": "project",
 	"tasks": "task",
 	"documents": "document",
@@ -450,8 +509,7 @@ def test_every_value_a_line_carries_is_stored_again_exactly_as_it_was (
 
 	_seeded(pair)
 	before = _lines(pair)
-	workspace = pair.local.identity().workspaces[0]
-	_rebuilt(empty, before, workspace=workspace, reader=pair.user.id)
+	_rebuilt(empty, before)
 	tables = {table.name: table for table in subroutine.db.base.Base.metadata.sorted_tables}
 
 	for kind, name in TABLES.items():
@@ -475,6 +533,40 @@ def test_every_value_a_line_carries_is_stored_again_exactly_as_it_was (
 			}
 
 			assert not changed, (kind, stored.get("ref", stored.get("id")), changed)
+
+
+def test_every_membership_is_stored_again_with_its_role_and_its_date (
+	pair: Pair, empty: sqlalchemy.orm.Session
+) -> None:
+	"""`#4075`: who belongs to the workspace and with which role, and who to each project, and since when.
+
+	**Compared by whose and where**, since a membership's line has no id of its own, and a role by
+	its key, since every workspace is seeded with its roles under ids of its own. Who shared a
+	project with somebody is not in an export, and ``#4056`` is why.
+	"""
+
+	_seeded(pair)
+	_rebuilt(empty, _lines(pair))
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+	shared = subroutine.db.models.project.ProjectMember
+	members = (
+		sqlalchemy.select(member.user_id, role.key, member.created_at)
+		.join(role, role.id == member.role_id)
+		.where(member.workspace_id == pair.workspace.id)
+		.order_by(member.user_id)
+	)
+	shares = (
+		sqlalchemy.select(shared.project_id, shared.user_id, shared.role_id, shared.created_at)
+		.where(shared.workspace_id == pair.workspace.id)
+		.order_by(shared.project_id, shared.user_id)
+	)
+
+	for statement, least in ((members, 2), (shares, 3)):
+		was = [tuple(row) for row in pair.session.execute(statement)]
+
+		assert was == [tuple(row) for row in empty.execute(statement)]
+		assert len(was) >= least, "the seed made a colleague and shared a project with them"
 
 
 def _read (

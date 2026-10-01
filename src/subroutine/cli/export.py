@@ -41,12 +41,16 @@ NOUNS: dict[str, tuple[str, str]] = {
 	"link_types": ("kind of link", "kinds of link"),
 	"saved_views": ("saved view", "saved views"),
 	"users": ("account", "accounts"),
+	"workspace": ("workspace", "workspaces"),
+	"members": ("member", "members"),
+	"project_members": ("project membership", "project memberships"),
 }
 
 
-#: The workspace's own words rather than its work: written in full, and summed up when said,
-#: because *15 statuses, 13 types* tells somebody leaving nothing they asked about.
-WORDS = frozenset({"statuses", "item_types", "link_types"})
+#: The workspace's own row and words rather than its work: written in full, and summed up when
+#: said, because *1 workspace, 15 statuses, 13 types* tells somebody leaving nothing they asked
+#: about.
+WORDS = frozenset({"workspace", "statuses", "item_types", "link_types"})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -366,7 +370,9 @@ def described (workspace: subroutine.views.WorkspaceRef, written: Written) -> li
 	]
 	lines = [
 		f"Exported {workspace.slug} to {written.folder}:",
-		"  " + (", ".join(held) or "No items") + ", and the words it uses for states and types.",
+		"  "
+		+ (", ".join(held) or "No items")
+		+ ", and the workspace's settings and the words it uses for states and types.",
 	]
 
 	for kind, reason in written.refused.items():

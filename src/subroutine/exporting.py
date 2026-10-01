@@ -15,11 +15,13 @@ the change feed's own page. A second copy of who may read what is the defect
 
 **And every refusal is the one its own listing makes**, so an export is never a wider door to
 the same rows: ``task:read`` for tasks and documents and ``project:read`` for projects, which
-the scoping statements check, and ``comment:read`` for comments, which the comment listing
-checks for itself and so this does too.
+the scoping statements check, and ``comment:read`` for comments, ``workspace:read`` for who
+belongs to the workspace and ``project:read`` for who is shared into a project, which those
+listings check for themselves and so this does too.
 
 **Left out on purpose**: a withdrawn link and a deleted comment, which cannot be put back and are
-recorded as events; memberships and roles; and every credential, which no view carries.
+recorded as events; roles, which every workspace is seeded with and no route makes; and every
+credential, which no view carries.
 """
 
 import dataclasses
@@ -41,6 +43,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.links
+import subroutine.domain.projects
 import subroutine.domain.saved
 import subroutine.domain.scoping
 import subroutine.domain.users
@@ -143,6 +146,20 @@ def _ordered (order: typing.Any, rows: Statement) -> Fetch:
 		return found[:size], len(found) > size
 
 	return fetch
+
+
+def _workspace (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return the workspace's own row, as ``GET /v1/workspaces/<slug>`` reads it to a member.
+
+	Nothing to refuse beyond what that route refuses, which is anybody outside the workspace, and
+	an export is made only of a workspace its reader belongs to.
+	"""
+
+	model = subroutine.db.models.identity.Workspace
+
+	return sqlalchemy.select(model).where(model.id == workspace_id)
 
 
 def _projects (
@@ -287,6 +304,52 @@ def _users (
 	return subroutine.domain.users.readable(session, actor=reader)
 
 
+def _members (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return who belongs to the workspace, as ``GET /v1/workspaces/<slug>/members`` lists them.
+
+	**Refused without ``workspace:read``**, as that listing refuses it, and an account marked
+	deleted is left out, as it leaves one out.
+	"""
+
+	subroutine.domain.authorization.authorize(
+		session, reader, subroutine.permissions.WORKSPACE_READ, workspace_id=workspace_id
+	)
+
+	model = subroutine.db.models.identity.WorkspaceMember
+	account = subroutine.db.models.identity.User
+
+	return (
+		sqlalchemy.select(model)
+		.join(account, account.id == model.user_id)
+		.where(model.workspace_id == workspace_id, account.deleted_at.is_(None))
+	)
+
+
+def _project_members (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return who is shared into each project this export holds.
+
+	**Through the projects it holds**, so a private project the reader is not in adds nothing,
+	and refused as ``GET /v1/projects/<key>/members`` refuses: ``project:read``, which the
+	project statement checks against a token and this checks against a role.
+	"""
+
+	subroutine.domain.authorization.authorize(
+		session, reader, subroutine.permissions.PROJECT_READ, workspace_id=workspace_id
+	)
+
+	model = subroutine.db.models.project.ProjectMember
+	project = subroutine.db.models.project.Project
+	held = _projects(session, reader, workspace_id).with_only_columns(project.id)
+
+	return sqlalchemy.select(model).where(
+		model.workspace_id == workspace_id, model.project_id.in_(held)
+	)
+
+
 def _events (
 	session: sqlalchemy.orm.Session,
 	reader: Principal,
@@ -318,6 +381,35 @@ def _named (
 	return subroutine.views.Vocabulary(
 		session, user_ids=[identifier for identifier in identifiers if identifier is not None]
 	)
+
+
+def _by_id (
+	session: sqlalchemy.orm.Session, model: typing.Any, identifiers: typing.Iterable[uuid.UUID]
+) -> dict[uuid.UUID, typing.Any]:
+	"""Return the rows of one table these ids name, loaded in one query."""
+
+	wanted = set(identifiers)
+
+	if not wanted:
+		return {}
+
+	found: list[typing.Any] = list(
+		session.scalars(sqlalchemy.select(model).where(model.id.in_(wanted)))
+	)
+
+	return {row.id: row for row in found}
+
+
+def _render_workspace (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID, rows: Rows
+) -> list[subroutine.views.Workspace]:
+	"""Render the workspace with the address of the project it has prioritised, as its route does."""
+
+	focused = subroutine.domain.projects.prioritised_addresses(
+		session, reader, workspace_ids=[row.id for row in rows]
+	)
+
+	return [subroutine.views.workspace(row, prioritised=focused.get(row.id)) for row in rows]
 
 
 def _render_projects (
@@ -438,6 +530,66 @@ def _render_users (
 	]
 
 
+def _render_members (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID, rows: Rows
+) -> list[subroutine.views.Member]:
+	"""Render a page of memberships as the members listing does, loading what they join once."""
+
+	accounts = _by_id(session, subroutine.db.models.identity.User, [row.user_id for row in rows])
+	roles = _by_id(session, subroutine.db.models.identity.Role, [row.role_id for row in rows])
+	within = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Workspace).where(
+			subroutine.db.models.identity.Workspace.id == workspace_id
+		)
+	).one()
+	focused = subroutine.domain.projects.prioritised_addresses(
+		session, reader, workspace_ids=[workspace_id]
+	)
+	answerable = subroutine.domain.accountability.answerable_for_many(session, list(accounts))
+	parents = subroutine.domain.accountability.account_parents_for_many(
+		session, list(accounts.values())
+	)
+
+	return [
+		subroutine.views.member(
+			row,
+			account=accounts[row.user_id],
+			role=roles[row.role_id],
+			within=within,
+			prioritised=focused.get(workspace_id),
+			answers_to=answerable.get(row.user_id),
+			account_parent=parents.get(row.user_id),
+		)
+		for row in rows
+	]
+
+
+def _render_project_members (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID, rows: Rows
+) -> list[subroutine.views.ProjectMember]:
+	"""Render a page of project memberships as a project's members listing does."""
+
+	accounts = _by_id(session, subroutine.db.models.identity.User, [row.user_id for row in rows])
+	projects = _by_id(
+		session, subroutine.db.models.project.Project, [row.project_id for row in rows]
+	)
+	answerable = subroutine.domain.accountability.answerable_for_many(session, list(accounts))
+	parents = subroutine.domain.accountability.account_parents_for_many(
+		session, list(accounts.values())
+	)
+
+	return [
+		subroutine.views.project_member(
+			row,
+			account=accounts[row.user_id],
+			within=projects[row.project_id],
+			answers_to=answerable.get(row.user_id),
+			account_parent=parents.get(row.user_id),
+		)
+		for row in rows
+	]
+
+
 def _each (
 	render: typing.Callable[[typing.Any], pydantic.BaseModel],
 ) -> typing.Callable[
@@ -455,6 +607,7 @@ def _each (
 	return rendered
 
 
+_Workspace = subroutine.db.models.identity.Workspace
 _Project = subroutine.db.models.project.Project
 _Task = subroutine.db.models.work.Task
 _Document = subroutine.db.models.work.Document
@@ -468,13 +621,19 @@ _ItemType = subroutine.db.models.vocabulary.ItemType
 _LinkType = subroutine.db.models.vocabulary.LinkType
 _SavedView = subroutine.db.models.saved.SavedView
 _User = subroutine.db.models.identity.User
+_WorkspaceMember = subroutine.db.models.identity.WorkspaceMember
+_ProjectMember = subroutine.db.models.project.ProjectMember
 
 #: Every kind an export holds, by the name its route and its file take. **The order is the order
-#: a reader meets them in**: where the work lives, the work, what was said and joined about it,
-#: then the words it is described in and who is named.
+#: a reader meets them in**: the workspace and where the work lives in it, the work, what was said
+#: and joined about it, then the words it is described in, who is named, and who belongs where.
 KINDS: dict[str, Kind] = {
 	kind.name: kind
 	for kind in (
+		Kind(
+			"workspace", subroutine.views.Workspace, _Workspace.id,
+			_ordered(_Workspace.id, _workspace), _render_workspace,
+		),
 		Kind(
 			"projects", subroutine.views.Project, _Project.id,
 			_ordered(_Project.id, _projects), _render_projects,
@@ -515,6 +674,14 @@ KINDS: dict[str, Kind] = {
 			_ordered(_SavedView.id, _saved_views), _render_saved_views,
 		),
 		Kind("users", subroutine.views.User, _User.id, _ordered(_User.id, _users), _render_users),
+		Kind(
+			"members", subroutine.views.Member, _WorkspaceMember.id,
+			_ordered(_WorkspaceMember.id, _members), _render_members,
+		),
+		Kind(
+			"project_members", subroutine.views.ProjectMember, _ProjectMember.id,
+			_ordered(_ProjectMember.id, _project_members), _render_project_members,
+		),
 	)
 }
 
@@ -529,6 +696,7 @@ KINDS: dict[str, Kind] = {
 #: them are what join it to the rest. ``tests/test_export.py`` holds every field of every kind to
 #: one side or the other, so a field added to a view has to be placed before it can be exported.
 COMPUTED: dict[str, frozenset[str]] = {
+	"workspace": frozenset(),
 	"projects": frozenset({"hidden_statuses"}),
 	"tasks": frozenset({
 		"size_bytes",
@@ -567,12 +735,27 @@ COMPUTED: dict[str, frozenset[str]] = {
 	"link_types": frozenset(),
 	"saved_views": frozenset({"about_the_reader"}),
 	"users": frozenset({"answers_to"}),
+	"members": frozenset(),
+	"project_members": frozenset(),
 }
 
 #: **What an end of a link keeps**: which item it is, and what it is called. The rest of a
 #: :class:`~subroutine.views.LinkEnd` is that item's own state, which its own file holds - and
 #: holds as it was stored, where an end reports it worked out for the reader.
 END_KEPT = frozenset({"entity_type", "id", "ref", "title"})
+
+#: **What an account keeps where a line names one inside it**: which account, and the name a
+#: person reads. The rest is the account's own row, which ``users`` holds as it was stored, or
+#: whom it answers to, worked out for the reader.
+ACCOUNT_KEPT = frozenset({"id", "username"})
+
+#: **What each object nested in a line keeps**, by kind and field, for :data:`END_KEPT`'s reason.
+#: A membership names its workspace by id and short name, since the workspace's own file holds it.
+NESTED_KEPT: dict[str, dict[str, frozenset[str]]] = {
+	"links": {"source": END_KEPT, "target": END_KEPT},
+	"members": {"user": ACCOUNT_KEPT, "workspace": frozenset({"id", "slug"})},
+	"project_members": {"user": ACCOUNT_KEPT},
+}
 
 #: What an export never holds, said in its manifest so that nobody takes a quiet absence for a
 #: complete record.
@@ -598,15 +781,13 @@ VERSIONING = (
 def line (kind: str, item: pydantic.BaseModel) -> dict[str, typing.Any]:
 	"""Return one row as its line in an export: the view, less what the system works out.
 
-	A link's two ends keep only :data:`END_KEPT`, for the reason that constant gives.
+	An object nested in it keeps only what :data:`NESTED_KEPT` names, for the reasons given there.
 	"""
 
-	if kind == "links":
-		ends = {
-			name: {field for field in subroutine.views.LinkEnd.model_fields if field not in END_KEPT}
-			for name in ("source", "target")
-		}
+	left_out: dict[str, typing.Any] = dict.fromkeys(COMPUTED[kind], True)
 
-		return item.model_dump(mode="json", exclude=ends)
+	for name, kept in NESTED_KEPT.get(kind, {}).items():
+		nested = type(getattr(item, name)).model_fields
+		left_out[name] = {field for field in nested if field not in kept}
 
-	return item.model_dump(mode="json", exclude=set(COMPUTED[kind]))
+	return item.model_dump(mode="json", exclude=left_out)

@@ -14,6 +14,8 @@ upgrade involves.
 
 ## Unreleased
 
+- **Who is shared into a project says which project by its id**, beside its key, since a key is
+  unique only among one parent project's children.
 - **`api_version` says what it promises**: it names the contract the API's base path names, so it
   reads `1.0` for as long as that path is `/v1` and becomes `2.0` only with a `/v2`. Which
   additions an instance has is `instance_version`, beside it in `/v1/meta` and `/v1/me`.
@@ -21,16 +23,18 @@ upgrade involves.
   `document`, and an item type says where it stands in its list, as a status already does.
 - **`subroutine export <folder>` takes away everything you can read, as files you can keep.** Each
   workspace becomes a folder with one file of JSON lines per kind of thing - items, documents,
-  comments, links, changes, tags, statuses, saved views, accounts and the rest - and a
-  `manifest.json` saying what is in it, what an export never holds, and which version wrote it.
+  comments, links, changes, tags, statuses, saved views, accounts, the workspace's own settings,
+  who belongs to it and to each project, and the rest - and a `manifest.json` saying what is in
+  it, what an export never holds, and which version wrote it.
   Done, archived and deleted items are included, and so is the history of changes; nothing you
   could not already read is, and no password, token or sign-in link ever is. It works on any
   connection, so you can leave somebody else's instance with your work too. Beside the files is a
   `markdown/` folder you can read: a page for each item and document, foldered by project, with
   its comments under it.
 - **`GET /v1/export/<kind>` answers everything of one kind your credential can read**, a page at
-  a time: projects, tasks, documents, comments, links, verifications, events, tags, statuses,
-  item types, link types, saved views and users. Done, archived and deleted items are included,
+  a time: the workspace, projects, tasks, documents, comments, links, verifications, events,
+  tags, statuses, item types, link types, saved views, users, members and project members.
+  Done, archived and deleted items are included,
   and each is the object the API returns for it everywhere else. A link is given with both its
   ends, and now also says what its type is, when it was made and who made it, wherever a listing
   includes links.

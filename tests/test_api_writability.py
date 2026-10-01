@@ -894,10 +894,8 @@ INTERNAL: dict[str, str] = {
 		"id names nothing a caller sends."
 	),
 	"WorkspaceMember.id": "The same.",
-	"ProjectMember.project_id": (
-		"The project the route names, `/v1/projects/{key}/members`, so every row a listing "
-		"returns holds the same one."
-	),
+	# **`ProjectMember.project_id` went on 2026-10-01** (`#4075`): excused as the project the
+	# route names, which an export's line is read without, and reported since.
 	"WorkspaceMember.updated_at": (
 		"When the member's role last changed. The role is `Member.role`, and when it changed is "
 		"nothing a caller decides on."

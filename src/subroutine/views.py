@@ -2707,6 +2707,11 @@ class ProjectMember(pydantic.BaseModel):
 
 	user: User
 	project: str
+
+	#: **Which project, by its id as well as its key** (`#4075`). A key is unique only among one
+	#: parent's children, so a line of an export, read without the route that named the project,
+	#: needs the id to say which. Defaulted for `#345`.
+	project_id: uuid.UUID | None = None
 	created_at: datetime.datetime
 
 	def address (self) -> str:
@@ -6893,6 +6898,7 @@ def project_member (
 	return ProjectMember(
 		user=user(account, answers_to=answers_to, account_parent=account_parent),
 		project=within.key,
+		project_id=within.id,
 		created_at=row.created_at,
 	)
 
@@ -7922,6 +7928,7 @@ def settings_in_force (
 #: so a client reaching an instance over HTTP can read an export without importing them;
 #: ``tests/test_export.py`` holds the two to the same kinds.
 EXPORTED: dict[str, type[pydantic.BaseModel]] = {
+	"workspace": Workspace,
 	"projects": Project,
 	"tasks": Task,
 	"documents": Document,
@@ -7935,4 +7942,6 @@ EXPORTED: dict[str, type[pydantic.BaseModel]] = {
 	"link_types": LinkType,
 	"saved_views": SavedView,
 	"users": User,
+	"members": Member,
+	"project_members": ProjectMember,
 }
