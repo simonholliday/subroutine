@@ -842,6 +842,20 @@ class Client(typing.Protocol):
 	def delete_link_type (self, *, which: str) -> None:
 		"""Remove a link type nothing is joined by."""
 
+	def export (
+		self, kind: str, *, workspace: str | None = None
+	) -> typing.Iterator[typing.Any]:
+		"""Yield every row of one kind this credential may take away, a page at a time — `SR#4052`.
+
+		Decision `SR#4049`: each row is the view the API returns for it everywhere else, from
+		:data:`subroutine.views.EXPORTED`, and the kinds are that mapping's keys. Done, archived and
+		deleted items are included, and so are recurrence templates; a private project the
+		credential is not a member of is not, nor anything in it.
+
+		**A generator, and it reads one page at a time**, so an instance's whole history never has
+		to fit in memory at once. A kind this program does not know is refused by name.
+		"""
+
 	def tags (
 		self, *, workspace: str | None = None, limit: int | None = None
 	) -> Listing[subroutine.views.TagEntry]:
@@ -2120,3 +2134,23 @@ def from_this_end (links: typing.Sequence[subroutine.views.Link]) -> list[subrou
 		return [one for one in links if one.direction == "outgoing"]
 
 	return list(links)
+
+
+def exported_view (kind: str) -> type[typing.Any]:
+	"""Return the view one kind of export is written as, or refuse a kind there is no such thing as."""
+
+	if kind in subroutine.views.EXPORTED:
+		return subroutine.views.EXPORTED[kind]
+
+	known = ", ".join(subroutine.views.EXPORTED)
+
+	raise subroutine.errors.ValidationError(
+		f"{kind!r} is not something an export holds.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="kind",
+				code="invalid_field_value",
+				message=f"An export holds {known}.",
+			)
+		],
+	)

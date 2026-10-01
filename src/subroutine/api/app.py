@@ -23,6 +23,7 @@ import subroutine.api.changes
 import subroutine.api.comments
 import subroutine.api.documents
 import subroutine.api.events
+import subroutine.api.export
 import subroutine.api.health
 import subroutine.api.identity
 import subroutine.api.instance
@@ -126,6 +127,10 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	# The same rows, joined — `#1430`, decision `#1429`. `/v1/journal` is a literal under no
 	# entity's prefix, exactly as the feed above is, and shares a path with nothing.
 	("", subroutine.api.journal.router),
+	# Exporting - `#4052`, decision `#4049`. `/v1/export/<kind>` is a literal under no entity's
+	# prefix, like the feed and the journal, and shares a path with nothing; `routing.check` is
+	# what says so rather than this comment.
+	("", subroutine.api.export.router),
 	# The one address a calendar application fetches (`#916`). `/v1/calendars/…` is a
 	# literal under `/v1` sharing a prefix with nothing, and both its parameters claim one
 	# segment — so unlike the projects router below it needs no particular place, and

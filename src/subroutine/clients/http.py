@@ -705,6 +705,33 @@ class Client:
 
 		self._json("DELETE", f"/v1/link-types/{_segment(which)}")
 
+	def export (
+		self, kind: str, *, workspace: str | None = None
+	) -> typing.Iterator[typing.Any]:
+		"""Yield every row of one kind this credential may take away, following each cursor."""
+
+		model = subroutine.clients.base.exported_view(kind)
+		cursor = None
+		more = True
+
+		while more:
+			# **The envelope and every item through `_parsed`** (`#3936`), so an answer of the wrong
+			# shape is a refusal naming the connection rather than a pydantic error.
+			page = self._parsed(
+				subroutine.views.Collection[typing.Any],
+				self._json(
+					"GET",
+					f"/v1/export/{_segment(kind)}",
+					params=_given(workspace_id=workspace, cursor=cursor),
+				),
+			)
+
+			for item in page.items:
+				yield self._parsed(model, item)
+
+			cursor = page.page.next_cursor if page.page.has_more else None
+			more = cursor is not None
+
 	def tags (
 		self, *, workspace: str | None = None, limit: int | None = None
 	) -> subroutine.clients.base.Listing[subroutine.views.TagEntry]:

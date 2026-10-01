@@ -86,6 +86,7 @@ import subroutine.domain.versions
 import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.exporting
 import subroutine.views
 
 
@@ -1264,6 +1265,34 @@ class Client:
 				),
 				actor=actor,
 			)
+
+	def export (
+		self, kind: str, *, workspace: str | None = None
+	) -> typing.Iterator[typing.Any]:
+		"""Yield every row of one kind this credential may take away, a page at a time.
+
+		**A read of its own for each page**, resuming after the last row the one before fetched,
+		as the route's cursor does, so a long export holds no session open between pages.
+		"""
+
+		subroutine.clients.base.exported_view(kind)
+		size = subroutine.domain.paging.size(None, self.settings)
+		after = None
+		more = True
+
+		# **On whether there is more, never ``while True``**, which ``tests/test_idle.py`` refuses in
+		# anything an instance serves: a loop with no condition is how idle work begins.
+		while more:
+			with self._opened() as (session, actor):
+				chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+				found = subroutine.exporting.page(
+					session, actor, workspace_id=chosen.id, kind=kind, after=after, size=size
+				)
+
+			yield from found.items
+
+			more = found.has_more
+			after = found.resume
 
 	def tags (
 		self, *, workspace: str | None = None, limit: int | None = None

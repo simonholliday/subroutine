@@ -358,13 +358,15 @@ class LinkEnd(pydantic.BaseModel):
 	deleted_at: datetime.datetime | None = None
 
 
+# docs/design.md §5.7 and §8.4. **The docstring below is published** since `#4052` made this an
+# export's answer, so it is written for the reader of `/v1/openapi.json`: no em dash, and the
+# reason in place of the citation.
 class Edge(pydantic.BaseModel):
-	"""A link among a page's items, named by both its ends (docs/design.md §5.7, §8.4).
+	"""A link named by both its ends, as a stored fact rather than as one item's view of it.
 
 	The counterpart to :class:`Link`, which is the same row seen from one item. There is no
-	``direction`` here and no inverted label, because a listing has no single vantage point
-	to invert for — and an edge that named only "the other end" would be meaningless when
-	both ends are on the page.
+	``direction`` here and no inverted label, because there is no single item to look from -
+	and an edge that named only "the other end" would mean nothing when both ends are in hand.
 	"""
 
 	id: uuid.UUID
@@ -376,6 +378,14 @@ class Edge(pydantic.BaseModel):
 
 	source: LinkEnd
 	target: LinkEnd
+
+	#: **What :class:`Link` says of the same row** (`#4052`): what the type *is*, when the link
+	#: was made and who made it. An export writes a link as an edge, since it has no item to be
+	#: seen from, and without these an edge held less than either of its ends' listings did.
+	#: Defaulted, because this model is not new (`#345`).
+	link_category: str | None = None
+	created_at: datetime.datetime | None = None
+	created_by: uuid.UUID | None = None
 
 	def address (self) -> str:
 		"""Return what a caller addresses this by. A link has no ref of its own."""
@@ -4505,6 +4515,9 @@ def edge (found: subroutine.domain.links.Edge, vocabulary: Vocabulary) -> Edge:
 		label=found.label,
 		source=_end(found.source, vocabulary),
 		target=_end(found.target, vocabulary),
+		link_category=found.category,
+		created_at=found.created_at,
+		created_by=found.created_by,
 	)
 
 
@@ -7884,3 +7897,24 @@ def settings_in_force (
 			for one in stated
 		],
 	)
+
+
+#: **The view each kind of an export is written as, by the name its route and its file take**
+#: (`#4052`, decision `#4049`). Here rather than beside the queries in ``subroutine.exporting``,
+#: so a client reaching an instance over HTTP can read an export without importing them;
+#: ``tests/test_export.py`` holds the two to the same kinds.
+EXPORTED: dict[str, type[pydantic.BaseModel]] = {
+	"projects": Project,
+	"tasks": Task,
+	"documents": Document,
+	"comments": Comment,
+	"links": Edge,
+	"verifications": Verification,
+	"events": Event,
+	"tags": TagEntry,
+	"statuses": Status,
+	"item_types": ItemType,
+	"link_types": LinkType,
+	"saved_views": SavedView,
+	"users": User,
+}

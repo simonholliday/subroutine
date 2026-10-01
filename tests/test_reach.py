@@ -50,6 +50,7 @@ import subroutine.cli.main
 import subroutine.clients.base
 import subroutine.clients.http
 import subroutine.mcp.tools
+import subroutine.views
 
 #: The repository root, resolved from this file rather than from the working directory.
 #: `conftest`'s `_no_inherited_directory` moves every test somewhere with no `.subroutine`
@@ -155,6 +156,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 
 #: Reading routes, and the method that reaches each.
 READ_BY: dict[tuple[str, str], str] = {
+	# Exporting — `SR#4052`. One route per kind, every one read by the same method.
+	**{("GET", f"/v1/export/{kind}"): "export" for kind in subroutine.views.EXPORTED},
 	# Curating the vocabulary — `SR#826`.
 	("GET", "/v1/statuses"): "statuses",
 	("GET", "/v1/link-types"): "link_types",
@@ -356,6 +359,12 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"export": (
+		"tracked",
+		"`#4053` builds `subroutine export` on it, writing each kind as a file of lines with a "
+		"manifest beside them. The route and the three clients landed first, as decision `#4049`'s "
+		"build order has it. **Deleting this entry is part of closing `#4053`.**",
+	),
 	"item_journal": (
 		"disclosure",
 		"`#2729`. Built for the browser's page of one item's history (`#1428`). At a terminal "
@@ -483,6 +492,13 @@ SETTINGS_ARE_A_PAGE = (
 )
 
 NOT_IN_MCP: dict[str, Excuse] = {
+	"export": (
+		"budget",
+		"`#4052`. Taking all of one's data away is a person's act, decided in `#4049` as the "
+		"way to leave, and an agent working on a project has no use for every row at once. A tool "
+		"would be context every agent carries for a call almost none makes. "
+		"`subroutine_call_api` reaches `/v1/export/<kind>` where it is genuinely wanted.",
+	),
 	#: **`#1402`, and a decision rather than a deferral.** The agent tool surface is a budget
 	#: (§21.2): every name an agent must be *taught* is context spent for ever, where a grammar
 	#: it can *discover* is not. A saved view is a person's furniture - a way to stop retyping a

@@ -305,6 +305,9 @@ class Edge:
 	target: End
 	created_at: datetime.datetime
 
+	#: Who made it, or ``None`` where a system action did - as :class:`Related` carries it (`#4052`).
+	created_by: uuid.UUID | None = None
+
 
 def _far_end (
 	link: subroutine.db.models.work.Link, *, subject_id: uuid.UUID
@@ -1082,6 +1085,52 @@ def edges (
 	rows = _touching(
 		session, workspace_id=workspace_id, entity_type=entity_type, identifiers=identifiers
 	)
+
+	return _as_edges(session, principal, workspace_id=workspace_id, rows=rows)
+
+
+def edges_of (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	links: typing.Sequence[subroutine.db.models.work.Link],
+) -> list[Edge]:
+	"""Return link rows already in hand as edges, leaving out any with an end this caller cannot see.
+
+	**For a caller that holds the rows rather than the items** - an export pages through a
+	workspace's links itself (`#4052`) - where :func:`edges` finds them from the items they
+	touch. One query for their types, and :func:`_as_edges`'s for their ends.
+	"""
+
+	if not links:
+		return []
+
+	link_type = subroutine.db.models.vocabulary.LinkType
+	kinds = {
+		row.id: row
+		for row in session.scalars(
+			sqlalchemy.select(link_type).where(link_type.id.in_({link.link_type_id for link in links}))
+		)
+	}
+
+	return _as_edges(
+		session,
+		principal,
+		workspace_id=workspace_id,
+		rows=[(link, kinds[link.link_type_id]) for link in links],
+	)
+
+
+def _as_edges (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	rows: typing.Sequence[tuple[typing.Any, typing.Any]],
+) -> list[Edge]:
+	"""Return links and their types as edges, each named by both its ends, in the order given."""
+
 	ends = _ends_by_key(session, principal, workspace_id=workspace_id, rows=rows)
 	found: list[Edge] = []
 
@@ -1103,6 +1152,7 @@ def edges (
 				source=source,
 				target=target,
 				created_at=link.created_at,
+				created_by=link.created_by,
 			)
 		)
 

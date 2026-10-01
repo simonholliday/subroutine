@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+- **`GET /v1/export/<kind>` answers everything of one kind your credential can read**, a page at
+  a time: projects, tasks, documents, comments, links, verifications, events, tags, statuses,
+  item types, link types, saved views and users. Done, archived and deleted items are included,
+  and each is the object the API returns for it everywhere else. A link is given with both its
+  ends, and now also says what its type is, when it was made and who made it, wherever a listing
+  includes links.
 - **A link says when it was made and who made it, a project says who made it and who last
   changed it, and a status says its position.** All three were stored and reported by nothing, so
   a status's position could be set and never read back. Each is a new field in the API's

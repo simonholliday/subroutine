@@ -59,6 +59,11 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"unnarrowed — a visibility-narrowed count would let somebody remove a status still in use "
 	"where they cannot see, and the constraint would refuse it as a 500.",
 	"domain/authorization.py": "defines the visibility predicate the helper applies",
+	# **One lookup, of numbers for ids already narrowed** (`SR#4052`). An export renders a page of
+	# verifications with the number of the task each records, and those tasks are the ones
+	# `readable_identifiers` let through; every row it exports comes from `domain/scoping.py`.
+	"exporting.py": "reads the refs of tasks whose verifications were already narrowed by "
+	"`scoping.readable_identifiers`, to render each verification with its task's number",
 	"domain/authentication.py": "reads a project's `path` while issuing a credential, to place "
 	"the write set inside the reach (`#413`). **Deliberately not narrowed by visibility**, and "
 	"that is the point rather than an oversight: the question is the shape of the tree, not who "
