@@ -310,9 +310,10 @@ def _free_name (
 		if not candidate.exists():
 			return when, candidate
 
-	raise subroutine.errors.BadRequest(
+	raise subroutine.errors.ServiceUnavailable(
 		f"Could not find an unused backup name near {_stamp(moment)} after "
-		f"{_MAX_NAME_ATTEMPTS} tries."
+		f"{_MAX_NAME_ATTEMPTS} tries.",
+		code="backup_failed",
 	)
 
 
@@ -1021,7 +1022,8 @@ def _refuse_a_corrupt_copy (path: pathlib.Path) -> None:
 		raise subroutine.errors.ServiceUnavailable(
 			f"The backup written to {path} is the right size and names its schema, and "
 			f"could not be read back: {error}. It has been removed rather than left looking "
-			f"usable."
+			f"usable.",
+			code="backup_failed",
 		) from error
 
 	finally:
@@ -1031,7 +1033,8 @@ def _refuse_a_corrupt_copy (path: pathlib.Path) -> None:
 		raise subroutine.errors.ServiceUnavailable(
 			f"The backup written to {path} is the right size and names its schema, and its "
 			f"contents do not hold together. It has been removed rather than left looking "
-			f"usable."
+			f"usable.",
+			code="backup_failed",
 		)
 
 
@@ -1053,7 +1056,8 @@ def _refuse_an_unreadable_archive (path: pathlib.Path) -> None:
 		raise subroutine.errors.ServiceUnavailable(
 			f"The backup written to {path} is the right size and names its schema, and "
 			f"could not be read back: {error}. It has been removed rather than left looking "
-			f"usable."
+			f"usable.",
+			code="backup_failed",
 		) from error
 
 
@@ -1221,20 +1225,36 @@ def take (
 		# rather than in the copy — and a raw driver error escaping at this point walks past
 		# every caller that guards itself against a `SubroutineError`, which is exactly what
 		# aborted a `db restore --recover` on the only database that needed one.
-		raise subroutine.errors.BadRequest(
+		#
+		# **A failure here is the server's, so it is ``backup_failed`` at 503** (`#4130`, decided on
+		# `#3990`), as is every failure from here until the copy is proved. Most were 400
+		# ``malformed_request``, which tells a caller of ``POST /v1/admin/backups`` to fix a request
+		# that was read perfectly well, and the rest 503 ``service_unavailable``, which says the
+		# instance cannot serve anything yet.
+		raise subroutine.errors.ServiceUnavailable(
 			f"This database could not be read in order to back it up: "
-			f"{getattr(error, 'orig', None) or error}"
+			f"{getattr(error, 'orig', None) or error}",
+			code="backup_failed",
 		) from error
 
 	if head is None:
-		raise subroutine.errors.BadRequest(
+		raise subroutine.errors.ServiceUnavailable(
 			"This database records no schema version, so a backup of it could not be "
-			"restored. Run 'subroutine db upgrade' first."
+			"restored. Run 'subroutine db upgrade' first.",
+			code="backup_failed",
 		)
 
 	suffix = SQLITE_SUFFIX if _is_sqlite(engine) else POSTGRESQL_ARCHIVE_SUFFIX
 	active = subroutine.config.profile()
-	into = directory(settings)
+	try:
+		into = directory(settings)
+
+	except subroutine.errors.ServiceUnavailable as error:
+		# Shared with listing the backups, which keeps its own answer. Taking one is this refusal.
+		raise subroutine.errors.ServiceUnavailable(
+			error.detail, code="backup_failed", hint=error.hint
+		) from error
+
 	taken_at, target = _free_name(
 		into, moment or datetime.datetime.now(datetime.UTC), active, head, suffix
 	)
@@ -1391,7 +1411,8 @@ def _delivered (
 
 		raise subroutine.errors.ServiceUnavailable(
 			f"The backup could not be written to {target}: {error}. If that is a network "
-			f"volume, check that it is mounted and writable."
+			f"volume, check that it is mounted and writable.",
+			code="backup_failed",
 		) from error
 
 	# A backup is the database, so it gets the database's permissions. Doing it before the
@@ -1405,13 +1426,27 @@ def _delivered (
 		if arrived != size:
 			raise subroutine.errors.ServiceUnavailable(
 				f"The backup written to {target} is {arrived} bytes and should be {size}. "
-				f"It has been removed rather than left looking usable."
+				f"It has been removed rather than left looking usable.",
+				code="backup_failed",
 			)
 
-		if head_in(target) != head:
+		try:
+			read_back = head_in(target)
+
+		except subroutine.errors.SubroutineError as error:
+			# Its readers are shared with restoring, where a file that is not a backup is the
+			# caller's to fix. A copy this has just written that cannot be read is the server's.
+			raise subroutine.errors.ServiceUnavailable(
+				f"The backup written to {target} could not be read back: {error} It has been removed "
+				f"rather than left looking usable.",
+				code="backup_failed",
+			) from error
+
+		if read_back != head:
 			raise subroutine.errors.ServiceUnavailable(
 				f"The backup written to {target} could not be read back as schema {head}. "
-				f"It has been removed rather than left looking usable."
+				f"It has been removed rather than left looking usable.",
+				code="backup_failed",
 			)
 
 		_refuse_a_corrupt_copy(target)
@@ -1449,8 +1484,8 @@ def _take_sqlite (engine: sqlalchemy.engine.Engine, target: pathlib.Path) -> Non
 		# Translated rather than allowed out. A storage failure here reaches a person as a
 		# `db backup` that did not work, and a driver traceback describes SQLite rather than
 		# anything they can act on — the same discipline `fanout` applies to a connection.
-		raise subroutine.errors.BadRequest(
-			f"Could not write the backup to {target}: {error}"
+		raise subroutine.errors.ServiceUnavailable(
+			f"Could not write the backup to {target}: {error}", code="backup_failed"
 		) from error
 
 
@@ -1466,20 +1501,30 @@ def _take_postgresql (engine: sqlalchemy.engine.Engine, target: pathlib.Path) ->
 	names its original owner and grants cannot be loaded by an account that is not that owner.
 	"""
 
-	_run(
-		[
-			"pg_dump",
-			"--format=custom",
-			"--no-owner",
-			"--no-privileges",
-			"--file",
-			str(target),
-			"--dbname",
-			_connectable(engine),
-		],
-		what="pg_dump",
-		secrets=_secret_of(engine),
-	)
+	try:
+		_run(
+			[
+				"pg_dump",
+				"--format=custom",
+				"--no-owner",
+				"--no-privileges",
+				"--file",
+				str(target),
+				"--dbname",
+				_connectable(engine),
+			],
+			what="pg_dump",
+			secrets=_secret_of(engine),
+		)
+
+	except subroutine.errors.SubroutineError as error:
+		# **Whatever stopped ``pg_dump`` stopped the backup** (`#4130`). :func:`_run` is shared
+		# with restoring, so it says 400 ``malformed_request`` when a tool fails and 503
+		# ``service_unavailable`` when one is missing or overruns; neither is what a caller of the
+		# backup should branch on, and the sentence is kept as it was.
+		raise subroutine.errors.ServiceUnavailable(
+			error.detail, code="backup_failed", hint=error.hint
+		) from error
 
 
 def _is_sqlite (engine: sqlalchemy.engine.Engine) -> bool:

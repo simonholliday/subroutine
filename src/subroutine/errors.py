@@ -186,6 +186,17 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"instance as not ready rather than as arguing.",
 		),
 		_define(
+			"backup_failed",
+			503,
+			"Backup failed",
+			"The server could not take a backup. The database could not be read for one or records "
+			"no schema version, no unused name was found for it, or the copy could not be made, "
+			"written where it was to go, or read back once it was there; a copy that fails is removed "
+			"rather than left looking usable. The message says which. Distinct from "
+			"'service_unavailable', which says the instance cannot serve anything yet, and from "
+			"'malformed_request', since the request was read.",
+		),
+		_define(
 			"cursor_expired",
 			410,
 			"Cursor expired",

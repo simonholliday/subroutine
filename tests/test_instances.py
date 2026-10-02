@@ -26,6 +26,7 @@ import uuid
 
 import pytest
 import sqlalchemy
+import sqlalchemy.exc
 import sqlalchemy.orm
 import typer.testing
 
@@ -1454,6 +1455,71 @@ def test_a_backup_asked_to_keep_none_is_refused_before_it_is_taken (
 	assert "keep" in refused.json()["errors"][0]["field"], refused.text
 	assert not [one for one in elsewhere.rglob("*") if one.is_file()], (
 		"the backup was taken before the refusal"
+	)
+
+
+@pytest.mark.parametrize(
+	"fault",
+	["unreadable", "unversioned", "the folder", "no free name", "the copy", "the delivery"],
+)
+def test_a_backup_the_server_cannot_take_says_so_over_http (
+	session: sqlalchemy.orm.Session,
+	elsewhere: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	fault: str,
+) -> None:
+	"""`SR#4130`, decided on `#3990`: a failure on the server answered 400 ``malformed_request``.
+
+	That told an agent snapshotting before something bulk to fix a request that had been read
+	perfectly well, when trying later or telling the operator is what helps, and one failure to
+	write answered 503 ``service_unavailable`` while the rest answered 400. **One code for each of
+	them, ``backup_failed`` at 503**, and nothing left on disk. ``the copy`` reaches each backend's
+	own: ``VACUUM INTO`` on SQLite and ``pg_dump`` on PostgreSQL, both writing to a folder that is
+	not there.
+	"""
+
+	def unreadable (engine: typing.Any) -> str:
+		"""Fail as a damaged database does when its schema version is asked for."""
+
+		raise sqlalchemy.exc.OperationalError("SELECT version_num", {}, Exception("disk I/O error"))
+
+	def unwritable (source: typing.Any, target: typing.Any) -> None:
+		"""Fail as a full volume does."""
+
+		raise OSError(errno.ENOSPC, "No space left on device")
+
+	# A file where the backup folder would go, so the folder cannot be made.
+	blocker = elsewhere / "blocker"
+	instance = {"backup_directory": str(blocker / "backups")} if fault == "the folder" else {}
+	world = test_api_tasks._world(session, instance=instance)
+
+	if fault == "unreadable":
+		monkeypatch.setattr(subroutine.db.migrate, "current_revision", unreadable)
+
+	elif fault == "unversioned":
+		monkeypatch.setattr(subroutine.db.migrate, "current_revision", lambda engine: None)
+
+	elif fault == "the folder":
+		blocker.parent.mkdir(parents=True, exist_ok=True)
+		blocker.write_text("not a folder", encoding="utf-8")
+
+	elif fault == "no free name":
+		monkeypatch.setattr(subroutine.db.backup, "_MAX_NAME_ATTEMPTS", 0)
+
+	elif fault == "the copy":
+		monkeypatch.setattr(
+			subroutine.db.backup, "_staging_directory", lambda: elsewhere / "not-there"
+		)
+
+	else:
+		monkeypatch.setattr("subroutine.db.backup.shutil.copyfile", unwritable)
+
+	refused = world.call("POST", "/v1/admin/backups")
+
+	assert refused.status_code == 503, refused.text
+	assert refused.json()["code"] == "backup_failed", refused.text
+	assert not [one for one in elsewhere.rglob("*") if one.is_file() and one != blocker], (
+		"a backup that failed left a file behind"
 	)
 
 

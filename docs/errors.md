@@ -11,6 +11,7 @@ following one lands on the section describing it.
 
 | Code | HTTP | Title | Meaning |
 | --- | --- | --- | --- |
+| `backup_failed` | 503 | Backup failed | The server could not take a backup. The database could not be read for one or records no schema version, no unused name was found for it, or the copy could not be made, written where it was to go, or read back once it was there; a copy that fails is removed rather than left looking usable. The message says which. Distinct from 'service_unavailable', which says the instance cannot serve anything yet, and from 'malformed_request', since the request was read. |
 | `cursor_expired` | 410 | Cursor expired | A change-feed cursor names a point older than the events this instance still holds, so the gap between there and now cannot be reported. The client resyncs from the beginning rather than being handed a page that silently omits everything pruned in between. |
 | `cycle_detected` | 409 | Cycle detected | The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, the ones that set an order, and the one that says a document replaces another - or would make a milestone include itself. |
 | `database_busy` | 503 | Busy | Another connection held the database and this request was refused - sometimes at once and sometimes after waiting, which is why the terminal says how long its attempt took. Distinct from 'request_timed_out', which is a statement this instance stopped waiting for, and from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving and this database is working, and it was busy at that moment. The request that met it changed nothing, and trying again is the remedy; a caller that made several requests says which of them went through. |
@@ -35,6 +36,12 @@ following one lands on the section describing it.
 | `unknown_field` | 422 | Unknown field | The request carried a field or query parameter this endpoint does not accept. Rejected rather than ignored, because silently dropping a typo is how a caller comes to believe it set something it did not. |
 | `unsupported_protocol_version` | 400 | Unsupported protocol version | A client announced an MCP revision this server does not speak, which the Streamable HTTP transport requires be refused rather than answered as though it were understood. The revision this server does speak is named, so a client can decide whether to continue. Distinct from 'malformed_request' because the request was read perfectly well. |
 | `version_conflict` | 409 | Version conflict | The entity changed since the version the caller sent. The response carries both versions and the current entity, so the caller can merge rather than refetch and start again. |
+
+## `backup_failed`
+
+**Backup failed** - HTTP 503.
+
+The server could not take a backup. The database could not be read for one or records no schema version, no unused name was found for it, or the copy could not be made, written where it was to go, or read back once it was there; a copy that fails is removed rather than left looking usable. The message says which. Distinct from 'service_unavailable', which says the instance cannot serve anything yet, and from 'malformed_request', since the request was read.
 
 ## `cursor_expired`
 

@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **A backup the server could not take or write says `backup_failed`, at 503**, a new error
+  code. Most such failures said `malformed_request`, at 400, which tells a caller to fix a request
+  that was read perfectly well, and the rest `service_unavailable`, which says the instance
+  cannot serve anything yet. It reaches an agent taking a backup over the API before something
+  bulk; the terminal's `db backup` says the same sentences as before.
 - **A claim refused because somebody else holds the task, or because it is finished, says
   `not_claimable`**, a new error code. It said `duplicate_key`, which is published as *Already
   exists*, so an agent branching on the code read the task as a name already taken.
