@@ -125,8 +125,8 @@ class Update(subroutine.api.schemas.RequestModel):
 	is_active: bool | None = None
 
 	#: Hand this agent to somebody else, who becomes answerable for it (`#478`). Named by
-	#: username, like everything else a person types here. Only a person may take one on, and
-	#: only a person may hand one over.
+	#: username, like everything else a person types here. Only a person may hand one over, and
+	#: it goes to a person or to an agent whose own chain ends at one (decision `#4159`).
 	responsible: str | None = None
 
 	#: Where this person keeps their diary — §6.5's user level, and **their own account only**

@@ -5,12 +5,14 @@ only way to keep it running. That makes this **part of the leaver path** rather 
 refinement of it: without it, marking somebody inactive costs you their agents, and a control
 that expensive is one people work around instead of using.
 
-Two rules, and the second is the interesting one. Only a person may hand an agent over or take
-one on — an agent that could move accountability could move it off itself. And the chain must
-still terminate afterwards, which is what stops somebody handing an agent to one of its own
-descendants: every foreign key resolves and nobody answers for anything.
+Two rules, and the second is the interesting one. Only a person may hand an agent over, to a
+person or to an agent whose own chain ends at one — an agent that could move accountability
+could move it off itself, and holding one grants nothing over it (decision `#4159`). And the
+chain must still terminate afterwards, which is what stops somebody handing an agent to one of
+its own descendants: every foreign key resolves and nobody answers for anything.
 """
 
+import typing
 import uuid
 
 import pytest
@@ -19,6 +21,8 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
+import subroutine.domain.sessions
+import subroutine.domain.tokens
 import subroutine.domain.users
 import subroutine.errors
 
@@ -253,3 +257,73 @@ def test_an_agent_may_be_handed_to_another_agent (session: sqlalchemy.orm.Sessio
 	subroutine.domain.users.transfer(session, loose, to=senior, actor=_acting(person))
 
 	assert subroutine.domain.accountability.chain(session, loose) == [loose, senior, person]
+
+
+def test_an_agent_that_cannot_make_agents_may_hold_one_and_gains_nothing_over_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4158`, decided on `#3953`: the holder need not be able to make agents.
+
+	**That is safe because holding grants nothing**, so the holder's own credential is refused
+	every act on what it holds: a credential or a sign-in link for it, an agent beneath it,
+	revoking its credential, deactivating it, handing it on, setting its timezone and signing it
+	out. The test above passed whichever way this was decided, since its holder may make agents.
+	The day holding grants any of these, the decision is taken again, and this is where it shows.
+	"""
+
+	person = _person(session)
+	holder = _agent(session, person, "holder")
+	held = _agent(session, person, "held")
+	its_own, _secret = subroutine.domain.authentication.issue_token(
+		session, user=held, title="the held agent's own"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=holder, title="the holder's own"
+	)
+	session.flush()
+	as_holder = subroutine.domain.authentication.authenticate(
+		session, issued.value.get_secret_value(), record_use=False
+	)
+
+	subroutine.domain.users.transfer(session, held, to=holder, actor=_acting(person))
+
+	assert subroutine.domain.accountability.chain(session, held) == [held, holder, person]
+
+	acts: dict[str, typing.Callable[[], object]] = {
+		"a credential for it": lambda: subroutine.domain.authentication.issue_token(
+			session, user=held, title="taken", actor=as_holder
+		),
+		"a sign-in link for it": lambda: subroutine.domain.sessions.mint_link(
+			session, user=held, actor=as_holder
+		),
+		"an agent beneath it": lambda: subroutine.domain.users.create(
+			session,
+			username=f"beneath-{uuid.uuid4().hex[:8]}",
+			is_service_account=True,
+			responsible_user_id=held.id,
+			actor=as_holder,
+		),
+		"revoking its credential": lambda: subroutine.domain.tokens.revoke(
+			session, its_own, actor=as_holder
+		),
+		"deactivating it": lambda: subroutine.domain.users.set_active(
+			session, held, active=False, actor=as_holder
+		),
+		"handing it on": lambda: subroutine.domain.users.transfer(
+			session, held, to=person, actor=as_holder
+		),
+		"its timezone": lambda: subroutine.domain.users.set_timezone(
+			session, held, timezone="Europe/London", actor=as_holder
+		),
+		"signing it out": lambda: subroutine.domain.sessions.sign_out_everywhere(
+			session, user=held, actor=as_holder
+		),
+	}
+
+	for what, act in acts.items():
+		with pytest.raises(subroutine.errors.Forbidden):
+			act()
+
+		assert held.is_active, what
+		assert held.responsible_user_id == holder.id, what
+		assert its_own.revoked_at is None, what

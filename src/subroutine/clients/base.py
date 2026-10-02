@@ -1302,7 +1302,8 @@ class Client(typing.Protocol):
 		"""Hand an agent to somebody else, who becomes answerable for it — `#478`.
 
 		The other half of the leaver path: agents stop when their person goes, so this is how
-		one is kept. Only a person may hand an agent over or take one on.
+		one is kept. Only a person may hand an agent over, and it goes to a person or to an agent
+		whose own chain ends at one.
 		"""
 
 		raise NotImplementedError
