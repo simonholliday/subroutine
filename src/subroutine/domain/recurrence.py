@@ -206,6 +206,63 @@ class Repeat:
 	trigger: str
 
 
+#: One weekday as a repeat names it, longest first so ``thurs`` is not read as ``thu``.
+_A_WEEKDAY_WRITTEN = "|".join(sorted(subroutine.domain.dates.WEEKDAYS, key=len, reverse=True))
+
+#: One day of a month as a repeat names it, with the ``the`` somebody may write before it.
+_A_DAY_OF_THE_MONTH = r"(?:the\s+)?\d{1,2}(?:st|nd|rd|th)"
+
+
+def _listed (item: str) -> str:
+	"""Return a pattern for two or more of ``item``, joined by commas, ``and`` or both."""
+
+	return (
+		rf"(?:{item})(?:(?:\s*,\s*(?:{item}))+(?:\s*,?\s+and\s+(?:{item}))?"
+		rf"|\s*,?\s+and\s+(?:{item}))"
+	)
+
+
+#: **A repeat on several days, recognised in order to name it and never read as a rule**
+#: (decision `#4148`). Weekdays in a list - *every monday and thursday*, *every monday, wednesday
+#: and friday* - and days of the month in either order - *every month on the 1st and 15th*, *on
+#: the 1st and 15th of every month*. Capture leaves such a phrase in the title and says why, and
+#: :func:`phrase` refuses it naming the rule that does repeat so. Reading lists would have widened
+#: the end-of-line rule's risk of reading the object of a sentence to every list of days.
+SEVERAL_DAYS = re.compile(
+	rf"""
+	(?<![^\s])
+	(?:
+		every\s+{_listed(_A_WEEKDAY_WRITTEN)}
+		|every\s+month\s+on\s+{_listed(_A_DAY_OF_THE_MONTH)}
+		|on\s+{_listed(_A_DAY_OF_THE_MONTH)}\s+of\s+every\s+month
+	)
+	(?!\w)
+	""",
+	re.IGNORECASE | re.VERBOSE,
+)
+
+
+def on_several_days (written: str) -> str | None:
+	"""Return the rule a repeat on several days would be, or ``None`` when it is not one.
+
+	For naming, never for setting: decision `#4148` keeps a written repeat on one day, and this is
+	what the refusal and the note can point at instead, as ``FREQ=WEEKLY;BYDAY=MO,TH``.
+	"""
+
+	if SEVERAL_DAYS.fullmatch(written.strip()) is None:
+		return None
+
+	if re.search(r"\bmonth\b", written, re.IGNORECASE):
+		days = sorted({int(day) for day in re.findall(r"(\d{1,2})(?:st|nd|rd|th)", written)})
+
+		return "FREQ=MONTHLY;BYMONTHDAY=" + ",".join(str(day) for day in days)
+
+	named = re.findall(rf"(?<![\w])(?:{_A_WEEKDAY_WRITTEN})(?![\w])", written, re.IGNORECASE)
+	indexes = sorted({subroutine.domain.dates.WEEKDAYS[one.lower()] for one in named})
+
+	return "FREQ=WEEKLY;BYDAY=" + ",".join(_CODES[index] for index in indexes)
+
+
 def _refuse (value: str, *, field: str, why: str) -> subroutine.errors.ValidationError:
 	"""Return the refusal for something this cannot read, naming what would have worked."""
 
@@ -343,6 +400,27 @@ def phrase (value: str, *, field: str = "recurrence") -> str:
 	is refused. That is the point rather than a limitation: a phrase this reads wrongly becomes
 	a rule nobody re-reads, on an item that then arrives on the wrong day indefinitely.
 	"""
+
+	# **A repeat on several days is refused for being one** (`#4147`, decision `#4148`), naming
+	# the rule that does it. It was refused as a time of day handed to a repeat, or as not saying
+	# which day of the month, neither of which was what the writer had done.
+	several = on_several_days(value)
+
+	if several is not None:
+		hint = f"Give it as a rule instead: {several}."
+
+		raise subroutine.errors.ValidationError(
+			f"{value!r} repeats on several days, and a repeat written in words is on one.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message="A repeat written in words is read on one day.",
+					hint=hint,
+				)
+			],
+			hint=hint,
+		)
 
 	fronted = _FRONTED.match(value)
 	written = (

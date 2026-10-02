@@ -603,6 +603,7 @@ _TAILS = (
 	" at ~5 people", " for @home use", " #1 priority", " due diligence",
 	" tomorrow's party", " today's news", " tomorrow-ish", " by hand", " on time",
 	" #tag, and more", " @bob, and Sue", " !3, not !4", " ~2h, then rest",
+	" every monday and thursday", " on the 1st and 15th of every month",
 )
 
 
@@ -2738,6 +2739,76 @@ def test_a_second_repeat_is_kept_in_the_title_and_said (line: str) -> None:
 	assert read.recurrence is None, read
 	assert "every friday" in read.unparsed, read.unparsed
 	assert "a line takes one repeat" in said, said
+
+
+@pytest.mark.parametrize(
+	("line", "phrase", "how_many"),
+	[
+		("Gym every monday and thursday", "every monday and thursday", "neither"),
+		("Gym every monday, wednesday and friday", "every monday, wednesday and friday", "none"),
+		("Gym every monday, wednesday, and friday", "every monday, wednesday, and friday", "none"),
+		("Gym every monday, thursday", "every monday, thursday", "neither"),
+		("Pay rent every month on the 1st and 15th", "every month on the 1st and 15th", "neither"),
+		(
+			"Pay rent on the 1st and 15th of every month",
+			"on the 1st and 15th of every month",
+			"neither",
+		),
+		("Pay rent every month on the 1st and the 15th +home", "every month on the 1st and the 15th", "neither"),
+	],
+)
+def test_a_repeat_on_several_days_is_left_as_written_and_said (
+	line: str, phrase: str, how_many: str
+) -> None:
+	"""`SR#4147` and `SR#4145`, decided on `#3947`: a captured line's repeat is on one day.
+
+	Each form was misread or passed in silence: *every monday and thursday* was told only that a
+	line takes one repeat, the comma forms said nothing at all, and *on the 1st and 15th of every
+	month* became *every month* with *of* ending the title, which the create then refused. **Held
+	whole, nothing set, and said in the words the decision was taken on.**
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert phrase in read.title, read
+	assert (read.recurrence, read.due, read.starts_at) == (None, None, None), read
+	assert f"Left as written: {phrase} - a repeat is read on one day, so {how_many} was set." in (
+		said
+	), said
+
+
+def test_a_repeat_on_several_days_followed_by_words_sets_nothing () -> None:
+	"""`SR#4147`: held whole wherever it is, and said only at the end, as an unread repeat is."""
+
+	read = _parse("Pay rent on the 1st and 15th of every month, says Bob")
+
+	assert read.title == "Pay rent on the 1st and 15th of every month, says Bob", read
+	assert (read.recurrence, read.due, read.starts_at) == (None, None, None), read
+
+
+@pytest.mark.parametrize(
+	("written", "rule"),
+	[
+		("every monday and thursday", "FREQ=WEEKLY;BYDAY=MO,TH"),
+		("every friday, monday and wednesday", "FREQ=WEEKLY;BYDAY=MO,WE,FR"),
+		("every month on the 1st and 15th", "FREQ=MONTHLY;BYMONTHDAY=1,15"),
+		("on the 15th and 1st of every month", "FREQ=MONTHLY;BYMONTHDAY=1,15"),
+	],
+)
+def test_a_repeat_on_several_days_is_refused_naming_the_rule (written: str, rule: str) -> None:
+	"""`SR#4147`: behind ``--repeat`` and the API, refused for being on several days.
+
+	It was refused as a time of day handed to a repeat, and as not saying which day of the month.
+	**Named for what it is, with the rule that does repeat on those days**, which those surfaces
+	accept and describe in words capture will not read back.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.phrase(written)
+
+	assert "several days" in str(refused.value), refused.value
+	assert refused.value.hint == f"Give it as a rule instead: {rule}.", refused.value.hint
 
 
 def test_one_repeat_with_other_fields_after_it_is_still_read () -> None:

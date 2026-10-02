@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+- **A repeat on several days is left as written, and said so**: *Gym every monday and
+  thursday*, *every monday, wednesday and friday*, *every month on the 1st and 15th* and *on the
+  1st and 15th of every month* keep their words in the title, set nothing, and the note says a
+  repeat is read on one day. The last was read as every month, with *of* ending the title, and
+  the item was then refused. Given to `--repeat` or the API, such a phrase is refused naming the
+  rule that does repeat on those days, such as `FREQ=WEEKLY;BYDAY=MO,TH`.
 - **`document create` and `document edit` read the text from standard input only for
   `--body -`**: `subroutine document create "Review findings" --body - < notes.md`. Piping text in
   without it is refused, saying so, before anything is written, where it was read whenever a pipe

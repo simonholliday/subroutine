@@ -653,7 +653,18 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# place, rather than by a second description of what a repeat looks like.
 	said = [one for one in unparsed if one.startswith("+")]
 	tagged = [one for one in unparsed if one.startswith("#")]
-	rest = [one for one in unparsed if not one.startswith(("+", "#"))]
+	# **A repeat on several days, before anything else is asked of it** (`#4147`): it starts with
+	# `every` or names days, and the sentences for either would tell its writer the wrong thing.
+	several = [
+		(one, rule)
+		for one in unparsed
+		if (rule := subroutine.domain.recurrence.on_several_days(one)) is not None
+	]
+	rest = [
+		one
+		for one in unparsed
+		if not one.startswith(("+", "#")) and one not in {phrase for phrase, _rule in several}
+	]
 	every = [one for one in rest if _EVERY.match(one)]
 	over = [one for one in rest if not _EVERY.match(one)]
 
@@ -737,6 +748,15 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	repeats = [one for one in every if _repeat_in(one) is None]
 
 	clauses = []
+
+	# **In the words decision `#4148` was taken on**: *neither* for two days and *none* for more,
+	# counted off the rule rather than the words, so *the 1st and the 15th* is two.
+	for phrase, rule in several:
+		count = len(rule.rpartition("=")[2].split(","))
+		clauses.append(
+			f"Left as written: {phrase} - a repeat is read on one day, so "
+			f"{'neither' if count == 2 else 'none'} was set."
+		)
 
 	# **A second repeat on the line lands here too** (`#4016`), and its text is the text of one
 	# read out of the middle of a sentence, so the sentence names both conditions rather than
@@ -1140,7 +1160,20 @@ def parse (
 	#: with it as the day that was not read, and the words between were quoted though read.
 	loose: list[tuple[tuple[int, int], bool]] = []
 
+	# **A repeat on several days is held whole, read by nothing and named** (`#4147`, decision
+	# `#4148`): reserved, so neither the repeat below nor a date can take a piece of it, and
+	# reported where nothing follows it, as an unreadable repeat is. *On the 1st and 15th of every
+	# month* was read as *every month*, with *of* ending the title and the create then refused (`#4145`).
+	several = [
+		match.span() for match in subroutine.domain.recurrence.SEVERAL_DAYS.finditer(text)
+		if not _overlaps(match.span(), reserved)
+	]
+	reserved.extend(several)
+
 	for match in _EVERY.finditer(text):
+		if _overlaps(match.span(), several):
+			continue
+
 		read = _repeat_in(match.group(0))
 
 		if read is None:
@@ -1269,6 +1302,9 @@ def parse (
 
 	unparsed.extend(
 		text[start:end] for start, end in unread if _nothing_follows(settled, (start, end))
+	)
+	unparsed.extend(
+		text[start:end] for start, end in several if _nothing_follows(settled, (start, end))
 	)
 
 	# **The times left as written, quoted off the settled line** (`#3998`, M-1 of the cold review of
@@ -2623,7 +2659,7 @@ def _mid_sentence (
 
 	**Not a narrowing of the grammar.** *Buy milk every day* goes on working, and so does
 	every phrase with only claimed text after it: `every 14 days by friday` keeps its
-	deadline, `every month +home !3` keeps its sigils, and `Standup every weekday at 9am`
+	deadline, `every month +home !3` keeps its sigils, and `Standup every monday at 9am`
 	keeps its time. That is the whole reason this runs last rather than beside the repeat
 	pass — *unclaimed* is not knowable until every other rule has taken what it wanted, and a
 	check written earlier would have refused all three.
