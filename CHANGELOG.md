@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **Nesting something past the depth limit is refused as `too_deep`**, a new error code, where it
+  was `cycle_detected`, which says the change would make something its own ancestor. It covers
+  making a project, a task or a document deeper than `max_hierarchy_depth` allows, and moving
+  one there. A client matching `cycle_detected` for depth should match `too_deep`; a real cycle
+  is still `cycle_detected`.
 - **An agent tool call whose `arguments` is not an object is refused as invalid params**, as a
   request whose `params` is not one already was. An empty list, an empty string, `0` and `false`
   ran the tool as though no arguments had been sent. Leaving `arguments` out, or sending `null`,

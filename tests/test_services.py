@@ -1069,7 +1069,7 @@ def test_depth_is_bounded_for_the_whole_subtree (session: sqlalchemy.orm.Session
 	with pytest.raises(subroutine.errors.Conflict) as error:
 		subroutine.domain.projects.move(session, root, parent=deep, max_depth=1)
 
-	assert error.value.code == "cycle_detected"
+	assert error.value.code == "too_deep"
 	assert "limit is 1" in error.value.detail
 	assert child.path.startswith(root.path), "the refused move must have changed nothing"
 
@@ -1119,7 +1119,7 @@ def test_the_instances_depth_setting_is_what_bounds_a_tree (
 			settings=settings,
 		)
 
-	assert refused.value.code == "cycle_detected"
+	assert refused.value.code == "too_deep"
 	assert "limit is 2" in refused.value.detail, (
 		"the refusal quoted a limit the instance did not set, so the setting reached nothing"
 	)
@@ -2380,7 +2380,7 @@ def test_a_move_is_refused_against_the_deepest_thing_it_carries (
 	with pytest.raises(subroutine.errors.Conflict) as refused:
 		subroutine.domain.tasks.move(session, top, parent=somewhere, max_depth=2)
 
-	assert refused.value.code == "cycle_detected"
+	assert refused.value.code == "too_deep"
 	assert "subtree" in str(refused.value)
 
 

@@ -153,6 +153,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"milestone include itself.",
 		),
 		_define(
+			"too_deep",
+			409,
+			"Too deep",
+			"The change would put a project, a task or a document further down its tree than "
+			"'max_hierarchy_depth' allows, by making it there or by moving it, or something beneath "
+			"it, there. The message says how deep it would go and what the limit is. Distinct from "
+			"'cycle_detected', which says the change would make something its own ancestor.",
+		),
+		_define(
 			"schema_mismatch",
 			409,
 			"Schema mismatch",

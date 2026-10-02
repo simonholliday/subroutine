@@ -201,6 +201,57 @@ def test_a_cycle_is_refused (world: test_api_tasks.World) -> None:
 	assert response.json()["code"] == "cycle_detected"
 
 
+def test_nesting_past_the_limit_is_too_deep_rather_than_a_cycle (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4138`, decided on `#3990`: depth was refused as ``cycle_detected``, which says a loop.
+
+	A project, a task and a document made past ``max_hierarchy_depth``, and a task moved there,
+	each answered 409 ``cycle_detected``, whose published definition is a change that would make
+	something its own ancestor. **Each answers ``too_deep`` now**, and a real cycle keeps its own
+	code, which the test above holds.
+	"""
+
+	world = test_api_tasks._world(session, instance={"max_hierarchy_depth": 1})
+
+	def made (path: str, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
+		"""Make one thing that fits, and return it."""
+
+		response = world.call("POST", path, json=body)
+
+		assert response.status_code == 201, response.text
+
+		return typing.cast(dict[str, typing.Any], response.json())
+
+	web = made("/v1/projects", {"key": "web", "title": "Website"})
+	shop = made("/v1/projects", {"key": "shop", "title": "Shop", "parent": web["id"]})
+	launch = made("/v1/tasks", {"title": "Launch the shop"})
+	payments = made("/v1/tasks", {"title": "Take payments", "parent_task_id": launch["id"]})
+	loose = made("/v1/tasks", {"title": "Choose a card provider"})
+	plans = made("/v1/documents", {"title": "Shop plans"})
+	checkout = made("/v1/documents", {"title": "Checkout", "parent": plans["ref"]})
+
+	refused = {
+		"a project": world.call(
+			"POST", "/v1/projects", json={"key": "cart", "title": "Cart", "parent": shop["id"]}
+		),
+		"a task": world.call(
+			"POST", "/v1/tasks", json={"title": "Refunds", "parent_task_id": payments["id"]}
+		),
+		"a document": world.call(
+			"POST", "/v1/documents", json={"title": "Basket", "parent": checkout["ref"]}
+		),
+		"a move": world.call(
+			"POST", f"/v1/tasks/{loose['ref']}/move", json={"parent": str(payments["ref"])}
+		),
+	}
+
+	for what, response in refused.items():
+		assert response.status_code == 409, (what, response.text)
+		assert response.json()["code"] == "too_deep", (what, response.text)
+		assert "the limit is 1" in response.json()["detail"], (what, response.text)
+
+
 def test_deleting_a_project_hides_its_tasks_with_it (world: test_api_tasks.World) -> None:
 	"""Soft, and the tasks need no touching: every listing joins the project."""
 

@@ -189,10 +189,13 @@ def place (
 	path = build_path(None if parent is None else parent.path, node.id)
 	depth = depth_of(path)
 
+	# **Too deep is its own refusal** (`#4138`, decided on `#3990`), here and in :func:`reparent`.
+	# It was ``cycle_detected``, which is published as a change that would make something its own
+	# ancestor, so a client branching on the code read *it would loop* for *it is too deep*.
 	if depth > max_depth:
 		raise subroutine.errors.Conflict(
 			f"That would nest {depth} levels deep, and the limit is {max_depth}.",
-			code="cycle_detected",
+			code="too_deep",
 			hint="Move it somewhere shallower, or raise max_hierarchy_depth.",
 		)
 
@@ -242,7 +245,7 @@ def reparent (
 		raise subroutine.errors.Conflict(
 			f"That would nest part of this subtree {deepest + shift} levels deep, and the "
 			f"limit is {max_depth}.",
-			code="cycle_detected",
+			code="too_deep",
 			hint="Move it somewhere shallower, or raise max_hierarchy_depth.",
 		)
 

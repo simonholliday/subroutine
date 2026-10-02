@@ -29,6 +29,7 @@ following one lands on the section describing it.
 | `request_timed_out` | 503 | Timed out | The database work behind this request ran longer than 'request_timeout_seconds' allows, and was given up on. Distinct from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving, and it was this request that did not finish. The detail names what was being waited for where the database said, and retrying may work. |
 | `schema_mismatch` | 409 | Schema mismatch | A database schema does not match the one this build expects. An older schema can be migrated forward and the refusal says so; a *newer* one cannot, because this version cannot interpret data it does not know the shape of and a partial read is worse than a clear failure. Two things answer with it: a backup being put back, and any write against a live database that has not been migrated yet - reads are still served, so an instance mid-deploy stays readable and refuses to be changed. /readyz reports the same condition as 503 service_unavailable rather than this, because a load balancer has to read the instance as not ready rather than as arguing. |
 | `service_unavailable` | 503 | Not ready | The instance is running but cannot serve requests yet - most often its database is unreachable, or its schema has not been brought up to date. Reported by the readiness check so that a deployment holds traffic back rather than serving errors. |
+| `too_deep` | 409 | Too deep | The change would put a project, a task or a document further down its tree than 'max_hierarchy_depth' allows, by making it there or by moving it, or something beneath it, there. The message says how deep it would go and what the limit is. Distinct from 'cycle_detected', which says the change would make something its own ancestor. |
 | `unauthenticated` | 401 | Not authenticated | No credential was presented, or the one presented is not valid. Every reason reports identically: an unknown token, a revoked one and an expired one are indistinguishable from outside on purpose. |
 | `unknown_field` | 422 | Unknown field | The request carried a field or query parameter this endpoint does not accept. Rejected rather than ignored, because silently dropping a typo is how a caller comes to believe it set something it did not. |
 | `unsupported_protocol_version` | 400 | Unsupported protocol version | A client announced an MCP revision this server does not speak, which the Streamable HTTP transport requires be refused rather than answered as though it were understood. The revision this server does speak is named, so a client can decide whether to continue. Distinct from 'malformed_request' because the request was read perfectly well. |
@@ -141,6 +142,12 @@ A database schema does not match the one this build expects. An older schema can
 **Not ready** - HTTP 503.
 
 The instance is running but cannot serve requests yet - most often its database is unreachable, or its schema has not been brought up to date. Reported by the readiness check so that a deployment holds traffic back rather than serving errors.
+
+## `too_deep`
+
+**Too deep** - HTTP 409.
+
+The change would put a project, a task or a document further down its tree than 'max_hierarchy_depth' allows, by making it there or by moving it, or something beneath it, there. The message says how deep it would go and what the limit is. Distinct from 'cycle_detected', which says the change would make something its own ancestor.
 
 ## `unauthenticated`
 
