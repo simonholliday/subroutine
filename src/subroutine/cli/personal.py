@@ -7683,7 +7683,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 	@document_app.command("create")
 	def document_create (
 		title: str = typer.Argument(..., help="What it concludes, in one line."),
-		body: str = typer.Option("", "--body", help="The reasoning. Or pipe it in."),
+		body: str | None = typer.Option(
+			None, "--body", help="The reasoning, or '-' to read it from what is piped in."
+		),
 		kind: str = typer.Option("", "--type", help=DOCUMENT_TYPES),
 		status: str = typer.Option(
 			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
@@ -7708,21 +7710,22 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 
 		  subroutine document create "Why we dropped the queue" --type decision
 
-		  cat notes.md | subroutine document create "Review findings" --type finding
+		  subroutine document create "Review findings" --type finding --body - < notes.md
 
 		A comment is what happened; a document is what you concluded. If the next person to
 		look would need to read it, it is a document.
 		"""
 
-		# **Piped input is the ordinary way to write more than a sentence at a terminal**, and
-		# it is the path an agent takes too. Read only when something is actually piped:
-		# `isatty` false with no pipe would block forever waiting for a keystroke nobody knows
-		# to give, which is the worst possible way for a first attempt to go.
-		# `#2106`: read before `.strip()`, because the whole argument is the sentinel.
-		given = _text_or_standard_input(program, body, "--body")
-		# **Only what was piped** (`#3932`): under an agent's shell standard input is a socket,
-		# which is not a terminal either, and reading it waited for ever.
-		written = given.strip() or (sys.stdin.read().strip() if _something_was_piped() else None)
+		# **Standard input is read only for `--body -`** (`#4149`, decided on `#3952`), as every
+		# other place here that takes prose reads it, and a pipe nobody asked to read is refused
+		# before anything is written. Read whenever one was attached, a loop over lines, or a hook
+		# reading its own input, gave the first document every line after it, at exit 0.
+		if body is None and _something_was_piped():
+			_refuse_an_unasked_pipe(program)
+
+		# `#2106`: read before `.strip()`, because the whole argument is the sentinel. And `--body ''`
+		# is an empty body, which a pipe beside it no longer changes.
+		written = _text_or_standard_input(program, body, "--body").strip()
 
 		with program.opened() as world:
 			where = world.writing_to()
@@ -7783,7 +7786,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 	@document_app.command("edit")
 	def document_edit (
 		which: str = typer.Argument("", help="Which document, by its number."),
-		body: str = typer.Option("", "--body", help="Replace the text. Or pipe it in."),
+		body: str | None = typer.Option(
+			None, "--body", help="Replace the text, or '-' to read it from what is piped in."
+		),
 		title: str = typer.Option("", "--title", help="Say what it concludes, in one line."),
 		kind: str = typer.Option("", "--type", help=DOCUMENT_TYPES),
 		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
@@ -7804,12 +7809,10 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 
 		  subroutine document edit 42 --title "What we settled, and why"
 
-		  cat revised.md | subroutine document edit 42
+		  subroutine document edit 42 --body - < revised.md
 
-		  cat revised.md | subroutine document edit 42 --title "Settled" --body -
-
-		With nothing to change, this opens the document in your editor. Text piped in is read
-		when nothing else is named; beside another flag, '--body -' is what reads it.
+		With nothing to change, this opens the document in your editor. '--body -' reads the new
+		text from what is piped in, and --body '' leaves the document with no text.
 
 		A conclusion that cannot be revised is a record of what you concluded once - so this
 		is what keeps the instance the place the *current* answer lives.
@@ -7829,7 +7832,8 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			if document.deleted_at is not None:
 				program.fail(subroutine.domain.trash.refusal(document.ref, doing="changed"))
 
-			# **Standard input is consulted only when nothing else was said at all** (`#299`).
+			# **Standard input was consulted only when nothing else was said at all** (`#299`), and
+			# since `#4149` it is read only for `--body -`, which is saying something.
 			# There is no way to tell an empty pipe from no pipe without blocking, so the
 			# question has to be settled before reading rather than by reading: a caller who
 			# named a field has told us what they wanted, and reading on top of that would
@@ -7853,44 +7857,43 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					tag is not None,
 				)
 			)
+			# **Standard input is read only for `--body -`** (`#4149`, decided on `#3952`), so a pipe
+			# with nothing named is refused before anything is read: in a loop, this replaced a
+			# document's text with the rest of the loop's input.
+			if body is None and not named and _something_was_piped():
+				_refuse_an_unasked_pipe(program)
+
 			# `#2106`, and the site it was met on: `--body -` wrote one character.
 			said = _text_or_standard_input(program, body, "--body").strip()
 			revised: str = subroutine.clients.base.UNSET
 
-			if said:
+			# **`--body ''` empties it**, which is the one way to ask for no text.
+			if body is not None:
 				revised = said
 
 			elif not named:
-				# Nothing was said, so the text comes from somewhere else: the editor when
-				# there is a person, and otherwise whatever was piped.
+				# Nothing was said, so the text comes from the editor when there is a person.
 				if sys.stdin.isatty():
 					revised = _in_an_editor(program, document.body or "")
 
 				else:
-					# **Only what was handed over is read** (`#4017`, M-18 of the cold review of
-					# 2026-09-30), as ``document create`` reads it. Under an agent's shell standard input
-					# is a socket that never closes, and reading it waited for ever; with nothing piped,
-					# this is the empty pipe below and refused as one.
-					revised = sys.stdin.read() if _something_was_piped() else ""
-
-					# **An empty pipe is not an instruction to empty the document.**
-					# `subroutine doc edit 42 < /dev/null` would otherwise silently replace a
-					# conclusion with nothing, which is the one outcome nobody types that to get.
-					if not revised.strip():
-						program.fail(
-							subroutine.errors.ValidationError(
-								"Nothing was piped in, so there is nothing to change.",
-								# **Every flag this command takes, and a test compares this
-								# sentence against the command's own options** (`#1201`). It
-								# listed five and omitted `--tag`, so somebody who had just
-								# used that flag was told to try something else — the copy a
-								# caller reads having fallen furthest behind. A guard rather
-								# than runtime introspection: the list is worth reading in the
-								# source, and what it must not do is disagree.
-								hint="Pipe the new text in, or pass --body, --title, --type, "
-								"--status, --project or --tag.",
-							)
+					# **Nothing is read** (`#4017`, M-18 of the cold review of 2026-09-30): under an
+					# agent's shell standard input is a socket that never closes, and reading it
+					# waited for ever. With no terminal and nothing named there is nothing to do.
+					program.fail(
+						subroutine.errors.ValidationError(
+							"Nothing was named, so there is nothing to change.",
+							# **Every flag this command takes, and a test compares this
+							# sentence against the command's own options** (`#1201`). It
+							# listed five and omitted `--tag`, so somebody who had just
+							# used that flag was told to try something else, the copy a
+							# caller reads having fallen furthest behind. A guard rather
+							# than runtime introspection: the list is worth reading in the
+							# source, and what it must not do is disagree.
+							hint="Pass the new text with --body, or '--body -' with it piped in, "
+							"or pass --title, --type, --status, --project or --tag.",
 						)
+					)
 
 			where = world.connection(located.connection)
 
@@ -7938,7 +7941,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			# revised.md` answered *Revised*, changed the title and dropped the text. After the
 			# change, so the note sits beside what did happen, and on standard error, so a
 			# `--json` reader is not handed it.
-			if body != STANDARD_INPUT and (said or named) and _something_was_piped():
+			if body != STANDARD_INPUT and _something_was_piped():
 				program.warn("Anything piped in was not read. Pass '--body -' to use it as the text.")
 
 			if json_output:
@@ -11839,7 +11842,22 @@ NOBODY_TO_ASK = (
 STANDARD_INPUT = "-"
 
 
-def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
+def _refuse_an_unasked_pipe (program: "Program") -> typing.NoReturn:
+	"""Refuse a document's text piped in with nothing asking for it - `#4149`, decided on `#3952`.
+
+	**Before anything is read or written.** Reading it whenever a pipe was attached made a loop
+	over lines, or a hook reading its own input, hand the first document every line after it,
+	and an edit replace a document's text with them. Naming both remedies is what makes the
+	refusal cheap to follow: one reads the pipe, the other ignores it.
+	"""
+
+	program.stop(
+		"Something was piped in, and a document's text is read from it only when you say so.",
+		"Pass '--body -' to use it as the text, or --body '' to write no text.",
+	)
+
+
+def _text_or_standard_input (program: "Program", value: str | None, flag: str) -> str:
 	"""Return the text, or what was piped when the caller wrote ``-`` — `#2106`.
 
 	**One rule at every site that takes a long text argument**, rather than a special case on
@@ -11857,8 +11875,10 @@ def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
 	settles the question before reading; so does this.
 	"""
 
+	# **Nothing given is no text** (`#4149`): `--body` defaults to nothing on the commands where
+	# that has to be told from an empty value, and reading stays this function's to decide.
 	if value != STANDARD_INPUT:
-		return value
+		return value or ""
 
 	if _a_terminal_is_attached():
 		program.stop(

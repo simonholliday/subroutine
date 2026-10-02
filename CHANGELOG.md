@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **`document create` and `document edit` read the text from standard input only for
+  `--body -`**: `subroutine document create "Review findings" --body - < notes.md`. Piping text in
+  without it is refused, saying so, before anything is written, where it was read whenever a pipe
+  was attached: a loop over lines, or a hook reading its own input, gave the first document every
+  line after it, and an edit replaced a document's text. `--body ''` now means no text.
 - **`user deactivate` names every workspace it would leave with nobody who can administer
   it**, before you agree and again afterwards, each with the command that makes somebody its
   administrator: `subroutine user add <you> --role admin -w <workspace>`. Deactivating such a

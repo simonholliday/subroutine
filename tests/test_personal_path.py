@@ -6007,12 +6007,19 @@ def test_a_document_body_can_be_piped_in (
 	stream they may not have realised was open.
 
 	**Told a pipe is attached**, since ``CliRunner``'s stream is not one, and only a pipe or a
-	file is read (`SR#3932`).
+	file is read (`SR#3932`). **And only for ``--body -``** (`SR#4149`).
 	"""
 
 	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
 	run("init")
-	run("doc", "create", "Review findings", input="Three findings.\nNone found by reading.\n")
+	run(
+		"doc",
+		"create",
+		"Review findings",
+		"--body",
+		"-",
+		input="Three findings.\nNone found by reading.\n",
+	)
 
 	assert "None found by reading." in run("show", "1").output
 
@@ -6023,6 +6030,42 @@ def test_a_document_body_can_be_piped_in (
 
 	assert "This one." in shown
 	assert "Not this one." not in shown
+
+
+def test_a_pipe_nobody_asked_to_read_is_refused_before_anything_is_written (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4149`, decided on `#3952`: text is read from a pipe only for ``--body -``.
+
+	Read whenever one was attached, a loop over lines gave its first document every line after it,
+	and an edit with nothing named replaced a document's text with them. **Refused by name, with
+	both remedies**, and nothing written; ``--body ''`` is an empty body beside a pipe, and
+	``--body -`` empties nothing it was not given. A real shell loop is ``test_bootstrap.py``'s.
+	"""
+
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
+	run("init")
+
+	refused = run("doc", "create", "Loop one", input="two\nthree\n", expect=1)
+
+	assert "--body -" in refused.output and "--body ''" in refused.output, refused.output
+	assert run("show", "1", expect=1).exit_code == 1, "the refused document was written anyway"
+
+	run("doc", "create", "Loop one", "--body", "", input="two\nthree\n")
+
+	assert "three" not in run("show", "1").output
+
+	run("doc", "edit", "1", "--body", "Kept.")
+	untouched = run("doc", "edit", "1", input="Overwritten.\n", expect=1)
+
+	assert "--body -" in untouched.output, untouched.output
+	assert "Kept." in run("show", "1").output
+
+	run("doc", "edit", "1", "--body", "", input="Overwritten.\n")
+
+	assert "Kept." not in run("show", "1").output, "--body '' left the old text"
+	assert "Overwritten." not in run("show", "1").output
 
 
 def test_a_document_is_not_given_a_body_from_input_nobody_piped (
@@ -8659,7 +8702,7 @@ def test_changing_a_documents_title_is_not_guarded_by_a_version (
 	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
 	run("init")
 	run("doc", "create", "A conclusion", "--body", "First thoughts.")
-	run("doc", "edit", "1", input="Somebody else's revision.\n")
+	run("doc", "edit", "1", "--body", "-", input="Somebody else's revision.\n")
 
 	retitled = run("doc", "edit", "1", "--title", "What we settled, and why")
 
@@ -8689,7 +8732,7 @@ def test_revising_a_document_reads_a_pipe_like_writing_one_does (
 	run("init")
 	run("doc", "create", "A conclusion", "--body", "Before.")
 
-	run("doc", "edit", "1", input="After, from a pipe.\n")
+	run("doc", "edit", "1", "--body", "-", input="After, from a pipe.\n")
 
 	assert "After, from a pipe." in run("show", "1").output
 
@@ -8712,7 +8755,7 @@ def test_a_document_is_not_revised_from_input_nobody_piped (
 
 	refused = run("doc", "edit", "1", input="Never read.\n", expect=1)
 
-	assert "Nothing was piped in" in refused.output, refused.output
+	assert "Nothing was named" in refused.output, refused.output
 	assert "Never read." not in run("show", "1").output
 
 
@@ -12736,7 +12779,7 @@ def test_the_hint_for_an_empty_pipe_names_every_flag_that_command_takes () -> No
 	# guard reported the other six missing and would have reported none missing had the comment
 	# been longer. A scan over source is only as good as what it is pointed at.
 	source = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
-	start = source.index("Pipe the new text in, or pass")
+	start = source.index("Pass the new text with --body, or")
 	hint = source[start : source.index(",\n", start + 200)]
 
 	missing = sorted(name for name in options if name not in hint)

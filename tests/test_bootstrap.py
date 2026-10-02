@@ -6,7 +6,9 @@ checked here — the domain function against both backends, and the command itse
 end against a real SQLite file in a temporary home.
 """
 
+import json
 import pathlib
+import shlex
 import subprocess
 import sys
 import typing
@@ -78,6 +80,76 @@ def _run (environment: dict[str, str], *arguments: str) -> subprocess.CompletedP
 		env=_child(environment),
 		check=False,
 	)
+
+
+def _shell (environment: dict[str, str], script: str) -> subprocess.CompletedProcess[str]:
+	"""Run a shell script in which ``sr`` runs the CLI, as a loop or a hook would."""
+
+	program = " ".join(
+		shlex.quote(part)
+		for part in (sys.executable, "-c", "import subroutine.cli.main; subroutine.cli.main.main()")
+	)
+
+	return subprocess.run(
+		["/bin/sh", "-c", f"sr () {{ {program} \"$@\"; }}; {script}"],
+		capture_output=True,
+		text=True,
+		env=_child(environment),
+		check=False,
+	)
+
+
+def _titles (environment: dict[str, str]) -> list[str]:
+	"""Return the titles of everything written, in alphabetical order."""
+
+	listed = _run(environment, "list", "--json")
+
+	assert listed.returncode == 0, listed.stdout + listed.stderr
+
+	return sorted(row["title"] for row in json.loads(listed.stdout))
+
+
+def test_a_loop_over_piped_lines_writes_no_document_from_its_input (
+	isolated_home: dict[str, str],
+) -> None:
+	"""`SR#4149`, decided on `#3952`: a loop's first document took every line after its own.
+
+	Measured before the change: three lines piped into a loop of ``doc create`` wrote one
+	document, whose text was the other two lines, at exit 0. **Refused three times and nothing
+	written**, and the same loop with ``--body ''`` writes three documents and reads none of it.
+	"""
+
+	assert _run(isolated_home, "init").returncode == 0
+
+	loop = "printf 'one\\ntwo\\nthree\\n' | while read line; do sr doc create \"Loop $line\"{}; done"
+	refused = _shell(isolated_home, loop.format(""))
+
+	assert refused.stderr.count("--body -") == 3, refused.stdout + refused.stderr
+	assert _titles(isolated_home) == []
+
+	written = _shell(isolated_home, loop.format(" --body ''"))
+
+	assert written.returncode == 0, written.stdout + written.stderr
+	assert _titles(isolated_home) == ["Loop one", "Loop three", "Loop two"]
+
+
+def test_a_body_of_a_hyphen_reads_a_pipe_and_a_redirected_file (
+	isolated_home: dict[str, str], tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4149`: ``--body -`` is the one spelling that reads, from a pipe and from a file alike."""
+
+	assert _run(isolated_home, "init").returncode == 0
+
+	notes = tmp_path / "notes.md"
+	notes.write_text("Read from a file.\n", encoding="utf-8")
+
+	piped = _shell(isolated_home, "printf 'Read from a pipe.' | sr doc create Piped --body -")
+	redirected = _shell(isolated_home, f"sr doc create Redirected --body - < {shlex.quote(str(notes))}")
+
+	assert piped.returncode == 0, piped.stdout + piped.stderr
+	assert redirected.returncode == 0, redirected.stdout + redirected.stderr
+	assert "Read from a pipe." in _run(isolated_home, "show", "1").stdout
+	assert "Read from a file." in _run(isolated_home, "show", "2").stdout
 
 
 def test_a_setting_that_cannot_be_read_is_said_once (isolated_home: dict[str, str]) -> None:

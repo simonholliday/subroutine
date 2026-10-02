@@ -132,8 +132,8 @@ _FEWEST_PATHS = 40
 #: its work has about 4,000 characters, and after that something has to go.
 #:
 #: **Lower it after a cut, never raise it after a session**, and **never above 150,000**, which
-#: is not ours to move. The remedy for a red build is `subroutine doc create` with the section
-#: piped in, verified byte for byte, then a lower number. `#2117` and `#2118` are the worked
+#: is not ours to move. The remedy for a red build is `subroutine doc create --body -` with the
+#: section piped in, verified byte for byte, then a lower number. `#2117` and `#2118` are the worked
 #: examples, and `#64` carries the method: assert every heading unique, remove in reverse so an
 #: earlier removal cannot shift a later anchor, account for every removed line against the
 #: stored document, and **lift out anything a section is the only copy of before moving it**.
@@ -357,8 +357,8 @@ def test_the_notes_stay_inside_the_budget_they_are_read_under () -> None:
 	assert weight <= _LARGEST, (
 		f"CLAUDE.md is {weight:,} characters against a budget of {_LARGEST:,}, and Claude Code "
 		f"refuses to load more than {_LIMIT:,}. Move a dated section "
-		"into the instance rather than raising this: `subroutine doc create` with the run "
-		"piped in, verified byte for byte before anything is deleted, then lower `_LARGEST` to "
+		"into the instance rather than raising this: `subroutine doc create --body -` with the "
+		"run piped in, verified byte for byte before anything is deleted, then lower `_LARGEST` to "
 		"what is left. `#64` is the item, and `#2061` is the worked example."
 	)
 
