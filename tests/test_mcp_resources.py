@@ -403,12 +403,16 @@ def _governing_request (
 	failed in five more places had they spelled it out too.
 	"""
 
+	# **Every one of the type, unnarrowed** (`SR#3673`): the reader's share is taken from the
+	# answer by path, so the closing line can count what was left out. ``workspace`` and
+	# ``project`` stay in the signature so a caller pinning a narrowed shape is refused by name.
+	assert project is None, "the index no longer asks the instance to narrow a type"
+
 	return unittest.mock.call(
 		workspace=workspace,
 		type=kind.key,
 		status_category=subroutine.domain.documents.CURRENT_CATEGORY,
-		limit=200,
-		project=project,
+		limit=subroutine.clients.base.EVERY_ROW,
 	)
 
 
@@ -421,13 +425,14 @@ def _drafts_request (
 	shape restated six times is this codebase's signature defect at the scale of a test file.
 	"""
 
+	# **Unnarrowed, as the index above is** (`SR#3673`), and taken to the reader's share by the
+	# same rule afterwards, so the two halves of one answer describe one set.
+	assert project is None, "the drafts are no longer narrowed by the instance"
+
 	return unittest.mock.call(
 		workspace=workspace,
 		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
 		limit=200,
-		# **The same narrowing the index above used** — `SR#2136`. An unmarked checkout sends
-		# ``None`` and the request is what it always was.
-		project=project,
 	)
 
 

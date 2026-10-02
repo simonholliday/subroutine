@@ -579,12 +579,18 @@ def _conventions (
 	  listing cannot report its own omission. This can, so it does — which is the whole of why
 	  narrowing is honest here and would not be there.
 
-	**The Inbox is named in that sentence rather than queried for.** Every document has a
-	project (`#301`), so one written from an unmarked context lands in the workspace Inbox and a
-	narrowed index does not show it — measured 2026-09-06 as zero on this instance, and it is a
-	fact about today rather than a guarantee. Fetching it as well is a second request per
-	governing type on a resource read once a session, for a case that has not yet happened; the
-	closing line names it instead, which is what makes the trade visible rather than forgotten.
+	**The projects above the reader, and every rule that binds the whole workspace, since
+	`#3673`** (decision `#4134`). Narrowed to the reader's project alone, an agent in
+	``subroutine/ui`` read none of ``subroutine``'s rules, and one in a project with no rules of its
+	own was told nothing was in force at all (`#4131`). A rule marked for the whole workspace is
+	listed wherever the reader stands, and says so beside its project.
+
+	**Every type is read whole and the reader's share is taken from it by path**, because the
+	closing line says how many were left out, and a count read off a narrowed answer cannot. A
+	project's own documents are those whose path is its own or starts with it, which keeps `#320`'s
+	rule that a project means everything filed under it; the projects above are those whose path
+	its own starts with. The Inbox is counted with the rest of what was left out, where it used to
+	be named as a place nothing measured.
 	"""
 
 	meta = client.meta(workspace=workspace)
@@ -616,15 +622,28 @@ def _conventions (
 		"with `subroutine_show`, by its number.",
 	]
 
-	total = 0
+	# **Where this reader stands, as a place in the tree** (`#3673`). The checkout sends a
+	# project's id where it can (`#4007`), so its path is looked up rather than read off what was
+	# sent, and where it cannot be read the instance narrows instead, as it did before.
+	place = _place(client, workspace, chosen.project)
+	own = _own(
+		client, workspace, chosen.project, place, subroutine.domain.documents.CURRENT_CATEGORY
+	)
+	listed: list[subroutine.views.Document] = []
+	in_force = 0
+	cut = False
 
 	for kind in subroutine.domain.documents.GOVERNING:
-		section, held = _governing(client, meta, workspace, kind, chosen.project)
+		section, found, held, more = _governing(
+			client, workspace, kind, chosen.project, place, own
+		)
 
 		lines += section
-		total += held
+		listed += found
+		in_force += held
+		cut = cut or more
 
-	if not total:
+	if not in_force:
 		# **A resource with nothing in it must say why**, or it reads as "there are no rules
 		# here" — which is a claim, and a false one on any instance that has been used. `#496`
 		# is the same failure on the vocabulary resource, found by a stranger's agent meeting
@@ -642,7 +661,8 @@ def _conventions (
 		# resource as returning nothing at all — twice, in two places.
 		#
 		# **One extra request, and only where the index is empty**, which is the cheap path
-		# already and is read once per session.
+		# already and is read once per session. **Only where nothing is in force anywhere**, since
+		# `#4131`: a reader whose own project has nothing is told so below, with what was left out.
 		written = list(client.documents(workspace=workspace, limit=1))
 
 		if written:
@@ -668,21 +688,35 @@ def _conventions (
 
 		return "\n".join(lines)
 
-	lines += [
-		"",
-		f"{total} in force"
-		+ (f" in {chosen.project}" if chosen.project is not None else "")
-		+ ". Findings and notes are not listed here: they describe rather than",
-		"bind, and `subroutine_list` with a `type` finds those. A code review's *Not issues*",
-		"section is worth reading before re-raising something it already cleared.",
-	]
+	where = place or chosen.project
+	left = in_force - len(listed)
+
+	if listed:
+		lines += [
+			"",
+			f"{len(listed)} in force{_counted(listed, chosen.project, place, own)}. Findings and notes",
+			"are not listed here: they describe rather than bind, and `subroutine_list` with a `type`",
+			"finds those. A code review's *Not issues* section is worth reading before re-raising",
+			"something it already cleared.",
+		]
+
+	else:
+		# **An empty narrowed list says it was narrowed** (`#4131`). It reached the branch above, which
+		# told a reader standing in a project with no rules of its own that nothing was marked yet,
+		# and that an older document might be why - neither of which was the cause.
+		lines += [
+			"",
+			f"Nothing in force is filed in {where}, in a project inside it or in one above it, and",
+			"nothing in force elsewhere binds the whole workspace.",
+		]
 
 	if chosen.project is not None:
 		# **A narrowing that does not say so is the omission this resource refuses** — its own
 		# rule, written when Simon settled that the index is curated by superseding rather than
 		# truncated: *an agent held to ten rules it was never shown is worse off than one reading
 		# a long list.* Narrowing is worth doing and may not be silent, so the reader is told
-		# which project answered, **where that came from**, and how to see past it.
+		# which project answered, **where that came from**, how many were left out, and how to see
+		# past it.
 		#
 		# **Naming the source is what makes `#1438` visible.** Over `subroutine-remote` these
 		# handlers run on the *server*, where `directory.find()` read the server's working
@@ -690,14 +724,23 @@ def _conventions (
 		# had never heard of was then legible on sight instead of looking like a workspace that
 		# has decided very little. **The source that answered** (`#3747`): this named the
 		# checkout even where the address had chosen, and there was no checkout at all.
-		lines += [
-			"",
-			f"**Narrowed to {chosen.project}**, from {chosen.source}. Anything in force elsewhere",
-			"in this workspace - under another project, or in the Inbox - is not listed above;",
-			"`subroutine_list` with a `type` and a `project` shows it.",
-		]
+		elsewhere = (
+			"Nothing in force elsewhere in this workspace is left out."
+			if not left and not cut
+			else f"{'At least ' if cut else ''}{left} more in force elsewhere in this workspace - under "
+			f"other projects, or in the Inbox - {'is' if left == 1 else 'are'} not listed; "
+			"`subroutine_list` with a `type` and a `project` shows them."
+		)
+		lines += ["", f"**Narrowed to {where}**, from {chosen.source}. {elsewhere}"]
 
-	drafted, more = _drafted(client, meta, workspace, chosen.project)
+	drafted, more = _drafted(
+		client,
+		meta,
+		workspace,
+		chosen.project,
+		place,
+		_own(client, workspace, chosen.project, place, subroutine.domain.documents.DRAFT_CATEGORY),
+	)
 
 	if drafted:
 		counted = (
@@ -720,6 +763,135 @@ def _conventions (
 	return "\n".join(lines)
 
 
+#: Why a reader standing in a project is shown an entry of the conventions index - `#3673`: it is
+#: filed in that project or one inside it, in a project above it, or elsewhere and marked as
+#: binding the whole workspace.
+IN_ITS_TREE = "in its tree"
+ABOVE_IT = "above it"
+FOR_THE_WORKSPACE = "for the workspace"
+
+
+def _place (
+	client: subroutine.clients.base.Client, workspace: str | None, named: str | None
+) -> str | None:
+	"""Return the whole path of the project a reader stands in, or ``None`` where it cannot be read.
+
+	**Looked up, because the checkout sends an id where it can** (`#4007`), and an address may name a
+	project by its key. ``None`` where nothing narrowed, where this credential may not list
+	projects, or against an instance older than a project's path - and :func:`_own` then asks the
+	instance to narrow instead.
+	"""
+
+	if named is None:
+		return None
+
+	try:
+		projects = subroutine.clients.base.every_project(client, workspace=workspace)
+
+	except subroutine.errors.Forbidden:
+		return None
+
+	for row in projects:
+		if named in (str(row.id), row.path):
+			return row.path or None
+
+	keyed = [row.path for row in projects if row.key == named]
+
+	return (keyed[0] or None) if len(keyed) == 1 else None
+
+
+def _own (
+	client: subroutine.clients.base.Client,
+	workspace: str | None,
+	named: str | None,
+	place: str | None,
+	category: str,
+) -> frozenset[int]:
+	"""Return the refs the instance narrows a project to, where its path could not be read.
+
+	The filter `#2136` used, so a reader whose credential may not list projects is still shown its
+	own project's rules and those of every project inside it, and nothing above it. Nothing where
+	the path was read, or where nothing narrowed - which is every ordinary read.
+	"""
+
+	if named is None or place is not None:
+		return frozenset()
+
+	return frozenset(
+		one.ref
+		for one in client.documents(
+			workspace=workspace,
+			status_category=category,
+			project=named,
+			limit=subroutine.clients.base.EVERY_ROW,
+		)
+	)
+
+
+def _why_shown (
+	document: subroutine.views.Document,
+	named: str | None,
+	place: str | None,
+	own: frozenset[int],
+) -> str | None:
+	"""Return why a reader standing in ``named`` is shown a document, or ``None`` - `#3673`.
+
+	**By path**: a project's own documents are those whose path is its own or starts with it, and
+	the projects above are those whose path its own starts with. Where the path could not be read,
+	``own`` holds what the instance narrowed to instead. A document marked to bind the whole
+	workspace is shown wherever it is filed (decision `#4134`).
+	"""
+
+	if named is None:
+		return IN_ITS_TREE
+
+	path = getattr(document, "project_path", "")
+	path = path if isinstance(path, str) else ""
+
+	if document.ref in own or (place is not None and (path == place or path.startswith(f"{place}/"))):
+		return IN_ITS_TREE
+
+	if place is not None and path and place.startswith(f"{path}/"):
+		return ABOVE_IT
+
+	if getattr(document, "binds", None) == "workspace":
+		return FOR_THE_WORKSPACE
+
+	return None
+
+
+def _counted (
+	listed: typing.Sequence[subroutine.views.Document],
+	named: str | None,
+	place: str | None,
+	own: frozenset[int],
+) -> str:
+	"""Return where a narrowed reader's entries come from, said after their count - `#3673`.
+
+	Nothing where nothing narrowed, since everything in force is then listed.
+	"""
+
+	if named is None:
+		return ""
+
+	sides = [_why_shown(one, named, place, own) for one in listed]
+	mine, above, marked = (sides.count(side) for side in (IN_ITS_TREE, ABOVE_IT, FOR_THE_WORKSPACE))
+	parts = []
+
+	if mine:
+		parts.append(f"{mine} in {place or named} and the projects inside it")
+
+	if above:
+		parts.append(f"{above} in the projects above it")
+
+	if marked:
+		parts.append(
+			f"{marked} filed elsewhere that {'binds' if marked == 1 else 'bind'} the whole workspace"
+		)
+
+	return ": " + (parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1])
+
+
 #: The one heading this resource writes above everything else, named so the ambiguous-workspace
 #: answer and the ordinary one cannot drift apart — and so a guard can state what a heading in
 #: this document is allowed to be without repeating the string (`#927`'s H-8).
@@ -728,20 +900,21 @@ CONVENTIONS_HEADING = "# What binds you in this workspace"
 
 def _governing (
 	client: subroutine.clients.base.Client,
-	meta: subroutine.views.Meta,
 	workspace: str | None,
 	kind: subroutine.domain.documents.Governing,
-	project: str | None,
-) -> tuple[list[str], int]:
-	"""Return one type's section of the conventions index, and how many it lists.
+	named: str | None,
+	place: str | None,
+	own: frozenset[int],
+) -> tuple[list[str], list[subroutine.views.Document], int, bool]:
+	"""Return one type's section, what it lists, how many are in force, and whether there were more.
 
 	**Nothing here names a type or a status**, which is the whole of `#1036`: the types come
 	from :data:`~subroutine.domain.documents.GOVERNING` and the statuses from this workspace's
 	own vocabulary, so removing a type from the set removes its section, and renaming ``active``
 	leaves the index populated where it used to empty it.
 
-	Silent when a type has nothing in force, rather than carrying a heading saying so. A
-	workspace that has never written a dead end does not need a section on every read to tell
+	Silent when a type has nothing in force for this reader, rather than carrying a heading saying
+	so. A workspace that has never written a dead end does not need a section on every read to tell
 	it that — and the closing count says how many the index holds either way.
 	"""
 
@@ -750,22 +923,23 @@ def _governing (
 	# time — a copy of a rule the server should be answering, and it existed only because
 	# `GET /v1/documents` took a renameable key and nothing else. The dedupe that went with it
 	# is gone too: a status belongs to one category, so one call cannot return a row twice.
-	# **Narrowed by the server rather than by filtering what comes back** (`#925`, `#848`'s
-	# neighbour). A project filter reaches what is *under* a project too — `#320` settled that
-	# `--project subroutine` covers `subroutine/UI` — so comparing `project_path` here would
-	# quietly drop every sub-project's conventions, which is the omission this resource refuses.
+	#
+	# **Every one of the type, and the reader's share taken from it** (`#3673`). The instance
+	# narrowed this to the reader's project until then, which reached what is under a project -
+	# `#320`'s rule - and nothing above it, and no count of what was left out could be read off
+	# the answer. :func:`_why_shown` keeps `#320`'s rule by path.
 	listed = client.documents(
 		workspace=workspace,
 		type=kind.key,
 		status_category=subroutine.domain.documents.CURRENT_CATEGORY,
-		limit=meta.limits.max_page_size,
-		project=project,
+		limit=subroutine.clients.base.EVERY_ROW,
 	)
-	found = list(listed)
+	everything = list(listed)
+	found = [one for one in everything if _why_shown(one, named, place, own) is not None]
 	cut = listed.has_more
 
 	if not found:
-		return [], 0
+		return [], [], len(everything), cut
 
 	# Ref descending is the same ordering as newest-first — a ref is allocated in creation
 	# order within a workspace (§6.2) — and it stays deterministic where ``created_at`` would
@@ -798,21 +972,28 @@ def _governing (
 			f"`subroutine_list` with `type={kind.key}` shows every one, whatever its status.",
 		]
 
-	return section, len(found)
+	return section, found, len(everything), cut
 
 
 def _in_project (document: subroutine.views.Document) -> str:
-	"""Return the project an entry belongs to, as it is written after its number - `#3832`.
+	"""Return where an entry is filed, as it is written after its number - `#3832`.
 
 	**On every entry**, because the index spans every project it is not narrowed from, and an
 	entry that does not say whose rule it is reads as binding everybody who meets it. The path
 	is the one every row of ``GET /v1/documents`` carries; a row without one names nothing,
 	rather than an empty pair of brackets.
+
+	**And whether it binds the whole workspace** (`#3673`, decision `#4134`), which is why an
+	entry from another part of the tree is listed at all.
 	"""
 
 	path = getattr(document, "project_path", None)
+	said = [path] if isinstance(path, str) and path else []
 
-	return f" ({path})" if isinstance(path, str) and path else ""
+	if getattr(document, "binds", None) == "workspace":
+		said.append("binds the whole workspace")
+
+	return f" ({', '.join(said)})" if said else ""
 
 
 def _on_one_line (title: str) -> str:
@@ -837,7 +1018,9 @@ def _drafted (
 	client: subroutine.clients.base.Client,
 	meta: subroutine.views.Meta,
 	workspace: str | None,
-	project: str | None = None,
+	named: str | None = None,
+	place: str | None = None,
+	own: frozenset[int] = frozenset(),
 ) -> tuple[int, bool]:
 	"""Return how many governing documents are drafts here, and whether that count is a floor.
 
@@ -868,14 +1051,16 @@ def _drafted (
 		workspace=workspace,
 		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
 		limit=meta.limits.max_page_size,
-		# **The same narrowing as the index above**, or the two halves of one answer would
-		# describe different sets — *85 in force here* beside *23 drafts somewhere in this
-		# workspace* invites the reader to subtract one from the other.
-		project=project,
 	)
 
+	# **The same share as the index above** (`#3673`), or the two halves of one answer would
+	# describe different sets — *85 in force here* beside *23 drafts somewhere in this
+	# workspace* invites the reader to subtract one from the other.
 	governing = [
-		one for one in listed if one.type in subroutine.domain.documents.GOVERNS
+		one
+		for one in listed
+		if one.type in subroutine.domain.documents.GOVERNS
+		and _why_shown(one, named, place, own) is not None
 	]
 
 	return len(governing), listed.has_more

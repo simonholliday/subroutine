@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+- **`subroutine://conventions` reaches the projects above yours and every rule that binds the
+  whole workspace**: an agent in a project inside another is shown the rules filed above it as
+  well as its own, and a document marked to bind the whole workspace is listed wherever the
+  reader stands, saying so beside its project. The list closes with how many in force elsewhere
+  were left out, including when nothing is listed for the reader, where it used to say nothing
+  was in force at all.
 > **This release changes the database schema**, to `124f22afc629`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a

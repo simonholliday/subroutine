@@ -7232,13 +7232,10 @@ NOT_FROM_THE_CHECKOUT = {
 	# would be three reads of one fact per session, free to disagree if any of them grew a
 	# condition. **The entry expires when they stop taking a `project`**, which is what makes it
 	# a statement rather than a permanent hole.
-	"_governing": (
-		"a helper of `_conventions`, which reads the checkout and hands the answer down. Reading "
-		"it again here would be a second consultation of one fact inside one render."
-	),
-	"_drafted": (
-		"the same, and it must narrow to exactly what `_conventions` narrowed to — a draft count "
-		"for the whole workspace beside an index for one project invites subtraction."
+	"_own": (
+		"a helper of `_conventions`, which reads the checkout and hands the answer down, and it "
+		"narrows only where the project's path could not be read (`SR#3673`). Reading it again "
+		"here would be a second consultation of one fact inside one render."
 	),
 	"_listed": (
 		"A marker decides where a write goes and never what a read shows. That is `use`'s own "
@@ -9264,9 +9261,9 @@ def test_the_conventions_index_answers_for_the_project_this_checkout_is (
 	which roughly 53 belonged to five other projects — bird-call dedup thresholds, GM drum-map
 	naming, ambisonic capture — under a heading reading *everything below is in force here*.
 
-	**Narrowed by the server, because `SR#320` settled that a project filter reaches what is
-	under a project.** Comparing ``project_path`` in the resource would drop every sub-project's
-	conventions, which is the omission this index exists to refuse.
+	**Taken by path since `SR#3673`, keeping `SR#320`'s rule that a project means what is under
+	it**: a project's own documents are those whose path is its own or starts with it, so every
+	sub-project's conventions are listed - which the case after this one drives, a level down.
 	"""
 
 	slug = _two_projects(session)
@@ -11429,3 +11426,163 @@ def test_a_document_marked_to_bind_the_whole_workspace_is_said_so_to_an_agent (
 
 	assert not failed, revised
 	assert "binds the whole workspace" not in _called(bound, "subroutine_show", ref=ref)[0]
+
+
+def _a_line_of_projects (session: sqlalchemy.orm.Session) -> str:
+	"""Return a workspace whose projects make a line, a branch beside it and a project elsewhere.
+
+	``web`` holds ``web/blog``, which holds ``web/blog/drafts``; ``web/shop`` sits beside the blog,
+	and ``ops`` elsewhere holds one rule marked as binding the whole workspace and one not. Each
+	holds one decision in force, so every way an entry can be listed, or left out, is here once.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+
+	def made (
+		key: str, parent: subroutine.db.models.project.Project | None = None
+	) -> subroutine.db.models.project.Project:
+		"""Make one project, under another or at the top."""
+
+		return subroutine.domain.projects.create(
+			session,
+			workspace_id=setup.workspace.id,
+			key=key,
+			title=key.title(),
+			owner_id=setup.user.id,
+			parent=parent,
+		)
+
+	web = made("web")
+	blog = made("blog", web)
+	shop = made("shop", web)
+	ops = made("ops")
+
+	for project, title, binds in (
+		(web, "Every page loads in under a second", None),
+		(blog, "A post names its author", None),
+		(made("drafts", blog), "A draft post is never indexed", None),
+		(shop, "Prices show the tax", None),
+		(ops, "Name the project on every capture", "workspace"),
+		(ops, "Rotate the backup disks every week", None),
+	):
+		subroutine.domain.documents.create(
+			session,
+			project=project,
+			title=title,
+			body="Decided.",
+			type_key="decision",
+			binds=binds,
+		)
+
+	# **A draft above the blog and one beside it**, so the count of drafts is taken by the same
+	# rule as the index: one of these is the reader's, and one is not.
+	for project, title in ((web, "Should the site keep a dark theme?"), (shop, "Ship to Zion?")):
+		subroutine.domain.documents.create(
+			session, project=project, title=title, type_key="design", status_key="draft"
+		)
+
+	session.flush()
+
+	return str(setup.workspace.slug)
+
+
+def test_the_conventions_index_reaches_the_projects_above_and_the_rules_for_the_whole_workspace (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3673`, decision `#4134`: the reader's line, and every rule that binds the whole workspace.
+
+	**Narrowed to the reader's project alone, an agent in a project inside another read none of the
+	rules above it.** Its own project, every project inside it and every project above it are
+	listed; a rule marked for the whole workspace is listed wherever it is filed, and says so; a
+	project beside it and an unmarked rule elsewhere are not, and are counted as left out.
+	"""
+
+	slug = _a_line_of_projects(session)
+
+	_marked_as(monkeypatch, "web/blog")
+	narrow = _bound_to(session, slug)
+
+	for listed in (
+		"A post names its author",
+		"A draft post is never indexed",
+		"Every page loads in under a second",
+		"Name the project on every capture",
+	):
+		assert listed in narrow, f"{listed!r} binds a reader in web/blog and was not listed: {narrow}"
+
+	for left in ("Prices show the tax", "Rotate the backup disks every week"):
+		assert left not in narrow, f"{left!r} binds nobody in web/blog and was listed: {narrow}"
+
+	assert "(ops, binds the whole workspace)" in narrow, narrow
+	assert (
+		"4 in force: 2 in web/blog and the projects inside it, 1 in the projects above it and 1 "
+		"filed elsewhere that binds the whole workspace."
+	) in " ".join(narrow.split()), narrow
+	assert "**Narrowed to web/blog**" in narrow, narrow
+	assert "2 more in force elsewhere in this workspace" in narrow, narrow
+	assert "One more is still a draft and is not listed above." in narrow, (
+		f"the drafts were not taken by the rule the index was: {narrow}"
+	)
+
+
+def test_an_empty_narrowed_conventions_index_says_what_it_left_out (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4131`: a reader in a project with no rules of its own was told nothing was in force.
+
+	**The empty branch returned before the narrowing was said**, and offered a cause that was not
+	the cause: a document written before marking began, or one still drafted. The one case where
+	everything was left out is the one that has to say so, and how many.
+	"""
+
+	slug = _two_projects(session)
+	subroutine.domain.projects.create(
+		session,
+		workspace_id=session.scalars(
+			sqlalchemy.select(subroutine.db.models.identity.Workspace.id).where(
+				subroutine.db.models.identity.Workspace.slug == slug
+			)
+		).one(),
+		key="empty",
+		title="Empty",
+	)
+	session.flush()
+
+	_marked_as(monkeypatch, "empty")
+	narrow = _bound_to(session, slug)
+
+	assert "Nothing in force is filed in empty" in " ".join(narrow.split()), narrow
+	assert "**Narrowed to empty**" in narrow, narrow
+	assert "2 more in force elsewhere in this workspace" in narrow, narrow
+	assert "Nothing is marked as in force here yet" not in narrow, (
+		f"the reader was offered a cause that does not apply: {narrow}"
+	)
+
+
+def test_a_reader_who_may_not_list_projects_is_narrowed_by_the_instance (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3673`: where the reader's path cannot be read, its own project's rules are still listed.
+
+	A credential that may not list projects sends the marker's own key or id (`SR#4007`), so the
+	path is unknown and nothing above can be found. The instance narrows instead, as it did before,
+	and a rule elsewhere is still left out and counted.
+	"""
+
+	slug = _two_projects(session)
+
+	def refused (*args: typing.Any, **kwargs: typing.Any) -> typing.NoReturn:
+		"""Refuse to list projects, as a credential without ``project:read`` is refused."""
+
+		raise subroutine.errors.Forbidden("This credential may not list projects.")
+
+	monkeypatch.setattr(subroutine.clients.base, "every_project", refused)
+	_marked_as(monkeypatch, "mine")
+	narrow = _bound_to(session, slug)
+
+	assert "The rule this checkout follows" in narrow, narrow
+	assert "A rule about somebody else's bird recordings" not in narrow, narrow
+	assert "**Narrowed to mine**" in narrow, narrow
+	assert "1 more in force elsewhere in this workspace" in narrow, narrow
