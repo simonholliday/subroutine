@@ -14,6 +14,9 @@ upgrade involves.
 
 ## Unreleased
 
+- **The Inbox cannot be made private, or moved under another project**, as it cannot be
+  deleted. Everything filed in a workspace without a project goes there, so a private Inbox
+  refused every other member's capture, saying they had named a project they could not see.
 - **A credential narrowed to `instance:workspace_create` founds a workspace**, as the
   permission's description has always said it may. It was refused, first for adding its own
   account as the owner and then for making the Inbox, which are part of founding and now ask

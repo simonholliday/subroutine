@@ -353,6 +353,22 @@ def move (
 	elif actor is not None and _beyond_reach_at_the_top(actor, project):
 		_refuse_the_top_level(session, actor)
 
+	# **Nor under another project** (`#4143`), which is the same harm by a second route: privacy
+	# inherits down the tree, so a private project above the Inbox would hide it just as making it
+	# private does, and :func:`update` refuses that.
+	if project.is_inbox and parent is not None:
+		raise subroutine.errors.ValidationError(
+			"The Inbox cannot be moved under another project.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="invalid_field_value",
+					message="A private project above it would hide the Inbox, where everything filed "
+					"in this workspace without a project goes.",
+				)
+			],
+		)
+
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
 	destination = None if parent is None else parent.id
@@ -492,6 +508,24 @@ def update (
 					code="invalid_field_value",
 					message=f"Unknown visibility {visibility!r}.",
 					hint=f"Valid values: {', '.join(subroutine.db.mixins.PROJECT_VISIBILITIES)}.",
+				)
+			],
+		)
+
+	# **The Inbox stays where everybody in the workspace can see it** (`#4143`, decided on `#3946`),
+	# as it stays undeleted. Everything filed there without a project goes to it, so a private
+	# Inbox refused every other member's capture as though they had named a project they could not
+	# see.
+	if visibility == "private" and project.is_inbox:
+		raise subroutine.errors.ValidationError(
+			"The Inbox cannot be made private.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="visibility",
+					code="invalid_field_value",
+					message="Everything filed in this workspace without a project goes to the Inbox, "
+					"so everybody in the workspace has to be able to see it.",
+					hint="For a list of your own, make a private project and file into it with +key.",
 				)
 			],
 		)

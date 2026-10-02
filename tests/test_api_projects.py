@@ -252,6 +252,42 @@ def test_nesting_past_the_limit_is_too_deep_rather_than_a_cycle (
 		assert "the limit is 1" in response.json()["detail"], (what, response.text)
 
 
+def test_the_inbox_cannot_be_made_private_or_put_under_a_project (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4143`, decided on `#3946`: a private Inbox refused every other member's capture.
+
+	Everything filed in a workspace without a project goes to its Inbox, and that path did not ask
+	whether the caller could see it, so the write was refused as though they had named a project
+	they could not see. **Refused by name, as deleting the Inbox is**, and moving it under a project
+	too, since a private project above it would hide it the same way. The other member's capture
+	still lands.
+	"""
+
+	world = test_api_tasks._world(session)
+	other = subroutine.domain.users.create(session, username=f"switch-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(session, world.workspace, other, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=other, title="the other member"
+	)
+	session.flush()
+	theirs = world._replace(secret=issued.value.get_secret_value())
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+
+	hidden = world.call("PATCH", "/v1/projects/inbox", json={"visibility": "private"})
+	moved = world.call("POST", "/v1/projects/inbox/move", json={"parent": "web"})
+
+	assert hidden.status_code == 422, hidden.text
+	assert hidden.json()["errors"][0]["field"] == "visibility", hidden.text
+	assert moved.status_code == 422, moved.text
+	assert moved.json()["errors"][0]["field"] == "parent", moved.text
+
+	filed = theirs.call("POST", "/v1/tasks", json={"title": "Feed the crew"})
+
+	assert filed.status_code == 201, filed.text
+	assert filed.json()["project_key"] == "inbox", filed.text
+
+
 def test_deleting_a_project_hides_its_tasks_with_it (world: test_api_tasks.World) -> None:
 	"""Soft, and the tasks need no touching: every listing joins the project."""
 
