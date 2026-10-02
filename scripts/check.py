@@ -107,7 +107,9 @@ CHECKS: tuple[Check, ...] = (
 			# `fail_under` is in `pyproject.toml`, so the number is declared once and both this
 			# and CI read it. Measured here rather than across the whole gate because the
 			# browser suite is a separate job whose coverage nothing collects — a floor set
-			# against the combined figure would be a floor nothing ever checks.
+			# against the combined figure would be a floor nothing ever checks. **CI measures
+			# it on its newest leg alone** (`SR#4126`); the one interpreter here measures it on
+			# every run.
 			"--cov",
 		),
 		# **The ones that must not be dropped to make a red run green.** Without the first an
@@ -154,6 +156,15 @@ NOT_LOCALLY: dict[tuple[str, str], str] = {
 	("Tests (Python ${{ matrix.python-version }})", "Install"): (
 		"The same, once per Python version. Locally there is one interpreter and it is "
 		"already installed."
+	),
+	# `SR#4126`: CI measures coverage on its newest leg alone, and runs this on the others.
+	(
+		"Tests (Python ${{ matrix.python-version }})",
+		"Tests on SQLite and PostgreSQL, without coverage",
+	): (
+		"The same suite without --cov, which CI runs on every leg but the one that measures "
+		"coverage. The one interpreter here runs the covered step instead, which checks all of "
+		"this and the floor as well. Goes away if CI measures coverage on every leg again."
 	),
 	("Browser tests", "Install"): (
 		"The same again. This job installs only the development extra, because it needs no "

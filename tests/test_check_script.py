@@ -204,6 +204,78 @@ def test_a_checks_command_is_the_one_the_workflow_runs (entry: typing.Any) -> No
 	assert written in commands, f"{written!r} is not one of {commands}"
 
 
+#: The step that measures coverage, and its twin on every other leg of the matrix - `#4126`.
+COVERED = "Tests on SQLite and PostgreSQL"
+UNCOVERED = "Tests on SQLite and PostgreSQL, without coverage"
+
+
+def _test_job () -> dict[str, typing.Any]:
+	"""Return the job in ``ci.yml`` that holds the covered step, as the workflow declares it."""
+
+	workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+	jobs: dict[str, dict[str, typing.Any]] = workflow["jobs"]
+
+	for job in jobs.values():
+		if any(step.get("name") == COVERED for step in job["steps"]):
+			return job
+
+	raise AssertionError(f"no job in ci.yml has a step called {COVERED!r}")
+
+
+def _step (job: dict[str, typing.Any], name: str) -> dict[str, typing.Any]:
+	"""Return the one step of a job with this name."""
+
+	found: list[dict[str, typing.Any]] = [
+		step for step in job["steps"] if step.get("name") == name
+	]
+
+	assert len(found) == 1, f"the test job has {len(found)} steps called {name!r}"
+
+	return found[0]
+
+
+def test_coverage_is_measured_on_the_newest_leg_alone () -> None:
+	"""`#4126`: exactly one leg of the matrix measures coverage, and it is the newest Python.
+
+	**A mark nothing sets is the inert control this project keeps finding.** The covered step
+	runs where the matrix marks a leg, so deleting the mark would leave the step in place, the
+	comparison above satisfied by its command, and no leg measuring anything: a floor nothing
+	checks, reported green. And the two conditions are held to the pair that splits the legs
+	between the steps, so no leg runs both and none runs neither.
+	"""
+
+	job = _test_job()
+	matrix = job["strategy"]["matrix"]
+	versions = [str(one) for one in matrix["python-version"]]
+	marked = [
+		str(entry["python-version"])
+		for entry in matrix.get("include") or []
+		if entry.get("coverage") is True
+	]
+	newest = max(versions, key=lambda version: tuple(int(part) for part in version.split(".")))
+
+	assert marked == [newest], f"coverage is marked on {marked}, and the newest leg is {newest}"
+	assert _step(job, COVERED).get("if") == "matrix.coverage"
+	assert _step(job, UNCOVERED).get("if") == "${{ !matrix.coverage }}"
+
+
+def test_the_legs_without_coverage_run_the_same_suite () -> None:
+	"""`#4126`: the twin step is the covered one less ``--cov``, in the same environment.
+
+	**It is excused from the local gate, so nothing else compares it with anything.** A flag
+	added to one and not the other would be two suites under one name. And an environment
+	without ``SUBROUTINE_TEST_REQUIRE_POSTGRES`` would skip half the suite on three legs of
+	four, where the per-workflow check below still finds the variable on the fourth.
+	"""
+
+	job = _test_job()
+	covered = _step(job, COVERED)
+	uncovered = _step(job, UNCOVERED)
+
+	assert covered["run"].split() == [*uncovered["run"].split(), "--cov"]
+	assert covered.get("env") == uncovered.get("env")
+
+
 def test_the_suite_is_told_to_fail_rather_than_skip () -> None:
 	"""Every ``SUBROUTINE_TEST_REQUIRE_*`` the local gate sets is one the workflow sets too.
 

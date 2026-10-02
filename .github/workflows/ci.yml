@@ -154,12 +154,23 @@ jobs:
     # `SR#2065`'s cut to the suite's most expensive file moved it by less than the runs vary.
     # `release.yml`'s `test` job runs one leg of the same suite and is held to this number by
     # `tests/test_packaging.py`.
+    #
+    # **And coverage is measured on the newest leg alone, since 2026-10-02** (`SR#4126`). 3.12
+    # had run 30 to 50+ minutes over eight runs, and stopped one at 95% with nothing failing,
+    # while the release workflow's uncovered 3.12 leg took 20.2 against CI's 31 to 36. The
+    # floor in `pyproject.toml` needs measuring once, and the newest interpreter is the
+    # cheapest place: 3.14 ran the whole suite with coverage in 21 to 26 minutes.
     timeout-minutes: 50
 
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # The one leg that measures coverage, and it must be the newest Python above:
+        # `tests/test_check_script.py` refuses any other arrangement, and refuses none at all.
+        include:
+          - python-version: "3.14"
+            coverage: true
 
     services:
       postgres:
@@ -218,11 +229,25 @@ jobs:
       # setup worked, so a runner whose Node install failed would skip 198 tests and report
       # success — the exact state the PostgreSQL variable exists to prevent, one runtime over.
       - name: Tests on SQLite and PostgreSQL
+        # Only on the leg the matrix marks (`SR#4126`), which is the newest.
+        if: matrix.coverage
         env:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
           SUBROUTINE_TEST_REQUIRE_NODE: "1"
         run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py --cov
+
+      # **The same suite on every other leg, without measuring it** (`SR#4126`). Its command is
+      # the one above less `--cov` and its environment is the same, which
+      # `tests/test_check_script.py` holds: a leg here that stopped refusing a skip would report
+      # success on half a suite, and nothing comparing the step above would see it.
+      - name: Tests on SQLite and PostgreSQL, without coverage
+        if: ${{ !matrix.coverage }}
+        env:
+          SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
+          SUBROUTINE_TEST_REQUIRE_NODE: "1"
+        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py
 
   # **One job rather than a step in the matrix, and that is the cost decision** (`SR#795`).
   # Chromium is ~400MB and the questions this file asks — is a computed colour ours, does a
