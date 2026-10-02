@@ -23,6 +23,7 @@ following one lands on the section describing it.
 | `malformed_request` | 400 | Malformed request | The request could not be read at all - bad JSON, or a header this API has to parse and could not. A parameter of the wrong shape is a different answer: the request was read, so it is 422 'invalid_field_value' naming the parameter. |
 | `method_not_allowed` | 405 | Method not allowed | The path exists but does not answer to that HTTP method. The methods it does answer to are listed in the 'Allow' header. |
 | `missing_field` | 422 | Missing field | A field this endpoint requires was not supplied. |
+| `not_claimable` | 409 | Not claimable | The task cannot be taken, because somebody else is holding it or because it is finished. Where somebody holds it, the hint says who and until when, so the caller can wait, ask them or take other work; a finished task is given an open status again before it is claimed. Distinct from 'duplicate_key', which says something by that name is already here. |
 | `not_found` | 404 | Not found | There is no such thing, or it is not visible to this caller. The two are deliberately not distinguished: saying 'forbidden' about a private project would confirm it exists. |
 | `payload_too_large` | 413 | Too large | A field or the request body exceeds the configured limit. The limit is reported rather than the value being silently truncated. |
 | `rate_limited` | 429 | Too many requests | The caller is going faster than the configured limit allows. The response says when to try again. |
@@ -106,6 +107,12 @@ The path exists but does not answer to that HTTP method. The methods it does ans
 **Missing field** - HTTP 422.
 
 A field this endpoint requires was not supplied.
+
+## `not_claimable`
+
+**Not claimable** - HTTP 409.
+
+The task cannot be taken, because somebody else is holding it or because it is finished. Where somebody holds it, the hint says who and until when, so the caller can wait, ask them or take other work; a finished task is given an open status again before it is claimed. Distinct from 'duplicate_key', which says something by that name is already here.
 
 ## `not_found`
 

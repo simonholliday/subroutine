@@ -14,6 +14,9 @@ upgrade involves.
 
 ## Unreleased
 
+- **A claim refused because somebody else holds the task, or because it is finished, says
+  `not_claimable`**, a new error code. It said `duplicate_key`, which is published as *Already
+  exists*, so an agent branching on the code read the task as a name already taken.
 - **Nesting something past the depth limit is refused as `too_deep`**, a new error code, where it
   was `cycle_detected`, which says the change would make something its own ancestor. It covers
   making a project, a task or a document deeper than `max_hierarchy_depth` allows, and moving

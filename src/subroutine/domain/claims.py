@@ -137,9 +137,14 @@ def claim (
 	# lease over work nobody can start protects nothing, and a name on the row saying somebody
 	# is holding it is false. Finishing gives a claim back, and this took one straight back out:
 	# `claim` on a done item succeeded while `start` on it answered *Already done*.
+	#
+	# **Both refusals here carry a code of their own** (`#4129`, decided on `#3990`). They went out
+	# as ``Conflict``'s default, ``duplicate_key``, which is published as *Already exists*, so an
+	# agent branching on the code read *somebody else is working on this* as a name already taken.
 	if task.completed_at is not None:
 		raise subroutine.errors.Conflict(
 			f"#{task.ref} is finished, so there is nothing to hold.",
+			code="not_claimable",
 			hint="If there is more to do, give it an open status again, and then claim it.",
 		)
 
@@ -189,6 +194,7 @@ def claim (
 	if taken.rowcount != 1:
 		raise subroutine.errors.Conflict(
 			"Somebody else is working on this.",
+			code="not_claimable",
 			hint=_who_holds_it(session, task),
 		)
 

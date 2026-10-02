@@ -153,6 +153,16 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"milestone include itself.",
 		),
 		_define(
+			"not_claimable",
+			409,
+			"Not claimable",
+			"The task cannot be taken, because somebody else is holding it or because it is "
+			"finished. Where somebody holds it, the hint says who and until when, so the caller can "
+			"wait, ask them or take other work; a finished task is given an open status again before "
+			"it is claimed. Distinct from 'duplicate_key', which says something by that name is "
+			"already here.",
+		),
+		_define(
 			"too_deep",
 			409,
 			"Too deep",

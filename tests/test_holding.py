@@ -407,11 +407,38 @@ def test_a_finished_item_cannot_be_claimed (world: test_api_tasks.World) -> None
 		refused = world.call("POST", f"/v1/tasks/{finished['ref']}/claim")
 
 		assert refused.status_code == 409, refused.text
+		assert refused.json()["code"] == "not_claimable", refused.text
 		assert f"#{finished['ref']} is finished" in refused.text, refused.text
 
 		after = world.call("GET", f"/v1/tasks/{finished['ref']}").json()
 
 		assert after["claimed_by_id"] is None, "the refusal took the lease anyway"
+
+
+def test_what_somebody_else_holds_is_not_claimable (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4129`, decided on `#3990`: the refusal was ``duplicate_key``, published as *Already exists*.
+
+	Claiming before starting is mandated, so this is an agent's ordinary path, and a client that
+	branches on the code read *somebody else is working on this* as a name already taken. **Its
+	own code now**, with the hint still saying who holds it.
+	"""
+
+	world = test_api_tasks._world(session)
+	other = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(session, world.workspace, other, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=other, title="the other one"
+	)
+	session.flush()
+	theirs = world._replace(secret=issued.value.get_secret_value())
+
+	held = _task(world, "Mine")
+	_claim(world, held["ref"])
+	refused = theirs.call("POST", f"/v1/tasks/{held['ref']}/claim")
+
+	assert refused.status_code == 409, refused.text
+	assert refused.json()["code"] == "not_claimable", refused.text
+	assert world.user.username in refused.json()["hint"], refused.text
 
 
 def test_finishing_twice_records_one_release (world: test_api_tasks.World) -> None:
