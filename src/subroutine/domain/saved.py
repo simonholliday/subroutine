@@ -248,20 +248,14 @@ def _refuse_sharing_from_a_narrowed_credential (
 	Keeping a view of its own touches nobody else, and is untouched.
 	"""
 
-	if actor.project_scope is None and actor.project_write_scope is None:
-		return
-
-	raise subroutine.errors.Forbidden(
-		"A credential narrowed to some projects cannot share a view with the whole workspace.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="shared",
-				code="forbidden",
-				message="Sharing is an act on the workspace, and this credential reaches part of it.",
-				hint="Keep it as your own, or share it from a credential that reaches the whole "
-				"workspace.",
-			)
-		],
+	# **Shared with marking a document as binding the whole workspace** (`#4134`), which is the
+	# same kind of act and is refused by the same rule.
+	subroutine.domain.authorization.refuse_a_workspace_act_from_a_narrowed_credential(
+		actor,
+		act="share a view with the whole workspace",
+		field="shared",
+		why="Sharing is an act on the workspace, and this credential reaches part of it.",
+		hint="Keep it as your own, or share it from a credential that reaches the whole workspace.",
 	)
 
 

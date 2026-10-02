@@ -90,6 +90,7 @@ CHANGES: dict[str, tuple[typing.Any, typing.Any]] = {
 CHANGES_FOR_DOCUMENT: dict[str, tuple[typing.Any, typing.Any]] = {
 	"status": ("draft", "active"),
 	"type": ("note", "decision"),
+	"binds": ("project", "workspace"),
 }
 
 #: What has to arrive **beside** a field for it to mean anything, because several of these say

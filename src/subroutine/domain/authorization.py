@@ -457,6 +457,34 @@ def narrowed_to_projects (principal: subroutine.domain.authentication.Principal)
 	return principal.project_scope is not None or principal.project_write_scope is not None
 
 
+def refuse_a_workspace_act_from_a_narrowed_credential (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	act: str,
+	field: str,
+	why: str,
+	hint: str,
+) -> None:
+	"""Refuse an act on the whole workspace from a credential narrowed to some projects.
+
+	**Sharing a view** (`#3151`) **and marking a rule as binding the whole workspace** (`#4134`)
+	each put something in front of everybody in it, and a credential narrowed to some of its
+	projects is narrower than its maker on purpose: `#1367`'s rule is that it stays so. One refusal
+	for both, so they cannot come to disagree about what narrowed means; the words are each
+	caller's, since each names its own act and what to do instead.
+	"""
+
+	if not narrowed_to_projects(principal):
+		return
+
+	raise subroutine.errors.Forbidden(
+		f"A credential narrowed to some projects cannot {act}.",
+		errors=[
+			subroutine.errors.FieldError(field=field, code="forbidden", message=why, hint=hint)
+		],
+	)
+
+
 def outside_token_scope (
 	principal: subroutine.domain.authentication.Principal, permission: str
 ) -> bool:

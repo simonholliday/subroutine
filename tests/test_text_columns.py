@@ -436,6 +436,7 @@ NOT_TYPED: dict[str, str] = {
 	"calendar_feed.token_hash": "minted here and never sent",
 	"calendar_feed.token_prefix": "minted here and never sent",
 	"comment.entity_type": "a discriminator this code writes, from a fixed set",
+	"document.binds": "one of a fixed set, refused by name",
 	"document.path": "derived from the tree, and bounded by the depth limit instead",
 	"event.action": "a discriminator this code writes, from a fixed set",
 	"event.actor_interface": "observed, never sent — and `Principal` refuses a door that is not in `authentication.INTERFACES`",

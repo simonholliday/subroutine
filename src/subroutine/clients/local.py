@@ -1652,6 +1652,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		binds: str = subroutine.clients.base.UNSET,
 		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document, through the same service the endpoint calls."""
@@ -1667,6 +1668,7 @@ class Client:
 			"status_key": status,
 			"type_key": type,
 			"tags": tags,
+			"binds": binds,
 		}
 		changes: dict[str, typing.Any] = {
 			name: value
@@ -3252,6 +3254,7 @@ class Client:
 		workspace: str | None = None,
 		tags: typing.Sequence[str] | None = None,
 		parent: int | None = None,
+		binds: str | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
 
@@ -3283,6 +3286,7 @@ class Client:
 				owner_id=actor.user.id,
 				tags=tags,
 				parent=above,
+				binds=binds,
 				actor=actor,
 			)
 

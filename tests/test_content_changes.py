@@ -84,6 +84,7 @@ DOCUMENT_EDITS: dict[str, tuple[dict[str, typing.Any], dict[str, typing.Any]]] =
 	"type_id": ({}, {"type": "decision"}),
 	"owner_id": ({}, {"owner_id": None}),
 	"tags": ({}, {"tags": ["ops"]}),
+	"binds": ({}, {"binds": "workspace"}),
 	# `project_id` and `supersedes_id` have their own tests below: each needs a second row.
 }
 

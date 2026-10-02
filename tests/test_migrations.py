@@ -2557,3 +2557,63 @@ def test_going_back_below_milestones_finds_what_it_added_under_any_name (
 	finally:
 		engine.dispose()
 
+
+_BEFORE_A_DOCUMENT_COULD_BIND_THE_WORKSPACE = "58c81c09d101"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_a_document_that_binds_the_workspace_holds_the_downgrade_back (migrated_url: str) -> None:
+	"""`SR#4133`, both directions with rows in the table, on both backends.
+
+	**A mark the revision before cannot hold is refused rather than dropped**, `SR#1689`'s rule, and
+	nothing changes when it is. Set back, the downgrade runs, and the upgrade puts every document
+	there is back at binding its project.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.flush()
+
+			project = subroutine.domain.projects.create(
+				session, workspace_id=workspace.id, key="p", title="P"
+			)
+			plain = subroutine.domain.documents.create(session, project=project, title="Ours")
+			marked = subroutine.domain.documents.create(
+				session, project=project, title="Everybody's", binds="workspace"
+			)
+			plain_id, marked_id = plain.id, marked.id
+
+			session.commit()
+
+		with pytest.raises(Exception) as refused:
+			subroutine.db.migrate.downgrade(migrated_url, _BEFORE_A_DOCUMENT_COULD_BIND_THE_WORKSPACE)
+
+		assert "bind the whole workspace" in str(refused.value), refused.value
+
+		with sqlalchemy.orm.Session(engine) as session:
+			kept = session.get(subroutine.db.models.work.Document, marked_id)
+
+			assert kept is not None and kept.binds == "workspace", "the refusal changed something"
+
+			subroutine.domain.documents.update(session, kept, binds="project")
+			session.commit()
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_A_DOCUMENT_COULD_BIND_THE_WORKSPACE)
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		with sqlalchemy.orm.Session(engine) as session:
+			bound = {
+				one.id: one.binds
+				for one in session.scalars(sqlalchemy.select(subroutine.db.models.work.Document))
+			}
+
+		assert bound == {plain_id: "project", marked_id: "project"}, bound
+
+	finally:
+		engine.dispose()

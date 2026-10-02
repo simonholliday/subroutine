@@ -182,6 +182,9 @@ CONTENT_FIELDS: dict[str, frozenset[str]] = {
 			# reading two ways for two entities is what that item was filed about.
 			"status_id",
 			"type_id",
+			# **Whom it is in force for** (`#4133`): a decision marked to bind the whole workspace
+			# asks something of every reader of it, which is the status's argument one step wider.
+			"binds",
 		}
 	),
 }

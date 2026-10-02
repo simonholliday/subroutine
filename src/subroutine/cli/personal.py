@@ -7690,6 +7690,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		status: str = typer.Option(
 			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
 		),
+		binds: str = typer.Option(
+			"", "--binds", help="'workspace' to put it in force for everybody in the workspace."
+		),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		parent: str = DOCUMENT_PARENT_OPTION,
 		tag: list[str] | None = typer.Option(
@@ -7741,6 +7744,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				body=written or None,
 				type=kind.strip() or None,
 				status=status.strip() or None,
+				binds=binds.strip() or None,
 				project=project.strip() or (None if filed is None else filed.sent),
 				tags=tag or None,
 				# **A ref, parsed here so a non-number is refused before a request is made**
@@ -7792,6 +7796,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		title: str = typer.Option("", "--title", help="Say what it concludes, in one line."),
 		kind: str = typer.Option("", "--type", help=DOCUMENT_TYPES),
 		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
+		binds: str = typer.Option(
+			"", "--binds", help="'workspace' for everybody in the workspace, 'project' for its own."
+		),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		tag: list[str] | None = typer.Option(
 			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
@@ -7853,6 +7860,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					title.strip(),
 					kind.strip(),
 					status.strip(),
+					binds.strip(),
 					project.strip(),
 					tag is not None,
 				)
@@ -7891,7 +7899,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 							# than runtime introspection: the list is worth reading in the
 							# source, and what it must not do is disagree.
 							hint="Pass the new text with --body, or '--body -' with it piped in, "
-							"or pass --title, --type, --status, --project or --tag.",
+							"or pass --title, --type, --status, --binds, --project or --tag.",
 						)
 					)
 
@@ -7912,6 +7920,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				body=revised,
 				type=kind.strip() or subroutine.clients.base.UNSET,
 				status=status.strip() or subroutine.clients.base.UNSET,
+				binds=binds.strip() or subroutine.clients.base.UNSET,
 				project=project.strip() or subroutine.clients.base.UNSET,
 				# **`--tag` given no value clears them**, which is §8.3's null and the only way
 				# to take a mistyped tag off. Typer gives an empty list when the flag is absent,
@@ -14075,6 +14084,11 @@ def _facts (located: Located) -> list[str]:
 		# **The fallback carries a real case rather than being defensive**: a client is
 		# upgraded before an instance is, and one that is a release behind sends no label.
 		facts.append(item.status_label or item.status)
+
+	# **Said only when it is so** (`#4133`): a document binds its own project until somebody marks
+	# it, and a default nobody chose is not a fact.
+	if isinstance(item, subroutine.views.Document) and item.binds == "workspace":
+		facts.append("binds the whole workspace")
 
 	if isinstance(item, subroutine.views.Task):
 		# **`_priority_cell`, not a second literal.** This printed `!4/u3` where the listing

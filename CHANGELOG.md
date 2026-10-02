@@ -14,6 +14,19 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `124f22afc629`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result - in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
+- **A document can bind the whole workspace**: `--binds workspace` on `document create` and
+  `document edit`, `binds` on `subroutine_document` and on `POST` and `PATCH /v1/documents`, and
+  `binds.eq=workspace` on the listing. Every document binds its own project until it is marked.
+  Marking one, setting it back, writing one marked and superseding a marked one each take
+  `project:write`, from a credential that reaches every project, and a document superseding a
+  marked one is marked too. `subroutine show` and the document's page say when one binds the
+  whole workspace.
 - **A repeat on several days is left as written, and said so**: *Gym every monday and
   thursday*, *every monday, wednesday and friday*, *every month on the 1st and 15th* and *on the
   1st and 15th of every month* keep their words in the title, set nothing, and the note says a

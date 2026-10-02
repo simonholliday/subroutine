@@ -2935,6 +2935,11 @@ class Document(pydantic.BaseModel):
 	#: **Zero honestly means none**, like every other defaulted field here (`#345`).
 	sub_documents: int = 0
 
+	#: Whom it is in force for: ``project``, its own, or ``workspace``, every reader in the
+	#: workspace - `#4133`, decision `#4134`. **Defaulted, as every field added since a release
+	#: is**, so a client reads an older instance's documents as binding their project, which they do.
+	binds: str = "project"
+
 	status: str
 	status_category: str
 	status_id: uuid.UUID
@@ -4136,6 +4141,7 @@ def document (
 		parent_ref=_parent_field(vocabulary.document_parents, row.parent_id, "ref"),
 		parent_title=_parent_field(vocabulary.document_parents, row.parent_id, "title"),
 		sub_documents=vocabulary.documents_underneath.get(row.id, 0),
+		binds=row.binds,
 		status=str(status.get("key", "")),
 		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),

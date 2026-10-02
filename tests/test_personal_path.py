@@ -14415,3 +14415,29 @@ def test_a_search_narrowed_to_a_project_finds_it_in_the_workspace_that_has_it (
 
 	assert "nowhere" in missing, missing
 	assert run("search", "project:nowhere", "--strict", expect=1)
+
+
+def test_a_document_marked_to_bind_the_whole_workspace_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4133`: ``--binds`` on ``doc create`` and ``doc edit``, and ``show`` saying it while it is so.
+
+	A word a document cannot bind is refused naming the two it can.
+	"""
+
+	run("init")
+	written = json.loads(
+		run("doc", "create", "Every agent reads this first", "--binds", "workspace", "--json").output
+	)
+	ref = str(written["ref"])
+
+	assert written["binds"] == "workspace", written
+	assert "binds the whole workspace" in run("show", ref).output
+
+	run("doc", "edit", ref, "--binds", "project")
+
+	assert "binds the whole workspace" not in run("show", ref).output
+
+	refused = run("doc", "edit", ref, "--binds", "everyone", expect=1)
+
+	assert "project, workspace" in refused.output, refused.output

@@ -90,6 +90,10 @@ class Create(subroutine.api.schemas.RequestModel):
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
 
+	#: Whom it is in force for: ``project``, the default, or ``workspace``, which takes
+	#: ``project:write`` on a credential reaching the whole workspace.
+	binds: str | None = None
+
 	#: Tag names, without the `#` — `["decision", "security"]`. The same words a task takes,
 	#: from the same per-workspace vocabulary (`#819`), and refused on the same rule: a name of
 	#: only digits is a reference, not a tag (§6.2).
@@ -111,6 +115,10 @@ class Update(subroutine.api.schemas.RequestModel):
 	type: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
+
+	#: Whom it is in force for, ``project`` or ``workspace``. Changing it either way takes
+	#: ``project:write`` on a credential reaching the whole workspace; null leaves it alone.
+	binds: str | None = None
 
 	#: The document's tags, **replacing** whatever it had (§8.3, like every other field here).
 	#: `[]` clears them, which is how a mistyped tag is removed; omitting the field leaves them
@@ -185,6 +193,7 @@ def create (
 		parent=parent,
 		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
 		tags=body.tags,
+		binds=body.binds,
 		actor=actor,
 	)
 
@@ -604,6 +613,9 @@ def change (
 
 	if "type" in supplied and body.type is not None:
 		changes["type_key"] = body.type
+
+	if "binds" in supplied and body.binds is not None:
+		changes["binds"] = body.binds
 
 	if "project" in supplied and body.project is not None:
 		# Resolved here because the service takes a row and the caller has a key, which is

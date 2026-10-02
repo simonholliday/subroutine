@@ -22499,3 +22499,17 @@ def test_an_arrangement_this_browser_does_not_draw_falls_back_rather_than_breaki
 	])
 
 	assert showing["view"] == "agenda", showing["view"]
+
+
+def test_the_document_page_says_when_a_document_binds_the_whole_workspace (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4133`: one fact, said only while it is so, as ``subroutine show`` says it."""
+
+	item = {"ref": 42, "title": "Every agent reads this first", "kind": "document", "status": "active"}
+
+	marked = _rendered(tmp_path, {"Facts": {"item": {**item, "binds": "workspace"}}})["Facts"]
+	plain = _rendered(tmp_path, {"Facts": {"item": {**item, "binds": "project"}}})["Facts"]
+
+	assert "<dt>Binds<dd>the whole workspace" in marked, marked
+	assert "<dt>Binds" not in plain, plain

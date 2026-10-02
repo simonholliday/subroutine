@@ -95,6 +95,12 @@ LINK_ENTITY_TYPES = ("task", "document", "verification")
 MENTION_SOURCE_TYPES = ("task", "document", "comment")
 
 PROJECT_VISIBILITIES = ("public", "private")
+
+#: What a document binds - `#4133`, decision `#4134`. **Its project, which every document starts
+#: at**, or the whole workspace, which lists a rule in force for every reader of the conventions
+#: wherever they stand. Marking takes what sharing a view takes, which is why it is a column a
+#: narrowed credential cannot set rather than a tag any contributor could.
+DOCUMENT_BINDS = ("project", "workspace")
 #: What the next occurrence's date is measured *from* — the rule's own grid, or the instant
 #: the last one was finished. "The 1st of each month" is the 1st whether or not you were late;
 #: "every 14 days" means fourteen days after you actually watered the plants.

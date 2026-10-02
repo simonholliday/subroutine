@@ -399,6 +399,7 @@ class Document(
 		),
 		sqlalchemy.Index("ix_document_workspace_id_type_id", "workspace_id", "type_id"),
 		sqlalchemy.Index("ix_document_workspace_id_path", "workspace_id", "path"),
+		subroutine.db.mixins.enum_check("binds", subroutine.db.mixins.DOCUMENT_BINDS),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
@@ -438,6 +439,14 @@ class Document(
 		subroutine.db.types.uuid_column(),
 		sqlalchemy.ForeignKey("status.id", ondelete="RESTRICT"),
 		nullable=False,
+	)
+
+	# **Whom it is in force for: its project, or the whole workspace** (`#4133`, decision `#4134`).
+	# Read by the conventions list, and changed only by somebody who may act on the whole
+	# workspace, which `domain.documents` holds. A column rather than a tag, because a tag is a
+	# word anyone who writes tasks may put on anything, and rename.
+	binds: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), default="project", nullable=False
 	)
 
 	# Who maintains it. Not an assignee — nobody is "working on" a document.

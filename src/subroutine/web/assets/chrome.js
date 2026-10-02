@@ -715,6 +715,9 @@ export function Facts ({
 				>${item.project_key}</a>`
 			: item.project_key}${raised ? " (prioritised)" : ""}
 	`);
+	/* **Whom a document is in force for, said only when it is everybody** (`#4133`): every document
+	   binds its own project until somebody marks it, and a default nobody chose is not printed. */
+	add("Binds", item.binds === "workspace" && "the whole workspace");
 	add(
 		"Priority",
 		rankOf(item),

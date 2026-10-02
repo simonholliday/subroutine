@@ -815,6 +815,10 @@ A_FIXED_VOCABULARY = "fixed_vocabulary"
 #: it, so a listing reading several workspaces can ask it too.
 OF_A_CATEGORY = "of_a_category"
 
+#: Which group compiles ``binds`` - `#4133`. **The word is on the row**, where a status category's
+#: is one table along, so it compiles to a comparison on the item's own column.
+ON_THE_ROW = "on_the_row"
+
 #: Which group compiles ``project``, the one filter that resolves an *address* — `#1829`.
 #:
 #: **Alone rather than beside the vocabulary keys**, because what it needs from :class:`Where`
@@ -979,6 +983,10 @@ STATUS_CATEGORY = "status_category"
 #: events**: ``type_category.eq=occasion`` asks for them, and a listing that leaves them out by
 #: default brings them back for it.
 TYPE_CATEGORY = "type_category"
+
+#: Whom a document is in force for - `#4133`, decision `#4134`: ``binds.eq=workspace`` asks for the
+#: rules that bind the whole workspace, which is the question the conventions list puts.
+BINDS = "binds"
 
 #: The task properties whose value names something the instance resolves — an account, a tag,
 #: a vocabulary key, a project or an item — `#1804` and `#1829`.
@@ -1344,6 +1352,17 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		kind=REFERENCE,
 		group=FROM_THE_VOCABULARY,
 		because="the task entry's reason, unchanged.",
+	),
+	BINDS: Property(
+		column=subroutine.db.models.work.Document.binds,
+		kind=ENUM,
+		words=subroutine.db.mixins.DOCUMENT_BINDS,
+		group=ON_THE_ROW,
+		because=(
+			"a document's alone, since a task binds nobody, and the question the conventions list "
+			"puts: which rules bind the whole workspace (`#4134`). A narrowing and nothing else, as a "
+			"type's category is: nobody has asked to sort or arrange by it."
+		),
 	),
 	STATUS_CATEGORY: Property(
 		column=subroutine.db.models.work.Document.status_id,
@@ -2614,6 +2633,43 @@ def _of_a_category (comparisons: list[Comparison], where: Where) -> typing.Any:
 	return sqlalchemy.and_(*narrowing)
 
 
+def _a_word_on_the_row (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``binds`` - `#4133`, decision `#4134`.
+
+	**A comparison on the item's own column**, where a status category is a subquery one table
+	along. A group rather than a predicate because every :data:`ENUM` compiles through one, and
+	an unknown word is refused by listing the words that work, which needs the field as written.
+	"""
+
+	narrowing = []
+
+	for comparison in comparisons:
+		allowed = comparison.against.vocabulary or ()
+		values = _values(comparison)
+
+		for value in values:
+			if value not in allowed:
+				raise subroutine.errors.ValidationError(
+					f"{comparison.field} takes {', '.join(allowed)}, so '{value}' is not one.",
+					errors=[
+						subroutine.errors.FieldError(
+							field=comparison.field,
+							code="invalid_field_value",
+							message=f"It is one of {', '.join(allowed)}.",
+							hint=f"Try '{comparison.field}.eq={allowed[-1]}'.",
+						)
+					],
+				)
+
+		column = typing.cast(typing.Any, comparison.against.column)
+
+		narrowing.append(
+			column.not_in(values) if comparison.operator == "ne" else column.in_(values)
+		)
+
+	return sqlalchemy.and_(*narrowing)
+
+
 def _a_fixed_vocabulary (comparisons: list[Comparison], where: Where) -> typing.Any:
 	"""Compile ``status_category`` — `#3093`, and `#1804`'s ``ENUM`` finally wired up.
 
@@ -2828,6 +2884,7 @@ GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	FROM_THE_VOCABULARY: _vocabulary_key,
 	A_FIXED_VOCABULARY: _a_fixed_vocabulary,
 	OF_A_CATEGORY: _of_a_category,
+	ON_THE_ROW: _a_word_on_the_row,
 	IN_PROJECT: _in_project,
 	IN_THE_TREE: _in_the_tree,
 	ANSWERABLE_TO: _answerable_to,

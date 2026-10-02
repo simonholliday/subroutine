@@ -471,6 +471,8 @@ def create (
 	# **The other half of what `SR#1684` gave up** — `SR#2285`. The retired column was unique
 	# per superseded document, and a link type carries no cardinality at all, so two documents
 	# could replace one and every surface would render both.
+	marking: subroutine.db.models.work.Document | None = None
+
 	if (
 		link_type.key == SUPERSEDING
 		and source.entity_type == "document"
@@ -483,6 +485,11 @@ def create (
 			ref=target.ref,
 			by=source.id,
 			field="target",
+		)
+		# **A successor carries whom the superseded document binds** (`#4133`, decision `#4134`),
+		# checked here with the other refusals and written once the link is.
+		marking = subroutine.domain.documents.successor_to_mark(
+			session, superseded=target.id, by=source.id, actor=actor, field="target"
 		)
 
 	link = subroutine.db.models.work.Link(
@@ -497,6 +504,9 @@ def create (
 	)
 	session.add(link)
 	session.flush()
+
+	if marking is not None:
+		subroutine.domain.documents.mark_the_successor(session, marking, actor=actor)
 
 	far_type, far_id = _far_end(link, subject_id=(acted_on or source).id)
 

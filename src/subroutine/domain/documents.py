@@ -245,8 +245,20 @@ COMPARED: frozenset[str] = frozenset(
 		"type_id",
 		"tags",
 		"project_id",
+		"binds",
 	}
 )
+
+#: What a document binds until somebody marks it - `#4133`: its own project, as every document
+#: did before there was a choice.
+BINDS_ITS_PROJECT = "project"
+
+#: What a marked document binds - the whole workspace, decision `#4134`.
+BINDS_THE_WORKSPACE = "workspace"
+
+#: What to do instead, for every refusal of a mark from a credential that reaches part of the
+#: workspace.
+_ASK_FROM_THE_WHOLE = "Ask from a credential that reaches the whole workspace."
 
 
 def create (
@@ -260,6 +272,7 @@ def create (
 	parent: subroutine.db.models.work.Document | None = None,
 	owner_id: uuid.UUID | None = None,
 	tags: typing.Sequence[str] | None = None,
+	binds: str | None = None,
 	max_depth: int | None = None,
 	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
@@ -268,6 +281,7 @@ def create (
 
 	cleaned_title = _clean_title(title)
 	body = subroutine.domain.text.readable(body, field="body")
+	bound = BINDS_ITS_PROJECT if binds is None else _binding(binds)
 
 	if owner_id is not None:
 		# The same question, and this path asked nothing at all: an id naming nobody reached
@@ -302,6 +316,15 @@ def create (
 
 	_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
 
+	if bound == BINDS_THE_WORKSPACE:
+		_permitted_to_mark(
+			session,
+			actor,
+			workspace_id,
+			act="write a document that binds the whole workspace",
+			hint=f"Write it binding its project. {_ASK_FROM_THE_WHOLE}",
+		)
+
 	item_type = item_type_for(session, workspace_id, type_key)
 	status = (
 		status_for(session, workspace_id, status_key)
@@ -322,6 +345,7 @@ def create (
 		body=body,
 		status_id=status.id,
 		owner_id=owner_id,
+		binds=bound,
 		path="",
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
@@ -377,6 +401,7 @@ def update (
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
+	binds: str = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
@@ -496,6 +521,28 @@ def update (
 			session, document.workspace_id, str(owner_id), field="owner_id"
 		)
 
+	# **Whom it binds, in both directions** (`#4133`, decision `#4134`): setting a mark back
+	# retires a rule for everybody, which is as much an act on the workspace as making one.
+	# Every other edit to a marked document takes what it takes today.
+	bound: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if binds is subroutine.domain.patch.UNSET
+		else _binding(binds)
+	)
+
+	if bound is not subroutine.domain.patch.UNSET and bound != document.binds:
+		_permitted_to_mark(
+			session,
+			actor,
+			document.workspace_id,
+			act=(
+				"mark a document as binding the whole workspace"
+				if bound == BINDS_THE_WORKSPACE
+				else "set a document that binds the whole workspace back to its project"
+			),
+			hint=f"Leave what it binds as it is. {_ASK_FROM_THE_WHOLE}",
+		)
+
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
 	previous_text = (document.title, document.body)
@@ -506,6 +553,7 @@ def update (
 		("owner_id", owner_id),
 		("status_id", None if status is subroutine.domain.patch.UNSET else status.id),
 		("type_id", None if item_type is subroutine.domain.patch.UNSET else item_type.id),
+		("binds", bound),
 	):
 		if value is subroutine.domain.patch.UNSET:
 			continue
@@ -1259,6 +1307,134 @@ def _permitted (
 
 	subroutine.domain.authorization.authorize(
 		session, actor, permission, workspace_id=scope, project=project
+	)
+
+
+def _binding (value: str) -> str:
+	"""Return what a document is to bind, or refuse a word that is not one - `#4133`."""
+
+	if value in subroutine.db.mixins.DOCUMENT_BINDS:
+		return value
+
+	raise subroutine.errors.ValidationError(
+		f"A document binds its project or the whole workspace, so {value!r} is not one.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="binds",
+				code="invalid_field_value",
+				message="A document binds its project or the whole workspace.",
+				hint=f"Valid values: {', '.join(subroutine.db.mixins.DOCUMENT_BINDS)}.",
+			)
+		],
+	)
+
+
+def _permitted_to_mark (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	workspace_id: uuid.UUID,
+	*,
+	act: str,
+	hint: str,
+	field: str = "binds",
+) -> None:
+	"""Check that an actor may change whom a document binds, or raise - `#4133`, decision `#4134`.
+
+	**What sharing a view takes** (`#3151`): ``project:write`` in the workspace, on a credential
+	not narrowed to some projects. A rule that binds the whole workspace is listed for every
+	reader of the conventions, which every agent is told to read before its first write - the
+	channel §14.12 warns about, through which one user can place text in another user's agent's
+	context. So only somebody who may administer projects, from a credential that reaches all of
+	them, can widen a rule's reach or narrow it again. ``None`` is an internal caller.
+	"""
+
+	if actor is None:
+		return
+
+	subroutine.domain.authorization.authorize(
+		session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id
+	)
+	subroutine.domain.authorization.refuse_a_workspace_act_from_a_narrowed_credential(
+		actor,
+		act=act,
+		field=field,
+		why="A rule for the whole workspace is an act on the workspace, and this credential "
+		"reaches part of it.",
+		hint=hint,
+	)
+
+
+def successor_to_mark (
+	session: sqlalchemy.orm.Session,
+	*,
+	superseded: uuid.UUID,
+	by: uuid.UUID,
+	actor: subroutine.domain.authentication.Principal | None,
+	field: str,
+) -> subroutine.db.models.work.Document | None:
+	"""Return the document a ``supersedes`` link would mark, having checked it may - `#4133`.
+
+	**A successor carries the mark** (decision `#4134`): a document superseding one that binds the
+	whole workspace binds it too, so a rule does not stop binding by being revised, and nobody can
+	retire one by replacing it with one that does not. So the link takes what marking takes, and
+	only when it would mark something. Asked before the link is written and applied after it, by
+	:func:`mark_the_successor`, so a refusal leaves nothing behind.
+	"""
+
+	old = session.get(subroutine.db.models.work.Document, superseded)
+	new = session.get(subroutine.db.models.work.Document, by)
+
+	if old is None or new is None:
+		return None
+
+	if old.binds != BINDS_THE_WORKSPACE or new.binds == BINDS_THE_WORKSPACE:
+		return None
+
+	_permitted_to_mark(
+		session,
+		actor,
+		new.workspace_id,
+		act="supersede a document that binds the whole workspace",
+		hint=f"Its successor would bind the whole workspace too. {_ASK_FROM_THE_WHOLE}",
+		field=field,
+	)
+
+	return new
+
+
+def mark_the_successor (
+	session: sqlalchemy.orm.Session,
+	successor: subroutine.db.models.work.Document,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> None:
+	"""Mark a document as binding the whole workspace, because it supersedes one that does.
+
+	**A link writing a row it joins, which a decision asks for** (`#4134`). `#1685`'s rule is that a
+	link does not rewrite another row, and this is the one place a later decision asks it to:
+	without it, the ordinary act of revising a rule would retire its mark. Recorded as the
+	document's own change, so its history says when the mark arrived and who brought it.
+	"""
+
+	changes = {"binds": {"from": successor.binds, "to": BINDS_THE_WORKSPACE}}
+
+	successor.binds = BINDS_THE_WORKSPACE
+	successor.version += 1
+	successor.updated_by = None if actor is None else actor.user.id
+
+	if subroutine.domain.events.touches_content("document", changes):
+		successor.content_updated_at = subroutine.db.types.utcnow()
+
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=successor.workspace_id,
+		entity_type="document",
+		entity_id=successor.id,
+		action=subroutine.domain.events.EventAction.UPDATED,
+		changes=changes,
+		actor=actor,
 	)
 
 

@@ -228,6 +228,10 @@ COVERAGE: dict[str, str] = {
 	TASK_READ: "tasks and documents",
 	TASK_WRITE: "tasks and documents",
 	TASK_DELETE: "tasks and documents",
+	# **And the one document act it gates** (`#4133`): marking a rule as binding the whole
+	# workspace, setting it back, and superseding a marked one, so a reader of its grants can see
+	# where the mark comes from - `#703`'s failure, one verb along.
+	PROJECT_WRITE: "projects, and which documents bind the whole workspace",
 	# Not instance-wide account administration, which is `instance:user_create` and is a tier
 	# up. This is membership of *this* workspace: inviting, removing, changing a role.
 	USER_ADMIN: "who belongs to this workspace",

@@ -33,6 +33,7 @@ import urllib.parse
 import subroutine.addressing
 import subroutine.clients.base
 import subroutine.config
+import subroutine.db.mixins
 import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
@@ -1173,6 +1174,11 @@ def _tools (
 							"A document status key, e.g. draft - subroutine://meta lists this "
 							"workspace's own. Omitted puts it in force."
 						),
+					},
+					"binds": {
+						"type": "string",
+						"enum": list(subroutine.db.mixins.DOCUMENT_BINDS),
+						"description": "workspace: in force for everyone in it.",
 					},
 					"tags": {
 						"type": "array",
@@ -3145,6 +3151,10 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	if subroutine.views.status_is_news(item):
 		facts.append(item.status)
 
+	# The command line's fact, in the same words (`#4133`).
+	if isinstance(item, subroutine.views.Document) and item.binds == "workspace":
+		facts.append("binds the whole workspace")
+
 	if isinstance(item, subroutine.views.Task):
 		# **Reported whether or not it has passed.** A defer is a decision somebody made, and
 		# one that has come round is still the answer to why this was not on the list in June.
@@ -4198,6 +4208,7 @@ def _wrote (
 			# ``subroutine_call_api(method="PATCH", …)``, the most context-expensive call on
 			# the surface.
 			status=_text(arguments, "status"),
+			binds=_text(arguments, "binds"),
 			project=_text(arguments, "project") or checkout.project,
 			tags=_words(arguments, "tags"),
 			# **`#2173`, Simon 2026-09-07.** `POST /v1/documents` has taken a parent since
@@ -4227,6 +4238,9 @@ def _wrote (
 		# is one row, which is the same distinction `#1438` drew for the project below.
 		if _text(arguments, "status") is not None:
 			answer = f"{answer}\n  {document.status}"
+
+		if document.binds == "workspace":
+			answer = f"{answer}\n  binds the whole workspace"
 
 		if checkout.said is not None:
 			answer = f"{answer}\n  {checkout.said}"
@@ -4301,6 +4315,7 @@ def _wrote (
 			# written as a draft that turns out to bind the next session. `#506` made
 			# ``status_key`` reachable from a client for this reason and only one caller used it.
 			status=said("status"),
+			binds=said("binds"),
 			project=said("project"),
 			tags=subroutine.clients.base.UNSET if tags is None else tags,
 			workspace=workspace,

@@ -1607,6 +1607,7 @@ class Client(typing.Protocol):
 		workspace: str | None = None,
 		tags: typing.Sequence[str] | None = None,
 		parent: int | None = None,
+		binds: str | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document — a conclusion the next reader needs (§5.10).
 
@@ -1635,6 +1636,9 @@ class Client(typing.Protocol):
 		offered it, so a document could be nested by an HTTP call written by hand and by
 		nothing else. It is a ref rather than an id for :meth:`move`'s reason: a number is what
 		anybody has.
+
+		``binds`` is whom it is in force for, ``project`` when omitted, or ``workspace`` -
+		`#4133`. Marking takes ``project:write`` on a credential reaching the whole workspace.
 		"""
 
 	def update_document (
@@ -1648,6 +1652,7 @@ class Client(typing.Protocol):
 		status: str = UNSET,
 		project: str = UNSET,
 		tags: typing.Sequence[str] | None = UNSET,
+		binds: str = UNSET,
 		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document. Omitted is unchanged; ``None`` clears (§8.3).

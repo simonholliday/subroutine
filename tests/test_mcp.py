@@ -2345,12 +2345,18 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: first, and none was found**: ``subroutine_list`` names neither the field nor its words
 #: anywhere else, so this is not a second copy. The slack before it was one byte. The words are
 #: read from the registry, so the clause cannot drift from what the instance accepts.
-#: **14,880 	 14,900 on 2026-09-30, for `type_category`'s words** (`SR#3704`, decision
+#: **14,880 to 14,900 on 2026-09-30, for `type_category`'s words** (`SR#3704`, decision
 #: `SR#3807`): the list leaves events out, and naming the category is how an agent brings them
 #: back, since ``subroutine_list`` has no type argument - so the field has to be published, for
 #: `SR#821`'s reason above. 66 bytes, and writing every such clause as ``name: words``
 #: rather than ``name is one of words`` paid 18 of them. The slack was 30 before, and 2 after.
-TOOL_BYTE_CEILING = 14_900
+#: **14,900 to 15,020 on 2026-10-02, and what 121 bytes bought** (`SR#4133`, decision
+#: `SR#4134`): ``binds`` on ``subroutine_document``, one of the surfaces the decision names. An
+#: agent could otherwise write a rule for its project and never one for the whole workspace, nor
+#: set one back. **Read for fat first, and none was taken**: the enum names both words, so the
+#: description says only what the second one does, and the permission it takes is left to the
+#: refusal, which names it. The slack was 2 before, and 1 after.
+TOOL_BYTE_CEILING = 15_020
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -11393,3 +11399,33 @@ def test_the_request_holds_nothing_while_the_tool_session_works () -> None:
 		f"the request's session is committed at line {min(committed)}, after the client is "
 		f"opened at line {min(opened)} - so it is still holding while the second session works"
 	)
+
+
+def test_a_document_marked_to_bind_the_whole_workspace_is_said_so_to_an_agent (
+	bound: typing.Any,
+) -> None:
+	"""`SR#4133`: ``binds`` on ``subroutine_document``, said on the write and by the show.
+
+	Said only while it is so, as the command line says it: a document binds its own project until
+	somebody marks it, and a default nobody chose is not a fact.
+	"""
+
+	written, failed = _called(
+		bound, "subroutine_document", title="Every agent reads this first", binds="workspace"
+	)
+
+	assert not failed, written
+	assert "binds the whole workspace" in written, written
+
+	found = re.search(r"#(\d+)", written)
+
+	assert found is not None, written
+
+	ref = int(found.group(1))
+
+	assert "binds the whole workspace" in _called(bound, "subroutine_show", ref=ref)[0]
+
+	revised, failed = _called(bound, "subroutine_document", ref=ref, binds="project")
+
+	assert not failed, revised
+	assert "binds the whole workspace" not in _called(bound, "subroutine_show", ref=ref)[0]

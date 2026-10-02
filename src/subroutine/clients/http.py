@@ -1761,6 +1761,7 @@ class Client:
 		workspace: str | None = None,
 		tags: typing.Sequence[str] | None = None,
 		parent: int | None = None,
+		binds: str | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
 
@@ -1774,6 +1775,8 @@ class Client:
 				body=body,
 				type=type,
 				status=status,
+				# Sent only when asked for, so an instance older than the field is never handed it.
+				binds=binds,
 				project=project,
 				tags=None if tags is None else list(tags),
 				parent=None if parent is None else str(parent),
@@ -2146,6 +2149,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		binds: str = subroutine.clients.base.UNSET,
 		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document, over the wire.
@@ -2162,6 +2166,7 @@ class Client:
 			"body": body,
 			"type": type,
 			"status": status,
+			"binds": binds,
 			"project": project,
 			# **`None` survives here and `UNSET` does not**, which is the whole of §8.3 on the
 			# wire: sending `"tags": null` clears them, and omitting the key leaves them alone.
