@@ -312,6 +312,7 @@ def test_an_unknown_tool_is_a_protocol_error (
 @pytest.mark.parametrize(
 	("method", "params"),
 	[
+		("ping", []),
 		("tools/call", [1]),
 		("tools/call", "subroutine_list"),
 		("initialize", ["x"]),
@@ -322,16 +323,67 @@ def test_an_unknown_tool_is_a_protocol_error (
 def test_params_that_are_not_an_object_are_invalid_params (
 	server: subroutine.mcp.protocol.Server, method: str, params: typing.Any
 ) -> None:
-	"""`SR#3936`, L-5 of the cold review of 2026-09-28: a client's mistake answered as our own.
+	"""`SR#3936`, L-5 of the cold review of 2026-09-28, and the decision on `#4035`.
 
-	A list or a string as ``params`` reached each method, whose first ``.get`` raised, so the answer
-	was *Something went wrong* with a traceback on standard error; an empty list read as no params
-	and succeeded. **Refused as invalid params**, JSON-RPC's own code for it.
+	**A ``params`` that is there, is not null and is not an object is refused as invalid params**,
+	JSON-RPC's own code for it, and an empty list is no exception, since MCP types ``params`` as an
+	object. A list or a string had been answered *Something went wrong* by a method that read it,
+	with a traceback on standard error, and an empty list was read as no params and succeeded.
+	``ping`` is the case that pins the empty list: it reads no params, so nothing else would refuse
+	it, where on ``tools/call`` or ``resources/read`` a missing name or uri answers invalid params
+	anyway.
 	"""
 
 	answered = _exchange(server, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 
 	assert answered[0]["error"]["code"] == subroutine.mcp.protocol.INVALID_PARAMS, answered
+
+
+@pytest.mark.parametrize("arguments", [[], "", 0, False, [1], "a=1"])
+def test_arguments_that_are_not_an_object_are_invalid_params (
+	server: subroutine.mcp.protocol.Server, arguments: typing.Any
+) -> None:
+	"""`SR#4140`, decided on `#4035`: an empty list, an empty string, 0 and false ran the tool.
+
+	``arguments`` was read with ``or {}``, so anything falsy became no arguments and only a
+	non-empty list or string was refused. **Refused as ``params`` is, whatever its truthiness**,
+	with the same sentence for each.
+	"""
+
+	answered = _exchange(
+		server,
+		{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "tools/call",
+			"params": {"name": "add", "arguments": arguments},
+		},
+	)
+
+	assert answered[0]["error"]["code"] == subroutine.mcp.protocol.INVALID_PARAMS, answered
+	assert answered[0]["error"]["message"] == "'arguments' must be an object.", answered
+
+
+@pytest.mark.parametrize("params", [{"name": "echo"}, {"name": "echo", "arguments": None}])
+def test_arguments_left_out_or_null_are_no_arguments (params: dict[str, typing.Any]) -> None:
+	"""The other half of `SR#4140`'s rule: only something sent that is not an object is refused."""
+
+	echoing = subroutine.mcp.protocol.Tool(
+		name="echo",
+		title="Echo",
+		description="Say what it was given.",
+		schema={"type": "object", "properties": {}},
+		call=lambda arguments: json.dumps(arguments),
+	)
+	server = subroutine.mcp.protocol.Server(
+		[echoing], name="test", version="0", instructions="Echoes."
+	)
+	answered = _exchange(
+		server, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}
+	)
+
+	assert answered[0]["result"]["content"] == [{"type": "text", "text": "{}"}], answered
+	assert answered[0]["result"]["isError"] is False, answered
 
 
 def test_an_unknown_method_is_refused_and_the_session_continues (

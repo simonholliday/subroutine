@@ -314,7 +314,14 @@ class Server:
 		if tool is None:
 			return _failure(identifier, INVALID_PARAMS, f"Unknown tool: {name}")
 
-		arguments = params.get("arguments") or {}
+		# **Absent and null are no arguments, and anything else that is not an object is refused**
+		# (`#4140`, decided on `#4035`), as ``params`` is above. This read ``or {}``, so ``[]``, ``""``,
+		# ``0`` and ``false`` ran the tool as though nothing had been sent while ``[1]`` was refused:
+		# one shape of mistake answered two ways, a level apart from a third.
+		arguments = params.get("arguments")
+
+		if arguments is None:
+			arguments = {}
 
 		if not isinstance(arguments, dict):
 			return _failure(identifier, INVALID_PARAMS, "'arguments' must be an object.")

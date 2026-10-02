@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **An agent tool call whose `arguments` is not an object is refused as invalid params**, as a
+  request whose `params` is not one already was. An empty list, an empty string, `0` and `false`
+  ran the tool as though no arguments had been sent. Leaving `arguments` out, or sending `null`,
+  still means none.
 - **`serve` says when it and the rest of its machine would decide OSC differently.** Started with
   `--host`, or with its address only in the service's environment, a server could send nothing
   while a terminal on the same machine, reading `config.toml`, went on sending. It now says so as
