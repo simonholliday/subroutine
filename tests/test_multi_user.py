@@ -1069,6 +1069,71 @@ def test_a_departure_that_cannot_be_checked_for_stranded_projects_says_so (
 	)
 
 
+def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4154` and `SR#4144`, decided on `#3950`: allowed, and never silent.
+
+	Thomas is the only administrator of two workspaces the operator is not in. Deactivating him
+	names both before anybody agrees and again afterwards, each with the command that makes
+	somebody its administrator; `instance workspaces` marks them; and the command it gives works
+	from this terminal, which a local connection refused while telling its reader to run it.
+	"""
+
+	run("init", "--workspace", "Acme", "--username", "morpheus")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+
+	for slug, title in (("zion", "Zion"), ("hammer", "Mjolnir")):
+		run("workspace", "create", slug, title)
+		run("user", "add", "thomas", "--workspace", slug, "--role", "owner")
+
+	operator = "morpheus"
+
+	for slug in ("zion", "hammer"):
+		run("user", "remove", operator, "--workspace", slug)
+
+	warned = run("user", "deactivate", "thomas", input="y\n").output
+
+	assert "And nobody will be able to administer 2 workspace(s): zion, hammer" in warned, warned
+
+	for slug in ("hammer", "zion"):
+		assert (
+			f"  {slug} has nobody who can administer it - 'subroutine user add {operator} --role "
+			f"admin -w {slug}' makes one"
+		) in warned, warned
+
+	listed = run("instance", "workspaces").output
+
+	assert [line for line in listed.splitlines() if "nobody can administer it" in line] == [
+		line for line in listed.splitlines() if line.strip().startswith(("zion ", "hammer "))
+	], listed
+	assert "2 of these nobody can administer." in listed, listed
+
+	run("user", "add", operator, "--role", "admin", "-w", "zion")
+	repaired = run("instance", "workspaces").output
+
+	assert [line for line in repaired.splitlines() if "nobody can administer it" in line] == [
+		line for line in repaired.splitlines() if line.strip().startswith("hammer ")
+	], repaired
+
+
+def test_deactivating_with_yes_still_names_what_it_left (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4154`: ``--yes`` skips the question and not the account of what happened."""
+
+	run("init", "--workspace", "Acme", "--username", "morpheus")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("workspace", "create", "zion", "Zion")
+	run("user", "add", "thomas", "--workspace", "zion", "--role", "owner")
+	run("user", "remove", "morpheus", "--workspace", "zion")
+
+	answered = run("user", "deactivate", "thomas", "--yes").output
+
+	assert "And nobody will be able to administer" not in answered, "--yes asked anyway"
+	assert "  zion has nobody who can administer it" in answered, answered
+
+
 def test_adding_somebody_where_agents_fill_a_page_keeps_your_own_list (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -180,3 +180,55 @@ def unreachable_projects (
 		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
 		shape,
 	)
+
+
+@router.get(
+	"/unadministered-workspaces",
+	summary="Workspaces nobody here can administer",
+	response_model=subroutine.views.Collection[subroutine.views.WorkspaceOnInstance],
+)
+def unadministered_workspaces (
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	leaving: str | None = fastapi.Query(
+		None,
+		description="Instead, the ones that would be left with nobody to administer them if this "
+		"person left.",
+	),
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
+	"""List the workspaces that nobody who can act may administer.
+
+	Needs ``instance:admin``, which no role carries and only a superuser holds, and a credential
+	that is not pinned to one workspace.
+
+	An administrator here is somebody whose role in the workspace may administer it and who can
+	still act: not deactivated, and not an agent whose person has been. A workspace with none still
+	works for its members, and none of them can add, regrade or remove a member, or delete it. An
+	administrator of this installation can make somebody its administrator again, themselves
+	included, with ``POST /v1/workspaces/{id_or_slug}/members`` or by changing a member's role,
+	whether or not they belong to it.
+
+	With ``leaving``, it answers the question to ask before deactivating somebody instead: which
+	workspaces somebody can administer now would nobody be able to administer afterwards.
+	"""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format,
+		fields=fields,
+		available=ON_INSTANCE_FIELDS,
+		entity="workspace",
+		timezone=subroutine.views.reader_zone(session, actor),
+	)
+	rows = subroutine.domain.workspaces.unadministered(
+		session,
+		actor=actor,
+		leaving=None if leaving is None else subroutine.domain.users.by_username(session, leaving),
+	)
+
+	return subroutine.api.shaping.response(
+		[subroutine.views.workspace_on_instance(row) for row in rows],
+		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		shape,
+	)

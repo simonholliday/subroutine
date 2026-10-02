@@ -1140,8 +1140,6 @@ def _refuse_leaving_nobody_who_can_administer (
 	including by granting somebody the role that would repair it.
 	"""
 
-	member = subroutine.db.models.identity.WorkspaceMember
-	role = subroutine.db.models.identity.Role
 	place = subroutine.db.models.identity.Workspace
 
 	# **The workspace is locked before its administrators are counted** (`#1178`), so two
@@ -1158,32 +1156,7 @@ def _refuse_leaving_nobody_who_can_administer (
 		.execution_options(synchronize_session=False)
 	)
 
-	# One query for every membership's permissions, not one per membership. The obvious
-	# version of this asks the database once per row and is `#39`'s N+1 on the path of a
-	# command somebody runs while tidying up a team.
-	# **Only an account that can still act is counted as staying** (`#3942`). A deactivated or
-	# deleted administrator was, so the only active one could be removed or demoted while the
-	# other had left, and the workspace had nobody able to administer it. **As authentication
-	# decides it** (`#4020`, L-2 (6) of the cold review of 2026-09-30): an agent whose person has
-	# left cannot act, and was counted, so the last person could leave it to that agent.
-	user = subroutine.db.models.identity.User
-	rows = session.execute(
-		sqlalchemy.select(member.id, role.permissions, user)
-		.join(role, role.id == member.role_id)
-		.join(user, user.id == member.user_id)
-		.where(
-			member.workspace_id == workspace.id,
-			user.is_active.is_(True),
-			user.deleted_at.is_(None),
-		)
-	).all()
-
-	administrators = {
-		found
-		for found, permissions, holder in rows
-		if subroutine.permissions.WORKSPACE_ADMIN in (permissions or [])
-		and subroutine.domain.accountability.can_act(session, holder)
-	}
+	administrators = _administrators(session, workspace)
 
 	if losing.id not in administrators or administrators - {losing.id}:
 		return
@@ -1195,6 +1168,50 @@ def _refuse_leaving_nobody_who_can_administer (
 			"administrator cannot be repaired from inside it."
 		),
 	)
+
+
+def _administrators (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	leaving: typing.Collection[uuid.UUID] = (),
+) -> set[uuid.UUID]:
+	"""Return the memberships of everybody who may administer a workspace and can act.
+
+	**One rule for both its readers**: refusing to remove or demote the last of them, and naming
+	the workspaces a deactivation would leave with none (`#4154`). ``leaving`` asks the second
+	question of a future in which those accounts have gone.
+	"""
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+	user = subroutine.db.models.identity.User
+
+	# One query for every membership's permissions, not one per membership. The obvious
+	# version of this asks the database once per row and is `#39`'s N+1 on the path of a
+	# command somebody runs while tidying up a team.
+	# **Only an account that can still act is counted as staying** (`#3942`). A deactivated or
+	# deleted administrator was, so the only active one could be removed or demoted while the
+	# other had left, and the workspace had nobody able to administer it. **As authentication
+	# decides it** (`#4020`, L-2 (6) of the cold review of 2026-09-30): an agent whose person has
+	# left cannot act, and was counted, so the last person could leave it to that agent.
+	rows = session.execute(
+		sqlalchemy.select(member.id, role.permissions, user)
+		.join(role, role.id == member.role_id)
+		.join(user, user.id == member.user_id)
+		.where(
+			member.workspace_id == workspace.id,
+			user.is_active.is_(True),
+			user.deleted_at.is_(None),
+		)
+	).all()
+
+	return {
+		found
+		for found, permissions, holder in rows
+		if subroutine.permissions.WORKSPACE_ADMIN in (permissions or [])
+		and subroutine.domain.accountability.can_act(session, holder, leaving=leaving)
+	}
 
 
 def readable (
@@ -1484,4 +1501,36 @@ def on_instance (
 			workspace=row, members=counts.get(row.id, 0), joined=row.id in mine
 		)
 		for row in rows
+	]
+
+
+def unadministered (
+	session: sqlalchemy.orm.Session,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+	leaving: subroutine.db.models.identity.User | None = None,
+) -> list[OnInstance]:
+	"""Return the workspaces nobody who can act may administer - `#4154`.
+
+	**Decided on `#3950`**: deactivating a workspace's last administrator who can act is allowed,
+	and never silent, as a private project's last member is (`#1453`). Such a workspace still works
+	for its members, and nobody in it can add, regrade or remove a member or delete it, so only an
+	administrator of the installation can make somebody its administrator again.
+
+	**``leaving`` asks what one person's departure would leave so**: workspaces somebody can
+	administer now that nobody could once they, and every agent answering to them, had stopped.
+	That is what ``user deactivate`` names before it acts. Without it, the ones that are so
+	already, which ``instance workspaces`` marks. Counted as authentication decides who can act,
+	so the person an administering agent answers to is caught too.
+
+	Needs what :func:`on_instance` needs, and asks it there.
+	"""
+
+	gone = () if leaving is None else (leaving.id,)
+
+	return [
+		one
+		for one in on_instance(session, actor=actor)
+		if not _administrators(session, one.workspace, leaving=gone)
+		and (leaving is None or _administrators(session, one.workspace))
 	]

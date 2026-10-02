@@ -1342,6 +1342,17 @@ class Client(typing.Protocol):
 
 		raise NotImplementedError
 
+	def unadministered_workspaces (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List the workspaces nobody who can act may administer - item `#4154`.
+
+		``leaving`` asks instead which ones one person's departure would leave so, which is what
+		``user deactivate`` names before it acts. Needs ``instance:admin``.
+		"""
+
+		raise NotImplementedError
+
 	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
 		"""List every workspace on this installation, member or not — item `#1418`.
 

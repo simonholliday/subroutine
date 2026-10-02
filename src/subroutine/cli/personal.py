@@ -150,6 +150,9 @@ COMMENTS_SHOWN = 5
 #: add`` names one rather than assuming it, so advice that left it out was refused when followed.
 JOIN_A_WORKSPACE = "subroutine user add <you> --workspace <workspace> --role <role>"
 
+#: How an administrator of the installation repairs a workspace nobody can administer - `#4154`.
+ADMINISTER_A_WORKSPACE = "subroutine user add <you> --role admin -w <workspace>"
+
 
 #: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
 #: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
@@ -6152,9 +6155,17 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 
 			return
 
+		# **Marked where nobody who can act may administer it** (`#4154`, decided on `#3950`):
+		# nobody inside can add, regrade or remove a member there, or delete it, and nothing else
+		# says so. Asked of the server, which counts it as authentication decides who can act.
+		orphaned = {one.slug for one in where.client.unadministered_workspaces()}
+
 		for one in found:
 			people = "1 person" if one.members == 1 else f"{one.members} people"
 			mark = "" if one.joined else "  - you are not a member"
+
+			if one.slug in orphaned:
+				mark += "  - nobody can administer it"
 
 			program.say(f"  {one.slug}  {one.title}  ({people}){mark}")
 
@@ -6167,6 +6178,13 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 			program.say("")
 			program.say(
 				f"{len(outside)} of these you cannot see into. '{JOIN_A_WORKSPACE}' joins one."
+			)
+
+		if orphaned:
+			program.say("")
+			program.say(
+				f"{len(orphaned)} of these nobody can administer. '{ADMINISTER_A_WORKSPACE}' makes "
+				"somebody its administrator, you included."
 			)
 
 
@@ -6209,10 +6227,34 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 
 		stranding = [one.address() for one in stranded]
 
+		# **And the workspaces nobody could administer afterwards** (`#4154`, decided on `#3950`):
+		# allowed, as a private project's last member leaving is, and never silent. Asked of the
+		# server for the agents' reason, and a refusal is said rather than read as *none*.
+		try:
+			orphaned = [
+				one.slug for one in where.client.unadministered_workspaces(leaving=username)
+			]
+			unasked = None
+
+		except subroutine.errors.SubroutineError as refused:
+			orphaned = []
+			unasked = refused.detail
+
+		# Who would repair them, asked before the deactivation, since somebody deactivating
+		# themselves cannot ask afterwards and could not repair anything if they did.
+		repairer = "<you>"
+
+		if orphaned:
+			with contextlib.suppress(subroutine.errors.SubroutineError):
+				repairer = where.client.me().user.username
+
+			if repairer == username:
+				repairer = "<another administrator>"
+
 		# **Named before it happens, not counted** - `project rename`'s rule. A deactivation that
 		# silently stops a shared agent is how somebody learns to stop deactivating leavers, which
 		# costs more than the thing it was protecting.
-		if (stopping or stranding or unchecked) and not yes:
+		if (stopping or stranding or unchecked or orphaned or unasked) and not yes:
 			if stopping:
 				program.say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
 
@@ -6224,6 +6266,18 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 
 			if unchecked:
 				program.say(f"Whether this strands a private project was not checked: {unchecked}")
+
+			if orphaned:
+				program.say(
+					f"And nobody will be able to administer {len(orphaned)} workspace(s): "
+					f"{', '.join(orphaned)}"
+				)
+
+			if unasked:
+				program.say(
+					f"Whether this leaves a workspace with nobody to administer it was not checked: "
+					f"{unasked}"
+				)
 
 			if not typer.confirm(f"Mark {username} as having left?"):
 				program.say("Left as they were.")
@@ -6239,6 +6293,12 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 
 		for address in stranding:
 			program.say(f"  {address} can be seen by nobody")
+
+		for slug in orphaned:
+			program.say(
+				f"  {slug} has nobody who can administer it - 'subroutine user add {repairer} --role "
+				f"admin -w {slug}' makes one"
+			)
 
 		# **Joining comes first where the operator is outside** (`#2626`): somebody is let back in
 		# from inside a workspace, and an administrator joins one rather than reaching into it.
@@ -8443,7 +8503,8 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		were looking.
 
 		Seeing a workspace here does not let you read what is in it. Joining does, and joining
-		is recorded.
+		is recorded. A workspace nobody who can still act may administer is marked: making
+		somebody its administrator, you included, needs no membership first.
 		"""
 
 		_instance_workspaces(program, json_output=json_output)
@@ -9519,7 +9580,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		those agents permission to work, and that permission was this person's to give.
 
 		The last person who can administer this instance cannot leave: an instance nobody can
-		administer cannot be repaired from inside, and it would stop every agent at once.
+		administer cannot be repaired from inside, and it would stop every agent at once. A
+		workspace with nobody left to administer it is named before and after, with the command
+		that makes somebody its administrator again.
 		"""
 
 		_deactivated(program, username=username, yes=yes)

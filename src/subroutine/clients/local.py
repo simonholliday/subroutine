@@ -2690,7 +2690,7 @@ class Client:
 		"""List who belongs to one workspace."""
 
 		with self._opened() as (session, actor):
-			chosen = subroutine.domain.selection.workspace(
+			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
 			)
 
@@ -2725,7 +2725,7 @@ class Client:
 		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
-			chosen = subroutine.domain.selection.workspace(
+			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
 			)
 			account = subroutine.domain.users.by_username(session, username)
@@ -2754,7 +2754,7 @@ class Client:
 		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
-			chosen = subroutine.domain.selection.workspace(
+			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
 			)
 			account = subroutine.domain.users.by_username(session, username)
@@ -2840,7 +2840,7 @@ class Client:
 		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
-			chosen = subroutine.domain.selection.workspace(
+			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
 			)
 			account = subroutine.domain.users.by_username(session, username)
@@ -2858,6 +2858,25 @@ class Client:
 			return [
 				subroutine.views.unreachable_project(row)
 				for row in subroutine.domain.projects.unreachable(
+					session,
+					actor=actor,
+					leaving=(
+						None
+						if leaving is None
+						else subroutine.domain.users.by_username(session, leaving)
+					),
+				)
+			]
+
+	def unadministered_workspaces (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List the workspaces nobody who can act may administer."""
+
+		with self._opened() as (session, actor):
+			return [
+				subroutine.views.workspace_on_instance(row)
+				for row in subroutine.domain.workspaces.unadministered(
 					session,
 					actor=actor,
 					leaving=(
@@ -3172,7 +3191,7 @@ class Client:
 		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
-			chosen = subroutine.domain.selection.workspace(
+			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
 			)
 			removed = subroutine.domain.workspaces.delete(session, chosen, actor=actor)

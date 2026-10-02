@@ -14,6 +14,16 @@ upgrade involves.
 
 ## Unreleased
 
+- **`user deactivate` names every workspace it would leave with nobody who can administer
+  it**, before you agree and again afterwards, each with the command that makes somebody its
+  administrator: `subroutine user add <you> --role admin -w <workspace>`. Deactivating such a
+  person is still allowed, as it is for a private project's last member. `instance workspaces`
+  marks such a workspace, and `GET /v1/instance/unadministered-workspaces` answers which they
+  are, or with `leaving`, which a departure would leave so.
+- **An administrator of the installation can make themselves a workspace's administrator from a
+  terminal on this machine's own database**, as they could over a connection. Adding, regrading
+  and removing members, listing them and deleting the workspace were refused there with a hint
+  to join it first, using the command that had just been refused.
 - **The Inbox cannot be made private, or moved under another project**, as it cannot be
   deleted. Everything filed in a workspace without a project goes there, so a private Inbox
   refused every other member's capture, saying they had named a project they could not see.

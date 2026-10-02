@@ -913,6 +913,45 @@ def test_both_list_the_projects_nobody_can_reach_the_same_way (pair: Pair) -> No
 		assert pair.remote.unreachable_projects() == stranded
 
 
+def test_both_name_the_workspaces_nobody_can_administer_and_repair_one (pair: Pair) -> None:
+	"""`SR#4154` and `SR#4144`: the question `user deactivate` asks, and the repair, both ways.
+
+	What a departure would leave with nobody to administer it, and what is left so once it has
+	happened, compared field by field with one credential on both transports. Then the repair: the
+	installation's administrator, outside the workspace, makes themselves its administrator. Over
+	a local connection that was refused, with a hint to run the command that had been refused.
+	"""
+
+	operator = _as_the_operator(pair)
+	thomas = subroutine.domain.users.create(pair.session, username="thomas")
+	zion = subroutine.domain.workspaces.create(
+		pair.session, slug="zion", title="Zion", owner=thomas
+	)
+	pair.session.flush()
+
+	with operator:
+		leaving = operator.unadministered_workspaces(leaving="thomas")
+
+		assert [one.slug for one in leaving] == ["zion"], leaving
+		assert pair.remote.unadministered_workspaces(leaving="thomas") == leaving
+		assert operator.unadministered_workspaces() == []
+
+		subroutine.domain.users.set_active(pair.session, thomas, active=False)
+		pair.session.flush()
+
+		left = operator.unadministered_workspaces()
+
+		assert [one.slug for one in left] == ["zion"], left
+		assert pair.remote.unadministered_workspaces() == left
+
+		joined = operator.add_member(
+			username=pair.user.username, role="admin", workspace=zion.slug
+		)
+
+		assert joined.role == "admin", joined
+		assert operator.unadministered_workspaces() == []
+
+
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
 	"""Three writes — an account, a membership, a credential — as one call and one transaction.
 

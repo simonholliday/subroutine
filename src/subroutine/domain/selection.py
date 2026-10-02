@@ -84,6 +84,38 @@ def workspace (
 	return _only(reachable, "You are not a member of any workspace.")
 
 
+def workspace_to_administer (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	requested: str | None = None,
+	field: str = "workspace_id",
+) -> subroutine.db.models.identity.Workspace:
+	"""Return a workspace as the server's membership routes find it, outside it included - `#4144`.
+
+	**Those routes let an administrator of the installation name a workspace they are not in**
+	(`#1418`), so one can repair a workspace nobody inside can administer by joining it, or by
+	changing a member's role. The local client found the same commands' workspace through
+	:func:`workspace`, which refuses a non-member, and its refusal told the reader to join with the
+	command that had just been refused. Listing, adding, regrading and removing members, and
+	deleting the workspace, come here on both transports.
+
+	Anybody :func:`_outside` does not let discover a workspace is refused as :func:`workspace`
+	refuses them, which confirms nothing.
+	"""
+
+	try:
+		return workspace(session, principal, requested=requested, field=field)
+
+	except subroutine.errors.NotFound:
+		outside = None if requested is None else _outside(session, principal, requested)
+
+		if outside is None:
+			raise
+
+		return outside
+
+
 #: The word a caller uses for its own account. **Opt-in per call site rather than accepted
 #: everywhere** (`#518`): the resolver below also serves minting a sign-in link and signing an
 #: account out of every browser, and a sentinel that quietly worked there would widen the
