@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **A credential narrowed to `instance:workspace_create` founds a workspace**, as the
+  permission's description has always said it may. It was refused, first for adding its own
+  account as the owner and then for making the Inbox, which are part of founding and now ask
+  nothing more. Nothing else widens: it may not add a member or file a task in what it founded
+  unless it also carries the permission for that.
 - **A backup the server could not take or write says `backup_failed`, at 503**, a new error
   code. Most such failures said `malformed_request`, at 400, which tells a caller to fix a request
   that was read perfectly well, and the rest `service_unavailable`, which says the instance

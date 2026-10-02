@@ -122,7 +122,6 @@ def create (
 	template: str = "blank",
 	visibility: str = "public",
 	owner_id: uuid.UUID | None = None,
-	is_inbox: bool = False,
 	max_depth: int | None = None,
 	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
@@ -148,6 +147,75 @@ def create (
 	# made - unreadable, unchangeable and undeletable by what made it, and in front of everybody.
 	elif actor is not None and subroutine.domain.authorization.narrowed_to_projects(actor):
 		_refuse_the_top_level(session, actor)
+
+	return _made(
+		session,
+		workspace_id=workspace_id,
+		key=key,
+		title=title,
+		description=description,
+		parent=parent,
+		template=template,
+		visibility=visibility,
+		owner_id=owner_id,
+		max_depth=max_depth,
+		settings=settings,
+		actor=actor,
+	)
+
+
+def create_inbox (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_id: uuid.UUID,
+	key: str,
+	title: str,
+	template: str,
+	owner_id: uuid.UUID,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.project.Project:
+	"""Make the Inbox a workspace is founded with, asking the credential nothing - `#4135`.
+
+	**Founding a workspace is one act** (decision `#4136`), and
+	:func:`subroutine.domain.workspaces.create` has asked ``instance:workspace_create`` of it. Its
+	Inbox is a side effect of that, as a tag made while filing a task is (§7.3, *Side effects do not
+	escalate*), so a credential narrowed to that one verb founds a whole workspace rather than being
+	refused ``project:write`` half way through. The actor is still recorded, so the Inbox says who
+	founded it, with what credential and by which route.
+
+	**Founding calls this and nothing else does**, which ``tests/test_api_workspaces.py`` holds:
+	every other project asks the credential, through :func:`create`.
+	"""
+
+	return _made(
+		session,
+		workspace_id=workspace_id,
+		key=key,
+		title=title,
+		template=template,
+		owner_id=owner_id,
+		is_inbox=True,
+		actor=actor,
+	)
+
+
+def _made (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_id: uuid.UUID,
+	key: str,
+	title: str,
+	description: str | None = None,
+	parent: subroutine.db.models.project.Project | None = None,
+	template: str = "blank",
+	visibility: str = "public",
+	owner_id: uuid.UUID | None = None,
+	is_inbox: bool = False,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.project.Project:
+	"""Make a project somebody has already been allowed to make, and record who made it."""
 
 	normalized_key = normalize_key(key)
 

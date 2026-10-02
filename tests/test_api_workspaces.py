@@ -8,13 +8,16 @@ The two that matter most are the permission tier — ``instance:workspace_create
 something a task-scoped agent quietly acquires — and the fact that the slug cannot be changed.
 """
 
+import pathlib
 import typing
 import uuid
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.db.models.activity
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.text
@@ -292,6 +295,69 @@ def test_a_narrowed_token_cannot_create_a_workspace (
 		narrowed.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"}).status_code
 		== 403
 	)
+
+
+def test_a_credential_that_may_only_found_a_workspace_founds_one (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4135`, decided on `#4042`: founding is one act, and the one verb is enough for it.
+
+	``permissions.py``, ``POST /v1/workspaces``'s own text and §7.1 all say a credential narrowed to
+	``instance:workspace_create`` may found a workspace, and ``/v1/me`` listed the verb to it. It was
+	refused, in every release, for ``user:admin`` (the founder's membership) and then for
+	``project:write`` (the Inbox). **Both are side effects of founding and ask nothing more**, and
+	still record who founded it, with what and by which route. Nothing else widens: the same
+	credential is refused a member and a task in what it founded.
+	"""
+
+	world = test_api_tasks._world(session)
+	row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Founds workspaces", scopes=["instance:workspace_create"]
+	)
+	stranger = subroutine.domain.users.create(session, username=f"niobe-{uuid.uuid4().hex[:8]}")
+	session.flush()
+	founder = world._replace(secret=issued.value.get_secret_value())
+
+	founded = founder.call("POST", "/v1/workspaces", json={"slug": "zion", "title": "Zion"})
+
+	assert founded.status_code == 201, founded.text
+
+	event = subroutine.db.models.activity.Event
+	recorded = session.scalars(
+		sqlalchemy.select(event).where(event.workspace_id == uuid.UUID(founded.json()["id"]))
+	).all()
+
+	assert {"workspace", "workspace_member", "project"} <= {one.entity_type for one in recorded}
+	assert {(one.actor_user_id, one.actor_token_id, one.actor_interface) for one in recorded} == {
+		(world.user.id, row.id, "api")
+	}, "founding was recorded as somebody else, or as nobody"
+
+	joined = founder.call(
+		"POST", "/v1/workspaces/zion/members", json={"username": stranger.username, "role": "admin"}
+	)
+	filed = founder.call(
+		"POST", "/v1/tasks", json={"title": "Sound the alarm", "workspace_id": founded.json()["id"]}
+	)
+
+	assert joined.status_code in (403, 404), joined.text
+	assert filed.status_code in (403, 404), filed.text
+
+
+def test_only_founding_makes_an_inbox_without_asking () -> None:
+	"""`SR#4135`: ``projects.create_inbox`` asks the credential nothing, so founding alone calls it.
+
+	Anything else making a project goes through ``projects.create``, which asks for
+	``project:write``. A second caller here would be a way round that check.
+	"""
+
+	root = pathlib.Path(__file__).resolve().parent.parent / "src"
+	callers = sorted(
+		str(path.relative_to(root))
+		for path in root.rglob("*.py")
+		if "create_inbox(" in path.read_text(encoding="utf-8")
+	)
+
+	assert callers == ["subroutine/domain/workspaces.py"], callers
 
 
 def test_a_workspace_you_cannot_reach_reads_as_absent (

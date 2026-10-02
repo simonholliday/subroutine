@@ -150,7 +150,20 @@ def create (
 	# has just written its own key into. `update` passes its merged map for the reason its own
 	# comment gives; here the merged map and the caller's are the same thing plus that key.
 	subroutine.domain.settings.verified(session, workspace.id, chosen)
-	add_member(session, workspace, owner, role_key=FOUNDING_ROLE, actor=actor)
+
+	# **The founder's membership and the Inbox ask the credential nothing more** (`#4135`, decision
+	# `#4136`): founding is one act, and ``instance:workspace_create`` above is what it asks. Both
+	# asked again, so a credential narrowed to that verb, which the permission's own description
+	# says may found a workspace, was refused ``user:admin`` and then ``project:write`` instead.
+	# The actor is still passed, so both record who founded it, with what and by which route.
+	_joined(
+		session,
+		workspace,
+		owner,
+		find_role(session, workspace.id, FOUNDING_ROLE),
+		role_key=FOUNDING_ROLE,
+		actor=actor,
+	)
 
 	subroutine.domain.events.record(
 		session,
@@ -171,14 +184,13 @@ def create (
 	# other route produced one that could not be captured into — `POST /v1/workspaces` has
 	# shipped that since M1. Made here so there is one answer rather than a step each caller
 	# has to remember.
-	subroutine.domain.projects.create(
+	subroutine.domain.projects.create_inbox(
 		session,
 		workspace_id=workspace.id,
 		key=INBOX_KEY,
 		title=INBOX_TITLE,
 		template=INBOX_TEMPLATE,
 		owner_id=owner.id,
-		is_inbox=True,
 		actor=actor,
 	)
 	session.flush()
@@ -852,6 +864,24 @@ def add_member (
 
 	role = find_role(session, workspace.id, role_key)
 	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, role, actor=actor, making=role)
+
+	return _joined(session, workspace, user, role, role_key=role_key, actor=actor)
+
+
+def _joined (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	user: subroutine.db.models.identity.User,
+	role: subroutine.db.models.identity.Role,
+	*,
+	role_key: str,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> subroutine.db.models.identity.WorkspaceMember:
+	"""Write a membership somebody has already been allowed to make, and record who made it.
+
+	:func:`add_member` asks first, and :func:`create` asks nothing more of the founder's own
+	membership, since founding has been asked (decision `#4136`).
+	"""
 
 	membership = subroutine.db.models.identity.WorkspaceMember(
 		workspace_id=workspace.id, user_id=user.id, role_id=role.id
