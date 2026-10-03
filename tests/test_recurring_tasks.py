@@ -1463,6 +1463,51 @@ def test_a_series_changed_to_a_rule_that_never_comes_round_is_refused (
 	assert series.recurrence_rule == before
 
 
+@pytest.mark.parametrize("rule", ["FREQ=WEEKLY;UNTIL=20260801", "FREQ=WEEKLY;COUNT=3"])
+def test_a_series_changed_to_a_rule_whose_dates_have_all_passed_is_refused (
+	rule: str, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#4306`, M3 of the cold review of 2026-10-03, decision `#4312`: checked from the start.
+
+	A weekly series running since spring took an `UNTIL` before today, and a `COUNT` long since
+	reached, and the next completion ended it without a word. **From now**, and nothing changed.
+	"""
+
+	made = _repeating(
+		session, recurrence="every week", due="2026-04-06", now=datetime.datetime(2026, 4, 1, tzinfo=datetime.UTC)
+	)
+	series = _template(session, made)
+	before = series.recurrence_rule
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session, made, now=NOW, recurrence=rule, applies_to="from_now_on"
+		)
+
+	assert refused.value.detail == "That repeat names no dates that have not already passed."
+
+	session.refresh(series)
+
+	assert series.recurrence_rule == before
+
+
+def test_a_series_made_with_every_date_behind_it_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4306`: due in January and `UNTIL` the end of January, made in August.
+
+	Create walked from the first date, made the overdue January occurrence and handed it back, with
+	nothing after it. **And the control**: an `UNTIL` still to come is made as before.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		_repeating(session, recurrence="FREQ=WEEKLY;UNTIL=20260131", due="2026-01-05")
+
+	made = _repeating(session, recurrence="FREQ=WEEKLY;UNTIL=20261231", due="2026-01-05")
+
+	assert made.due_at is not None
+
+
 def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_time (
 	session: sqlalchemy.orm.Session,
 ) -> None:

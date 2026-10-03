@@ -1220,10 +1220,12 @@ def create (
 	# every listing — it is a rule, not work.
 	first = materialise(session, task, now=instant, actor=actor)
 
-	if first is None:
-		# **Refused rather than answered with a finished template.** A rule whose every date
-		# is already behind us — `UNTIL` in the past — is a mistake somebody wants told about
-		# now, not one they discover by the item never appearing.
+	# **Refused rather than answered with a finished template.** A rule whose every date is already
+	# behind us — `UNTIL` in the past — is a mistake somebody wants told about now, not one they
+	# discover by the item never appearing. **Asked from now** (`#4306`): a series due in January
+	# with `UNTIL` at the end of it, made in October, handed back an overdue occurrence and nothing
+	# after it.
+	if first is None or not _comes_round_from(task, repeat.rule, now=instant):
 		raise _nothing_to_come()
 
 	# **A deferral given with the repeat is for its first occurrence** (decision `#3915`, M-11 of
@@ -1783,6 +1785,7 @@ def update (
 			starts_at=(
 				task.starts_at if beginning is subroutine.domain.patch.UNSET else beginning.instant
 			),
+			now=instant,
 		)
 	)
 
@@ -3564,6 +3567,7 @@ def _repeat_read (
 	trigger: str | None,
 	due_at: datetime.datetime | None,
 	starts_at: datetime.datetime | None,
+	now: datetime.datetime,
 ) -> _Repeating:
 	"""Read a change to how a task repeats, refusing it before anything is assigned - `#3935`.
 
@@ -3614,19 +3618,15 @@ def _repeat_read (
 	repeat = _repeat(rule, anchor=anchor, trigger=trigger)
 
 	# **A new rule for a running series is asked what a new series is asked** (`#3997`): whether it
-	# ever comes round, from the date the series repeats from. Create refused one that never did,
-	# because making a series makes its first occurrence; a change made none, so it was stored and
-	# the next completion found nothing and finished the series without a word.
+	# comes round again. A change made no occurrence, so a rule that never would was stored and the
+	# next completion found nothing and finished the series without a word. **From now, not from the
+	# series' first date** (`#4306`, M3 of the cold review of 2026-10-03, decision `#4312`): walked
+	# from January, `UNTIL` last week passed, and so did a rule ending on the overdue occurrence.
 	if (
 		replaced
 		and repeat is not None
 		and series is not None
-		and not subroutine.domain.recurrence.occurrences(
-			repeat.rule,
-			start=_series_anchor(repeat.rule, grid=grid_date(series), filed=series.created_at),
-			timezone=subroutine.domain.schedule.series_zone(series),
-			limit=1,
-		)
+		and not _comes_round_from(series, repeat.rule, now=now)
 	):
 		raise _nothing_to_come()
 
@@ -3640,6 +3640,26 @@ def _repeat_read (
 		)
 
 	return _Repeating(series=series, repeat=repeat, stopping=False)
+
+
+def _comes_round_from (
+	series: subroutine.db.models.work.Task, rule: str, *, now: datetime.datetime
+) -> bool:
+	"""Return whether a series' rule names a date from ``now`` on - `#4306`, decision `#4312`.
+
+	**From now rather than from the series' first date**, on create and on a change alike: walked
+	from the start, a rule whose every date had passed was caught only when it named none at all.
+	"""
+
+	return bool(
+		subroutine.domain.recurrence.occurrences(
+			rule,
+			start=_series_anchor(rule, grid=grid_date(series), filed=series.created_at),
+			timezone=subroutine.domain.schedule.series_zone(series),
+			after=now,
+			limit=1,
+		)
+	)
 
 
 def _nothing_to_come () -> subroutine.errors.ValidationError:

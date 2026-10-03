@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat whose dates have all passed is refused when it is made or changed.** One running
+  since January took an end date last week, or a count long since reached, and the next time it
+  was finished the series simply ended; one made with every date behind it handed back an
+  overdue item and nothing after. A repeat now has to name a date still to come.
 - **Half a character in a status, a type, an assignee, a project or an `@name` is refused by
   name.** Text was refused that way already; a name that is looked up reached the database as it
   was, and the answer was a server error, or a crash at the command line when an argument held a
