@@ -20,6 +20,15 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The plugins' skill corrects what it said about missing tools and the desktop apps, and teaches
+  two things it left out.** When the `subroutine` plugin's tools are missing, uv is the only thing
+  to install and `claude mcp get plugin:subroutine:tools` says why the server did not start; it
+  no longer asks for `uv tool install` or a configured path, neither of which helps. Neither
+  plugin claims a desktop app works, since none has been tried. A session reached by address can
+  name its project on the address, beside the workspace, and the skill gives the order a write's
+  project is found in. A decision is a document in the project it governs, even one taken in
+  passing. Refresh the plugin to read it: `claude plugin marketplace update subroutine`, then
+  `claude plugin update subroutine@subroutine`.
 - **A long description or body is kept once, however often it is edited.** Every edit recorded
   the whole text before and after it, so a document revised twenty times held forty copies of
   itself in the history. What the change feed, an item's history and an export report is

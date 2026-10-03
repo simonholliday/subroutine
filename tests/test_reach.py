@@ -1238,7 +1238,11 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# skill says to pass it to the person rather than run it, because only a person may hand an
 	# agent over. Nothing is being routed around: `transfer_agent` is in `NOT_IN_MCP` already, since
 	# the service refuses it from every agent on every surface.
-	assert len(commands) <= 9, (
+	# **Raised to 10 for `#3931`, and nothing is routed around.** `mcp` is named in
+	# `claude mcp add subroutine -- /path/to/subroutine mcp`, the command a *person* registers to
+	# reach a copy of the program the plugin cannot point at, a checkout or a virtualenv. No agent
+	# runs it in place of a tool: it is what starts the tools.
+	assert len(commands) <= 10, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)

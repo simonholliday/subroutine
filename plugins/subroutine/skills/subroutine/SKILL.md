@@ -28,7 +28,8 @@ claude.ai has no machine to start a program on, and it does not read either of t
 all — reaching an instance from there is a *connector*, set up in Claude's own settings against
 a publicly reachable address. So on the web the tools are absent by construction, however
 anything is configured, and every remedy below is wasted effort. Say that plainly rather than
-beginning a diagnosis; Claude Code and the desktop apps are where these work.
+beginning a diagnosis; Claude Code is where these are known to work; a desktop app has not been
+tried.
 
 **If `claude mcp list` says the server is connected and this session still has no tools, the
 session started before the plugin was configured.** Reload the window, or start a new session.
@@ -55,20 +56,21 @@ terminal session, and a new token only if that is refused too or they no longer 
 
 **With `subroutine`, the failure is silent and needs that command to see at all.** Installing a
 plugin and starting its server are separate moments and only the first one reports, so "not
-installed" and "installed where the editor cannot see it" look identical from in here — no
-tools, and no error. `✘ Failed to connect` beside `plugin:subroutine:subroutine` means the
-program was not found on the `PATH` the editor passes down, which is nearly always a virtualenv.
-Say so, and offer the two ways out: install it as a tool so it is on the `PATH` for good, or
-point the plugin at the copy that already exists.
+installed" and "installed where the editor cannot start it" look identical from in here - no
+tools, and no error. `✘ Failed to connect` beside `plugin:subroutine:tools` means the editor
+could not start it, and `claude mcp get plugin:subroutine:tools` says why, in its `Status:` line
+and, where there is one, its `Issue:` line. Pass that on as it stands.
 
-```
-uv tool install subroutine     # or: pipx install subroutine
-subroutine init
-```
+The plugin starts Subroutine through `uvx`, so there are three causes: `uvx` is not on the
+`PATH` the editor passes down, because uv is not installed or not where the editor looks; it
+could not fetch the package; or `subroutine mcp` started and stopped, which the `Issue:` line
+quotes. **uv is the only thing to install** (https://docs.astral.sh/uv/getting-started/installation/),
+and the editor needs restarting afterwards so it sees the new `PATH`. `uvx subroutine init` then
+makes the instance, if this machine has none yet.
 
-`/plugin configure subroutine` takes the absolute path instead — `<venv>/bin/subroutine` — for
-somebody who would rather not install it twice. If no server is listed at all, the plugin itself
-is not installed or is disabled.
+**Running from a checkout or a virtualenv?** The plugin cannot point at it, since `uvx` takes
+the package by name, so `claude mcp add subroutine -- /path/to/subroutine mcp` reaches that copy
+instead. If no server is listed at all, the plugin itself is not installed or is disabled.
 
 **If the tools are there but every call fails, read what the failure says — it names the
 remedy.** This is the ordinary case on a fresh local install and it is not the one above: the
@@ -142,16 +144,21 @@ setup interview is how a tool loses the person who just installed it.
 
    **`use` is not listed by `subroutine --help`, and it does exist.** Neither are `claim`,
    `release` or `connections`. They are held back from the first thing a newcomer reads, not
-   removed — `subroutine explain connecting` names them. Do not conclude from an absent line in
-   `--help` that a command in this page is gone; run it, or ask `explain`.
+   removed: `subroutine explain connecting` names `use` and `connections`, and
+   `subroutine explain handing-back` names `claim` and `release`. Do not conclude from an absent
+   line in `--help` that a command in this page is gone; run it, or ask `explain`.
 
    **This one needs the command line**, so a session connected to a server by address cannot do
-   it. Name the project on each call instead — `+web` in a captured line — and say that a
-   marker is worth adding by somebody who has `subroutine` installed in this checkout.
+   it. Such a session can put the project on its address instead, beside the workspace -
+   `https://subroutine.example.com/mcp?workspace=metacortex&project=web` - and it becomes where
+   anything goes that names no project. A marker is still worth adding by somebody who has
+   `subroutine` installed in this checkout.
 
    That writes a small `.subroutine` file at the repository root. Say that you have written it
    and that it is safe to commit — it names a project, not a credential. From then on, work
    added anywhere under this directory goes to that project unless a line says `+other`.
+   **The order is a project the write names, then this file, then the address, then the
+   workspace's Inbox**, and the answer to a write says which it was.
 
    **Only where the directory is the project's own.** A marker covers everything beneath it, so
    one written in a home directory would file every capture made anywhere under it into that
@@ -689,9 +696,21 @@ subroutine_document(title="Why we dropped the queue", type="decision",
 Dead ends especially. "We tried X and it does not work because Y" is the single most valuable
 thing to leave behind, because without it the next session will try X.
 
-**Say which project it belongs in.** Pass `project="web"`. Without one it lands in the Inbox,
-which is where things go when nobody decided — fine for a quick capture, wrong for a conclusion
-somebody will go looking for. It can be moved later, so this is worth a moment and not worth a
+**A decision is a document, even one taken in passing.** When the person settles something in
+the middle of other work - a name, a rule, one option over another - write it as a `decision`
+document there and then, and link it to the work it governs with a `documents` link. A comment
+on the task you happened to be doing records that the conversation happened. It never reaches
+`subroutine://conventions`, which is what the next session reads before it writes.
+
+**File it where it governs, not where you are.** A decision about another project's product
+belongs to that project, so its conventions carry it.
+
+**Look before you invent.** Before choosing a name, an example or a wording a convention might
+cover, search for the subject across every project, not just the words of your task.
+
+**Say which project it belongs in.** Pass `project="web"`. Without one it goes where the order
+above says, and to the Inbox only when nothing names a project - which is where things go when
+nobody decided: fine for a quick capture, wrong for a conclusion somebody will go looking for. It can be moved later, so this is worth a moment and not worth a
 question.
 
 **Here, or on disk?** A conclusion the next *session* needs is a document here. A thing a

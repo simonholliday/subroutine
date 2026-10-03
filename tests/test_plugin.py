@@ -521,7 +521,9 @@ def test_a_locally_launched_plugin_says_so_before_anybody_installs_it () -> None
 			f"which is the premise that makes the rest of it make sense"
 		)
 
-		assert "not on the web" in described, (
+		# *Does not work on the web* since `#3945`, which reordered the sentence around the desktop
+		# apps nobody has tried; the claim about the web is the same one.
+		assert re.search(r"not (?:work )?on the web", described), (
 			f"{name} does not name the client where this cannot work, which is the whole of "
 			f"`#515` — an absence of tools is indistinguishable from a broken product"
 		)
@@ -729,19 +731,25 @@ def test_the_skill_says_what_to_do_when_the_tools_are_missing () -> None:
 
 	text = _skill()
 
-	# **An install that lands on `PATH`, not merely an install** (`#237`). This asserted
-	# `pip install subroutine` until the day somebody met the failure: the editor launches the
-	# program itself, so a `pip install` into a virtualenv satisfies the old wording and leaves
-	# the tools missing anyway. Either tool installer is accepted; naming one would pin a
-	# preference this test has no business holding.
-	assert any(phrase in text for phrase in ("uv tool install", "pipx install")), (
-		"the skill must name an install that puts the command where an editor can find it"
-	)
+	# **uv is the only thing to install** (`#3931`). The plugin fetches Subroutine through `uvx`,
+	# so this used to ask for `uv tool install` or `pipx install`, neither of which puts `uvx` on
+	# the editor's `PATH`, and for `/plugin configure`'s absolute path, which no setting takes -
+	# the advice `#237` wrote for the plugin before `#585` made it fetch its own package.
+	assert "uvx" in text and "docs.astral.sh/uv" in text, "the skill must say uv is what to install"
 	assert "subroutine init" in text
 
-	# The two escape hatches, both needed: one for somebody who will install it again, one for
-	# somebody who would rather point at the copy they already have.
-	assert "/plugin configure" in text, "the virtualenv case is the likely one, not the rare one"
+	found = _INSTALL_THE_PACKAGE.search(text)
+
+	assert not found, f"the skill asks for {found.group(0)!r}, which a plugin fetching its own package does not need"
+
+	# **The server by its real name, and the command that says why it did not start.** The name is
+	# the key in `.mcp.json`; `claude mcp list` says only that it failed, and `claude mcp get` why.
+	server = next(iter(_read(ROOT / "plugins" / "subroutine" / ".mcp.json")["mcpServers"]))
+
+	assert f"claude mcp get plugin:subroutine:{server}" in text, "the skill must name the server it diagnoses"
+
+	# And the way to a copy the plugin cannot reach, a checkout or a virtualenv.
+	assert "claude mcp add" in text, "the virtualenv case is the likely one, not the rare one"
 
 	# **And the command that tells the two causes apart.** Not installed and installed-but-
 	# unreachable are identical from inside a session — no tools, no error — so a skill that
