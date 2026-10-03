@@ -350,6 +350,99 @@ def test_an_agent_cannot_make_an_administrator (session: sqlalchemy.orm.Session)
 	assert "person's act" in str(refused.value.detail)
 
 
+def _administering_agent (
+	session: sqlalchemy.orm.Session, person: subroutine.db.models.identity.User
+) -> tuple[subroutine.db.models.identity.User, str]:
+	"""Return an agent that administers the installation for ``person``, and its credential."""
+
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		is_superuser=True,
+		responsible_user_id=person.id,
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=agent, title="The agent's own"
+	)
+	session.flush()
+
+	return agent, issued.value.get_secret_value()
+
+
+@pytest.mark.parametrize("door", ["/v1/tokens", "/v1/login-links"])
+def test_an_agent_cannot_issue_a_person_a_way_to_act_as_them (
+	session: sqlalchemy.orm.Session, door: str
+) -> None:
+	"""`#4142`, decision `#4235`: issuing for a person is a person's act.
+
+	Measured on `#4142`: an agent holding ``instance:user_create``, refused ``user transfer``,
+	issued its person a credential and, as them, handed itself an agent in two calls. Asked of an
+	administering agent, so the refusal is about who acts rather than about what they hold.
+	"""
+
+	person, mine = _instance(session)
+	_agent, held = _administering_agent(session, person)
+	colleague = subroutine.domain.users.create(
+		session, username=f"jo-{uuid.uuid4().hex[:8]}", actor=None
+	)
+	session.flush()
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	refused = api_support.call(
+		application,
+		"POST",
+		door,
+		json={"username": person.username},
+		headers={"authorization": f"Bearer {held}"},
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert person.username in refused.json()["detail"], "it names whose it would have been"
+	assert "person's act" in refused.json()["detail"]
+	assert person.username in refused.json()["hint"], "and who may issue it instead"
+
+	# A person issues for anybody their permissions allow, as before.
+	issued = api_support.call(
+		application,
+		"POST",
+		door,
+		json={"username": colleague.username},
+		headers={"authorization": f"Bearer {mine}"},
+	)
+
+	assert issued.status_code == 201, issued.text
+
+
+def test_an_agent_still_issues_for_itself_and_for_its_own_agents (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#4142`'s other half: making a sub-agent and its credential goes on working.
+
+	Decision `#4235` turned down *an agent issues only for itself* because it breaks exactly this,
+	which ``agent create`` relies on and an agent's handovers assume.
+	"""
+
+	person, _mine = _instance(session)
+	agent, held = _administering_agent(session, person)
+	acting = subroutine.domain.authentication.authenticate(session, held)
+	sub = subroutine.domain.users.create(
+		session,
+		username=f"sub-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		actor=acting,
+	)
+	session.flush()
+
+	for whom in (agent, sub):
+		_row, issued = subroutine.domain.authentication.issue_token(
+			session, user=whom, title="Allowed", actor=acting
+		)
+
+		assert issued.prefix, f"an agent could not issue a credential for {whom.username}"
+
+
 def test_a_person_can_say_which_timezone_they_are_in (
 	session: sqlalchemy.orm.Session,
 ) -> None:

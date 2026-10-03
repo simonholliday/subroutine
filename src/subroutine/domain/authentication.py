@@ -421,6 +421,7 @@ def issue_token (
 	title = subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH)
 
 	if actor is not None:
+		refuse_an_agent_issuing_for_a_person(actor, user, what="a credential")
 		_refuse_amplification(
 			session,
 			actor,
@@ -533,6 +534,34 @@ def refuse_a_bounded_credential (actor: Principal | None, *, act: str, hint: str
 		return
 
 	raise subroutine.errors.Forbidden(f"A bounded credential cannot {act}.", hint=hint)
+
+
+def refuse_an_agent_issuing_for_a_person (
+	actor: Principal | None, user: subroutine.db.models.identity.User, *, what: str
+) -> None:
+	"""Refuse an agent issuing ``what`` for a person - decision `#4235`, on `#4142`.
+
+	**Acting for a person is a person's act.** A credential or a sign-in link for somebody is the
+	power to act as them, with the record naming them: an agent holding ``instance:user_create``,
+	refused ``user transfer``, issued its person a credential and, as them, handed itself an agent
+	in two calls. So an agent issues only for itself or for another agent, which is what making a
+	sub-agent and its credential needs, and a person issues for anybody their permissions allow.
+
+	``None`` and :attr:`Principal.is_local` are §12.1a, somebody at a terminal with the database
+	file, which no check here narrows.
+	"""
+
+	if actor is None or actor.is_local:
+		return
+
+	if not actor.user.is_service_account or user.is_service_account:
+		return
+
+	raise subroutine.errors.Forbidden(
+		f"An agent cannot issue {what} for {user.username!r}, who is a person. Acting as somebody "
+		"is a person's act.",
+		hint=f"Ask {user.username!r}, or a person who administers this installation, to issue it.",
+	)
 
 
 def _refuse_amplification (

@@ -73,6 +73,10 @@ def mint_link (
 	with the database file, which §12.1a says is a caller no check narrows.
 	"""
 
+	# Asked first, because it is the final answer: holding the permission asked next changes nothing.
+	subroutine.domain.authentication.refuse_an_agent_issuing_for_a_person(
+		actor, user, what="a sign-in link"
+	)
 	_refuse_administering_somebody_else(actor, user, doing="issue a sign-in link for")
 
 	# **An account that has left is refused by name as the link is made** (`#3944`), as ``token
