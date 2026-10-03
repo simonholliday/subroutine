@@ -9132,6 +9132,17 @@ def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathli
 	)
 
 
+def test_one_event_left_out_is_offered_as_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#4323`: *1 event not listed. Show them*, beside a count of one."""
+
+	link = "/projects?view=list&events=include"
+	one = _rendered(tmp_path, {"EventsLeftOut": {"count": 1, "showTo": link}})["EventsLeftOut"]
+	three = _rendered(tmp_path, {"EventsLeftOut": {"count": 3, "showTo": link}})["EventsLeftOut"]
+
+	assert "1 event not listed." in one and "Show it" in one, one
+	assert "3 events not listed." in three and "Show them" in three, three
+
+
 def test_a_page_narrowed_to_work_nobody_has_says_so (tmp_path: pathlib.Path) -> None:
 	"""`SR#2182`, and it is `SR#1020`'s rule applied to the newest narrowing.
 

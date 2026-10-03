@@ -4676,10 +4676,12 @@ def _listed (
 	filters: subroutine.domain.filtering.Terms | None = None,
 	workspace: str | None = None,
 	context: typer.Context | None = None,
+	viewing: bool = False,
 ) -> None:
 	"""Print the list. Registered twice — three times, with ``search`` — from one body.
 
-	``workspace`` narrows it to one, which only ``view run`` asks for (`#3137`).
+	``workspace`` narrows it to one, which only ``view run`` asks for (`#3137`). ``viewing`` is
+	``view run`` too, which takes no ``--events`` to offer (`#4323`).
 	"""
 
 	# **The scripted path is never narrowed by a presentation rule.** Hiding parked work
@@ -4831,7 +4833,7 @@ def _listed (
 				if waiting:
 					_say_held_back(gathered, console=program.console)
 
-				_say_events(gathered, console=program.console, hidden=leaving)
+				_say_events(gathered, console=program.console, hidden=leaving, viewing=viewing)
 
 				return
 
@@ -4839,7 +4841,7 @@ def _listed (
 			# being done, so there is nothing to do - and the list says what it left out.
 			if leaving and any(answer.value.events for answer in gathered.answers):
 				program.say("Nothing to do.")
-				_say_events(gathered, console=program.console, hidden=True)
+				_say_events(gathered, console=program.console, hidden=True, viewing=viewing)
 
 				return
 
@@ -4904,7 +4906,7 @@ def _listed (
 
 		_say_parked(gathered, console=program.console, hidden=hiding)
 
-		_say_events(gathered, console=program.console, hidden=leaving)
+		_say_events(gathered, console=program.console, hidden=leaving, viewing=viewing)
 
 		_say_held_back(gathered, console=program.console)
 
@@ -7815,7 +7817,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		# before anything is written. Read whenever one was attached, a loop over lines, or a hook
 		# reading its own input, gave the first document every line after it, at exit 0.
 		if body is None and _something_was_piped():
-			_refuse_an_unasked_pipe(program)
+			_refuse_an_unasked_pipe(program, editing=False)
 
 		# `#2106`: read before `.strip()`, because the whole argument is the sentinel. And `--body ''`
 		# is an empty body, which a pipe beside it no longer changes.
@@ -7964,7 +7966,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			# with nothing named is refused before anything is read: in a loop, this replaced a
 			# document's text with the rest of the loop's input.
 			if body is None and not named and _something_was_piped():
-				_refuse_an_unasked_pipe(program)
+				_refuse_an_unasked_pipe(program, editing=True)
 
 			# `#2106`, and the site it was met on: `--body -` wrote one character.
 			said = _text_or_standard_input(program, body, "--body").strip()
@@ -8835,6 +8837,7 @@ def _view_run (
 		filters=_filters(program, dated),
 		workspace=workspace,
 		context=context,
+		viewing=True,
 	)
 
 
@@ -11949,7 +11952,7 @@ NOBODY_TO_ASK = (
 STANDARD_INPUT = "-"
 
 
-def _refuse_an_unasked_pipe (program: "Program") -> typing.NoReturn:
+def _refuse_an_unasked_pipe (program: "Program", *, editing: bool) -> typing.NoReturn:
 	"""Refuse a document's text piped in with nothing asking for it - `#4149`, decided on `#3952`.
 
 	**Before anything is read or written.** Reading it whenever a pipe was attached made a loop
@@ -11958,9 +11961,14 @@ def _refuse_an_unasked_pipe (program: "Program") -> typing.NoReturn:
 	refusal cheap to follow: one reads the pipe, the other ignores it.
 	"""
 
+	# **On an edit, what ignores the pipe is naming what to change** (`#4323`, of the cold review of
+	# 2026-10-03): ``--body ''`` there empties the document, a write nobody asked for.
 	program.stop(
 		"Something was piped in, and a document's text is read from it only when you say so.",
-		"Pass '--body -' to use it as the text, or --body '' to write no text.",
+		"Pass '--body -' to use it as the text, or name what to change - '--title' and the rest - "
+		"or run it with '< /dev/null'."
+		if editing
+		else "Pass '--body -' to use it as the text, or --body '' to write no text.",
 	)
 
 
@@ -15020,6 +15028,7 @@ def _say_events (
 	*,
 	console: rich.console.Console,
 	hidden: bool,
+	viewing: bool,
 ) -> None:
 	"""Say how many events a list left out, and how to see them - `#3704`, decision `#3807`.
 
@@ -15037,12 +15046,16 @@ def _say_events (
 		return
 
 	things = "event" if total == 1 else "events"
-	console.print(
-		rich.text.Text(
-			f"      {total} {things} not listed. 'subroutine list --events' to include them.",
-			style=DETAIL,
-		)
+
+	# **No remedy where it would not work, and *it* for one** (`#4323`, of the cold review of
+	# 2026-10-03). ``view run`` takes no ``--events``, and ``list --events`` drops the view's own
+	# narrowing, so it is told the count alone.
+	remedy = (
+		""
+		if viewing
+		else f" 'subroutine list --events' to include {'it' if total == 1 else 'them'}."
 	)
+	console.print(rich.text.Text(f"      {total} {things} not listed.{remedy}", style=DETAIL))
 
 
 def _say_held_back (

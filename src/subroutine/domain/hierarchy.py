@@ -193,10 +193,11 @@ def place (
 	# It was ``cycle_detected``, which is published as a change that would make something its own
 	# ancestor, so a client branching on the code read *it would loop* for *it is too deep*.
 	if depth > max_depth:
+		# **Filed, not moved** (`#4323`): this places something new, so *move it* was no advice.
 		raise subroutine.errors.Conflict(
 			f"That would nest {depth} levels deep, and the limit is {max_depth}.",
 			code="too_deep",
-			hint="Move it somewhere shallower, or raise max_hierarchy_depth.",
+			hint="File it somewhere shallower, or raise max_hierarchy_depth.",
 		)
 
 	node.path = path

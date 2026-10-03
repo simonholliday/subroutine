@@ -367,7 +367,7 @@ def test_list_leaves_events_out_and_says_how_many (
 	listed = " ".join(run("list").output.split())
 
 	assert "Water the plants" in listed and "Payday" not in listed, listed
-	assert "1 event not listed. 'subroutine list --events' to include them." in listed, listed
+	assert "1 event not listed. 'subroutine list --events' to include it." in listed, listed
 
 	for asked in (["--events"], ["--type", "event"]):
 		shown = " ".join(run("list", *asked).output.split())
@@ -8017,6 +8017,42 @@ def test_the_board_a_team_asks_for_first_can_be_narrowed_to_and_saved (
 
 	assert "Fix the importer" in kept, kept
 	assert "Rewrite the home page" not in kept, kept
+
+
+def test_view_run_counts_the_events_it_left_out_and_offers_no_flag_it_lacks (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4323`: ``view run`` was told *'subroutine list --events' to include them*.
+
+	It takes no ``--events``, and ``list --events`` drops the view's narrowing, so it says the count
+	alone.
+	"""
+
+	run("init")
+	run("add", "Payday on 2026-10-01", "--type", "event")
+	run("add", "Water the plants")
+	run("view", "save", "open", "--q", "status_category:todo")
+
+	shown = " ".join(run("view", "run", "open").output.split())
+
+	assert "Water the plants" in shown and "1 event not listed." in shown, shown
+	assert "--events" not in shown, shown
+
+
+def test_a_document_edit_refusing_a_pipe_offers_what_ignores_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4323`: an edit was told ``--body ''`` would ignore the pipe, and it empties the document."""
+
+	run("init")
+	run("document", "create", "The plan", "--body", "Ship it on Friday.")
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
+
+	edited = " ".join(run("document", "edit", "1", expect=1).output.split())
+	created = " ".join(run("document", "create", "Another", expect=1).output.split())
+
+	assert "'--title' and the rest" in edited and "--body ''" not in edited, edited
+	assert "--body '' to write no text" in created, created
 
 
 def test_a_link_is_not_reported_as_the_item_being_created (

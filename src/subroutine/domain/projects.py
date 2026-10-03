@@ -146,7 +146,7 @@ def create (
 	# already be named in a scope, so it would be beyond the credential's reach the moment it was
 	# made - unreadable, unchangeable and undeletable by what made it, and in front of everybody.
 	elif actor is not None and subroutine.domain.authorization.narrowed_to_projects(actor):
-		_refuse_the_top_level(session, actor)
+		_refuse_the_top_level(session, actor, moving=None)
 
 	return _made(
 		session,
@@ -351,7 +351,7 @@ def move (
 
 	# **And to the top level only where it would still be reached there** (decision `#4095`).
 	elif actor is not None and _beyond_reach_at_the_top(actor, project):
-		_refuse_the_top_level(session, actor)
+		_refuse_the_top_level(session, actor, moving=project)
 
 	# **Nor under another project** (`#4143`), which is the same harm by a second route: privacy
 	# inherits down the tree, so a private project above the Inbox would hide it just as making it
@@ -672,6 +672,8 @@ def _beyond_reach_at_the_top (
 def _refuse_the_top_level (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
+	*,
+	moving: subroutine.db.models.project.Project | None,
 ) -> typing.NoReturn:
 	"""Refuse a narrowed credential a project at the top level - decision `#4095`.
 
@@ -690,9 +692,16 @@ def _refuse_the_top_level (
 	)
 	named = ", ".join(keys_for(session, actor, list(changes or ())))
 	inside = f"inside a project it may change ({named})" if named else "inside a project"
+
+	# **A move is told how to move** (`#4323`, of the cold review of 2026-10-03): it was told to use
+	# ``--parent``, which ``project move`` does not take.
 	refused.hint = (
 		f"Make it {inside}: --parent in the terminal, parent in the agent tools, or use a token "
 		"that is not narrowed to projects."
+		if moving is None
+		else f"Move it {inside}: 'subroutine project move {path_of(session, moving)} --under <key>' "
+		"in the terminal, parent in the move request, or use a token that is not narrowed to "
+		"projects."
 	)
 
 	raise refused

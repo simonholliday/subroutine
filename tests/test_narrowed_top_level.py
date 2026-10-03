@@ -83,6 +83,10 @@ def test_a_narrowed_credential_moves_to_the_top_level_only_what_its_scope_names 
 	assert refused.status_code == 403, refused.text
 	assert "narrowed to" in refused.json()["detail"], refused.text
 
+	# **Told how to move it** (`SR#4323`): it was told to use ``--parent``, which a move does not take.
+	assert "'subroutine project move ops/x --under <key>'" in refused.json()["hint"], refused.text
+	assert "--parent" not in refused.json()["hint"], refused.text
+
 	naming_it = _narrowed(world, project_scope=[ops["id"], inner["id"]])
 	moved = naming_it.call("POST", "/v1/projects/ops/x/move", json={"parent": None})
 

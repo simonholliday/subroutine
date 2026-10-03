@@ -1074,6 +1074,29 @@ def test_depth_is_bounded_for_the_whole_subtree (session: sqlalchemy.orm.Session
 	assert child.path.startswith(root.path), "the refused move must have changed nothing"
 
 
+def test_something_new_too_deep_is_told_to_be_filed_shallower () -> None:
+	"""`SR#4323`: placing something new said *Move it somewhere shallower*, of what never moved."""
+
+	class Placed:
+		"""A node with only the fields a placement reads."""
+
+		def __init__ (self, path: str) -> None:
+			"""Hold a path, and an id to extend it by."""
+
+			self.id = uuid.uuid4()
+			self.workspace_id = uuid.uuid4()
+			self.path = path
+			self.depth = 0
+
+	top = subroutine.domain.hierarchy.build_path(None, uuid.uuid4())
+	parent = Placed(subroutine.domain.hierarchy.build_path(top, uuid.uuid4()))
+
+	with pytest.raises(subroutine.errors.Conflict) as refused:
+		subroutine.domain.hierarchy.place(Placed(""), parent, max_depth=1)
+
+	assert refused.value.hint is not None and refused.value.hint.startswith("File it"), refused.value
+
+
 def test_the_instances_depth_setting_is_what_bounds_a_tree (
 	session: sqlalchemy.orm.Session,
 ) -> None:

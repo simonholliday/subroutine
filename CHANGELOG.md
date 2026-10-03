@@ -20,6 +20,8 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Creating something too deep is told to file it somewhere shallower**, rather than to move
+  what was never moved.
 - **Saving a repeating item in the browser no longer fails over its repeat.** The repeat is
   sent with every save, so one stored before the stricter checks of 0.9.13 refused the whole save,
   title and all; and every save moved the series' version, so a client holding it was told

@@ -856,7 +856,7 @@ export function EventsLeftOut ({ count = 0, showTo = null, onShow = null }) {
 		<div class="narrowed">
 			<span>${count} ${things} not listed.</span>
 			${onShow && html`<a class="widen" href=${showTo}
-				onClick=${(event) => followed(event, onShow)}>Show them</a>`}
+				onClick=${(event) => followed(event, onShow)}>Show ${count === 1 ? "it" : "them"}</a>`}
 		</div>
 	`;
 }
