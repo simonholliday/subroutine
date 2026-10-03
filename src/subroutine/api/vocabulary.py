@@ -545,6 +545,6 @@ def delete_tag (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> None:
-	"""Remove a tag, and with it every application of it."""
+	"""Take a tag off everything you can read; work hidden from you keeps it."""
 
 	subroutine.domain.vocabulary.delete_tag(session, _tag(session, actor, which), actor=actor)

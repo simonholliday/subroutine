@@ -181,9 +181,10 @@ upgrade involves.
   moves projects as before, and the refusal says so.
 - **A tag only private work uses is out of sight to anybody outside it.** It was listed to
   everybody in the workspace - in the tag list, `/v1/meta` and an export - and somebody outside
-  the project could rename or delete it. A tag you can see is still the workspace's, and renaming
-  it reaches every item that carries it. Hiding hands out no names, but cannot make one secret:
-  creating a tag with a name already taken still says so.
+  the project could rename or delete it. A tag you can see is still the workspace's: renaming it
+  reaches every item that carries it, and deleting it takes it off everything you can read and
+  leaves it on work you cannot. Hiding hands out no names, but cannot make one secret: creating a
+  tag with a name already taken still says so.
 - **What is yours to act on is tasks only**: `list --to-act-on` and `to_act_on=true` in the agent
   tools no longer answer with every open document in the workspace, and neither does the agent
   tools' `assignee`, as the terminal's `--assignee` already did not. A document has no assignee

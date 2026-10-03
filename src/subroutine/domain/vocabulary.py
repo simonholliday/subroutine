@@ -54,6 +54,7 @@ import subroutine.domain.authorization
 import subroutine.domain.milestones
 import subroutine.domain.patch
 import subroutine.domain.readiness
+import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -896,12 +897,19 @@ def delete_tag (
 	*,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> None:
-	"""Remove a tag, and with it every application of it.
+	"""Take a tag off everything the actor can read, and remove it if nothing else carries it.
 
 	**No "in use" refusal here, unlike a status**, and §5.5's table says so by omission —
 	*Rename / delete*, where the status row carries *(fails if in use)*. Removing a label
 	*means* taking it off the things it is on; refusing until somebody had untagged every item
 	by hand would make the command useless exactly when it is wanted.
+
+	**Off what the actor can read, and no further** (`#4289`, M12 of the cold review of
+	2026-10-03, decision `#4094` as amended that day). Somebody outside a private project could
+	bring its tag into sight by tagging their own work with it, then delete it, and the tag left the
+	private work too. Work hidden from them now keeps it, and the tag drops out of their sight; with
+	nothing else carrying it, it is deleted. Nothing returned says which, so a delete confirms no
+	hidden use. ``None`` is an internal caller, and reaches everything.
 	"""
 
 	if actor is not None:
@@ -909,13 +917,45 @@ def delete_tag (
 			session, actor, subroutine.permissions.TAG_WRITE, workspace_id=tag.workspace_id
 		)
 
-	for association in (
-		subroutine.db.models.work.TaskTag,
-		subroutine.db.models.work.DocumentTag,
-	):
-		session.execute(sqlalchemy.delete(association).where(association.tag_id == tag.id))
+	reached = (
+		None
+		if actor is None
+		else subroutine.domain.scoping.held_by_an_export(actor, workspace_ids=[tag.workspace_id])
+	)
 
-	session.delete(tag)
+	for association, held, ids in (
+		(
+			subroutine.db.models.work.TaskTag,
+			subroutine.db.models.work.TaskTag.task_id,
+			None if reached is None else reached[0],
+		),
+		(
+			subroutine.db.models.work.DocumentTag,
+			subroutine.db.models.work.DocumentTag.document_id,
+			None if reached is None else reached[1],
+		),
+	):
+		taken = sqlalchemy.delete(association).where(association.tag_id == tag.id)
+
+		if ids is not None:
+			taken = taken.where(held.in_(ids))
+
+		session.execute(taken.execution_options(synchronize_session=False))
+
+	still = any(
+		session.scalar(
+			sqlalchemy.select(association.tag_id).where(association.tag_id == tag.id).limit(1)
+		)
+		is not None
+		for association in (
+			subroutine.db.models.work.TaskTag,
+			subroutine.db.models.work.DocumentTag,
+		)
+	)
+
+	if not still:
+		session.delete(tag)
+
 	session.flush()
 
 

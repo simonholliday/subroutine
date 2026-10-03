@@ -593,21 +593,7 @@ def tags_seen_by (
 	):
 		return sqlalchemy.not_(carried)
 
-	tasks = readable_tasks(
-		principal,
-		workspace_ids=workspace_ids,
-		include_deleted=True,
-		include_archived=True,
-		include_templates=True,
-		include_beneath_trash=True,
-	).with_only_columns(subroutine.db.models.work.Task.id)
-	documents = readable_documents(
-		principal,
-		workspace_ids=workspace_ids,
-		include_deleted=True,
-		include_archived=True,
-		include_beneath_trash=True,
-	).with_only_columns(subroutine.db.models.work.Document.id)
+	tasks, documents = held_by_an_export(principal, workspace_ids=workspace_ids)
 
 	seen = sqlalchemy.or_(
 		sqlalchemy.exists(
@@ -623,6 +609,49 @@ def tags_seen_by (
 	)
 
 	return sqlalchemy.or_(sqlalchemy.not_(carried), seen)
+
+
+def held_by_an_export (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> tuple[sqlalchemy.Select[typing.Any], sqlalchemy.Select[typing.Any]]:
+	"""Return the ids of the tasks and the documents a principal may read, as their export holds them.
+
+	Decision `#4094`'s *something you can read*: the trash, archived items and a repeat's template
+	included. **Nothing at all for a credential that may not read tasks**, which reads no item of
+	either kind. One definition for what sees a tag and for what deleting one reaches (`#4289`), so
+	the two cannot come to disagree about whose work is whose.
+	"""
+
+	task = subroutine.db.models.work.Task
+	document = subroutine.db.models.work.Document
+
+	if subroutine.domain.authorization.outside_token_scope(
+		principal, subroutine.permissions.TASK_READ
+	):
+		return (
+			sqlalchemy.select(task.id).where(sqlalchemy.false()),
+			sqlalchemy.select(document.id).where(sqlalchemy.false()),
+		)
+
+	return (
+		readable_tasks(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+			include_templates=True,
+			include_beneath_trash=True,
+		).with_only_columns(task.id),
+		readable_documents(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+			include_beneath_trash=True,
+		).with_only_columns(document.id),
+	)
 
 
 def tag_is_seen (

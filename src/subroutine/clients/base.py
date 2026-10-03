@@ -891,7 +891,7 @@ class Client(typing.Protocol):
 		"""Rename a tag, or write down what it means in this workspace."""
 
 	def delete_tag (self, *, which: str) -> None:
-		"""Remove a tag, and with it every application of it."""
+		"""Take a tag off everything you can read; work hidden from you keeps it."""
 
 	def unlink (
 		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None

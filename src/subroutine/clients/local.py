@@ -1374,7 +1374,7 @@ class Client:
 			)
 
 	def delete_tag (self, *, which: str) -> None:
-		"""Remove a tag, and with it every application of it."""
+		"""Take a tag off everything you can read; work hidden from you keeps it."""
 
 		self._refuse_if_read_only()
 

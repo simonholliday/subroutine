@@ -145,6 +145,44 @@ def test_a_tag_in_sight_is_the_workspaces_to_rename_everywhere (world: World) ->
 	assert any("ship" in item["tags"] for item in inside), inside
 
 
+def test_deleting_a_tag_takes_it_off_what_you_can_read_and_leaves_hidden_work_its_own (
+	world: World,
+) -> None:
+	"""`SR#4289`, M12 of the cold review of 2026-10-03, decision `#4094` as amended that day.
+
+	Somebody outside a private project brought its tag into sight by tagging their own work with
+	it, then deleted it, and the tag left the private work too. **The answer is the same whether
+	hidden work keeps it**, so a delete confirms no hidden use; and a tag nothing else carries is
+	deleted outright, as before.
+	"""
+
+	_seeded(world)
+	outsider = _outsider(world)
+
+	for name in ("rival-bid", "spring-clean"):
+		mine = outsider.call("POST", "/v1/tasks", json={"title": f"Tidy up ({name})", "tags": [name]})
+
+		assert mine.status_code == 201, mine.text
+
+	answers = []
+
+	for name in ("rival-bid", "spring-clean"):
+		deleted = outsider.call("DELETE", f"/v1/tags/{_tags(outsider)[name]['id']}")
+		answers.append((deleted.status_code, deleted.text))
+
+	assert answers[0] == answers[1], f"the answer says whether hidden work keeps the tag: {answers}"
+	assert not {"rival-bid", "spring-clean"} & set(_tags(outsider)), "still in the deleter's sight"
+
+	inside = world.call("GET", "/v1/tasks?project=ops").json()["items"]
+
+	assert all("rival-bid" in item["tags"] for item in inside), f"it left the private work: {inside}"
+	assert "rival-bid" in _tags(world) and "spring-clean" not in _tags(world), _tags(world)
+
+	theirs = outsider.call("GET", "/v1/tasks", params={"q": "Tidy up"}).json()["items"]
+
+	assert theirs and not any(item["tags"] for item in theirs), theirs
+
+
 def test_an_owner_keeps_sight_of_a_tag_only_their_trashed_work_carries (world: World) -> None:
 	"""Something they can read includes the trash, as their export does."""
 
