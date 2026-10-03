@@ -1058,6 +1058,21 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 			"type": "note",
 		},
 	),
+	# `#4291`, decision `#4304`: new topics for agents are taught here, where every one is run.
+	(
+		"Write a rule for everyone in the workspace, not only this project. `binds` is `project` by "
+		"default - in force where the document is filed and beneath - and `workspace` puts it in "
+		"front of every reader of the conventions, wherever they work. Marking one takes "
+		"permission to change projects, on a credential not narrowed to some of them.",
+		"POST",
+		"/v1/documents",
+		{
+			"title": "Every release is cut from a green build",
+			"body": "Run the whole gate before tagging, and tag the commit it ran on.",
+			"type": "decision",
+			"binds": "workspace",
+		},
+	),
 	(
 		"Tie the document to the task it came from. **`target_type` defaults to `task`**, so "
 		"linking to a document without it is a 404 about a task that does not exist - refs "
@@ -1118,6 +1133,37 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"Finish it, without needing to know what this installation calls 'done'.",
 		"POST",
 		"/v1/tasks/1/complete",
+		None,
+	),
+	(
+		"Make a project to file work under. Its key is lower case, with a hyphen between words, "
+		"and is what an address names it by.",
+		"POST",
+		"/v1/projects",
+		{"key": "web", "title": "Website rebuild"},
+	),
+	(
+		"Reach this instance over MCP with a project in the address - `project=web` here - and "
+		"whatever an agent files lands there when the write names no project and no checkout "
+		"says. A project the write names still wins, and the credential is checked wherever it "
+		"lands. One JSON-RPC message per request.",
+		"POST",
+		"/mcp?project=web",
+		{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "tools/call",
+			"params": {"name": "subroutine_add", "arguments": {"text": "Fix the deploy script"}},
+		},
+	),
+	(
+		"Take everything you can read in a workspace with you, one kind at a time: `workspace`, "
+		"`projects`, `tasks`, `documents`, `comments`, `links`, `events` and the rest, each at "
+		"/v1/export/<kind>, which /v1/openapi.json lists. Finished, archived and deleted items "
+		"are included. Follow `next_cursor` until `has_more` is false, and the pages together "
+		"are the whole of it.",
+		"GET",
+		"/v1/export/tasks?limit=50",
 		None,
 	),
 )

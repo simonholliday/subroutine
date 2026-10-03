@@ -82,6 +82,25 @@ def test_every_example_actually_works (world: test_api_tasks.World) -> None:
 	assert len(outcomes) == len(subroutine.api.meta.EXAMPLES)
 
 
+def test_the_mcp_example_files_where_its_address_says (world: test_api_tasks.World) -> None:
+	"""`SR#4291`: a tool's refusal is answered 200, so where the example filed is checked.
+
+	Over MCP, a tool that refuses answers a JSON-RPC result carrying ``isError``, which the test
+	above reads as success. So the example's task is looked for in the project its address names.
+	"""
+
+	for _description, method, path, body in subroutine.api.meta.EXAMPLES:
+		kwargs: dict[str, typing.Any] = {} if body is None else {"json": body}
+		answered = world.call(method, path, **kwargs)
+
+		if path.startswith("/mcp"):
+			assert not answered.json()["result"].get("isError"), answered.text
+
+	filed = world.call("GET", "/v1/tasks", params={"project": "web", "fields": "title"}).json()
+
+	assert [item["title"] for item in filed["items"]] == ["Fix the deploy script"], filed
+
+
 def test_the_link_example_needs_its_target_type (world: test_api_tasks.World) -> None:
 	"""The example exists because omitting `target_type` is the easiest mistake in the API.
 
