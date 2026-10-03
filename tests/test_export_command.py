@@ -179,6 +179,89 @@ class _Refusing:
 		return getattr(self.inner, name)
 
 
+@pytest.mark.parametrize("slug", ["../../escaped", "<absolute>", "", "My_Team", "a/b"])
+def test_a_workspace_name_no_instance_makes_stops_the_export (
+	slug: str, pair: Pair, tmp_path: pathlib.Path
+) -> None:
+	"""A short name that is not its own normal form is refused by name, before any folder is made.
+
+	`#4279` (H2 of the cold review of 2026-10-03): the folder was ``directory / slug``, so a
+	server sending ``../../escaped`` or an absolute path had the whole export written there.
+	"""
+
+	slug = slug.replace("<absolute>", str(tmp_path / "escaped"))
+	workspace = pair.local.identity().workspaces[0].model_copy(update={"slug": slug})
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+		subroutine.cli.export.folder_for(tmp_path / "leaving", workspace, connection="work")
+
+	assert "work sent a workspace name no instance makes" in refused.value.detail
+	assert list(tmp_path.iterdir()) == []
+
+
+def test_an_ordinary_workspace_name_is_its_own_folder (pair: Pair, tmp_path: pathlib.Path) -> None:
+	"""The check refuses nothing an instance makes."""
+
+	workspace = pair.local.identity().workspaces[0]
+
+	assert subroutine.cli.export.folder_for(
+		tmp_path, workspace, connection="local"
+	) == tmp_path / workspace.slug
+
+
+class _Climbing:
+	"""A client that answers as another does, except that every project path it sends is ``path``."""
+
+	def __init__ (self, inner: subroutine.clients.base.Client, path: str) -> None:
+		"""Wrap ``inner``, sending ``path`` as every item's project path."""
+
+		self.inner = inner
+		self.path = path
+
+	def export (self, kind: str, *, workspace: str | None = None) -> typing.Iterator[typing.Any]:
+		"""Rewrite each item's and document's project path, as a hostile server would."""
+
+		for item in self.inner.export(kind, workspace=workspace):
+			if kind in subroutine.cli.export.FRONT:
+				item = item.model_copy(update={"project_path": self.path})
+
+			yield item
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Answer everything else as the wrapped client does."""
+
+		return getattr(self.inner, name)
+
+
+@pytest.mark.parametrize("path", ["../../../escaped", "<absolute>", "inbox/../..", "", "inbox/"])
+def test_a_project_path_no_instance_makes_stops_the_export_before_any_page (
+	path: str, pair: Pair, tmp_path: pathlib.Path
+) -> None:
+	"""Refused by name, with no page written anywhere and no manifest saying the export finished.
+
+	`#4279`: a page went to ``markdown / project_path``, so a server sending ``../../../escaped``
+	or an absolute path had pages, with content it chose, written outside the export.
+	"""
+
+	path = path.replace("<absolute>", str(tmp_path / "escaped"))
+	pair.local.capture(text="Fix the deploy script")
+	workspace = pair.local.identity().workspaces[0]
+	folder = tmp_path / "leaving" / workspace.slug
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+		subroutine.cli.export.write(
+			typing.cast(typing.Any, _Climbing(pair.local, path)),
+			folder,
+			workspace=workspace,
+			connection="work",
+		)
+
+	assert "work sent a project path no instance makes" in refused.value.detail
+	assert not (folder / "markdown").exists()
+	assert not (folder / "manifest.json").exists()
+	assert sorted(entry.name for entry in tmp_path.iterdir()) == ["leaving"]
+
+
 def test_a_kind_the_credential_is_refused_is_named_in_the_manifest_and_not_written (
 	pair: Pair, tmp_path: pathlib.Path
 ) -> None:

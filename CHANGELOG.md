@@ -163,7 +163,8 @@ upgrade involves.
   could not already read is, and no password, token or sign-in link ever is. It works on any
   connection, so you can leave somebody else's instance with your work too. Beside the files is a
   `markdown/` folder you can read: a page for each item and document, foldered by project, with
-  its comments under it.
+  its comments under it. A workspace or project name no instance would send stops the export,
+  rather than writing where it points.
 - **`GET /v1/export/<kind>` answers everything of one kind your credential can read**, a page at
   a time: the workspace, projects, tasks, documents, comments, links, verifications, events,
   tags, statuses, item types, link types, saved views, users, members and project members.

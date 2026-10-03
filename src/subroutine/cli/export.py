@@ -20,8 +20,10 @@ import uuid
 import typer
 
 import subroutine
+import subroutine.addressing
 import subroutine.cli.personal
 import subroutine.clients.base
+import subroutine.domain.projects
 import subroutine.errors
 import subroutine.exporting
 import subroutine.views
@@ -123,7 +125,7 @@ def _exported (program: subroutine.cli.personal.Program, *, directory: pathlib.P
 			try:
 				written = write(
 					reached.client,
-					directory / workspace.slug,
+					folder_for(directory, workspace, connection=reached.name),
 					workspace=workspace,
 					connection=reached.name,
 				)
@@ -133,6 +135,55 @@ def _exported (program: subroutine.cli.personal.Program, *, directory: pathlib.P
 
 			for said in described(workspace, written):
 				program.say(said)
+
+
+def folder_for (
+	directory: pathlib.Path, workspace: subroutine.views.WorkspaceRef, *, connection: str
+) -> pathlib.Path:
+	"""Return the folder one workspace's export goes in, refusing a name no instance makes.
+
+	**The workspace's short name comes from the server**, and an export is as often taken from
+	somebody else's instance as from one's own - by somebody leaving it, from the one party a
+	hostile name would come from. A short name is stored in the form
+	:func:`subroutine.addressing.normalize_slug` gives it, letters, digits and hyphens, so one that
+	is not already in that form was not sent by an instance behaving as one. The export stops
+	rather than tidying it, because a tidied name would hide that anything was wrong.
+	"""
+
+	slug = workspace.slug
+
+	if not slug or subroutine.addressing.normalize_slug(slug) != slug:
+		raise _not_one_an_instance_makes(connection, "a workspace name", slug)
+
+	return _inside(directory, directory / slug, connection=connection, named=slug)
+
+
+def _inside (
+	folder: pathlib.Path, place: pathlib.Path, *, connection: str, named: str
+) -> pathlib.Path:
+	"""Return ``place``, refusing it unless it is ``folder`` or somewhere beneath it.
+
+	The backstop behind the checks on each name: whatever a name holds, nothing an export writes
+	may land outside the folder it was asked to write into.
+	"""
+
+	if not place.resolve().is_relative_to(folder.resolve()):
+		raise _not_one_an_instance_makes(connection, "a name", named)
+
+	return place
+
+
+def _not_one_an_instance_makes (
+	connection: str, what: str, named: str
+) -> subroutine.errors.SubroutineError:
+	"""Return the refusal for a name from the server that an export will not write under."""
+
+	return subroutine.errors.ServiceUnavailable(
+		f"{connection} sent {what} no instance makes, {named!r}, so the export stopped rather "
+		"than write where it points.",
+		hint="Check that this connection's address is the instance you meant, and that it is "
+		"reached over https.",
+	)
 
 
 def write (
@@ -178,7 +229,7 @@ def write (
 			target.unlink(missing_ok=True)
 			refused[kind] = error.detail
 
-	pages = _markdown(folder / "markdown", held)
+	pages = _markdown(folder / "markdown", held, connection=connection)
 	me = client.me()
 	manifest = {
 		"format": "Subroutine export",
@@ -293,11 +344,16 @@ FRONT: dict[str, tuple[tuple[str, str], ...]] = {
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]+')
 
 
-def _markdown (folder: pathlib.Path, held: dict[str, list[typing.Any]]) -> int:
+def _markdown (
+	folder: pathlib.Path, held: dict[str, list[typing.Any]], *, connection: str
+) -> int:
 	"""Write a page for each item and document, foldered by project, and return how many.
 
 	A deleted one goes under :data:`TRASH`. Comments follow the page they were made on, oldest
 	first, as the comment listing reads them.
+
+	**Every page is placed before any is written**, so a project path no instance makes stops the
+	export with no page written under any project, rather than part way through.
 	"""
 
 	said: dict[uuid.UUID, list[typing.Any]] = {}
@@ -305,18 +361,43 @@ def _markdown (folder: pathlib.Path, held: dict[str, list[typing.Any]]) -> int:
 	for comment in held.get("comments", []):
 		said.setdefault(comment.entity_id, []).append(comment)
 
-	pages = 0
+	placed = [
+		(
+			kind,
+			item,
+			folder / TRASH
+			if item.deleted_at is not None
+			else _project_folder(folder, item.project_path, connection=connection),
+		)
+		for kind in FRONT
+		for item in held.get(kind, [])
+	]
 
-	for kind in FRONT:
-		for item in held.get(kind, []):
-			place = folder / (TRASH if item.deleted_at is not None else item.project_path)
-			place.mkdir(parents=True, exist_ok=True)
-			(place / filename(item.ref, item.title)).write_text(
-				page(kind, item, said.get(item.id, [])), encoding="utf-8"
-			)
-			pages += 1
+	for kind, item, place in placed:
+		place.mkdir(parents=True, exist_ok=True)
+		(place / filename(item.ref, item.title)).write_text(
+			page(kind, item, said.get(item.id, [])), encoding="utf-8"
+		)
 
-	return pages
+	return len(placed)
+
+
+def _project_folder (folder: pathlib.Path, path: str, *, connection: str) -> pathlib.Path:
+	"""Return where one project's pages go, refusing a project path no instance makes.
+
+	A project path is project keys joined by
+	:data:`~subroutine.domain.projects.PATH_SEPARATOR`, and a key matches
+	:data:`~subroutine.domain.projects.KEY_PATTERN`, which holds no dot and no separator. So a
+	path whose every segment is a key cannot climb out of the folder or name a place outside it,
+	and one that is not was not sent by an instance behaving as one.
+	"""
+
+	keys = (path or "").split(subroutine.domain.projects.PATH_SEPARATOR)
+
+	if not all(subroutine.domain.projects.KEY_PATTERN.fullmatch(key) for key in keys):
+		raise _not_one_an_instance_makes(connection, "a project path", path)
+
+	return _inside(folder, folder.joinpath(*keys), connection=connection, named=path)
 
 
 def filename (ref: int, title: str) -> str:
