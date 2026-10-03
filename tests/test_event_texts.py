@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 import sqlalchemy
+import sqlalchemy.event
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
@@ -71,6 +72,44 @@ def test_a_long_text_is_kept_once_however_often_it_is_written (world: test_api_t
 	assert len(stored) == 3
 	assert all(isinstance(side, dict) or side is None for change in stored for side in change.values())
 	assert world.session.scalar(sqlalchemy.select(sqlalchemy.func.count()).select_from(TEXTS)) == 2
+
+
+def test_a_kept_text_is_asked_for_by_its_workspace_so_its_key_serves_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4294`, M14 of the cold review of 2026-10-03: by hash alone, the whole table was scanned.
+
+	Measured with 60,000 texts: 11.5 ms by a scan on PostgreSQL and 13.5 ms on SQLite, against
+	0.04 ms and 0.12 ms by the key. **Asserted on the statement rather than on a plan**, which a
+	table this small would answer with a scan either way.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Fix the deploy script"}).json()
+	_described(world, made["ref"], FIRST)
+
+	for event in world.session.scalars(sqlalchemy.select(EVENT)):
+		event.created_at = event.created_at.replace(year=event.created_at.year - 1)
+
+	world.session.flush()
+	asked: list[str] = []
+	engine = world.session.get_bind()
+
+	def heard (_connection: typing.Any, _cursor: typing.Any, statement: str, *_: typing.Any) -> None:
+		"""Keep every statement that reads the kept texts."""
+
+		if "event_text" in statement and statement.lstrip().upper().startswith("SELECT"):
+			asked.append(" ".join(statement.split()))
+
+	sqlalchemy.event.listen(engine, "before_cursor_execute", heard)
+
+	try:
+		assert world.call("GET", "/v1/changes").status_code == 200
+
+	finally:
+		sqlalchemy.event.remove(engine, "before_cursor_execute", heard)
+
+	assert asked, "the feed never read a kept text, so this proves nothing"
+	assert all("event_text.workspace_id IN" in one for one in asked), asked
 
 
 def test_a_short_text_stays_where_it_was (world: test_api_tasks.World) -> None:

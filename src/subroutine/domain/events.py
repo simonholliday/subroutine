@@ -538,9 +538,18 @@ def whole (
 		return
 
 	table = subroutine.db.models.activity.TEXTS
+
+	# **By workspace as well as hash** (`#4294`, M14 of the cold review of 2026-10-03), so the
+	# ``(workspace_id, sha256)`` key answers it: by hash alone it scanned the whole table, on every
+	# feed page naming a kept text - which a poll re-reading its last event can do every few seconds.
 	texts = {
 		(found.workspace_id, found.sha256): found.text
-		for found in session.execute(sqlalchemy.select(table).where(table.c.sha256.in_(wanted)))
+		for found in session.execute(
+			sqlalchemy.select(table).where(
+				table.c.workspace_id.in_({row.workspace_id for row in rows}),
+				table.c.sha256.in_(wanted),
+			)
+		)
 	}
 
 	for row in rows:
