@@ -828,6 +828,10 @@ Events are retained for a configurable period (default 180 days). A `?since=` cu
 older than the retention floor returns `410` with code `cursor_expired`, telling the
 client to resync rather than silently walking four million rows.
 
+*Changed since this was frozen: every event stays in the change feed unless
+`events_retention_days` is set, and older ones then move to an archive that the journal, each
+item's history and an export still read. The paragraph above is the design as it stood.*
+
 ### 5.11a Two readers of one table
 
 Two endpoints read these rows. **Both are built** — the histories on 2026-07-30, the feed on
@@ -4001,6 +4005,9 @@ declared, printed by `config show`, described here — and read by nothing anywh
 is gone is the *setting* pretending each was configurable while nothing enforced it. `#133`'s
 rule, which was written from exactly this shape: a setting for an unbuilt feature belongs with
 the feature, and each comes back with what enforces it.
+
+*Since this was frozen: `events_retention_days` came back with the retention it sets, and is
+unset by default, so every event stays in the change feed.*
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest (§5.4). Bounds path length and the cost of a move |
 | `default_timezone` | system | |
 | `local_user` | unset | Which account local mode acts as, when the database holds more than one (§12.1a) |

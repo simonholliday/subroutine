@@ -106,10 +106,10 @@ upgrade involves.
   project is found in. A decision is a document in the project it governs, even one taken in
   passing. Refresh the plugin to read it: `claude plugin marketplace update subroutine`, then
   `claude plugin update subroutine@subroutine`.
-- **A long description or body is kept once, however often it is edited.** Every edit recorded
-  the whole text before and after it, so a document revised twenty times held forty copies of
-  itself in the history. What the change feed, an item's history and an export report is
-  unchanged: the whole text, every time.
+- **Each version of a long description or body is kept once.** Every edit recorded the whole
+  text before and after it, so a document revised twenty times held forty copies of itself in
+  the history, where it now holds each of its twenty-one versions once. What the change feed,
+  an item's history and an export report is unchanged: the whole text, every time.
 - **Events can be kept in the change feed for a set number of days, and nothing is deleted.**
   Set `events_retention_days` and older events move to an archive, which the journal, each item's
   history, *revised N times*, the `touched_at` and `touched_by` filters and an export all still

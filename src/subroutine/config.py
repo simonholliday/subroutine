@@ -959,8 +959,8 @@ class Settings(pydantic_settings.BaseSettings):
 	# announces itself.
 	local_user: str | None = None
 
-	# Installation-wide defaults for behavioural settings. A workspace or a project may
-	# override any of these; see the module docstring.
+	# Installation-wide settings for how the program behaves. Each applies to every workspace:
+	# none of them is overridden by a workspace or a project.
 	#
 	# **How many days of events the change feed keeps** (`#251`, decision `#4233`). Unset keeps
 	# every one there for ever, which is decision `#1835`'s default. Set, older events move to an

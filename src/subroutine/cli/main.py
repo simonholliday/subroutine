@@ -2035,14 +2035,22 @@ def database_archive () -> None:
 			)
 
 	if not archived.moved:
-		_say(f"Nothing in {_instance_label()} is older than {days} days, so nothing moved.")
+		_say(
+			f"Nothing in {_instance_label()} is older than {_counted(days, 'day')}, so nothing moved."
+		)
 
 		return
 
 	_say(
-		f"Moved {archived.moved:,} events older than {days} days from {_instance_label()}'s change "
-		"feed to its archive."
+		f"Moved {_counted(archived.moved, 'event')} older than {_counted(days, 'day')} from "
+		f"{_instance_label()}'s change feed to its archive."
 	)
+
+
+def _counted (count: int, name: str) -> str:
+	"""Return a count and its noun, singular for one: *1 day*, *30 days* - `#4299`."""
+
+	return f"{count:,} {name}{'' if count == 1 else 's'}"
 
 
 @database_app.command("backups")

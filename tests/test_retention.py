@@ -524,6 +524,13 @@ def test_the_terminal_moves_them_on_demand_and_says_when_there_is_no_floor (
 
 	assert "every event stays in the change feed" in run("db", "archive")
 
+	# **One day is a day** (`SR#4299`): it said *older than 1 days*, and *1 events*.
+	monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", "1")
+
+	assert "is older than 1 day, so nothing moved" in run("db", "archive")
+	assert subroutine.cli.main._counted(1, "event") == "1 event"
+	assert subroutine.cli.main._counted(1_200, "event") == "1,200 events"
+
 	database = tmp_path / "xdg_data_home" / "subroutine" / "subroutine.db"
 	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
 
