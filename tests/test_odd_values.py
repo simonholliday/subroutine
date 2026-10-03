@@ -345,6 +345,25 @@ def test_an_estimate_padded_with_zeros_is_still_read (world: test_api_tasks.Worl
 	assert made.status_code == 201 and made.json()["estimate_minutes"] == 90, made.text
 
 
+def test_an_email_address_that_grows_when_folded_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4278`, L-AA-1 of the cold review of 2026-10-03: 312 characters, 612 once lowered.
+
+	A capital dotted I folds to two characters, so the address fitted and the stored, folded copy
+	did not: a 500 on PostgreSQL and an over-long row on SQLite. **Refused by name, on both.**
+	"""
+
+	answered = world.call(
+		"POST",
+		"/v1/users",
+		json={"username": "trinity", "email": "\N{LATIN CAPITAL LETTER I WITH DOT ABOVE}" * 300 + "@example.org"},
+	)
+
+	# **Too large**, as a name that outgrows its folded column already is.
+	_named(answered, "email", status=413)
+
+
 def test_half_a_character_is_refused_by_name (world: test_api_tasks.World) -> None:
 	"""`SR#4027`, L-4 (1) of the cold review of 2026-09-30: a lone surrogate answered 500.
 

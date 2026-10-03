@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An email address too long once lowercased is refused by name.** Some capital letters become
+  two when lowered, so an address that fitted was stored over-long, or answered with a server
+  error on PostgreSQL.
 - **An agent named as the local user is refused what it is refused over the network.** The
   terminal's exemption is for a person holding the database; an agent named there issued a
   credential for a person, which an agent may not.

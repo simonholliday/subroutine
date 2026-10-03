@@ -118,6 +118,12 @@ def create (
 		email = subroutine.domain.text.fit(
 			email, field="email", limit=MAX_EMAIL_LENGTH, label="email address"
 		)
+		# **Measured as it is compared, too** (`#4278`, L-AA-1 of the cold review of 2026-10-03), as the
+		# username is (`#4027`): folding can lengthen it, and ``email_normalized`` is as wide as the
+		# address - a 500 on PostgreSQL, and an over-long row on SQLite.
+		subroutine.domain.text.fits_folded(
+			email, normalize(email), field="email", limit=MAX_EMAIL_LENGTH, label="email address"
+		)
 
 	if display_name is not None:
 		display_name = subroutine.domain.text.fit(
