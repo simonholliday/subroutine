@@ -589,12 +589,17 @@ def test_every_numeric_setting_says_what_it_will_not_take () -> None:
 	bounded — it is that the eleventh cannot arrive without somebody deciding. The population
 	comes off ``model_fields``, so a numeric setting added tomorrow fails this until it carries
 	a bound or an excuse.
+
+	**An optional number too** (`SR#4300`, NEW-C-2 of the verification of the cold review of
+	2026-10-03): ``int | None`` was skipped, so nothing held ``events_retention_days``'s bound,
+	and at 0 one run would move the whole feed but its newest event.
 	"""
 
 	unbounded = []
+	numbers = (int, int | None)
 
 	for name, field in subroutine.config.Settings.model_fields.items():
-		if field.annotation is not int or name in UNBOUNDED_ON_PURPOSE:
+		if field.annotation not in numbers or name in UNBOUNDED_ON_PURPOSE:
 			continue
 
 		if not any(isinstance(rule, annotated_types.Ge) for rule in field.metadata):
@@ -642,6 +647,7 @@ def test_a_value_outside_a_bound_is_refused_rather_than_used () -> None:
 		),
 		("max_hierarchy_depth", lambda: subroutine.config.Settings(max_hierarchy_depth=99)),
 		("port", lambda: subroutine.config.Settings(port=0)),
+		("events_retention_days", lambda: subroutine.config.Settings(events_retention_days=0)),
 	)
 
 	for name, attempt in attempts:
