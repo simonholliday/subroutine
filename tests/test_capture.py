@@ -1044,9 +1044,10 @@ def test_a_bare_day_plans_only_at_the_end_of_the_line (
 		("Water the plants every 14 days on friday", "every 14 days"),
 		("Review every month on the 30th", "every month on the 30th"),
 		# **A sentence that ends**, which is the reason the allowance is punctuation and not
-		# only whitespace — measured, because `every 14 days.` is never read as a repeat at
-		# all and the obvious probe cannot reach this.
+		# only whitespace. `every 14 days.` was not read as a repeat at all until `SR#4319`, so
+		# this one was measured through a phrase whose mark falls on the words after it.
 		("Water the plants every 14 days on friday.", "every 14 days"),
+		("Water the plants every 14 days.", "every 14 days"),
 	],
 )
 def test_a_repeat_is_read_only_where_nothing_unclaimed_follows_it (
@@ -1070,6 +1071,33 @@ def test_a_repeat_is_read_only_where_nothing_unclaimed_follows_it (
 	"""
 
 	assert _parse(text).recurrence_text == repeat
+
+
+@pytest.mark.parametrize(
+	("ending", "rule"),
+	[
+		("every day.", "FREQ=DAILY"),
+		("every 14 days.", "FREQ=DAILY;INTERVAL=14"),
+		("every 14 days!", "FREQ=DAILY;INTERVAL=14"),
+		("every sunday?", "FREQ=WEEKLY;BYDAY=SU"),
+	],
+)
+def test_a_repeat_that_ends_a_sentence_is_read (ending: str, rule: str) -> None:
+	"""`SR#4319`, NEW-D-1 of the verification of the cold review of 2026-10-03.
+
+	*Water the plants every day.* set no repeat, kept the title whole, and noted that ``every
+	day.`` was not a repeat this understands - suggesting ``every day``. Most people end a sentence
+	with a full stop, and an agent's capture text often does. **The mark is left to the title**, as
+	it is after a deadline.
+	"""
+
+	mark = ending[-1]
+	captured = _parse(f"Water the plants {ending}")
+
+	assert captured.recurrence == rule, captured
+	assert captured.recurrence_text == ending[:-1], captured
+	assert captured.unparsed == (), captured.unparsed
+	assert captured.title == _parse(f"Water the plants by friday{mark}").title, captured.title
 
 
 def test_a_repeat_left_mid_sentence_is_not_reported_as_unreadable () -> None:

@@ -1174,14 +1174,21 @@ def parse (
 		if _overlaps(match.span(), several):
 			continue
 
-		read = _repeat_in(match.group(0))
+		# **The mark that ends a sentence is the sentence's** (`#4319`, NEW-D-1 of the verification
+		# of the cold review of 2026-10-03). :data:`_EVERY` takes a word as the unit, so *every day.*
+		# was asked about with its full stop, refused, and the line kept whole - with a note
+		# suggesting the very phrase typed. Read without it, the mark stays in the title, as one after
+		# a deadline does.
+		phrase = match.group(0).rstrip(".!?")
+		span = (match.start(), match.start() + len(phrase))
+		read = _repeat_in(phrase)
 
 		if read is None:
 			# Reserved now, and reported below only where nothing unclaimed follows it
 			# (`#1408`). "every fortnight" is not a rule this knows and inventing one is what
 			# §6.13 rule 1 forbids, so the words stay in the title either way.
-			unread.append(match.span())
-			reserved.append(match.span())
+			unread.append(span)
+			reserved.append(span)
 
 			continue
 
@@ -1193,7 +1200,7 @@ def parse (
 		# one space, so measured on the line it stopped short wherever the writer left two, and
 		# *every  monday* was withdrawn as mid-sentence with its rule kept.
 		start = match.start()
-		ends = [token.end() for token in re.finditer(r"\S+", match.group(0))]
+		ends = [token.end() for token in re.finditer(r"\S+", phrase)]
 		reach = (start, start + ends[len(words.split()) - 1])
 
 		# **One repeat to a line** (`#4016`, M-17 of the cold review of 2026-09-30). A second phrase

@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat at the end of a sentence is read.** *Water the plants every day.* set no repeat
+  and said *every day.* was not a repeat it understood, suggesting *every day*; so did *every 14
+  days!* and *every sunday?*. The mark that ends the sentence stays in the title.
 - **`subroutine mcp` given two different workspaces tells the agent's client why**, rather than
   stopping before it could answer, with the reason on standard error where a client does not
   show it.
