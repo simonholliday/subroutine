@@ -747,7 +747,6 @@ def _conventions (
 
 	drafted, more = _drafted(
 		client,
-		meta,
 		workspace,
 		chosen.project,
 		place,
@@ -1028,7 +1027,6 @@ def _on_one_line (title: str) -> str:
 
 def _drafted (
 	client: subroutine.clients.base.Client,
-	meta: subroutine.views.Meta,
 	workspace: str | None,
 	named: str | None = None,
 	place: str | None = None,
@@ -1054,15 +1052,19 @@ def _drafted (
 	value, so the types are filtered here instead; four more round trips to carry a number that
 	prompts a look rather than an action is the wrong trade on a page read once a session.
 
-	The count is a **floor** when the page fills. Drafts of every type share it, so the governing
-	ones are a subset of what came back and there may be more behind it — which is why the caller
-	says *at least* rather than reporting a number it cannot stand behind.
+	**Every draft, not a page of them** (`#4275`, M8 of the cold review of 2026-10-03). The reader's
+	share is taken here, because the instance can narrow only to what is under a project and not
+	to the projects above it or to what binds the whole workspace (`#3673`) - so a page read across
+	the workspace held other people's drafts, and a workspace with a page of them told a reader in
+	another project nothing of their own. Read to the end, as :func:`_governing` reads what is in
+	force. The count is a **floor** only if even that stops short, and the caller then says *at
+	least* rather than a number it cannot stand behind.
 	"""
 
 	listed = client.documents(
 		workspace=workspace,
 		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
-		limit=meta.limits.max_page_size,
+		limit=subroutine.clients.base.EVERY_ROW,
 	)
 
 	# **The same share as the index above** (`#3673`), or the two halves of one answer would

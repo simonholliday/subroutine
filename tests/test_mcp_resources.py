@@ -429,10 +429,11 @@ def _drafts_request (
 	# same rule afterwards, so the two halves of one answer describe one set.
 	assert project is None, "the drafts are no longer narrowed by the instance"
 
+	# **Every row, not a page** (`SR#4275`): a page of other people's drafts hid the reader's own.
 	return unittest.mock.call(
 		workspace=workspace,
 		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
-		limit=200,
+		limit=subroutine.clients.base.EVERY_ROW,
 	)
 
 

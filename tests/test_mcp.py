@@ -9159,12 +9159,12 @@ def test_writing_a_document_with_neither_a_title_nor_a_ref_is_refused_by_name (
 	assert "ref" in answered
 
 
-def _bound_to (session: sqlalchemy.orm.Session, workspace: str) -> str:
+def _bound_to (session: sqlalchemy.orm.Session, workspace: str, **settings: typing.Any) -> str:
 	"""Return ``subroutine://conventions`` as a session pinned to one workspace reads it."""
 
 	client = subroutine.clients.local.Client(
 		subroutine.connections.Connection(name="local"),
-		subroutine.config.Settings(dev_mode=True),
+		subroutine.config.Settings(dev_mode=True, **settings),
 		session_factory=api_support.factory_for(session),
 	)
 
@@ -11462,12 +11462,13 @@ def test_a_document_marked_to_bind_the_whole_workspace_is_said_so_to_an_agent (
 	assert "binds the whole workspace" not in _called(bound, "subroutine_show", ref=ref)[0]
 
 
-def _a_line_of_projects (session: sqlalchemy.orm.Session) -> str:
+def _a_line_of_projects (session: sqlalchemy.orm.Session, beside: int = 0) -> str:
 	"""Return a workspace whose projects make a line, a branch beside it and a project elsewhere.
 
 	``web`` holds ``web/blog``, which holds ``web/blog/drafts``; ``web/shop`` sits beside the blog,
 	and ``ops`` elsewhere holds one rule marked as binding the whole workspace and one not. Each
 	holds one decision in force, so every way an entry can be listed, or left out, is here once.
+	``beside`` drafts more designs in the shop, written after everything else.
 	"""
 
 	setup = subroutine.domain.bootstrap.initialise(
@@ -11517,6 +11518,15 @@ def _a_line_of_projects (session: sqlalchemy.orm.Session) -> str:
 			session, project=project, title=title, type_key="design", status_key="draft"
 		)
 
+	for number in range(beside):
+		subroutine.domain.documents.create(
+			session,
+			project=shop,
+			title=f"Ship to the outer district {number}?",
+			type_key="design",
+			status_key="draft",
+		)
+
 	session.flush()
 
 	return str(setup.workspace.slug)
@@ -11559,6 +11569,24 @@ def test_the_conventions_index_reaches_the_projects_above_and_the_rules_for_the_
 	assert "One more is still a draft and is not listed above." in narrow, (
 		f"the drafts were not taken by the rule the index was: {narrow}"
 	)
+
+
+def test_a_readers_draft_is_counted_however_many_other_drafts_the_workspace_holds (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4275`, M8 of the cold review of 2026-10-03: a page of other drafts hid the reader's own.
+
+	The drafts were read one page at a time across the whole workspace and the reader's share was
+	taken from that page. Seven drafts beside the blog, newer than the one above it, against a page
+	of five: the page held only the shop's, and the index said nothing about drafts at all.
+	"""
+
+	slug = _a_line_of_projects(session, beside=6)
+
+	_marked_as(monkeypatch, "web/blog")
+	narrow = _bound_to(session, slug, max_page_size=5)
+
+	assert "One more is still a draft and is not listed above." in narrow, narrow
 
 
 def test_an_empty_narrowed_conventions_index_says_what_it_left_out (
