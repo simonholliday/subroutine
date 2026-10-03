@@ -769,7 +769,38 @@ def materialise (
 
 		return None
 
-	shift = occurrence - anchor
+	def carried (
+		held: datetime.datetime | None, column: str, all_day: bool
+	) -> datetime.datetime | None:
+		"""Carry one of the series' dates to this occurrence, on the series' own clock.
+
+		**Not by the time between the two instants** (`#4308`, `#4309`, M17 (a) and (b) of the cold
+		review of 2026-10-03). Measured in UTC, a series whose start and deadline fell either side of
+		a clock change put every later start an hour out for the life of the series; and a series
+		repeating from completion took the completion's time of day into a whole-day deadline, which
+		then read as overdue that afternoon. A whole-day date moves by the days on the calendar and
+		lands on its day's edge, a timed one by the time on the clock - as a move from now on carries
+		the other row of a series.
+		"""
+
+		if held is None:
+			return None
+
+		if all_day:
+			return _days_moved(
+				held,
+				was=anchor,
+				now_holds=occurrence,
+				was_in=zone,
+				now_in=zone,
+				column=column,
+				timezone=zone,
+				now=now,
+			)
+
+		return _clock_moved(
+			held, was=anchor, now_holds=occurrence, column=column, timezone=zone, now=now
+		)
 
 	# **A series that was never given a date takes the one its own rule computes** (`#1208`).
 	#
@@ -826,7 +857,7 @@ def materialise (
 		due_at=(
 			(whole_day if own_field == "due_at" else None)
 			if dateless
-			else None if template.due_at is None else template.due_at + shift
+			else carried(template.due_at, "due_at", template.due_is_all_day)
 		),
 		due_is_all_day=(
 			own_field == "due_at" if dateless else template.due_is_all_day
@@ -834,7 +865,7 @@ def materialise (
 		starts_at=(
 			(whole_day if own_field == "starts_at" else None)
 			if dateless
-			else None if template.starts_at is None else template.starts_at + shift
+			else carried(template.starts_at, "starts_at", template.starts_is_all_day)
 		),
 		starts_is_all_day=(
 			own_field == "starts_at" if dateless else template.starts_is_all_day
@@ -842,7 +873,7 @@ def materialise (
 		# **Carried and shifted with the start**, because a span belongs to the series: a
 		# stand-up that runs 09:00 to 09:15 runs that long every day, and an occurrence carrying
 		# a start without its end would be the zero-length event `#1235` exists to prevent.
-		ends_at=None if template.ends_at is None else template.ends_at + shift,
+		ends_at=carried(template.ends_at, "ends_at", template.starts_is_all_day),
 		# **Deliberately not carried.** A snooze is somebody saying "not yet" about one
 		# occurrence; repeating it would hide every future one for the same reason, which
 		# nobody asked for.

@@ -1531,6 +1531,97 @@ def test_clearing_the_series_own_date_is_refused_before_anything_changes (
 	assert series.due_at == before
 
 
+@pytest.mark.parametrize(
+	("starts", "due", "made", "finished", "wanted"),
+	[
+		(
+			"2026-10-23T09:00",
+			"2026-10-26T17:00",
+			"2026-10-01",
+			"2026-10-27",
+			(datetime.date(2026, 10, 30), datetime.time(9, 0)),
+		),
+		(
+			"2026-10-23",
+			"2026-10-26T17:00",
+			"2026-10-01",
+			"2026-10-27",
+			(datetime.date(2026, 10, 30), datetime.time(0, 0)),
+		),
+		(
+			"2026-03-27T09:00",
+			"2026-03-30T17:00",
+			"2026-03-20",
+			"2026-03-31",
+			(datetime.date(2026, 4, 3), datetime.time(9, 0)),
+		),
+	],
+	ids=["autumn timed", "autumn all day", "spring timed"],
+)
+def test_a_series_straddling_a_clock_change_keeps_every_start_on_its_clock (
+	starts: str,
+	due: str,
+	made: str,
+	finished: str,
+	wanted: tuple[datetime.date, datetime.time],
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4308`, M17 (a) of the cold review of 2026-10-03: carried in UTC, an hour out for good.
+
+	A start and a deadline either side of a change of the clocks: every later start was carried by
+	the time between two instants, so a 09:00 start became 08:00 in autumn and 10:00 in spring, and
+	an all-day start landed at 23:00 the day before - for the life of the series.
+	"""
+
+	def at (day: str) -> datetime.datetime:
+		"""Return noon UTC on a day."""
+
+		return datetime.datetime.fromisoformat(f"{day}T12:00:00+00:00")
+
+	first = _repeating(
+		session, recurrence="every week", starts=starts, due=due, timezone=LONDON, now=at(made)
+	)
+	series = _template(session, first)
+	subroutine.domain.tasks.complete(session, first, now=at(finished))
+	following = _next_live(session, series)
+
+	assert following.starts_at is not None
+	local = following.starts_at.astimezone(zoneinfo.ZoneInfo(LONDON))
+
+	assert (local.date(), local.time()) == wanted, local
+
+
+def test_a_whole_day_deadline_repeating_from_completion_stays_a_whole_day (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4309`, M17 (b) of the cold review of 2026-10-03: minted at the completion's time of day.
+
+	Flagged all-day and stored at 16:23, the next deadline read as overdue that afternoon. It lands
+	on its day's last instant, as every all-day deadline is stored.
+	"""
+
+	first = _repeating(
+		session,
+		recurrence="every 14 days",
+		recurrence_anchor="completion",
+		due="2026-08-17",
+		timezone=LONDON,
+	)
+	series = _template(session, first)
+	subroutine.domain.tasks.complete(
+		session, first, now=datetime.datetime(2026, 8, 20, 15, 23, tzinfo=datetime.UTC)
+	)
+	following = _next_live(session, series)
+
+	assert following.due_at is not None and following.due_is_all_day
+	local = following.due_at.astimezone(zoneinfo.ZoneInfo(LONDON))
+
+	assert (local.date(), local.time()) == (
+		datetime.date(2026, 9, 3),
+		datetime.time(23, 59, 59, 999999),
+	), local
+
+
 def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_time (
 	session: sqlalchemy.orm.Session,
 ) -> None:

@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeating item keeps its times across a change of the clocks.** Where its start and its
+  deadline fell either side of one, every later start was an hour out for good, and an all-day
+  start landed at 11pm the day before. And a series repeating from when it was done no longer
+  gives an all-day deadline the time it was finished, which made it overdue that afternoon.
 - **Clearing a repeating series' own date is refused, whichever occurrence the edit is for.**
   Cleared for that one occurrence it was accepted, and finishing the occurrence was then refused
   for want of a date it already had.
