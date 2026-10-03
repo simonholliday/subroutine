@@ -120,7 +120,9 @@ def listing (
 	resumes where you left off and is inclusive-with-dedupe, so it is what a client that polls
 	should send; a period is a statement about a stretch of time and is not resumable. Somebody
 	asking what happened on a particular day has no cursor to offer, and a client polling has no
-	date in mind. Both are accepted and they compose.
+	date in mind. Both are accepted and they compose. **A period the feed no longer holds whole is
+	refused** with 410 `period_archived`, naming `/v1/journal`, which reads every event including
+	those moved to the archive.
 
 	**Resuming is `?since=`, not a cursor.** Take the `seq` of the last event you dealt with
 	and send it back; you will receive it again and everything after it. `has_more` says
@@ -213,6 +215,18 @@ def _page (
 		actor,
 		workspace_ids=workspace_ids,
 		size=size,
+		since=since,
+		before=before,
+		mine=mine,
+		by=by,
+		newest=newest,
+		narrowing=narrowing,
+	)
+	# **After the page, so nothing moved in between goes unsaid** (`#4292`, decision `#4305`).
+	subroutine.domain.events.refuse_a_period_behind_the_floor(
+		session,
+		actor,
+		workspace_ids=workspace_ids,
 		since=since,
 		before=before,
 		mine=mine,

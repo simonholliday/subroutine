@@ -207,6 +207,17 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"silently omits everything pruned in between.",
 		),
 		_define(
+			"period_archived",
+			410,
+			"Period archived",
+			"A change-feed read for a period reaches back past the events the feed still holds: "
+			"some that match it have moved to the archive, so the period cannot be reported in "
+			"full. The client reads the period from the journal, which reads the archive too, "
+			"rather than being handed a page that silently omits what moved. Distinct from "
+			"'cursor_expired', which says a cursor is too old and the client resyncs from the "
+			"beginning.",
+		),
+		_define(
 			"payload_too_large",
 			413,
 			"Too large",
@@ -511,6 +522,12 @@ class CursorExpired(SubroutineError):
 	"""A change-feed cursor points further back than this instance can still report."""
 
 	CODE = "cursor_expired"
+
+
+class PeriodArchived(SubroutineError):
+	"""A change-feed period reaches back past the events the feed still holds."""
+
+	CODE = "period_archived"
 
 
 class ValidationError(SubroutineError):

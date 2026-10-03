@@ -1583,7 +1583,7 @@ def _tools (
 				"What has changed since you last looked, oldest first. Ask at the start of a "
 				"session: nothing here tells you when your own knowledge went stale. Pass the "
 				"seq of the last event you saw back as 'since' - it is inclusive, so you will "
-				"see that one again. For a period rather than a resume, use 'filter'."
+				"see that one again. For a period, use subroutine_journal."
 			),
 			schema={
 				"type": "object",

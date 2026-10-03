@@ -17,6 +17,9 @@ import typer.testing
 
 import api_support
 import subroutine.cli.main
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.models.activity
 import subroutine.db.models.system
 import subroutine.db.types
@@ -149,6 +152,55 @@ def test_a_cursor_behind_the_archive_is_expired_and_one_after_it_is_not (
 
 	assert answered.status_code == 200, answered.text
 	assert answered.json()["items"], "the feed after the archive is still read"
+
+
+def test_a_period_the_feed_no_longer_holds_is_refused_naming_the_journal (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4292`, M2 of the cold review of 2026-10-03, decision `#4305`.
+
+	A period behind the floor answered ``200 []``, which reads as nothing having happened, while
+	the journal read the same period; so did a walk back past the floor. Both are refused now,
+	naming the journal, on both transports. **And the controls**: the journal reads it, and a
+	period the feed still holds whole is answered as before.
+	"""
+
+	_filed(world, "Fix the deploy script")
+	_aged(world.session)
+	_filed(world, "Take the red pill")
+	archived = _archived(world)
+	_aged(world.session, by=datetime.timedelta(seconds=2))
+
+	assert archived.through is not None
+
+	then = (LONG_AGO + datetime.timedelta(days=1)).date().isoformat()
+
+	for asked in (
+		{"created_at.lt": then},
+		{"created_at.lt": then, "newest": "true"},
+		{"newest": "true", "before": str(archived.through + 1)},
+	):
+		refused = world.call("GET", "/v1/changes", params=asked)
+
+		assert refused.status_code == 410, f"{asked} answered {refused.status_code}: {refused.text}"
+		assert refused.json()["code"] == "period_archived" and "/v1/journal" in refused.text
+
+	read = world.call("GET", "/v1/journal", params={"created_at.lt": then})
+
+	assert read.status_code == 200 and read.json()["items"], read.text
+
+	kept = world.call("GET", "/v1/changes", params={"created_at.gte": "yesterday"})
+
+	assert kept.status_code == 200 and kept.json()["items"], kept.text
+
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(world.session),
+	)
+
+	with local, pytest.raises(subroutine.errors.PeriodArchived):
+		local.changes(dated=[("created_at.lt", then)])
 
 
 def test_what_reads_history_still_reads_what_moved (world: test_api_tasks.World) -> None:

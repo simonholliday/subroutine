@@ -25,6 +25,7 @@ import sqlalchemy.dialects.sqlite
 import sqlalchemy.orm
 import sqlalchemy.orm.attributes
 import sqlalchemy.sql.util
+import sqlalchemy.sql.visitors
 
 import subroutine.db.models.activity
 import subroutine.db.models.identity
@@ -988,6 +989,87 @@ def refuse_unusable_cursor (
 			hint="Ask again without 'since' to start from the oldest event the feed still holds. "
 			"The journal and each item's history still read the ones that moved.",
 		)
+
+
+def refuse_a_period_behind_the_floor (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	since: int | None = None,
+	before: int | None = None,
+	mine: bool = False,
+	by: uuid.UUID | None = None,
+	newest: bool = False,
+	narrowing: typing.Sequence[typing.Any] = (),
+) -> None:
+	"""Refuse a period whose events the feed no longer holds, naming the journal - `#4292`.
+
+	M2 of the cold review of 2026-10-03, decision `#4305`. A period behind the retention floor -
+	``created_at``, or a walk back with ``newest`` and ``before`` - answered ``200 []``, which
+	reads as nothing having happened, while the journal read the same period. **Refused when the
+	archive holds an event the request would have matched**, in the reader's workspaces, so a
+	period the feed still holds whole is answered as before; and one that straddles the floor is
+	refused outright rather than answered for its live half.
+
+	**Asked after the page is read**, by both transports, so a run moving events in between cannot
+	leave the page short with nothing said. Whether a request is a period is read off its own
+	clauses rather than passed in, so neither caller can come to disagree about it.
+
+	**A code of its own**, ``period_archived`` (decision `#4305`): its remedy is the journal, where
+	``cursor_expired``'s is a resync, so a client can tell them apart by the code alone.
+	"""
+
+	live = typing.cast(sqlalchemy.Table, subroutine.db.models.activity.Event.__table__)
+	dated = any(
+		getattr(element, "table", None) is live and getattr(element, "name", None) == "created_at"
+		for clause in narrowing
+		for element in sqlalchemy.sql.visitors.iterate(clause)
+	)
+	walking_back = newest and since is None and before is not None
+
+	if not (dated or walking_back):
+		return
+
+	archive = subroutine.db.models.activity.ARCHIVE
+
+	# **The request's own clauses, asked of the archive.** Written against the live table, and
+	# re-pointed at the archive's columns of the same names - only the live table's, so a clause
+	# reaching another table keeps its own.
+	moved = sqlalchemy.sql.util.ClauseAdapter(
+		archive,
+		adapt_on_names=True,
+		include_fn=lambda column: getattr(column, "table", None) is live,
+	)
+	statement = sqlalchemy.select(archive.c.seq).where(
+		archive.c.workspace_id.in_(workspace_ids),
+		*[moved.traverse(clause) for clause in narrowing],
+	)
+
+	if since is not None:
+		statement = statement.where(archive.c.seq >= since)
+
+	if before is not None:
+		statement = statement.where(archive.c.seq < before)
+
+	if by is not None:
+		statement = statement.where(archive.c.actor_user_id == by)
+
+	if mine:
+		token = None if principal.token is None else principal.token.id
+		statement = statement.where(
+			sqlalchemy.false() if token is None else archive.c.actor_token_id == token
+		)
+
+	if session.scalar(statement.limit(1)) is None:
+		return
+
+	raise subroutine.errors.PeriodArchived(
+		"Events in that period have been moved to the archive, so the change feed cannot report "
+		"it in full.",
+		hint="The journal reads every event, the archive's too: GET /v1/journal, 'subroutine "
+		"journal' or subroutine_journal, with the same filter.",
+	)
 
 
 def _past_the_last_seq (field: str, asked: int) -> subroutine.errors.ValidationError:

@@ -2209,6 +2209,21 @@ class Client:
 			subroutine.domain.events.refuse_unusable_cursor(session, since=since)
 			subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
+			# Compiled once, for the page and for the refusal after it (`#4292`).
+			whose = (
+				None
+				if by is None
+				else subroutine.domain.selection.user(session, by, caller=actor.user).id
+			)
+			narrowing = subroutine.domain.filtering.asked(
+				dated or (),
+				entity="event",
+				now=subroutine.db.types.utcnow(),
+				timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
+				session=session,
+				principal=actor,
+				workspace_ids=workspace_ids,
+			)
 			rows, more = subroutine.domain.events.page(
 				session,
 				actor,
@@ -2224,24 +2239,24 @@ class Client:
 				# **No workspace in the zone chain, deliberately.** A feed spans every readable
 				# workspace, so there is no one whose zone is the right one to read *yesterday*
 				# in; `api.filters.across` says the same thing at the other transport.
-				narrowing=subroutine.domain.filtering.asked(
-					dated or (),
-					entity="event",
-					now=subroutine.db.types.utcnow(),
-					timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
-					session=session,
-					principal=actor,
-					workspace_ids=workspace_ids,
-				),
+				narrowing=narrowing,
 				# Resolved here rather than passed as a name, for the reason every other "who"
 				# in this file is: a username that names nobody is refused with the members
 				# listed, and the refusal is the domain's rather than one written twice.
-				by=(
-					None
-					if by is None
-					else subroutine.domain.selection.user(session, by, caller=actor.user).id
-				),
+				by=whose,
 				newest=newest,
+			)
+			# **After the page, as the route asks it** (`#4292`, decision `#4305`).
+			subroutine.domain.events.refuse_a_period_behind_the_floor(
+				session,
+				actor,
+				workspace_ids=workspace_ids,
+				since=since,
+				before=before,
+				mine=mine,
+				by=whose,
+				newest=newest,
+				narrowing=narrowing,
 			)
 			described = subroutine.domain.events.descriptions(session, rows)
 

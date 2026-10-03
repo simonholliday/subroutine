@@ -29,6 +29,7 @@ following one lands on the section describing it.
 | `not_claimable` | 409 | Not claimable | The task cannot be taken, because somebody else is holding it or because it is finished. Where somebody holds it, the hint says who and until when, so the caller can wait, ask them or take other work; a finished task is given an open status again before it is claimed. Distinct from 'duplicate_key', which says something by that name is already here. |
 | `not_found` | 404 | Not found | There is no such thing, or it is not visible to this caller. The two are deliberately not distinguished: saying 'forbidden' about a private project would confirm it exists. |
 | `payload_too_large` | 413 | Too large | A field or the request body exceeds the configured limit. The limit is reported rather than the value being silently truncated. |
+| `period_archived` | 410 | Period archived | A change-feed read for a period reaches back past the events the feed still holds: some that match it have moved to the archive, so the period cannot be reported in full. The client reads the period from the journal, which reads the archive too, rather than being handed a page that silently omits what moved. Distinct from 'cursor_expired', which says a cursor is too old and the client resyncs from the beginning. |
 | `rate_limited` | 429 | Too many requests | The caller is going faster than the configured limit allows. The response says when to try again. |
 | `request_timed_out` | 503 | Timed out | The database work behind this request ran longer than 'request_timeout_seconds' allows, and was given up on. Distinct from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving, and it was this request that did not finish. The detail names what was being waited for where the database said, and retrying may work. |
 | `schema_mismatch` | 409 | Schema mismatch | A database schema does not match the one this build expects. An older schema can be migrated forward and the refusal says so; a *newer* one cannot, because this version cannot interpret data it does not know the shape of and a partial read is worse than a clear failure. Two things answer with it: a backup being put back, and any write against a live database that has not been migrated yet - reads are still served, so an instance mid-deploy stays readable and refuses to be changed. /readyz reports the same condition as 503 service_unavailable rather than this, because a load balancer has to read the instance as not ready rather than as arguing. |
@@ -134,6 +135,12 @@ There is no such thing, or it is not visible to this caller. The two are deliber
 **Too large** - HTTP 413.
 
 A field or the request body exceeds the configured limit. The limit is reported rather than the value being silently truncated.
+
+## `period_archived`
+
+**Period archived** - HTTP 410.
+
+A change-feed read for a period reaches back past the events the feed still holds: some that match it have moved to the archive, so the period cannot be reported in full. The client reads the period from the journal, which reads the archive too, rather than being handed a page that silently omits what moved. Distinct from 'cursor_expired', which says a cursor is too old and the client resyncs from the beginning.
 
 ## `rate_limited`
 

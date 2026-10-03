@@ -10464,7 +10464,8 @@ def register (
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
-			help="Narrow to a period, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+			help="Narrow to a period, e.g. 'created_at.gte=yesterday'. Repeat for a range. "
+			"For a period the feed no longer holds, use 'subroutine journal'.",
 		),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the events as JSON."),
