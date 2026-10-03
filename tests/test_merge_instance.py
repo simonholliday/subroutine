@@ -531,6 +531,48 @@ def test_merging_the_same_instance_twice_says_so_rather_than_failing_on_a_key (
 	assert "merged before" in str(refused.value)
 
 
+def test_carried_archive_rows_stay_below_the_target_s_floor (two: tuple[str, str]) -> None:
+	"""`SR#4296`: archive rows carried at the merge's offset are recorded as moved.
+
+	They landed above the floor the target last recorded, so its record of how far it had moved
+	said less than its archive held.
+	"""
+
+	source, target = two
+	archive = subroutine.db.base.Base.metadata.tables["event_archive"]
+	events = subroutine.db.base.Base.metadata.tables["event"]
+	instance = subroutine.db.base.Base.metadata.tables["instance"]
+	engine = subroutine.db.session.create_engine(source)
+
+	try:
+		with engine.begin() as connection:
+			first = connection.execute(sqlalchemy.select(events).order_by(events.c.seq)).mappings().first()
+
+			assert first is not None, "the source holds no event to archive"
+
+			connection.execute(sqlalchemy.insert(archive), [dict(first)])
+			connection.execute(sqlalchemy.delete(events).where(events.c.seq == first["seq"]))
+
+	finally:
+		engine.dispose()
+
+	engine = subroutine.db.session.create_engine(target)
+
+	try:
+		with engine.begin() as connection:
+			connection.execute(sqlalchemy.insert(instance).values(name="Ours"))
+
+	finally:
+		engine.dispose()
+
+	merge_instance.merge(source, target, "ours", projects={}, users={}, commit=True)
+
+	top = _rows(target, sqlalchemy.select(sqlalchemy.func.max(archive.c.seq)))[0][0]
+	floor = _rows(target, sqlalchemy.select(instance.c.events_archived_through))[0][0]
+
+	assert top is not None and floor == top, (top, floor)
+
+
 def test_two_databases_at_different_schemas_are_not_merged (two: tuple[str, str]) -> None:
 	"""A column on one side and not the other would be dropped without anybody being told."""
 

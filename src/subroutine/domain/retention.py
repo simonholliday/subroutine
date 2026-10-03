@@ -62,9 +62,11 @@ def due (
 	the archive already holds; and a copy re-seats PostgreSQL's sequence from the live table's
 	highest the same way (`db/transfer.py`).
 
-	**Everything at or below the answer moves, old or not.** ``seq`` follows the clock closely but
-	not exactly, and moving by ``seq`` is what lets one number, the highest moved, say which cursors
-	have lost events.
+	**Only a run of old events** (`#4296`, decision `#4305`): the answer is the ``seq`` just below
+	the oldest live event not yet old enough, so everything at or below it is old. It was the highest
+	old ``seq``, and everything beneath moved whether old or not - and a merge brings old events in
+	at high numbers, so the next run took every recent event out of the feed. Accepted with it: one
+	event dated in the future holds back everything after it until the clock passes it.
 	"""
 
 	live = subroutine.db.models.activity.Event
@@ -73,11 +75,14 @@ def due (
 	if newest is None:
 		return None
 
-	return session.scalar(
-		sqlalchemy.select(sqlalchemy.func.max(live.seq)).where(
-			live.created_at < now - datetime.timedelta(days=days), live.seq < newest
+	young = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.min(live.seq)).where(
+			live.created_at >= now - datetime.timedelta(days=days)
 		)
 	)
+	below = newest if young is None else min(young, newest)
+
+	return session.scalar(sqlalchemy.select(sqlalchemy.func.max(live.seq)).where(live.seq < below))
 
 
 def move (

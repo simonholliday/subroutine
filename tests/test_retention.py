@@ -290,6 +290,33 @@ def test_a_run_between_the_check_and_the_page_cannot_hide_rows (
 	assert answered.status_code == 410, f"rows moved under the page unsaid: {answered.text}"
 
 
+def test_a_run_moves_only_old_events_whatever_their_numbers (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4296`, decision `#4305`: an old event above a recent one leaves the recent one live.
+
+	A merge brings old events in at high numbers. A run moved everything at or below the highest
+	old ``seq``, recent events included, emptying the feed of what happened before the merge.
+	"""
+
+	recent = _filed(world, "Ring the dentist")
+	carried = _filed(world, "Set up the build")
+	_filed(world, "Take the red pill")
+
+	for event in world.session.scalars(sqlalchemy.select(subroutine.db.models.activity.Event)):
+		if str(event.entity_id) == carried["id"]:
+			event.created_at = LONG_AGO
+
+	world.session.flush()
+	_archived(world)
+
+	entities: list[uuid.UUID] = list(world.session.scalars(sqlalchemy.select(LIVE.c.entity_id)))
+	kept = {str(entity) for entity in entities}
+
+	assert recent["id"] in kept, "a recent event moved because an old one had a higher number"
+	assert carried["id"] in kept, "the old event was behind a recent one and is held with it"
+
+
 def test_what_reads_history_still_reads_what_moved (world: test_api_tasks.World) -> None:
 	"""Decision `#4233`: the feed's floor takes nothing from the record.
 

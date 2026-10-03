@@ -754,6 +754,12 @@ def _restart_sequences (writing: sqlalchemy.Connection) -> None:
 	the sequence behind the column — so without this the next event written on the target fails
 	on a duplicate key, minutes after somebody was told the merge succeeded. Lifted from
 	``db/transfer.py``, which learnt it the same way.
+
+	**Past the archive's numbers as well as the live table's** (`#4296`). Re-seated from the live
+	table alone, a merge whose events all went to the archive left new events taking numbers the
+	archive holds, and every later archive run failed on its key. SQLite has no sequence to move:
+	it numbers a row one past the live table's highest, which retention keeps from falling below
+	what it has moved by never moving the newest event.
 	"""
 
 	if writing.dialect.name != "postgresql":
@@ -763,8 +769,38 @@ def _restart_sequences (writing: sqlalchemy.Connection) -> None:
 		sqlalchemy.text(
 			"SELECT setval(s.name, GREATEST(s.top, 1), s.top > 0) "
 			"FROM (SELECT pg_get_serial_sequence('event', 'seq') AS name, "
-			"COALESCE((SELECT MAX(seq) FROM event), 0) AS top) AS s WHERE s.name IS NOT NULL"
+			"GREATEST(COALESCE((SELECT MAX(seq) FROM event), 0), "
+			"COALESCE((SELECT MAX(seq) FROM event_archive), 0)) AS top) AS s "
+			"WHERE s.name IS NOT NULL"
 		)
+	)
+
+
+def _raise_the_floor (writing: sqlalchemy.Connection) -> None:
+	"""Record the archive's highest number as moved, where carried archive rows went above it.
+
+	**The target's record of how far it has moved** (`#4296`): carried rows land at the merge's
+	offset, above the floor the target last recorded, and a run carries on from the floor.
+	"""
+
+	archive = _table("event_archive")
+	instance = _table("instance")
+	top: int | None = writing.execute(
+		sqlalchemy.select(sqlalchemy.func.max(archive.c.seq))
+	).scalar_one()
+
+	if top is None:
+		return
+
+	writing.execute(
+		sqlalchemy.update(instance)
+		.where(
+			sqlalchemy.or_(
+				instance.c.events_archived_through.is_(None),
+				instance.c.events_archived_through < top,
+			)
+		)
+		.values(events_archived_through=top)
 	)
 
 
@@ -956,6 +992,7 @@ def merge (
 				_wire_self_references(source, target, maps)
 				_advance_the_counter(target, ours, report.refs)
 				_restart_sequences(target)
+				_raise_the_floor(target)
 
 				landed = _verify(target, maps, report)
 
