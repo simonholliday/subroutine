@@ -684,8 +684,8 @@ def _conventions (
 				"been decided. A document written before this workspace started marking them, or",
 				"one still being drafted, will not appear.",
 				"",
-				"`subroutine_list` with a `type` shows every document of that kind whatever its",
-				"status, and `subroutine_document` records a new one.",
+				'`subroutine_list` with `filter={"type.eq": "decision"}`, or another kind, shows every',
+				"document of it whatever its status, and `subroutine_document` records a new one.",
 			]
 		else:
 			lines += [
@@ -707,9 +707,10 @@ def _conventions (
 		lines += [
 			"",
 			f"{len(listed)} in force{_counted(listed, chosen.project, place, own)}. Findings and notes",
-			"are not listed here: they describe rather than bind, and `subroutine_list` with a `type`",
-			"finds those. A code review's *Not issues* section is worth reading before re-raising",
-			"something it already cleared.",
+			"are not listed here: they describe rather than bind, and",
+			'`subroutine_list` with `filter={"type.eq": "finding"}`, or "note", finds those. A code',
+			"review's *Not issues* section is worth reading before re-raising something it already",
+			"cleared.",
 		]
 
 	else:
@@ -741,7 +742,8 @@ def _conventions (
 			if not left and not cut
 			else f"{'At least ' if cut else ''}{left} more in force elsewhere in this workspace - under "
 			f"other projects, or in the Inbox - {'is' if left == 1 else 'are'} not listed; "
-			"`subroutine_list` with a `type` and a `project` shows them."
+			'`subroutine_list` with a `project` and `filter={"type.eq": "decision"}`, or another '
+			"kind, shows them."
 		)
 		lines += ["", f"**Narrowed to {where}**, from {chosen.source}. {elsewhere}"]
 
@@ -767,8 +769,8 @@ def _conventions (
 			"",
 			"A design whose questions are still open is correctly one and belongs there. A design",
 			"whose questions were answered and whose status was never moved is not, and is",
-			"indistinguishable from it here. `subroutine_list` with a `type` shows every one,",
-			"whatever its status.",
+			"indistinguishable from it here.",
+			'`subroutine_list` with `filter={"type.eq": "design"}` shows every one, whatever its status.',
 		]
 
 	return "\n".join(lines)
@@ -980,7 +982,8 @@ def _governing (
 		section += [
 			"",
 			"That is a full page, so there may be more of these than are listed. "
-			f"`subroutine_list` with `type={kind.key}` shows every one, whatever its status.",
+			f'`subroutine_list` with `filter={{"type.eq": "{kind.key}"}}` shows every one, whatever its '
+			"status.",
 		]
 
 	return section, found, len(everything), cut
@@ -1185,8 +1188,8 @@ def _tools (
 					"to_act_on": {
 						"type": "boolean",
 						"description": (
-							"Yours to act on: assigned to you, or to nobody, or held by "
-							"you. Wider than assignee=me."
+							"Tasks that are yours to act on: assigned to you, or to nobody, "
+							"or held by you. Wider than assignee=me."
 						),
 					},
 					"today": {
@@ -1198,7 +1201,7 @@ def _tools (
 					"filter": DATE_FILTER,
 					"assignee": {
 						"type": "string",
-						"description": "Only what is assigned to somebody. 'me' is you.",
+						"description": "Only tasks assigned to somebody. 'me' is you.",
 					},
 					"workspace": WORKSPACE,
 				},
@@ -1377,7 +1380,10 @@ def _tools (
 					"binds": {
 						"type": "string",
 						"enum": list(subroutine.db.mixins.DOCUMENT_BINDS),
-						"description": "workspace: in force for everyone in it.",
+						"description": (
+							"project, the default: in force where filed and beneath. "
+							"workspace: for everyone in it."
+						),
 					},
 					"tags": {
 						"type": "array",

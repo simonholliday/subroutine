@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The conventions an agent reads no longer advise an argument the listing refuses.** They told
+  it to call `subroutine_list` with a `type`, and now name `filter={"type.eq": "decision"}`,
+  which finds drafts too.
 - **In the browser, an item that is slow to open no longer replaces one opened after it**, and
   closing an item reached by its address goes back to its project's list rather than to the
   agenda.

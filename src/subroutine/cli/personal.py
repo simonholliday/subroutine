@@ -5256,7 +5256,9 @@ READY_OPTION = typer.Option(
 	False, "--ready", help="Only what you could start now - nothing unfinished blocks it."
 )
 TO_ACT_ON_OPTION = typer.Option(
-	False, "--to-act-on", help="Only what is yours to act on - yours, nobody's, or held by you."
+	False,
+	"--to-act-on",
+	help="Only tasks that are yours to act on - yours, nobody's, or held by you.",
 )
 #: **Out here for the same ratchet** (`#3704`): ``--events`` joined ``list``, and ``--trash`` came
 #: out beside it, so the closure is shorter by one line rather than longer by one.

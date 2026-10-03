@@ -2356,7 +2356,13 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: set one back. **Read for fat first, and none was taken**: the enum names both words, so the
 #: description says only what the second one does, and the permission it takes is left to the
 #: refusal, which names it. The slack was 2 before, and 1 after.
-TOOL_BYTE_CEILING = 15_020
+#: **15,020 to 15,068 on 2026-10-03, and what 60 bytes bought** (`SR#4316`, of the cold review of
+#: 2026-10-03): ``binds`` says what ``project`` does as well as ``workspace`` - in force where the
+#: document is filed and beneath, which the word alone does not say - and ``to_act_on`` and
+#: ``assignee`` on ``subroutine_list`` say they narrow tasks, since a document answers neither
+#: and nothing said so. **Read for fat first**: the ``binds`` sentence was cut by 16 bytes from
+#: the review's, and ``assignee`` paid 2 of its own. The slack was 12 before, and none after.
+TOOL_BYTE_CEILING = 15_068
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -6664,6 +6670,46 @@ def test_a_type_in_the_search_line_narrows_to_the_kind_that_keeps_it (
 	)
 
 	assert failed and "decision" in ready, ready
+
+
+def test_the_conventions_advise_only_what_the_listing_takes (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#4316`: the conventions told an agent to call ``subroutine_list`` with a ``type``.
+
+	The listing refuses one - *subroutine_list does not take type* - so the advice on the resource an
+	agent reads before its first write was a refusal waiting for it, in five places. **Every argument
+	the text names is one the listing takes**, read off the module, and the filter it names instead
+	finds a draft decision, as it says.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	tools = {tool["name"]: tool for tool in answered[0]["result"]["tools"]}
+	takes = set(tools["subroutine_list"]["inputSchema"]["properties"])
+	source = pathlib.Path(subroutine.mcp.tools.__file__).read_text(encoding="utf-8")
+	named = re.findall(r"`subroutine_list` with (?:a )?`(\w+)", source)
+
+	assert len(named) >= 5, f"the scan found {len(named)} pieces of advice, not the five written"
+	assert set(named) <= takes, set(named) - takes
+
+	written, failed = _called(
+		bound,
+		"subroutine_document",
+		title="Rewrite the home page copy first",
+		body="Before the launch.",
+		type="decision",
+		status="draft",
+	)
+
+	assert not failed, written
+
+	listed, failed = _called(bound, "subroutine_list", filter={"type.eq": "decision"})
+
+	assert not failed and "Rewrite the home page copy first" in listed, listed
+
+	refused, failed = _called(bound, "subroutine_list", type="decision")
+
+	assert failed and "does not take type" in refused, refused
 
 
 def test_the_listing_no_longer_advertises_a_search_argument (

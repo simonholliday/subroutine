@@ -128,9 +128,9 @@ skill - and none of them has to be taught to it, by you or by anybody.
 - **There is a guide written for an agent**, at `/v1/docs/agent`, and every worked call in
   `/v1/docs/examples` is executed by the test suite - so an example that stopped working fails
   the build rather than misleading a reader.
-- **The tool surface is a deliberate budget**: a small set, and one of them reaches any route
-  the others do not. Every name an agent has to be taught is context spent for ever, where a
-  grammar it can discover costs nothing.
+- **The tool surface is a deliberate budget**: a small set, and one of them reaches the routes
+  the others do not, bar five kept to the command line on purpose. Every name an agent has to be
+  taught is context spent for ever, where a grammar it can discover costs nothing.
 - **Conventions travel with the work.** `subroutine://conventions` carries everything in force
   in your workspace - decisions, specifications, designs and dead ends - and any MCP client can
   read it before its first write.
