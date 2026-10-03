@@ -70,15 +70,23 @@ def due (
 	"""
 
 	live = subroutine.db.models.activity.Event
+
+	# **Nothing is that old** (`#4295`, M15 of the cold review of 2026-10-03): a floor past the
+	# calendar's start overflowed, and ended `db archive` in a traceback and the background run in
+	# a dead thread. The setting has lower bounds only, deliberately (`#1559`), so it is read here.
+	try:
+		floor = now - datetime.timedelta(days=days)
+
+	except OverflowError:
+		return None
+
 	newest = session.scalar(sqlalchemy.select(sqlalchemy.func.max(live.seq)))
 
 	if newest is None:
 		return None
 
 	young = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.min(live.seq)).where(
-			live.created_at >= now - datetime.timedelta(days=days)
-		)
+		sqlalchemy.select(sqlalchemy.func.min(live.seq)).where(live.created_at >= floor)
 	)
 	below = newest if young is None else min(young, newest)
 
@@ -101,32 +109,54 @@ def move (
 		return Archived(moved=0, through=None)
 
 	live = typing.cast(sqlalchemy.Table, subroutine.db.models.activity.Event.__table__)
-	oldest = (
-		sqlalchemy.select(live.c.seq)
-		.where(live.c.seq <= through)
-		.order_by(live.c.seq)
-		.limit(limit)
-		.subquery()
-	)
-	reached = session.scalar(sqlalchemy.select(sqlalchemy.func.max(oldest.c.seq)))
 
-	if reached is None:
+	# **The numbers moved, named once and used for both halves** (`#4295`): copied by number and
+	# deleted by range, an event committed in between was deleted and never copied.
+	moving: list[int] = list(
+		session.scalars(
+			sqlalchemy.select(live.c.seq)
+			.where(live.c.seq <= through)
+			.order_by(live.c.seq)
+			.limit(limit)
+		)
+	)
+
+	if not moving:
 		return Archived(moved=0, through=instance.events_archived_through)
 
+	reached = moving[-1]
 	names = [column.name for column in live.columns]
 	session.execute(
 		subroutine.db.models.activity.ARCHIVE.insert().from_select(
-			names, sqlalchemy.select(*[live.c[name] for name in names]).where(live.c.seq <= reached)
+			names, sqlalchemy.select(*[live.c[name] for name in names]).where(live.c.seq.in_(moving))
 		)
 	)
 	# Typed as a plain Result, but DML always yields a cursor result and only that carries the count.
 	deleted = typing.cast(
 		"sqlalchemy.CursorResult[typing.Any]",
-		session.execute(sqlalchemy.delete(live).where(live.c.seq <= reached)),
+		session.execute(sqlalchemy.delete(live).where(live.c.seq.in_(moving))),
 	)
 	moved = int(deleted.rowcount)
-	instance.events_archived_through = max(reached, instance.events_archived_through or 0)
-	session.flush()
+
+	# **Raised in the database, never written from what was read** (`#4295`): a run that read the
+	# row before another moved further and committed wrote its own lower number over it, on both
+	# backends - SQLite's reads hold no snapshot, so locking the read does nothing there.
+	system = typing.cast(sqlalchemy.Table, subroutine.db.models.system.Instance.__table__)
+	session.execute(
+		sqlalchemy.update(system).values(
+			events_archived_through=sqlalchemy.case(
+				(
+					sqlalchemy.or_(
+						system.c.events_archived_through.is_(None),
+						system.c.events_archived_through < reached,
+					),
+					reached,
+				),
+				else_=system.c.events_archived_through,
+			)
+		)
+	)
+	session.expire(instance)
 
 	return Archived(moved=moved, through=instance.events_archived_through)
 
@@ -225,6 +255,17 @@ class Keeper:
 				"day: %s",
 				self._days,
 				failure,
+			)
+
+			return
+
+		# **Anything else is said in the log too** (`#4295`): a thread that dies prints through the
+		# thread hook and nothing through the server's log, so an operator never hears of it.
+		except Exception:
+			_logger.exception(
+				"Moving events older than %d days to the archive stopped unexpectedly, and is tried "
+				"again in a day.",
+				self._days,
 			)
 
 			return

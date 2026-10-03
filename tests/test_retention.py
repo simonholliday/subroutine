@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 import sqlalchemy
+import sqlalchemy.event
 import sqlalchemy.orm
 import typer.testing
 
@@ -315,6 +316,102 @@ def test_a_run_moves_only_old_events_whatever_their_numbers (
 
 	assert recent["id"] in kept, "a recent event moved because an old one had a higher number"
 	assert carried["id"] in kept, "the old event was behind a recent one and is held with it"
+
+
+def test_the_floor_never_goes_back_whatever_a_run_read (world: test_api_tasks.World) -> None:
+	"""`SR#4295`, M15 of the cold review of 2026-10-03: a run that read the row before another moved
+	further wrote its own lower number over it. Here the row is read, then moved past directly.
+	"""
+
+	for title in ("Fix the deploy script", "Take the red pill", "Ring the dentist"):
+		_filed(world, title)
+
+	system = typing.cast(sqlalchemy.Table, subroutine.db.models.system.Instance.__table__)
+	held = world.session.scalar(sqlalchemy.select(subroutine.db.models.system.Instance))
+
+	assert held is not None
+
+	low = world.session.scalar(sqlalchemy.select(sqlalchemy.func.min(LIVE.c.seq)))
+	world.session.connection().execute(sqlalchemy.update(system).values(events_archived_through=10**9))
+
+	archived = subroutine.domain.retention.move(world.session, through=low)
+
+	assert archived.moved == 1 and archived.through == 10**9, archived
+
+
+def test_a_retention_too_long_for_the_calendar_moves_nothing_and_says_nothing_went_wrong (
+	world: test_api_tasks.World, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4295`: an overflow ended `db archive` in a traceback and killed the background thread.
+
+	**And the thread says whatever stops it in the server's log**, which it did only for a database's
+	own failures.
+	"""
+
+	_filed(world, "Fix the deploy script")
+	now = subroutine.db.types.utcnow()
+
+	assert subroutine.domain.retention.due(world.session, days=10**12, now=now) is None
+
+	def broken (*_: typing.Any, **__: typing.Any) -> typing.Any:
+		"""Fail as nothing this run expected would."""
+
+		raise ValueError("the clock went backwards")
+
+	monkeypatch.setattr(subroutine.domain.retention, "run", broken)
+	keeper = subroutine.domain.retention.Keeper(days=30, factory=api_support.factory_for(world.session))
+
+	with caplog.at_level("ERROR", logger="subroutine.retention"):
+		keeper._archive(now)
+
+	assert "stopped unexpectedly" in caplog.text and "the clock went backwards" in caplog.text
+
+
+def test_an_event_committed_during_a_move_is_neither_copied_nor_lost (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4295`: copied by number and deleted by range, an event landing in between was deleted.
+
+	Played by taking one event out of the live table before the move and putting it back the
+	moment the copy has run, which is what a writer committing then looks like to the move.
+	"""
+
+	for title in ("Fix the deploy script", "Take the red pill", "Ring the dentist"):
+		_filed(world, title)
+
+	world.session.flush()
+	ordered = list(world.session.execute(sqlalchemy.select(LIVE).order_by(LIVE.c.seq)).mappings())
+	late = dict(ordered[1])
+	through = ordered[-2]["seq"]
+	connection = world.session.connection()
+	connection.execute(sqlalchemy.delete(LIVE).where(LIVE.c.seq == late["seq"]))
+
+	done: list[bool] = []
+
+	def landed (conn: typing.Any, clause: typing.Any, *_: typing.Any) -> None:
+		"""Commit the late event just after the copy into the archive."""
+
+		if getattr(clause, "table", None) is ARCHIVE and not done:
+			done.append(True)
+			conn.execute(sqlalchemy.insert(LIVE).values(**late))
+
+	sqlalchemy.event.listen(connection, "after_execute", landed)
+
+	try:
+		subroutine.domain.retention.move(world.session, through=through)
+
+	finally:
+		sqlalchemy.event.remove(connection, "after_execute", landed)
+
+	kept = world.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(LIVE).where(LIVE.c.seq == late["seq"])
+	)
+	moved = world.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(ARCHIVE).where(ARCHIVE.c.seq == late["seq"])
+	)
+
+	assert done, "the copy never ran, so nothing landed during it"
+	assert (kept or 0) + (moved or 0) == 1, "the event that landed mid-move is in neither table"
 
 
 def test_what_reads_history_still_reads_what_moved (world: test_api_tasks.World) -> None:
