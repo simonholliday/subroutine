@@ -1688,9 +1688,9 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 	them could arrive at a key nobody could have chosen in the first place, which is a worse
 	state than either command allows on its own.
 
-	``given`` is what the caller actually typed, for the message. ``'café'`` normalises to
-	``'CAFÉ'`` and is refused; telling somebody ``'CAFÉ'`` is not usable when they wrote
-	something else reads as the program mangling their input and then blaming them for it.
+	``given`` is what the caller actually typed, for the message. ``'Café'`` normalises to
+	``'café'`` and is refused for its accent; telling somebody ``'café'`` is not usable when they
+	wrote something else reads as the program mangling their input and then blaming them for it.
 	"""
 
 	wrote = given if given is not None else normalized_key

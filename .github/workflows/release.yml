@@ -59,7 +59,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
 
-    # One leg of CI's matrix, without the coverage every CI leg collects: 11.5 minutes on
+    # One leg of CI's matrix, without coverage, as every CI leg but the newest runs: 11.5 minutes on
     # v0.8.7 and 20.2 on v0.9.0. Kept at the number CI uses rather than tightened to the
     # measurement: a release runs once, and a ceiling that fires on an unlucky-but-honest run
     # costs a version number (`SR#1015`). **It was left at 25 when CI moved to 40** and reached

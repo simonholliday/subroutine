@@ -23,7 +23,7 @@ the workspace's administrator can change it.
 - **Include each item's title** - off unless you turn it on. OSC is not encrypted, so anybody on the
   same network could read what the messages carry.
 
-**Whoever runs the installation decides whether it sends at all.** On your own computer, with
+**Whoever runs the server decides whether it sends at all.** On your own computer, with
 nothing reachable from outside it, it does. A server other people can reach - one with a
 public address, or listening beyond the machine it runs on - sends nothing until whoever runs it
 sets `osc_enabled = true` in its configuration and restarts it, because there the workspace's

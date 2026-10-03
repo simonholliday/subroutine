@@ -7852,6 +7852,12 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				),
 			)
 
+			# **Text handed in and never read is said so here too** (`#4324`, of the cold review of
+			# 2026-10-03), by `#2681`'s rule: beside ``--body "…"`` a pipe is ignored, and this said
+			# *Wrote* with no word of it where ``document edit`` warns. After the write, on standard error.
+			if body != STANDARD_INPUT and _something_was_piped():
+				program.warn("Anything piped in was not read. Pass '--body -' to use it as the text.")
+
 			if json_output:
 				program.say(_written_back(created, without_body=without_body))
 

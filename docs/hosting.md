@@ -203,7 +203,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `dev_mode` | `false` | Development only. Makes a signing key up each time the instance starts when `secret_key` is unset, so a throwaway instance starts without one - and its cursors do not survive a restart. Refused at start beside a `public_url`. Never set it on anything real |
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
 | `max_page_size` | `200` | The largest **single response**. A client asking for more is answered across as many responses as it takes, and is told when a page it was handed is not everything - so this bounds a body rather than a call |
-| `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |
+| `max_hierarchy_depth` | `10` | How deep a project, task or document tree may nest. Bounds path length and the cost of a move |
 | `events_retention_days` | unset | How many days of events the change feed keeps. Unset keeps every one there. Set, older events move to an archive that the journal, each item's history and an export still read, and nothing is deleted - a served instance moves them once a day while it is in use, and `subroutine db archive` does it on demand. A client resuming the feed from before them is answered `410 cursor_expired` and starts again from the newest |
 | `claim_lease_minutes` | `30` | How long a task claim lasts before it expires. A lease rather than a lock, so a worker that dies does not strand the work |
 | `search_backend` | `like` | Which implementation answers a search. `native` uses a full-text index and is **PostgreSQL only** - see below |

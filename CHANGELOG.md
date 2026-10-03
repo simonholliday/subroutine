@@ -176,10 +176,11 @@ upgrade involves.
   the item was then refused. Given to `--repeat` or the API, such a phrase is refused naming the
   rule that does repeat on those days, such as `FREQ=WEEKLY;BYDAY=MO,TH`.
 - **`document create` and `document edit` read the text from standard input only for
-  `--body -`**: `subroutine document create "Review findings" --body - < notes.md`. Piping text in
-  without it is refused, saying so, before anything is written, where it was read whenever a pipe
-  was attached: a loop over lines, or a hook reading its own input, gave the first document every
-  line after it, and an edit replaced a document's text. `--body ''` now means no text.
+  `--body -`**: `subroutine document create "Review findings" --body - < notes.md`. Text piped in
+  without it is refused when nothing else is asked, before anything is written, and ignored, with
+  a warning, when a field is named; it was read whenever a pipe was attached: a loop over lines,
+  or a hook reading its own input, gave the first document every line after it, and an edit
+  replaced a document's text. `--body ''` now means no text.
 - **`user deactivate` names every workspace it would leave with nobody who can administer
   it**, before you agree and again afterwards, each with the command that makes somebody its
   administrator: `subroutine user add <you> --role admin -w <workspace>`. Deactivating such a
@@ -277,9 +278,8 @@ upgrade involves.
 - **`subroutine -c work mcp` serves the connection it names**, as `mcp --connection work` does. It
   served the default connection, so an agent's work went to another instance without a word. Two
   different names, one before `mcp` and one after it, are refused.
-- **`document edit` with nothing named no longer waits for ever under an agent's shell.** It reads
-  standard input only when text was piped in, as `document create` does, and otherwise says there
-  is nothing to change.
+- **`document edit` with nothing named no longer waits for ever under an agent's shell.** With
+  nothing piped in either, it says there is nothing to change.
 - **`db copy` carries a workspace where two projects share a key**, such as a root `web` beside
   `shop/web`, or `clienta/web` beside `clientb/web`. It failed on the second and left the target
   with no projects.

@@ -677,8 +677,8 @@ def problem_document (
 	return document
 
 
-#: Which class reports each status. The **fallback**, for a code no class names — four codes
-#: share 409 and four share 422, so a status alone cannot say which exception was raised.
+#: Which class reports each status. The **fallback**, for a code no class names — several codes
+#: share 409 and several share 422, so a status alone cannot say which exception was raised.
 _BY_STATUS: dict[int, type[SubroutineError]] = {
 	400: BadRequest,
 	401: Unauthenticated,

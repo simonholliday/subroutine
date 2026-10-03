@@ -8842,6 +8842,27 @@ def test_text_piped_beside_a_named_field_is_said_to_be_unread (
 	assert "was not read" not in quiet.output, quiet.output
 
 
+def test_text_piped_beside_a_created_body_is_said_to_be_unread (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4324`: ``doc create "Plan B" --body x < piped.txt`` said *Wrote* and nothing of the pipe.
+
+	``doc edit`` says so, by `SR#2681`'s rule that text handed in and never read is said so.
+	"""
+
+	run("init")
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
+
+	given = run("doc", "create", "Plan B", "--body", "x", input="From a pipe.\n")
+
+	assert "was not read" in given.output and "--body -" in given.output, given.output
+
+	read = run("doc", "create", "Plan C", "--body", "-", input="From a pipe.\n")
+
+	assert "was not read" not in read.output, read.output
+
+
 def test_a_pipe_is_told_from_no_pipe_without_reading_either (tmp_path: pathlib.Path) -> None:
 	"""`SR#2681`'s question, asked of the operating system rather than of a stand-in.
 

@@ -3732,8 +3732,9 @@ subroutine doctor                   diagnose configuration and connectivity   (n
 ```
 
 *Changed since this was frozen: `doc create` and `doc edit` read a body from standard input only
-when given `--body -`, as every other command here that takes prose does, and a pipe nobody asked
-to read is refused before anything is written. The block above is the design as it stood.*
+when given `--body -`, as every other command here that takes prose does. Text piped in without it
+is refused when nothing else is asked, before anything is written, and ignored with a warning when
+a field is named. The block above is the design as it stood.*
 
 The first six are the whole surface a personal user needs, and are deliberately listed
 first: `add`, `today`, `list`, `show`, `done`, `plan`. Everything below them is the full form, and
