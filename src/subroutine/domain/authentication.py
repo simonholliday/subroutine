@@ -548,10 +548,12 @@ def refuse_an_agent_issuing_for_a_person (
 	sub-agent and its credential needs, and a person issues for anybody their permissions allow.
 
 	``None`` and :attr:`Principal.is_local` are §12.1a, somebody at a terminal with the database
-	file, which no check here narrows.
+	file, which no check here narrows - **a person** (`#4277`, L-AA-2 of the cold review of
+	2026-10-03). Naming an agent as the local user is how its narrowing is checked without a server,
+	§12.1 says, so an agent at the terminal is asked as it would be anywhere else.
 	"""
 
-	if actor is None or actor.is_local:
+	if actor is None or (actor.is_local and not actor.user.is_service_account):
 		return
 
 	if not actor.user.is_service_account or user.is_service_account:
@@ -613,7 +615,9 @@ def _refuse_amplification (
 	where issuing credentials belongs.
 	"""
 
-	if actor.is_local:
+	# **A person at the terminal, not an agent named as the local user** (`#4277`): one issued a
+	# superuser person a credential locally that it was refused over HTTP.
+	if actor.is_local and not actor.user.is_service_account:
 		return
 
 	if user.id != actor.user.id:

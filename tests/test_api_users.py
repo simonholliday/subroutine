@@ -415,6 +415,41 @@ def test_an_agent_cannot_issue_a_person_a_way_to_act_as_them (
 	assert issued.status_code == 201, issued.text
 
 
+def test_an_agent_named_as_the_local_user_is_refused_what_it_is_refused_anywhere (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4277`, L-AA-2 of the cold review of 2026-10-03: the terminal's exemption is a person's.
+
+	Named in ``local_user``, an agent with no ``instance:user_create`` issued a superuser person a
+	credential, which it is refused over HTTP. **And the controls**: it still issues for itself, and
+	a person at the terminal is narrowed by nothing.
+	"""
+
+	person, _mine = _instance(session)
+	dozer = subroutine.domain.users.create(
+		session, username="dozer", is_service_account=True, responsible_user_id=person.id
+	)
+	session.flush()
+	at_the_terminal = subroutine.domain.authentication.Principal(user=dozer)
+
+	assert at_the_terminal.is_local
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.authentication.issue_token(
+			session, user=person, title="As them", actor=at_the_terminal
+		)
+
+	subroutine.domain.authentication.issue_token(
+		session, user=dozer, title="Its own", actor=at_the_terminal
+	)
+	subroutine.domain.authentication.issue_token(
+		session,
+		user=dozer,
+		title="For it",
+		actor=subroutine.domain.authentication.Principal(user=person),
+	)
+
+
 def test_an_agent_still_issues_for_itself_and_for_its_own_agents (
 	session: sqlalchemy.orm.Session,
 ) -> None:
