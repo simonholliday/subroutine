@@ -1014,6 +1014,56 @@ def test_a_setting_that_cannot_be_used_is_answered_at_the_agents_handshake (
 	assert "A configuration value could not be used: port" in answers[0]["error"]["message"], answers
 
 
+def test_a_narrowed_credential_in_a_checkout_marked_for_elsewhere_writes_and_says_why (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#4273` (H1 of the cold review of 2026-10-03), at the terminal: a regression from `#4022`.
+
+	With a credential that may not list projects, ``add`` and ``document create`` in a checkout marked
+	for another workspace said the marker was being ignored and then sent its project anyway,
+	and were refused *there is no project here*. And an old marker naming a project the credential
+	cannot find is ignored with a note, as it is for a credential that can list them (`#4303`).
+	"""
+
+	run("-c", "work", "workspace", "create", "team", "Team")
+	run("-c", "work", "-w", "team", "project", "create", "web", "Team web")
+	checkout = tmp_path / "marked"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+	run("-c", "work", "-w", "team", "use", "--here", "--project", "web")
+	made = run(
+		"-c", "work", "token", "create", "--title", "narrowed", "--scope", "task:read", "--scope", "task:write"
+	)
+	secret = re.search(r"sr_[A-Za-z0-9_.-]+", made.output)
+
+	assert secret is not None, made.output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", secret.group(0))
+	said: list[str] = []
+
+	for command in (["add", "Fix the header"], ["document", "create", "Decide the header"]):
+		written = typer.testing.CliRunner().invoke(
+			subroutine.cli.main.app, ["-c", "work", "-w", "acme", *command]
+		)
+
+		assert written.exit_code == 0, (written.output, written.exception)
+
+		said.append(written.output)
+
+	assert all("names project 'web' in team, and this is going to acme. Ignoring it." in one for one in said), said
+
+	(checkout / ".subroutine").write_text('project = "nosuch"\n', encoding="utf-8")
+	unfound = typer.testing.CliRunner().invoke(
+		subroutine.cli.main.app, ["-c", "work", "-w", "acme", "add", "Fix the footer"]
+	)
+
+	assert unfound.exit_code == 0, (unfound.output, unfound.exception)
+	assert "names project 'nosuch', which this credential cannot find. Ignoring it." in unfound.output
+
+
 def test_mcp_serves_the_connection_c_names_before_it_or_after_it (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

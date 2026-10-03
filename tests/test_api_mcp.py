@@ -1651,6 +1651,91 @@ def test_a_narrowed_agent_files_by_its_checkout_without_listing_projects (
 	assert _filed_under(world, by_marker) == "web"
 
 
+def _filed_in_own (world: test_api_tasks.World, said: str) -> str:
+	""":func:`_filed_under`, asked in the test's own workspace where it is one of several."""
+
+	ref = said.split("#", 1)[1].split()[0]
+	shown = world.call("GET", f"/v1/tasks/{ref}", params={"workspace_id": str(world.workspace.id)})
+
+	assert shown.status_code == 200, shown.text
+
+	return str(shown.json()["project_key"])
+
+
+def test_a_narrowed_agent_in_a_checkout_marked_for_elsewhere_files_and_says_why (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#4273` (H1 of the cold review of 2026-10-03): every write refused, and the conventions failed.
+
+	A credential that may not list projects sent the marker's project as it stood, past the check
+	that ignores a marker for another workspace or instance - so the hosting guide's own agent, in a
+	checkout committed for somebody else's, was told *there is no project here* and to make one with
+	a tool it cannot use, and ``subroutine://conventions`` answered an error. **The workspace half
+	needs no listing**; and a project an old marker or the address names, which this credential
+	cannot find, is ignored with a note, as a full credential's is (decision `#4303`).
+	"""
+
+	web = _a_project(world, "web")
+	made = world.call("POST", "/v1/workspaces", json={"slug": "team", "title": "Team"})
+
+	assert made.status_code == 201, made.text
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session,
+		user=world.user,
+		title="The guide's agent",
+		scopes=["task:read", "task:write"],
+		project_scope=[web],
+		workspace_id=world.workspace.id,
+	)
+	world.session.flush()
+	secret = issued.value.get_secret_value()
+	elsewhere = {
+		"another instance": f"workspace_id={uuid.uuid4()}; project_id={uuid.uuid4()}",
+		"another workspace": f"workspace=team; workspace_id={made.json()['id']}; project=web",
+	}
+
+	for why, marker in elsewhere.items():
+		headers = {subroutine.directory.HEADER: marker}
+		added = _as(world, secret, _adding(f"Fix the header from {why}"), **headers)
+		read = api_support.call(
+			world.application,
+			"POST",
+			subroutine.api.mcp.PATH,
+			content=json.dumps(
+				{
+					"jsonrpc": "2.0",
+					"id": 1,
+					"method": "resources/read",
+					"params": {"uri": "subroutine://conventions"},
+				}
+			),
+			headers={
+				"content-type": "application/json",
+				"authorization": f"Bearer {secret}",
+				**headers,
+			},
+		)
+
+		assert "Ignoring it." in added and _filed_in_own(world, added) == "web", (why, added)
+		assert "result" in read.json(), (why, read.text)
+
+	unfound = _as(world, secret, _adding("Fix the footer"), **{subroutine.directory.HEADER: "project=nosuch"})
+	addressed = api_support.call(
+		world.application,
+		"POST",
+		subroutine.api.mcp.PATH,
+		content=_adding("Fix the sidebar"),
+		headers={"content-type": "application/json", "authorization": f"Bearer {secret}"},
+		params={"project": "nosuch"},
+	).json()["result"]["content"][0]["text"]
+
+	assert ".subroutine here names 'nosuch', a project this credential cannot find. Ignoring it." in unfound
+	assert _filed_in_own(world, unfound) == "web"
+	assert "The address names 'nosuch', a project this credential cannot find. Ignoring it." in addressed
+	assert _filed_in_own(world, addressed) == "web"
+
+
 def test_a_marked_write_asks_who_its_caller_is_once (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

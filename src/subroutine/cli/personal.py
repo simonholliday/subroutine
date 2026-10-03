@@ -2390,6 +2390,41 @@ class _Filed(typing.NamedTuple):
 	sent: str
 	shown: str
 
+	#: What to say instead where ``sent`` went unchecked and names nothing this credential can find
+	#: (`#4273`, decision `#4303`), for :func:`_with_the_marker`. ``None`` where it was checked.
+	unfound: str | None = None
+
+
+#: What a write wrapped by :func:`_with_the_marker` hands back.
+_Written = typing.TypeVar("_Written")
+
+
+def _with_the_marker (
+	program: Program, filed: _Filed | None, write: typing.Callable[[str | None], _Written]
+) -> _Written:
+	"""Write with the project a checkout's marker names, and without it where it names nothing.
+
+	Decision `#4303`: a project an old marker names, which the credential cannot find, is ignored
+	with a note **for every credential**. One that lists projects finds out before writing; one
+	that may not list them sends the marker's project as it stands (`#4007`), so the refusal is the
+	only way to learn it names nothing, and the write is made again without it.
+	"""
+
+	try:
+		return write(None if filed is None else filed.sent)
+
+	except subroutine.errors.NotFound as refused:
+		if (
+			filed is None
+			or filed.unfound is None
+			or not any(error.field == "project" for error in refused.errors)
+		):
+			raise
+
+		program.warn(filed.unfound)
+
+		return write(None)
+
 
 def _project_named_by (
 	world: World, marker: subroutine.directory.Marker
@@ -2456,10 +2491,27 @@ def _project_named_by (
 	# **A credential that may not list projects sends the marker's own id** (`#4007`, M-11 (a) of
 	# the cold review of 2026-09-30), which the instance resolves without ``project:read``
 	# (`#3909`): listing them here refused every ``add`` the hosting guide's agent made in a checkout.
+	#
+	# **Unless the marker positively names another workspace** (`#4273`, H1 of the cold review of
+	# 2026-10-03), which needs no listing to see: by an id, or by a name that resolves to a workspace
+	# this caller reaches. Sent regardless, a marker for another workspace refused every ``add`` with
+	# *there is no project here* - after saying it was being ignored. A name that resolves nowhere
+	# beside no id is `#4022`'s old marker, whose project id may still file it, so that one is sent.
 	except subroutine.errors.Forbidden:
-		sent = str(marker.project_id) if marker.project_id is not None else (marker.project or "")
+		if named != writing and (marker.workspace_id is not None or named is not None):
+			return None, elsewhere
 
-		return _Filed(sent=sent, shown=marker.project or sent), None
+		sent = str(marker.project_id) if marker.project_id is not None else (marker.project or "")
+		shown = marker.project or sent
+
+		return _Filed(
+			sent=sent,
+			shown=shown,
+			unfound=(
+				f"{FILE_NAME} here names project {shown!r}, which this credential cannot find. "
+				"Ignoring it."
+			),
+		), None
 
 	if named != writing and not any(str(row.id) == marker.project_id for row in found):
 		return None, elsewhere
@@ -4237,8 +4289,11 @@ def _settled (
 			)
 
 			program.warn(
+				# **Not on it, or not reachable with this credential** (`#4273`, NEW-A-1): the
+				# workspaces asked are the ones this credential reaches, not the ones the instance holds,
+				# so a pinned credential was told a workspace that is there was not.
 				f"{FILE_NAME} here names workspace {current.workspace!r}, which is not on "
-				f"{current.connection}. "
+				f"{current.connection} or which this credential cannot reach. "
 				+ (
 					f"Using {instead!r} instead."
 					if usable
@@ -7739,20 +7794,24 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				None if project.strip() or parent.strip() else _default_project(program, world, "")
 			)
 
-			created = where.client.create_document(
-				title=title,
-				body=written or None,
-				type=kind.strip() or None,
-				status=status.strip() or None,
-				binds=binds.strip() or None,
-				project=project.strip() or (None if filed is None else filed.sent),
-				tags=tag or None,
-				# **A ref, parsed here so a non-number is refused before a request is made**
-				# (`#2173`). `refs.parse_ref` takes `#7` and `7` alike, which is what somebody
-				# has in front of them — and returns `None` for anything else, where sending
-				# the text on would produce a refusal about a document nobody named.
-				parent=_a_document_ref(program, parent),
-				workspace=_writing_workspace(world),
+			created = _with_the_marker(
+				program,
+				filed,
+				lambda sent: where.client.create_document(
+					title=title,
+					body=written or None,
+					type=kind.strip() or None,
+					status=status.strip() or None,
+					binds=binds.strip() or None,
+					project=project.strip() or sent,
+					tags=tag or None,
+					# **A ref, parsed here so a non-number is refused before a request is made**
+					# (`#2173`). `refs.parse_ref` takes `#7` and `7` alike, which is what somebody
+					# has in front of them — and returns `None` for anything else, where sending
+					# the text on would produce a refusal about a document nobody named.
+					parent=_a_document_ref(program, parent),
+					workspace=_writing_workspace(world),
+				),
 			)
 
 			if json_output:
@@ -10025,10 +10084,10 @@ def register (
 			# rather than part of it — which is the argument `client.capture` already makes for
 			# taking it separately. HTTP and MCP have accepted it since they were written, and
 			# only the CLI made a person file everything as a task and correct it afterwards.
-			captured = where.client.capture(
+			captured = _with_the_marker(program, filed, lambda sent: where.client.capture(
 				text=text,
 				workspace=_writing_workspace(world),
-				project=None if filed is None else filed.sent,
+				project=sent,
 				type=kind.strip() or None,
 				# **The same argument as `--type`, and it was missing for the same reason**
 				# (`#424`): the grammar cannot carry it, so nothing that reads the line could
@@ -10062,7 +10121,7 @@ def register (
 				# one accepted value and one that always fails — a control with nothing to
 				# decide, which is this codebase's second signature defect. It arrives with
 				# the calendar, when there is a second answer for it to carry.
-			)
+			))
 
 			if json_output:
 				# `unparsed` is carried on the scripted path too. §6.13 requires the caller to

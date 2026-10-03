@@ -20,6 +20,14 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An agent's credential narrowed to some projects writes from a checkout marked for somewhere
+  else.** In a checkout whose `.subroutine` names another workspace or instance, every write such
+  a credential made - `add` and `document create`, and `subroutine_add` and `subroutine_document`
+  - was refused *there is no project here*, with advice to make one it could not make, and
+  `subroutine://conventions` answered an error. The marker is now ignored, and said to be, as it
+  always was for a credential that can list projects. A project an old marker or the agent's
+  address names, which the credential cannot find, is also ignored with a note rather than
+  refused.
 - **A PostgreSQL restore that is stopped part way leaves nothing hidden.** Stopped before its
   backup loaded, it left the database empty and its data in a schema nothing named, and every
   command then advised `subroutine init`, which made an empty-looking instance beside it; later

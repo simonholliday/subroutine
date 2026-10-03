@@ -626,9 +626,21 @@ def _conventions (
 	# project's id where it can (`#4007`), so its path is looked up rather than read off what was
 	# sent, and where it cannot be read the instance narrows instead, as it did before.
 	place = _place(client, workspace, chosen.project)
-	own = _own(
-		client, workspace, chosen.project, place, subroutine.domain.documents.CURRENT_CATEGORY
-	)
+
+	try:
+		own = _own(
+			client, workspace, chosen.project, place, subroutine.domain.documents.CURRENT_CATEGORY
+		)
+
+	# **A project sent unchecked that names nothing is dropped, and said** (`#4273`, decision
+	# `#4303`), as a write drops it. Left to fail, it failed the whole resource with an error.
+	except subroutine.errors.NotFound as refused:
+		if chosen.unfound is None or not any(error.field == "project" for error in refused.errors):
+			raise
+
+		lines += ["", chosen.unfound]
+		chosen = _Checkout(None, chosen.unfound)
+		own = frozenset()
 	listed: list[subroutine.views.Document] = []
 	in_force = 0
 	cut = False
@@ -3962,6 +3974,12 @@ class _Checkout(typing.NamedTuple):
 	#: (`#3747`). The conventions credited the file whichever had answered.
 	source: str | None = None
 
+	#: What to say instead where ``project`` was sent without being checked and turns out to name
+	#: nothing this credential can find (`#4273`, decision `#4303`): a credential that may not list
+	#: projects sends the name as it stands, and the write goes on without it, saying so. ``None``
+	#: where the project was checked, or nothing was sent.
+	unfound: str | None = None
+
 
 def _checkout (
 	client: subroutine.clients.base.Client,
@@ -4028,44 +4046,61 @@ def _checkout (
 		# the cold review of 2026-09-30). The instance resolves a project a write names without
 		# ``project:read`` (`#3909`), and listing them here to find it refused every write the hosting
 		# guide's own agent made from its checkout.
+		#
+		# **Unless the marker names another workspace** (`#4273`, H1 of the cold review of 2026-10-03),
+		# which needs no listing to see: the workspaces this caller reaches are its own to read. Sent
+		# regardless, a marker committed for somebody else's instance - what the file is *for* (`#232`)
+		# - refused every write with *there is no project here*, and the conventions with an error.
 		except subroutine.errors.Forbidden:
-			sent = str(marker.project_id) if marker.project_id is not None else marker.project
+			elsewhere = _elsewhere_unlisted(client, marker, workspace, reached)
 
-			return _Checkout(
-				sent,
-				f"in {marker.project or sent}, from {subroutine.directory.FILE_NAME}",
-				f"`{subroutine.directory.FILE_NAME}` in this checkout",
+			if elsewhere is None:
+				sent = str(marker.project_id) if marker.project_id is not None else marker.project
+
+				return _Checkout(
+					sent,
+					f"in {marker.project or sent}, from {subroutine.directory.FILE_NAME}",
+					f"`{subroutine.directory.FILE_NAME}` in this checkout",
+					_cannot_find(
+						f"{subroutine.directory.FILE_NAME} here names {marker.project or sent!r}"
+					),
+				)
+
+			ignored.append(elsewhere)
+
+		if projects is not None:
+			elsewhere = _elsewhere(client, marker, projects, reached)
+			filed = None if elsewhere else subroutine.directory.resolve(marker, projects)
+
+			if filed is not None:
+				return _Checkout(
+					subroutine.directory.sendable(marker, projects, filed),
+					f"in {filed}, from {subroutine.directory.FILE_NAME}",
+					f"`{subroutine.directory.FILE_NAME}` in this checkout",
+				)
+
+			ignored.append(
+				elsewhere
+				or _unplaced(
+					f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}",
+					subroutine.directory.ambiguous(marker, projects),
+				)
 			)
-
-		elsewhere = _elsewhere(client, marker, projects, reached)
-		filed = None if elsewhere else subroutine.directory.resolve(marker, projects)
-
-		if filed is not None:
-			return _Checkout(
-				subroutine.directory.sendable(marker, projects, filed),
-				f"in {filed}, from {subroutine.directory.FILE_NAME}",
-				f"`{subroutine.directory.FILE_NAME}` in this checkout",
-			)
-
-		ignored.append(
-			elsewhere
-			or _unplaced(
-				f"{subroutine.directory.FILE_NAME} here names {marker.project or marker.project_id!r}",
-				subroutine.directory.ambiguous(marker, projects),
-			)
-		)
 
 	if standing.project is not None:
 		if projects is None:
 			try:
 				projects = subroutine.clients.base.every_project(client, workspace=workspace)
 
-			# **Sent as the address wrote it**, for the marker's reason just above (`#4007`).
+			# **Sent as the address wrote it**, for the marker's reason just above (`#4007`), and if it
+			# names nothing this credential can find, the write goes on without it, as a full credential's
+			# does (`#4273`, NEW-A-2 of the verification of the cold review of 2026-10-03).
 			except subroutine.errors.Forbidden:
 				return _Checkout(
 					standing.project,
 					" ".join([f"in {standing.project}, from the address", *ignored]),
 					"the address",
+					" ".join([_cannot_find(f"The address names {standing.project!r}"), *ignored]),
 				)
 
 		named = subroutine.directory.Marker(
@@ -4086,6 +4121,43 @@ def _checkout (
 		)
 
 	return _Checkout(None, " ".join(ignored) or None)
+
+
+def _cannot_find (named: str) -> str:
+	"""Say that a project sent unchecked named nothing this credential can find - `#4273`.
+
+	**Not *not on this instance*.** A credential that may not list projects cannot tell a project
+	that does not exist from one it may not see, so the sentence says only what is known.
+	"""
+
+	return f"{named}, a project this credential cannot find. Ignoring it."
+
+
+#: What a write wrapped by :func:`_with_the_checkout` hands back.
+_Written = typing.TypeVar("_Written")
+
+
+def _with_the_checkout (
+	checkout: _Checkout, write: typing.Callable[[str | None], _Written]
+) -> tuple[_Written, _Checkout]:
+	"""Write with the checkout's project, and without it where it was unchecked and not found.
+
+	Decision `#4303`: a project the address or an old marker names, which the credential cannot
+	find, is ignored with a note **for every credential**. A full credential lists projects and
+	never sends it; one that may not list them sends it as it stands (`#4007`), so the refusal is
+	the only way to learn it names nothing, and the write is made again without it.
+	"""
+
+	try:
+		return write(checkout.project), checkout
+
+	except subroutine.errors.NotFound as refused:
+		if checkout.unfound is None or not any(
+			error.field == "project" for error in refused.errors
+		):
+			raise
+
+	return write(None), checkout._replace(project=None, said=checkout.unfound)
 
 
 def _unplaced (named: str, several: list[str]) -> str:
@@ -4178,6 +4250,45 @@ def _elsewhere (
 	if named is not None and any(str(row.id) in here for row in reached if row.slug == named):
 		return None
 
+	return _elsewhere_said(marker)
+
+
+def _elsewhere_unlisted (
+	client: subroutine.clients.base.Client,
+	marker: subroutine.directory.Marker,
+	workspace: str | None,
+	reached: typing.Sequence[subroutine.directory.Slugged] | None = None,
+) -> str | None:
+	""":func:`_elsewhere`, for a credential that may not list projects - `#4273`.
+
+	**The workspace half needs no listing**: the workspaces this caller reaches come from ``me()``,
+	and the one being written to is ``workspace``. So a marker that names a workspace this caller
+	cannot reach, or one other than the write's, is ignored with the same sentences. One naming no
+	workspace predates both, and speaks for whichever answers, as it does with a listing.
+	"""
+
+	if marker.workspace is None and marker.workspace_id is None:
+		return None
+
+	reached = client.me().workspaces if reached is None else reached
+	named = subroutine.directory.resolve_workspace(marker, reached)
+
+	if named is not None and (
+		workspace is None
+		or any(
+			row.slug == named
+			and subroutine.addressing.names_workspace(workspace, slug=row.slug, identifier=row.id)
+			for row in reached
+		)
+	):
+		return None
+
+	return _elsewhere_said(marker)
+
+
+def _elsewhere_said (marker: subroutine.directory.Marker) -> str:
+	"""Say why a marker for another workspace or instance was ignored."""
+
 	# **A marker naming no workspace by name is one written for another instance** (`#4021`, L-7 (6)
 	# of the cold review of 2026-09-30), which is how the relay sends it: said as that, and without
 	# the raw id, where the sentence quoted the id and called it another workspace.
@@ -4230,21 +4341,24 @@ def _added (
 		reached=reached,
 	)
 
-	captured = client.capture(
-		text=line,
-		workspace=workspace,
-		type=_text(arguments, "type"),
-		project=checkout.project,
-		# **The second call an agent was measured skipping** (`#424`). `#392` put this on
-		# `subroutine_update`, which made a described item two calls on two tools — and the
-		# agent that reported this one said plainly why that loses: "an agent weighing calls
-		# will systematically skip an optional second write, and the moment you have the most
-		# context about an item is when you file it".
-		description=_text(arguments, "description"),
-		# **Absent checked first, because `_ref` raises rather than answering `None`** — it is
-		# written for an argument that has to be there, and asking it about one that need not
-		# be would refuse every capture that did not name a parent.
-		parent=None if arguments.get("parent") is None else _ref(arguments, field="parent"),
+	captured, checkout = _with_the_checkout(
+		checkout,
+		lambda project: client.capture(
+			text=line,
+			workspace=workspace,
+			type=_text(arguments, "type"),
+			project=project,
+			# **The second call an agent was measured skipping** (`#424`). `#392` put this on
+			# `subroutine_update`, which made a described item two calls on two tools — and the
+			# agent that reported this one said plainly why that loses: "an agent weighing calls
+			# will systematically skip an optional second write, and the moment you have the most
+			# context about an item is when you file it".
+			description=_text(arguments, "description"),
+			# **Absent checked first, because `_ref` raises rather than answering `None`** — it is
+			# written for an argument that has to be there, and asking it about one that need not
+			# be would refuse every capture that did not name a parent.
+			parent=None if arguments.get("parent") is None else _ref(arguments, field="parent"),
+		),
 	)
 	answer = "Added " + _line(captured.task, now=subroutine.db.types.utcnow())
 
@@ -4383,25 +4497,28 @@ def _wrote (
 			reached=reached,
 		)
 
-		document = client.create_document(
-			title=_text(arguments, "title") or "",
-			body=_text(arguments, "body"),
-			type=_text(arguments, "type"),
-			# **Reachable at last** (`#1188`). ``create_document`` has taken this since `#506`
-			# and this tool never offered it, so an agent writing a specification got a draft,
-			# was not told, and had no tool to change it — first contact reached for
-			# ``subroutine_call_api(method="PATCH", …)``, the most context-expensive call on
-			# the surface.
-			status=_text(arguments, "status"),
-			binds=_text(arguments, "binds"),
-			project=_text(arguments, "project") or checkout.project,
-			tags=_words(arguments, "tags"),
-			# **`#2173`, Simon 2026-09-07.** `POST /v1/documents` has taken a parent since
-			# `#1534` and no client offered it, so an agent writing one document per instrument
-			# could only leave them all at the top level — which is the board this item was
-			# filed about.
-			parent=arguments.get("parent"),
-			workspace=workspace,
+		document, checkout = _with_the_checkout(
+			checkout,
+			lambda project: client.create_document(
+				title=_text(arguments, "title") or "",
+				body=_text(arguments, "body"),
+				type=_text(arguments, "type"),
+				# **Reachable at last** (`#1188`). ``create_document`` has taken this since `#506`
+				# and this tool never offered it, so an agent writing a specification got a draft,
+				# was not told, and had no tool to change it — first contact reached for
+				# ``subroutine_call_api(method="PATCH", …)``, the most context-expensive call on
+				# the surface.
+				status=_text(arguments, "status"),
+				binds=_text(arguments, "binds"),
+				project=_text(arguments, "project") or project,
+				tags=_words(arguments, "tags"),
+				# **`#2173`, Simon 2026-09-07.** `POST /v1/documents` has taken a parent since
+				# `#1534` and no client offered it, so an agent writing one document per instrument
+				# could only leave them all at the top level — which is the board this item was
+				# filed about.
+				parent=arguments.get("parent"),
+				workspace=workspace,
+			),
 		)
 
 		answer = "Wrote " + _line(document, now=subroutine.db.types.utcnow())
