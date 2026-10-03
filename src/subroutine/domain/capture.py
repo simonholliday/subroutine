@@ -758,15 +758,22 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 			f"{'neither' if count == 2 else 'none'} was set."
 		)
 
-	# **A second repeat on the line lands here too** (`#4016`), and its text is the text of one
-	# read out of the middle of a sentence, so the sentence names both conditions rather than
-	# asserting the one it cannot tell: *because words follow it* was false of a second repeat
-	# written at the end, and *put it at the end* told the writer to do what they had done.
-	if mid:
+	# **A second repeat on the line lands here too** (`#4016`), and how many are quoted tells the two
+	# reasons apart (`#4318`, of the cold review of 2026-10-03). Only one repeat on a line is ever
+	# read, so two quoted here are two on one line, and one alone was given back for the words after
+	# it. One sentence naming both conditions told *Gym every monday every friday*, which ends in a
+	# repeat, to put one at the end; each is said only where it is what failed. **A repeat on several
+	# days is one of the two** (`#4340`), since beside one no other repeat is read.
+	if mid and len(mid) + len(several) > 1:
 		clauses.append(
 			f"Left as written: {', '.join(mid)} - read as part of the sentence rather than "
-			f"as a repeat: a line takes one repeat, and only where no words follow it. Put one "
-			f"at the end to make it a repeat."
+			f"as a repeat: a line takes one repeat."
+		)
+
+	elif mid:
+		clauses.append(
+			f"Left as written: {mid[0]} - read as part of the sentence rather than as a repeat, "
+			f"because words follow it. Put it at the end to make it one."
 		)
 
 	if repeats:
@@ -1153,6 +1160,8 @@ def parse (
 	#: the readable ones and answered in the same place. Recorded rather than reported here
 	#: because *what follows it* is not knowable until every other rule has taken what it wants.
 	unread: list[tuple[int, int]] = []
+	#: **Each repeat after a line's first, said wherever it is** (`#4318`), as the first given back is.
+	seconds: list[tuple[int, int]] = []
 	#: Where the repeat that set the rule landed, so that withdrawing it is asked of its place.
 	ruled: tuple[int, int] | None = None
 	#: **Each time left as written, and whether only a day written against it counts** (`#3998`).
@@ -1207,10 +1216,17 @@ def parse (
 		# this could read was claimed as well and set nothing, so *Gym every monday every friday*
 		# repeated on Mondays with *every friday* gone from the title and no note, and beside an
 		# *and* the first was withdrawn with the second already gone. **Reserved as a phrase this
-		# cannot read is**: it stays in the title, no other rule reads its day, and it is reported
-		# where nothing follows it. Following the first, it is words after it, so neither is read.
-		if "recurrence" in fields:
-			unread.append(reach)
+		# cannot read is**: it stays in the title and no other rule reads its day. Following the first,
+		# it is words after it, so neither is read.
+		#
+		# **Said wherever it is** (`#4318`, of the cold review of 2026-10-03), as the first given back
+		# is, so a line with two repeats quotes both and its note can say a line takes one. Said only
+		# where nothing followed it, a second behind words left its first told that words follow it, and
+		# to go at the end. **And a repeat on several days is a first one** (`#4340`): held aside before
+		# this pass, it left *every friday* to be read as the line's only repeat, so *Gym every monday
+		# and thursday every friday* repeated on Fridays with *every friday* gone from the title.
+		if "recurrence" in fields or several:
+			seconds.append(reach)
 			reserved.append(reach)
 
 			continue
@@ -1285,7 +1301,9 @@ def parse (
 	# existing rule for a bare ``today`` applied to the grammar that shipped after it — see
 	# :func:`_mid_sentence`. Run here because *unclaimed* is only knowable once every other
 	# rule has taken what it wanted: `every 14 days by friday` keeps both.
-	for span in _mid_sentence(text, claimed, repeated):
+	withdrawn = _mid_sentence(text, claimed, repeated)
+
+	for span in withdrawn:
 		claimed.remove(span)
 		unparsed.append(text[span[0]:span[1]])
 
@@ -1306,21 +1324,46 @@ def parse (
 	# **Asked after the loop above, against the settled ``claimed``**, because a repeat given
 	# back a moment ago is part of the sentence now and this has to see it that way.
 	settled = _blanked(text, claimed)
+	# **A time written with a repeat left as written goes with it** (`#4318`, of the cold review of
+	# 2026-10-03). It was given back because the days it was for were not read, so the repeat's own
+	# note is the reason, and it is no words following that repeat either, any more than a tag is.
+	# *Standup every monday and thursday at 9am* was told only that a time after 'at' needs to be one
+	# a clock shows, and the note on its days, which was true, was not given.
+	beside = [
+		span
+		for span, _near in loose
+		if any(
+			_written_with(settled, span, repeat) for repeat in (*withdrawn, *unread, *seconds, *several)
+		)
+	]
+	past = _blanked(settled, beside)
 
 	unparsed.extend(
-		text[start:end] for start, end in unread if _nothing_follows(settled, (start, end))
+		text[start:end] for start, end in unread if _nothing_follows(past, (start, end))
 	)
+	unparsed.extend(text[start:end] for start, end in seconds)
+	# **A repeat on several days beside a second is said wherever it is too** (`#4340`): it is the
+	# first, and the second's note says a line takes one.
 	unparsed.extend(
-		text[start:end] for start, end in several if _nothing_follows(settled, (start, end))
+		text[start:end]
+		for start, end in several
+		if seconds or _nothing_follows(past, (start, end))
 	)
 
 	# **The times left as written, quoted off the settled line** (`#3998`, M-1 of the cold review of
 	# 2026-09-30): only a day nothing read is the day that stopped one, and only words the title keeps
 	# are quoted. *Call Bob 3pm tomorrow* reads *tomorrow* after its time was collected, and the note
 	# said that day was not read; *Meet Friday @bob ~1h at 10am* quoted the assignee and estimate.
-	unclaimed = _blanked(text, [*claimed, *reserved])
+	#
+	# **And a repeat given back is no time's day** (`#4318`): its weekday was taken for the day a time
+	# further on was written for, so *Gym every monday and every friday morning at 7am* quoted *monday
+	# and every friday morning at 7am*, starting inside one repeat and giving the other as the day
+	# that was not read.
+	unclaimed = _blanked(text, [*claimed, *reserved, *withdrawn])
 
-	unparsed.extend(_with_its_day(unclaimed, settled, span, near=near) for span, near in loose)
+	unparsed.extend(
+		_with_its_day(unclaimed, settled, span, near=near) for span, near in loose if span not in beside
+	)
 
 	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
 	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
@@ -2646,6 +2689,22 @@ def _nothing_follows (blanked: str, span: tuple[int, int]) -> bool:
 	"""
 
 	return not blanked[span[1]:].strip(_ENDS_A_LINE)
+
+
+def _written_with (settled: str, time: tuple[int, int], repeat: tuple[int, int]) -> bool:
+	"""Report whether a time is written against a repeat, with nothing unread between - `#4318`.
+
+	Either way round - *every monday and thursday at 9am*, *at 9am every monday and thursday* - and
+	across anything read, as a tag is, since ``settled`` is the line with what was read blanked.
+	"""
+
+	if repeat[1] <= time[0]:
+		return not settled[repeat[1]:time[0]].strip()
+
+	if time[1] <= repeat[0]:
+		return not settled[time[1]:repeat[0]].strip()
+
+	return False
 
 
 def _mid_sentence (

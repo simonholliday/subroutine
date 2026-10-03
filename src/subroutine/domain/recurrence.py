@@ -213,14 +213,25 @@ _A_WEEKDAY_WRITTEN = "|".join(sorted(subroutine.domain.dates.WEEKDAYS, key=len, 
 #: One day of a month as a repeat names it, with the ``the`` somebody may write before it.
 _A_DAY_OF_THE_MONTH = r"(?:the\s+)?\d{1,2}(?:st|nd|rd|th)"
 
+#: **Which of a weekday in its month each ordinal in a list names** (`#4318`): *the 1st and 3rd
+#: monday*, *the first and last friday*. To the fifth, where the one-day grammar stops at the
+#: fourth, because ``BYDAY=5MO`` is a rule this stores and naming one is all this is for.
+_ORDINALS_WRITTEN: dict[str, int] = {
+	**_ORDINALS, "fifth": 5, "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
+}
+
+#: One of them as a list writes it, with the ``the`` somebody may write before it.
+_AN_ORDINAL_WRITTEN = rf"(?:the\s+)?(?:{'|'.join(_ORDINALS_WRITTEN)})"
+
 
 def _listed (item: str) -> str:
-	"""Return a pattern for two or more of ``item``, joined by commas, ``and`` or both."""
+	"""Return a pattern for two or more of ``item``, each joined by a comma, ``and`` or both.
 
-	return (
-		rf"(?:{item})(?:(?:\s*,\s*(?:{item}))+(?:\s*,?\s+and\s+(?:{item}))?"
-		rf"|\s*,?\s+and\s+(?:{item}))"
-	)
+	**Each, not only the last** (`#4318`): *every monday and thursday and friday* was refused as a
+	time handed to a repeat, and in a line said nothing at all.
+	"""
+
+	return rf"(?:{item})(?:(?:\s*,\s*|\s*,?\s+and\s+)(?:{item}))+"
 
 
 #: **A repeat on several days, recognised in order to name it and never read as a rule**
@@ -229,12 +240,27 @@ def _listed (item: str) -> str:
 #: the 1st and 15th of every month*. Capture leaves such a phrase in the title and says why, and
 #: :func:`phrase` refuses it naming the rule that does repeat so. Reading lists would have widened
 #: the end-of-line rule's risk of reading the object of a sentence to every list of days.
+#:
+#: **And however often it comes round, and by which of a weekday in its month** (`#4318`, of the
+#: cold review of 2026-10-03): *every other monday and thursday*, *every 2 weeks on monday and
+#: thursday*, *every 2 months on the 1st and 15th*, *on the 1st and 3rd monday of every month* and
+#: *every first and third monday*. Each was refused for a reason that was not the one, and in a
+#: line some were read in part: *on the 1st and 3rd monday of every month* repeated monthly with
+#: *of* ending the title, and *every 2 weeks on monday and thursday* started on the Monday. **The
+#: ordinal forms come before the days of the month**, which would otherwise take *the 1st and 3rd*
+#: and leave the weekday behind.
 SEVERAL_DAYS = re.compile(
 	rf"""
 	(?<![^\s])
 	(?:
-		every\s+{_listed(_A_WEEKDAY_WRITTEN)}
-		|every\s+month\s+on\s+{_listed(_A_DAY_OF_THE_MONTH)}
+		every\s+(?:other\s+)?{_listed(_A_WEEKDAY_WRITTEN)}
+		|every\s+(?:other\s+|\d+\s+)?weeks?\s+on\s+{_listed(_A_WEEKDAY_WRITTEN)}
+		|every\s+{_listed(_AN_ORDINAL_WRITTEN)}\s+(?:{_A_WEEKDAY_WRITTEN})
+			(?:\s+of\s+(?:the|every)\s+month)?
+		|every\s+(?:other\s+|\d+\s+)?months?\s+on\s+{_listed(_AN_ORDINAL_WRITTEN)}
+			\s+(?:{_A_WEEKDAY_WRITTEN})
+		|every\s+(?:other\s+|\d+\s+)?months?\s+on\s+{_listed(_A_DAY_OF_THE_MONTH)}
+		|on\s+{_listed(_AN_ORDINAL_WRITTEN)}\s+(?:{_A_WEEKDAY_WRITTEN})\s+of\s+every\s+month
 		|on\s+{_listed(_A_DAY_OF_THE_MONTH)}\s+of\s+every\s+month
 	)
 	(?!\w)
@@ -253,15 +279,34 @@ def on_several_days (written: str) -> str | None:
 	if SEVERAL_DAYS.fullmatch(written.strip()) is None:
 		return None
 
-	if re.search(r"\bmonth\b", written, re.IGNORECASE):
-		days = sorted({int(day) for day in re.findall(r"(\d{1,2})(?:st|nd|rd|th)", written)})
+	lowered = written.lower()
+	# **How often, where it says** (`#4318`): *every other* is two, as it is in a one-day repeat.
+	often = re.search(r"\bevery\s+(other|\d+)\s", lowered)
+	interval = 1 if often is None else 2 if often.group(1) == "other" else int(often.group(1))
+	named = [
+		subroutine.domain.dates.WEEKDAYS[one]
+		for one in re.findall(rf"(?<![\w])(?:{_A_WEEKDAY_WRITTEN})(?![\w])", lowered)
+	]
+	ordinals = re.findall(rf"(?<![\w])(?:{'|'.join(_ORDINALS_WRITTEN)})(?![\w])", lowered)
 
-		return "FREQ=MONTHLY;BYMONTHDAY=" + ",".join(str(day) for day in days)
+	# **A weekday with ordinals is which of it in its month**, *the 1st and 3rd monday*, counted from
+	# the front and then from the end; a weekday alone is every week; and no weekday is days of the
+	# month, whose numbers are ordinals too.
+	if named and ordinals:
+		counts = sorted({_ORDINALS_WRITTEN[one] for one in ordinals}, key=lambda count: (count < 0, count))
+		parts = ["FREQ=MONTHLY", "BYDAY=" + ",".join(f"{count}{_CODES[named[0]]}" for count in counts)]
 
-	named = re.findall(rf"(?<![\w])(?:{_A_WEEKDAY_WRITTEN})(?![\w])", written, re.IGNORECASE)
-	indexes = sorted({subroutine.domain.dates.WEEKDAYS[one.lower()] for one in named})
+	elif named:
+		parts = ["FREQ=WEEKLY", "BYDAY=" + ",".join(_CODES[index] for index in sorted(set(named)))]
 
-	return "FREQ=WEEKLY;BYDAY=" + ",".join(_CODES[index] for index in indexes)
+	else:
+		days = sorted({int(day) for day in re.findall(r"(\d{1,2})(?:st|nd|rd|th)", lowered)})
+		parts = ["FREQ=MONTHLY", "BYMONTHDAY=" + ",".join(str(day) for day in days)]
+
+	if interval != 1:
+		parts.insert(1, f"INTERVAL={interval}")
+
+	return ";".join(parts)
 
 
 def _refuse (value: str, *, field: str, why: str) -> subroutine.errors.ValidationError:
@@ -408,6 +453,11 @@ def phrase (value: str, *, field: str = "recurrence") -> str:
 	several = on_several_days(value)
 
 	if several is not None:
+		# **Only a rule this stores is named** (`#4318`): *every 0 weeks on monday and thursday* is
+		# refused as any repeat that never moves on is, rather than told to send one that does not.
+		named = {name: setting for name, _, setting in (part.partition("=") for part in several.split(";"))}
+		_refuse_an_interval(value, named["FREQ"], int(named.get("INTERVAL", "1")), field=field)
+
 		hint = f"Give it as a rule instead: {several}."
 
 		raise subroutine.errors.ValidationError(

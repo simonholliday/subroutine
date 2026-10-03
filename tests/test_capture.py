@@ -2767,6 +2767,8 @@ def test_a_second_repeat_is_kept_in_the_title_and_said (line: str) -> None:
 	assert read.recurrence is None, read
 	assert "every friday" in read.unparsed, read.unparsed
 	assert "a line takes one repeat" in said, said
+	# `SR#4318` (3): and not told to put one at the end, which each of these lines already does.
+	assert "at the end" not in said, said
 
 
 @pytest.mark.parametrize(
@@ -2813,6 +2815,184 @@ def test_a_repeat_on_several_days_followed_by_words_sets_nothing () -> None:
 
 	assert read.title == "Pay rent on the 1st and 15th of every month, says Bob", read
 	assert (read.recurrence, read.due, read.starts_at) == (None, None, None), read
+
+
+@pytest.mark.parametrize(
+	("line", "phrase", "rule"),
+	[
+		(
+			"Gym every monday and thursday and friday",
+			"every monday and thursday and friday",
+			"FREQ=WEEKLY;BYDAY=MO,TH,FR",
+		),
+		(
+			"Gym every other monday and thursday",
+			"every other monday and thursday",
+			"FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH",
+		),
+		(
+			"Gym every 2 weeks on monday and thursday",
+			"every 2 weeks on monday and thursday",
+			"FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH",
+		),
+		(
+			"Gym every week on monday and thursday",
+			"every week on monday and thursday",
+			"FREQ=WEEKLY;BYDAY=MO,TH",
+		),
+		(
+			"Pay rent on the 1st and 3rd monday of every month",
+			"on the 1st and 3rd monday of every month",
+			"FREQ=MONTHLY;BYDAY=1MO,3MO",
+		),
+		(
+			"Pay rent every month on the first and last friday",
+			"every month on the first and last friday",
+			"FREQ=MONTHLY;BYDAY=1FR,-1FR",
+		),
+		(
+			"Gym every first and third monday",
+			"every first and third monday",
+			"FREQ=MONTHLY;BYDAY=1MO,3MO",
+		),
+		(
+			"Pay rent every 2 months on the 1st and 15th",
+			"every 2 months on the 1st and 15th",
+			"FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=1,15",
+		),
+	],
+)
+def test_more_ways_of_writing_a_repeat_on_several_days_are_named (
+	line: str, phrase: str, rule: str
+) -> None:
+	"""`SR#4318` (4), of the capture-note Lows of the cold review of 2026-10-03.
+
+	Each was refused for a reason that was not the one - a time handed to a repeat, a qualifier
+	only a month takes, a day of the month not said - and some were worse in a line: *Pay rent on the
+	1st and 3rd monday of every month* repeated monthly as *Pay rent on the 1st and 3rd monday of*,
+	*Gym every 2 weeks on monday and thursday* was filed as *Gym every 2 weeks and thursday* starting
+	on the Monday, and *Gym every monday and thursday and friday* said nothing at all. **Held whole,
+	said, and refused naming a rule a repeat can be given as.**
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.title == line, read
+	assert (read.recurrence, read.due, read.starts_at) == (None, None, None), read
+	assert f"Left as written: {phrase} - a repeat is read on one day" in said, said
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.phrase(phrase)
+
+	assert refused.value.hint == f"Give it as a rule instead: {rule}.", refused.value.hint
+	assert subroutine.domain.recurrence.rule(rule).text is None, "the rule named is refused"
+
+
+def test_a_repeat_on_several_days_names_only_a_rule_it_could_store () -> None:
+	"""`SR#4318`: an interval no repeat may have is refused as one, not named as a rule to send."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.phrase("every 0 weeks on monday and thursday")
+
+	assert "at least one unit apart" in str(refused.value.errors[0].message), refused.value
+
+
+@pytest.mark.parametrize(
+	"line",
+	[
+		"Standup every monday and thursday at 9am",
+		"Standup at 9am every monday and thursday",
+		"Standup every monday and thursday 9am",
+		"Standup every monday and thursday at 9am +web #team",
+	],
+)
+def test_a_time_with_a_repeat_on_several_days_does_not_take_its_note (line: str) -> None:
+	"""`SR#4318` (1): *Standup every monday and thursday at 9am* said nothing about its days.
+
+	Its one note was on the time - *a time after 'at' needs to be one a clock shows* - blaming a
+	time a clock does show, where what stopped it was the days it was for. **The repeat's note is
+	given**, since a time written with it is no words following it, any more than a tag is, **and the
+	time is not quoted as though it were the fault.**
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert "every monday and thursday" in read.title and "9am" in read.title, read
+	assert (read.recurrence, read.due, read.starts_at) == (None, None, None), read
+	assert read.unparsed == ("every monday and thursday",), read.unparsed
+	assert "a repeat is read on one day, so neither was set." in said, said
+
+
+def test_a_time_after_a_second_repeat_is_not_quoted_from_inside_the_first () -> None:
+	"""`SR#4318` (2): *Gym every monday and every friday at 7am* quoted *monday* twice.
+
+	The notes were *every monday - read as part of the sentence...* and *monday and every friday at
+	7am - a time is set on the day written with it, and that day was not read*: the second began
+	inside the first and gave the second repeat as the day not read. **Both repeats are quoted, once
+	each, and said to be two**, and the time goes with the repeat it was written with.
+	"""
+
+	read = _parse("Gym every monday and every friday at 7am")
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.title == "Gym every monday and every friday at 7am", read
+	assert read.unparsed == ("every monday", "every friday"), read.unparsed
+	assert "a line takes one repeat." in said and "at the end" not in said, said
+
+	# **Further from it, the time is quoted alone**, and not from inside a repeat given back.
+	further = _parse("Gym every monday and every friday morning at 7am")
+
+	assert "at 7am" in further.unparsed, further.unparsed
+	assert not any(token.startswith("monday") for token in further.unparsed), further.unparsed
+
+
+@pytest.mark.parametrize(
+	"line",
+	[
+		"Gym every monday and thursday every friday",
+		"Gym every monday and thursday, yoga every friday",
+		"Yoga every friday and gym every monday and thursday",
+		"Gym every monday and thursday, sparring every friday with Laurence",
+	],
+)
+def test_a_repeat_beside_a_repeat_on_several_days_is_not_read (line: str) -> None:
+	"""`SR#4340`: *Gym every monday and thursday every friday* repeated on Fridays.
+
+	The several-day phrase was held aside before the repeat pass, so the phrase after it was read as
+	the line's only repeat, its words gone from the title. **A line takes one repeat** (`SR#4016`),
+	and one on several days is one: neither is read, both are said wherever they are, and the second
+	is told a line takes one rather than to go at the end.
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.title == line, read
+	assert read.recurrence is None, read
+	assert set(read.unparsed) == {"every monday and thursday", "every friday"}, read.unparsed
+	assert "a repeat is read on one day" in said, said
+	assert "a line takes one repeat." in said and "at the end" not in said, said
+
+
+def test_a_note_on_a_repeat_left_in_the_sentence_says_only_what_failed () -> None:
+	"""`SR#4318` (3): a line ending in a repeat was told to put one at the end.
+
+	*Every day the pump should be checked every monday* was told *a line takes one repeat, and only
+	where no words follow it. Put one at the end to make it a repeat*, about a line that ends in one.
+	**Two repeats are told a line takes one, and one with words after it to go at the end.**
+	"""
+
+	two = _parse("Every day the pump should be checked every monday")
+	one = _parse("Standup every monday at 9am, says Bob")
+	said_two = subroutine.domain.capture.explain(two.unparsed) or ""
+	said_one = subroutine.domain.capture.explain(one.unparsed) or ""
+
+	assert two.unparsed == ("Every day", "every monday"), two.unparsed
+	assert "a line takes one repeat." in said_two and "at the end" not in said_two, said_two
+	assert "because words follow it. Put it at the end" in said_one, said_one
+	assert "one repeat" not in said_one, said_one
 
 
 @pytest.mark.parametrize(
