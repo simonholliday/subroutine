@@ -309,6 +309,44 @@ def test_an_installation_whose_path_holds_a_percent_can_migrate (
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_going_below_the_kept_texts_writes_them_back_into_the_events (migrated_url: str) -> None:
+	"""`#578`: the revision before reads an event's text inline, so every kept one goes back.
+
+	In the live table and the archive both, and the event that kept nothing is left as it was.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+	tables = subroutine.db.base.Base.metadata.tables
+	kept = {"from": None, "to": {"sha256": "0" * 64}}
+
+	try:
+		_populate(engine)
+
+		with engine.begin() as connection:
+			for name in ("event", "event_archive"):
+				connection.execute(
+					sqlalchemy.update(tables[name]).values(changes={"description": kept})
+				)
+
+		subroutine.db.migrate.downgrade(migrated_url, "340ff3f92fa6")
+
+		written: list[typing.Any] = []
+
+		with engine.connect() as connection:
+			for name in ("event", "event_archive"):
+				written.extend(connection.scalars(sqlalchemy.select(tables[name].c.changes)))
+
+		assert written, "there were no events to look at"
+		assert all(
+			changes == {"description": {"from": None, "to": "A long text, kept once."}}
+			for changes in written
+		), written
+
+	finally:
+		engine.dispose()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
 def test_going_below_the_archive_puts_its_events_back (migrated_url: str) -> None:
 	"""`#251`: the revision before the archive has nowhere to hold one, so nothing is left in it.
 
@@ -1524,6 +1562,10 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 			},
 		),
 		(
+			"event_text",
+			{"workspace_id": workspace, "sha256": "0" * 64, "text": "A long text, kept once."},
+		),
+		(
 			"link_type",
 			{
 				"id": link_type,
@@ -1610,6 +1652,7 @@ SEEDED = frozenset(
 		"comment",
 		"event",
 		"event_archive",
+		"event_text",
 		"link_type",
 		"link",
 		"mention",

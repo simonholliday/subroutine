@@ -449,6 +449,7 @@ NOT_TYPED: dict[str, str] = {
 	"event_archive.entity_type": "copied from `event`, which says why",
 	"event_archive.subject_b_type": "copied from `event`, which says why",
 	"event_archive.subject_type": "copied from `event`, which says why",
+	"event_text.sha256": "a digest computed here, never sent (`#578`)",
 	"instance.timezone": "a zone name, checked against the zone database",
 	"item_type.category": "one of a fixed set, refused by name",
 	"item_type.entity_type": "a discriminator this code writes, from a fixed set",
@@ -521,6 +522,7 @@ PROSE: dict[str, tuple[Driver, str]] = {
 
 #: The unbounded text columns nobody types into, and why each is not driven above.
 NOT_PROSE: dict[str, str] = {
+	"event_text.text": "a description or body already written, kept once (`#578`); what was typed passed `text.readable` on its way to the item",
 	"role.description": "seeded; no writer takes one from a caller",
 	"user.password_hash": "a hash computed here; what somebody typed is never stored",
 }

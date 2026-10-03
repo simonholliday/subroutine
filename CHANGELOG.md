@@ -14,12 +14,16 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `340ff3f92fa6`.
+> **This release changes the database schema**, to `6c708db1582c`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A long description or body is kept once, however often it is edited.** Every edit recorded
+  the whole text before and after it, so a document revised twenty times held forty copies of
+  itself in the history. What the change feed, an item's history and an export report is
+  unchanged: the whole text, every time.
 - **Events can be kept in the change feed for a set number of days, and nothing is deleted.**
   Set `events_retention_days` and older events move to an archive, which the journal, each item's
   history, *revised N times*, the `touched_at` and `touched_by` filters and an export all still

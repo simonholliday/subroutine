@@ -12,9 +12,9 @@ an actor column that was a UUID on every single row. So the feed had the skeleto
 order, and a title on every row — and none of the substance.
 
 **Nothing is written differently.** The obvious fix is to put the comment's body on the event,
-and it is refused: ``event.changes`` already stores ``from`` and ``to`` in full rather than as a
-diff, in a table that is never pruned, which is a filed bug at `#578`. Copying bodies in would
-compound it on 29% of the feed. The events already carry the ids; a second reader joins.
+and it is refused: ``event.changes`` stored ``from`` and ``to`` in full rather than as a diff,
+which `#578` answered by keeping each long text once, and a body on 29% of the feed would be
+a second copy of every comment. The events already carry the ids; a second reader joins.
 """
 
 import typing

@@ -54,6 +54,7 @@ import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.models
 import subroutine.db.session
+import subroutine.domain.events
 import subroutine.domain.mentions
 import subroutine.domain.users
 
@@ -92,6 +93,9 @@ NOT_CARRIED = {
 	"calendar_feed": "the same, and its URL names a host that is going away",
 	"web_session": "a browser session on a machine nobody will sign into again",
 	"login_link": "a one-time link, expired or spent either way",
+	# **Put back into the events carried rather than copied** (`#578`): their texts are renumbered
+	# like any other prose, and a renumbered text has a new hash, so a copied row would name nothing.
+	"event_text": "each text is written back into the events carried, renumbered there",
 	# **A decision rather than an oversight, which is what this register is for** (`SR#1402`).
 	# Three things say leave it: a view's name is unique per workspace and both sides have
 	# their own, so carrying them turns a name somebody chose into an IntegrityError in the
@@ -622,6 +626,10 @@ class Maps:
 	offset: int
 	seq_offset: int
 
+	#: The source workspace's kept texts by hash (`#578`), put back into its events before they are
+	#: renumbered.
+	texts: dict[str, str]
+
 
 def _rewrite (
 	name: str, row: dict[str, typing.Any], maps: Maps, report: Report
@@ -658,7 +666,9 @@ def _rewrite (
 
 	if name in ("event", "event_archive"):
 		out["seq"] = int(out["seq"]) + maps.seq_offset
-		out["changes"] = _renumbered_inside(out.get("changes"), maps.refs, report)
+		out["changes"] = _renumbered_inside(
+			subroutine.domain.events.restored(out.get("changes"), maps.texts.get), maps.refs, report
+		)
 
 	for column in SELF_REFERENCES.get(name, ()):
 		out[column] = None
@@ -921,6 +931,14 @@ def merge (
 					)
 					for name in ("event", "event_archive")
 				),
+				texts={
+					row.sha256: row.text
+					for row in source.execute(
+						sqlalchemy.select(_table("event_text")).where(
+							_table("event_text").c.workspace_id == theirs
+						)
+					)
+				},
 			)
 
 			# **The whole write is one transaction**, so a refusal anywhere leaves the target

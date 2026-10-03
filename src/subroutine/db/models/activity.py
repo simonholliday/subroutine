@@ -267,6 +267,26 @@ def _archive_of (live: sqlalchemy.Table) -> sqlalchemy.Table:
 #: read as an :class:`Event`.
 ARCHIVE = _archive_of(typing.cast(sqlalchemy.Table, Event.__table__))
 
+#: **The long texts events carry, each kept once per workspace** - `#578`, decision `#4233`, and
+#: `#670` §4 as decided on `#1202`. An edit recorded the whole text before it and the whole text
+#: after, so a document revised twenty times held forty copies of itself in the log. A long
+#: ``description`` or ``body`` is kept here under its SHA-256 and the event carries
+#: ``{"sha256": …}`` in its place, which :func:`subroutine.domain.events.whole` puts back before
+#: anything is shown - so what a reader is handed is what it always was. Per workspace, so that a
+#: workspace's texts go with it, and so that erasing one, when erasure is built, reaches no other.
+TEXTS = sqlalchemy.Table(
+	"event_text",
+	subroutine.db.base.Base.metadata,
+	sqlalchemy.Column(
+		"workspace_id",
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("workspace.id", ondelete="CASCADE"),
+		primary_key=True,
+	),
+	sqlalchemy.Column("sha256", sqlalchemy.String(64), primary_key=True),
+	sqlalchemy.Column("text", sqlalchemy.Text, nullable=False),
+)
+
 
 #: `#83`: a comment is prose a search has to reach, and on a working instance there is more of
 #: it than there is of anything else. Same rule as the item indexes in

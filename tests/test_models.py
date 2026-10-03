@@ -33,6 +33,7 @@ EXPECTED_TABLES = {
 	"document_tag",
 	"event",
 	"event_archive",
+	"event_text",
 	"instance",
 	"item_type",
 	"link",

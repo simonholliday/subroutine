@@ -15,11 +15,15 @@ rather than added when someone wants a feed.
 import dataclasses
 import datetime
 import enum
+import hashlib
 import typing
 import uuid
 
 import sqlalchemy
+import sqlalchemy.dialects.postgresql
+import sqlalchemy.dialects.sqlite
 import sqlalchemy.orm
+import sqlalchemy.orm.attributes
 import sqlalchemy.sql.util
 
 import subroutine.db.models.activity
@@ -117,7 +121,9 @@ def record (
 		subject_b_type=subject_b_type,
 		subject_b_id=subject_b_id,
 		action=action,
-		changes=None if changes is None else jsonable(changes),
+		# **A long text is kept once and the event carries its hash** (`#578`); :func:`whole` puts
+		# it back for every reader.
+		changes=None if changes is None else _stored(session, workspace_id, jsonable(changes)),
 	)
 	session.add(event)
 	# **Every event, whatever wrote it**, for a workspace that sends what happens in it over OSC
@@ -402,6 +408,148 @@ def changes_between (
 			differences[field] = {"from": jsonable(old_value), "to": jsonable(new_value)}
 
 	return differences
+
+
+#: The fields whose long values are kept once rather than in every event - `#578`. The two that
+#: hold prose, and two the journal shows as a phrase without its values, so no reader of a value
+#: meets a reference. A title never reaches :data:`STORED_FROM`.
+STORED_FIELDS = frozenset({"description", "body"})
+
+#: How long a value is before it is kept once rather than carried. Short ones cost less inline
+#: than a hash and a row would.
+STORED_FROM = 256
+
+#: The one key of what an event carries in place of a text it keeps elsewhere.
+REFERENCE = "sha256"
+
+
+def _stored (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, changes: typing.Any
+) -> typing.Any:
+	"""Return ``changes`` with each long text replaced by a reference to its one stored copy."""
+
+	if not isinstance(changes, dict):
+		return changes
+
+	kept = dict(changes)
+
+	for field in sorted(STORED_FIELDS & kept.keys()):
+		sides = kept[field]
+
+		if not isinstance(sides, dict):
+			continue
+
+		replaced = dict(sides)
+
+		for side in ("from", "to"):
+			text = replaced.get(side)
+
+			if isinstance(text, str) and len(text) >= STORED_FROM:
+				replaced[side] = {REFERENCE: _keep(session, workspace_id, text)}
+
+		kept[field] = replaced
+
+	return kept
+
+
+def _keep (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, text: str) -> str:
+	"""Store ``text`` for this workspace unless it is there already, and return its hash.
+
+	**An insert that does nothing when the text is already kept**, rather than a read first: two
+	writers keeping one text at once would otherwise race, and the second would fail a whole
+	request over a copy the first had just made.
+	"""
+
+	digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+	table = subroutine.db.models.activity.TEXTS
+	dialect = session.get_bind().dialect.name
+	insert = (
+		sqlalchemy.dialects.postgresql.insert(table)
+		if dialect == "postgresql"
+		else sqlalchemy.dialects.sqlite.insert(table)
+	)
+	session.execute(
+		insert.values(workspace_id=workspace_id, sha256=digest, text=text).on_conflict_do_nothing()
+	)
+
+	return digest
+
+
+def _references (changes: typing.Any) -> typing.Iterator[str]:
+	"""Yield the hash of every text ``changes`` keeps elsewhere."""
+
+	if not isinstance(changes, dict):
+		return
+
+	for field in STORED_FIELDS & changes.keys():
+		sides = changes[field]
+
+		if not isinstance(sides, dict):
+			continue
+
+		for side in ("from", "to"):
+			held = sides.get(side)
+
+			if isinstance(held, dict) and isinstance(held.get(REFERENCE), str):
+				yield held[REFERENCE]
+
+
+def restored (
+	changes: typing.Any, found: typing.Callable[[str], str | None]
+) -> typing.Any:
+	"""Return ``changes`` with each reference replaced by the text ``found`` gives for its hash."""
+
+	if not any(_references(changes)):
+		return changes
+
+	kept = dict(changes)
+
+	for field in STORED_FIELDS & kept.keys():
+		sides = kept[field]
+
+		if not isinstance(sides, dict):
+			continue
+
+		replaced = dict(sides)
+
+		for side in ("from", "to"):
+			held = replaced.get(side)
+
+			if isinstance(held, dict) and isinstance(held.get(REFERENCE), str):
+				replaced[side] = found(held[REFERENCE])
+
+		kept[field] = replaced
+
+	return kept
+
+
+def whole (
+	session: sqlalchemy.orm.Session, rows: typing.Sequence[subroutine.db.models.activity.Event]
+) -> None:
+	"""Put each kept text back into ``rows``, as it was written - `#578`.
+
+	**One read for the page**, of every hash its rows name. **Set as the value loaded, never as a
+	change**, so the session has nothing to write back and the stored row keeps its references.
+	"""
+
+	wanted = {digest for row in rows for digest in _references(row.changes)}
+
+	if not wanted:
+		return
+
+	table = subroutine.db.models.activity.TEXTS
+	texts = {
+		(found.workspace_id, found.sha256): found.text
+		for found in session.execute(sqlalchemy.select(table).where(table.c.sha256.in_(wanted)))
+	}
+
+	for row in rows:
+		named = {digest: texts.get((row.workspace_id, digest)) for digest in _references(row.changes)}
+
+		if named:
+			sqlalchemy.orm.attributes.set_committed_value(
+				row, "changes", restored(row.changes, named.get)
+			)
 
 
 #: Every event this instance holds, the live table's and the archive's (`#251`, decision `#4233`).
@@ -908,6 +1056,10 @@ def descriptions (
 	visibility: these rows have already been narrowed by :func:`feed` or resolved through a
 	subject, and an event a caller may read is one whose item they may read by construction.
 	"""
+
+	# **Every renderer of these rows asks for this batch first, so the texts come back here**
+	# (`#578`): a long text an event keeps elsewhere is put back before anything shows the row.
+	whole(session, rows)
 
 	wanted: dict[str, set[uuid.UUID]] = {"task": set(), "document": set(), "project": set()}
 
