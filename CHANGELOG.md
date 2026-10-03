@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat that can never come round is refused at once, saying so.** *The 1st of every
+  month, when it is the second Monday* was walked to the year 9999 before anything said it had
+  no dates, and then refused for dates that had passed. A repeat holding a control character, or
+  a number written in digits other than 0 to 9, is refused as other text is; and *the 5th
+  Monday* no longer reads back as *the 5 Monday*.
 - **A repeat at the end of a sentence is read.** *Water the plants every day.* set no repeat
   and said *every day.* was not a repeat it understood, suggesting *every day*; so did *every 14
   days!* and *every sunday?*. The mark that ends the sentence stays in the title.

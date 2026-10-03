@@ -31,6 +31,7 @@ import dateutil.rrule
 
 import subroutine.domain.dates
 import subroutine.domain.schedule
+import subroutine.domain.text
 import subroutine.errors
 
 #: How often a series repeats, and the only frequencies a *task* may use.
@@ -327,7 +328,7 @@ def _monthly_qualifier (qualifier: str, value: str, field: str) -> list[str]:
 	if day is not None:
 		number = int(day.group("day"))
 
-		# **28 rather than 31**, because a rule saying the 30th is one a caller can mean and
+		# **31 rather than 28**, because a rule saying the 30th is one a caller can mean and
 		# February simply skips it — where 32 is a value no month has and would produce a
 		# series that never fires, silently, for ever.
 		if not 1 <= number <= 31:
@@ -500,6 +501,11 @@ def rule (value: str, *, field: str = "recurrence") -> Recurrence:
 	into English so that this can translate it back.
 	"""
 
+	# **Text first, as every other field's is** (`#4320`, of the cold review of 2026-10-03). A
+	# pattern's ``\s`` matches the four separators from U+001C, so a repeat holding one was read
+	# as though it held a space and stored as sent, and one after a rule part was dropped unsaid.
+	subroutine.domain.text.readable(value, field=field, label="repeat")
+
 	written = value.strip()
 
 	if not written:
@@ -540,6 +546,16 @@ def _checked (value: str, *, field: str) -> str:
 				field=field,
 				why=f"{name!r} is not a rule part this stores. "
 				f"It reads {', '.join(sorted(PARTS))}.",
+			)
+
+		# **Written as a rule is written** (`#4320`): Python reads a fullwidth or an Arabic-Indic
+		# digit as a digit, so a part written in them was stored as sent, described as though it
+		# were the ASCII number, and reached a calendar's feed as sent.
+		if not setting.isascii():
+			raise _refuse(
+				value,
+				field=field,
+				why=f"{name} holds a character no rule is written in. A number is written with 0 to 9.",
 			)
 
 		# **A part is named once** (`#3997`). dateutil reads the last of two, and the stored rule kept
@@ -594,6 +610,7 @@ def _checked (value: str, *, field: str) -> str:
 
 	_refuse_a_part_that_never_comes(value, found, field=field)
 	_refuse_a_day_that_never_comes(value, found, field=field)
+	_refuse_a_rule_that_never_comes_round(value, written, field=field)
 
 	# **``UNTIL`` stored in the one spelling everything after this reads** (`#3897`). dateutil reads
 	# many - *20261210T0000Z*, *20261210T000000+0000* - and only UTC's ``YYYYMMDDTHHMMSSZ`` was put
@@ -876,6 +893,56 @@ def for_a_calendar (
 	return _UNTIL.sub(written, stored)
 
 
+#: **How long the calendar takes to repeat itself**: four hundred Gregorian years are exactly
+#: 146,097 days, which is 20,871 weeks and 4,800 months, so every pattern of days falls the same
+#: way again after it.
+CALENDAR_CYCLE_YEARS = 400
+
+#: Where a rule is first walked from to see whether it comes round at all: the year rules are
+#: checked against, moved on by whole cycles.
+_PROBED_FROM = datetime.datetime(2026, 1, 1)
+
+
+def _refuse_a_rule_that_never_comes_round (value: str, written: str, *, field: str) -> None:
+	"""Refuse a rule no day ever satisfies, walking no further than the calendar's cycle - `#4320`.
+
+	**One cycle of the calendar is far enough**: a pattern naming no day in four hundred years names
+	none at all, since the calendar falls the same way again after them. dateutil walked such a
+	rule from its start to the year 9999 before saying it had nothing - a third of a second for
+	``BYMONTHDAY=1;BYDAY=2MO``, on a create and on every reading of it - and the refusal that
+	followed spoke of dates that had passed.
+
+	**The pattern alone, every interval apart.** With an interval, whether a rule comes round can
+	turn on its start - every seventh day from a Tuesday is always a Tuesday, and from a Monday
+	never - so that is left to the series' own start, and this refuses only what no start reaches.
+
+	**Started late rather than ended early**, because dateutil checks an end only against a day it
+	found, and a rule that finds none walks on to the year 9999 whatever its end. So the walk begins
+	on a year the calendar falls on as it does in 2026, a cycle or two before 9999.
+
+	**Its own end is set aside**, so this asks whether the pattern ever comes round and not whether
+	it comes round again, which :func:`occurrences` asks with the series' own start.
+	"""
+
+	spare = datetime.MAXYEAR - _PROBED_FROM.year - CALENDAR_CYCLE_YEARS
+	start = _PROBED_FROM.replace(
+		year=_PROBED_FROM.year + CALENDAR_CYCLE_YEARS * (spare // CALENDAR_CYCLE_YEARS)
+	)
+	pattern = ";".join(
+		piece
+		for piece in written.split(";")
+		if piece.strip()
+		and piece.partition("=")[0].strip().upper() not in {"COUNT", "UNTIL", "INTERVAL"}
+	)
+
+	if next(iter(dateutil.rrule.rrulestr(f"RRULE:{pattern}", dtstart=start)), None) is not None:
+		return
+
+	raise _refuse(
+		value, field=field, why="No day matches every part of it, so it would never come round."
+	)
+
+
 def occurrences (
 	stored: str,
 	*,
@@ -1021,9 +1088,25 @@ def _described_weekdays (setting: str) -> str:
 		day = _NAMED.get(match.group("code"), match.group("code"))
 		which = match.group("which")
 
-		said.append(day if which is None else f"the {ordinals.get(int(which), which)} {day}")
+		said.append(day if which is None else f"the {_which(int(which), ordinals)} {day}")
 
 	return " and ".join(said)
+
+
+def _which (number: int, ordinals: dict[int, str]) -> str:
+	"""Return which weekday of a month or year a count names, in words - `#4320`.
+
+	**Past the fourth, as a number**: ``5MO`` read as *the 5 Monday* and ``-2MO`` as *the -2
+	Monday*, though the rule accepts every one of them. A count from the end is *to last*.
+	"""
+
+	if number in ordinals:
+		return ordinals[number]
+
+	if number > 0:
+		return _ordinal(number)
+
+	return f"{ordinals.get(-number) or _ordinal(-number)} to last"
 
 
 #: How a completion anchor reads, said once so that no two surfaces word it differently

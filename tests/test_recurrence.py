@@ -360,6 +360,72 @@ def test_the_edges_of_what_a_calendar_reaches_are_still_accepted (rule: str) -> 
 	assert subroutine.domain.recurrence.rule(rule).rule == rule
 
 
+@pytest.mark.parametrize(
+	"written",
+	[
+		"every\x1cday",
+		"FREQ=WEEKLY;BYDAY=MO\x1c",
+		"FREQ=DAILY;INTERVAL=\uff12",
+		"FREQ=DAILY;INTERVAL=\u0662",
+		"FREQ=MONTHLY;BYMONTHDAY=\uff11",
+		"FREQ=DAILY;COUNT=\uff13",
+	],
+	ids=["separator", "separator after a part", "fullwidth", "arabic-indic", "day", "count"],
+)
+def test_a_repeat_holding_what_no_rule_is_written_in_is_refused (written: str) -> None:
+	"""`SR#4320`: a separator read as a space, and digits that are not ASCII stored as sent.
+
+	``rule("every\\x1cday")`` was accepted and read back with the separator in it, and an
+	``INTERVAL`` of a fullwidth two was described as *every other day* and written into a calendar's
+	feed as sent.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.rule(written)
+
+	assert refused.value.errors[0].field == "recurrence", refused.value.errors
+
+
+@pytest.mark.parametrize(
+	"written",
+	[
+		"FREQ=MONTHLY;BYMONTHDAY=1;BYDAY=2MO",
+		"FREQ=MONTHLY;BYMONTHDAY=8;BYDAY=1MO",
+		"FREQ=MONTHLY;BYMONTHDAY=1;BYDAY=2MO;COUNT=3",
+	],
+)
+def test_a_rule_that_never_comes_round_is_refused_saying_so (written: str) -> None:
+	"""`SR#4320`: walked to the year 9999 before anything said it had no dates.
+
+	The first of a month is never its second Monday, nor the eighth its first. A create refused
+	it afterwards with a sentence about dates that had passed.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.rule(written)
+
+	assert "never come round" in refused.value.errors[0].message, refused.value.errors
+
+
+@pytest.mark.parametrize(
+	"written",
+	[
+		"FREQ=YEARLY;BYMONTH=2;BYDAY=5MO",
+		"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;BYDAY=MO",
+		"FREQ=MONTHLY;BYMONTHDAY=13;BYDAY=FR",
+		"FREQ=DAILY;INTERVAL=7;BYDAY=TU",
+	],
+)
+def test_a_rule_that_comes_round_rarely_is_accepted (written: str) -> None:
+	"""The control: a fifth Monday in February, a leap day on a Monday, Friday the 13th.
+
+	**And one that comes round from some starts only**: every seventh day is a Tuesday from a
+	Tuesday. Whether it does from the series' own start is asked where that start is known.
+	"""
+
+	assert subroutine.domain.recurrence.rule(written).rule == written
+
+
 @pytest.mark.parametrize("phrase", ["every 0 days", "every 101 years", "every 36501 days"])
 def test_a_phrase_is_held_to_the_same_intervals (phrase: str) -> None:
 	"""`SR#3997`: a phrase never passes through the rule check, so it shares the interval's."""
@@ -541,6 +607,12 @@ DESCRIBED: tuple[tuple[str, str], ...] = (
 	# **A month said without a day of the month too** (`SR#4026`), which read as every month.
 	("FREQ=YEARLY;BYMONTH=6;BYDAY=1MO", "every year, on the first Monday, in June"),
 	("FREQ=MONTHLY;BYMONTH=6,12;BYDAY=-1FR", "every month, on the last Friday, in June and December"),
+	# **An ordinal past the fourth** (`SR#4320`), which read *the 5 Monday* and *the -2 Monday*.
+	("FREQ=MONTHLY;BYDAY=5MO", "every month, on the 5th Monday"),
+	("FREQ=MONTHLY;BYDAY=-2MO", "every month, on the second to last Monday"),
+	("FREQ=MONTHLY;BYDAY=-5MO", "every month, on the 5th to last Monday"),
+	("FREQ=YEARLY;BYDAY=20MO", "every year, on the 20th Monday"),
+	("FREQ=YEARLY;BYDAY=53MO", "every year, on the 53rd Monday"),
 )
 
 

@@ -712,8 +712,9 @@ def materialise (
 	nobody asked about.
 
 	Returns ``None`` when ``COUNT`` is exhausted or ``UNTIL`` has passed, and marks the
-	template finished on the way out — a series with nothing left is over, and leaving the
-	template open would be a rule that can never fire again sitting in the workspace for ever.
+	template finished on the way out, unless the series is in the trash — a series with nothing
+	left is over, and leaving the template open would be a rule that can never fire again sitting
+	in the workspace for ever.
 	"""
 
 	if template.recurrence_rule is None:
@@ -2988,9 +2989,9 @@ def _days_moved (
 ) -> datetime.datetime | None:
 	"""Move a whole-day date by the days the other row moved, on the calendar (`#3930`).
 
-	**By days, not by the hours in them.** The other row's move is an instant minus an instant,
-	and across a clock change a whole number of days is an hour more or less than that many
-	twenty-fours - so an all-day London series moved from now on from October into November
+	**By days, not by the hours in them.** The other row's move is counted between two calendar
+	dates, since across a clock change a whole number of days is an hour more or less than that
+	many twenty-fours - so an all-day London series moved from now on from October into November
 	landed at 23:00 on the Sunday, and the next occurrence minted from it was the same Monday
 	again. The day is read in ``timezone``, moved, and snapped to the column's own edge there.
 
@@ -2999,8 +3000,8 @@ def _days_moved (
 	:func:`_resnapped` relabels it, and the row that was edited has already been relabelled.
 
 	**A move of no days is kept as it is**, not snapped, since it is not a move at all: a save of
-	an occurrence at its own date, or one correcting a row written before `#1291`, reaches here
-	with such a delta. Snapping would read a row held off its zone's edge - a deadline at the end
+	an occurrence at its own date, or one correcting a row written before `#1291`, is one where the
+	two dates agree. Snapping would read a row held off its zone's edge - a deadline at the end
 	of the UTC day, labelled London - as the next day, and move a series a day for nothing.
 
 	**Counted between the two calendar dates, each on its own clock** (`#4010`, M-16 of the cold
