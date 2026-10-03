@@ -3793,6 +3793,20 @@ def _repeat_read (
 		anchor = anchor or series.recurrence_anchor
 		trigger = trigger or series.recurrence_trigger
 
+	# **What the series already holds, sent back, is no change** (`#4321`, of the cold review of
+	# 2026-10-03, and NEW-D-2 of its verification), as a title sent back is not
+	# (:func:`_clean_title`'s ``was``). The browser sends the repeat with every save: one stored
+	# before the stricter checks failed the whole save, title and all, and every save moved the
+	# series' version with nothing changed, so a client holding it was answered 409.
+	if (
+		series is not None
+		and isinstance(rule, str)
+		and rule.strip() in {series.recurrence_rule, series.recurrence_text}
+		and anchor in {None, series.recurrence_anchor}
+		and trigger in {None, series.recurrence_trigger}
+	):
+		return _Repeating(series=series, repeat=None, stopping=False)
+
 	if rule is None:
 		return _Repeating(series=series, repeat=None, stopping=True)
 

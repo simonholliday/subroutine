@@ -1431,6 +1431,72 @@ def test_saving_an_occurrence_at_its_own_date_leaves_the_series_where_it_was (
 	), "a save that moved the date by nothing carried the occurrence's own date to the series"
 
 
+def test_a_repeat_sent_back_unchanged_changes_nothing (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4321`, a Low of the cold review of 2026-10-03, and NEW-D-2 of its verification.
+
+	The browser sends the repeat with every save. A rule stored before the stricter checks was
+	refused on the way back, and the whole save with it, title and all; and each save of an
+	unchanged repeat moved the series' version, so a client holding it for ``If-Match`` was
+	answered 409 after somebody merely retitled an occurrence.
+	"""
+
+	made = _repeating(session, recurrence="every monday")
+	series = _template(session, made)
+
+	# A rule as one was stored before a part could not be named twice (`SR#3997`).
+	old = "FREQ=WEEKLY;BYDAY=MO;BYDAY=MO"
+	series.recurrence_rule = old
+	session.flush()
+	version = series.version
+
+	for title in ("Water the ferns", "Water the ferns and the palm", "Water every plant"):
+		subroutine.domain.tasks.update(
+			session,
+			made,
+			now=NOW,
+			title=title,
+			recurrence=old,
+			applies_to=subroutine.domain.tasks.THIS_ONE,
+		)
+
+	session.flush()
+	session.refresh(series)
+
+	assert made.title == "Water every plant"
+	assert series.recurrence_rule == old
+	assert series.version == version, "a repeat sent back unchanged moved the series' version"
+
+	# **The control**: a rule that is different is still read, and still refused when it cannot be.
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(
+			session, made, now=NOW, recurrence="FREQ=WEEKLY;BYDAY=TU;BYDAY=TU"
+		)
+
+
+def test_an_unchanged_repeat_sent_back_leaves_the_series_version (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4321`, NEW-D-2: three saves of an unchanged repeat took the series from 1 to 4."""
+
+	made = _repeating(session, recurrence="every monday")
+	series = _template(session, made)
+	version = series.version
+
+	for _ in range(3):
+		subroutine.domain.tasks.update(
+			session,
+			made,
+			now=NOW,
+			recurrence="every monday",
+			applies_to=subroutine.domain.tasks.THIS_ONE,
+		)
+
+	session.flush()
+	session.refresh(series)
+
+	assert series.version == version, (version, series.version)
+
+
 def test_a_series_changed_to_a_rule_that_never_comes_round_is_refused (
 	session: sqlalchemy.orm.Session,
 ) -> None:

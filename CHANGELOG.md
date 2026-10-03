@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Saving a repeating item in the browser no longer fails over its repeat.** The repeat is
+  sent with every save, so one stored before the stricter checks of 0.9.13 refused the whole save,
+  title and all; and every save moved the series' version, so a client holding it was told
+  somebody else had changed it. A repeat sent back unchanged is now no change.
 - **A repeat that can never come round is refused at once, saying so.** *The 1st of every
   month, when it is the second Monday* was walked to the year 9999 before anything said it had
   no dates, and then refused for dates that had passed. A repeat holding a control character, or
