@@ -5438,6 +5438,13 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	2026-09-30): one project's list, still loading when the reader moved to another's, drew its
 	rows there when they landed, and a refusal landing late said the first project had gone and
 	read the whole workspace under the second's address.
+
+	**And not the answer still wanted** (`SR#4288`, M6 of the cold review of 2026-10-03): the
+	listing's answer was also dropped unless its project was the one in the address, and an open
+	item's address is its own project. An item opened from the workspace's list and finished
+	there was read for again behind it, the answer was thrown away, and Back showed it still
+	listed. Here rather than as a test of its own, because it is the same ticket's question and
+	this file is held to its count.
 	"""
 
 	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
@@ -5782,6 +5789,31 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 			assert not lands(lambda: "any more" in page.inner_text("body") or bool(listings())), (
 				f"subroutine/ui's list refused after the reader had left acted on {page.url}: {reads}"
 			)
+
+	page.close()
+
+	served = {
+		"items": [CARD, *CROWD],
+		"page": {"has_more": False, "next_cursor": None, "total": None},
+	}
+	row = ".listing a.row[href='/projects/subroutine/ui/42']"
+	page = opened("/projects?view=list", rows=served)
+	page.wait_for_selector(row, timeout=10_000)
+	page.click(row)
+	page.wait_for_selector(".detail .doing button.finish", timeout=10_000)
+
+	# **What the listing answers from here on**: the finished item gone, as the server would say.
+	served["items"] = list(CROWD)
+	page.click(".detail .doing button.finish")
+	page.wait_for_timeout(500)
+	page.go_back()
+	page.wait_for_selector(".listing a.row", timeout=10_000)
+	_until(page, lambda: page.locator(row).count() == 0)
+
+	assert page.locator(row).count() == 0, (
+		"the item finished from its page is still listed on the list it was opened from: the "
+		"listing was read again and its answer dropped, because the address named the item's project"
+	)
 
 	page.close()
 

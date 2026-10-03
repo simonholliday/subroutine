@@ -606,16 +606,14 @@ export function App () {
 
 		const ticket = listingAsked.current;
 		/* **Acted on only while it is still wanted**, as an agenda read is: the answer to the latest
-		   read, on a page still arranged as a listing and not an area or a journal, whose address
-		   names the project asked for - or names no place, as `/` does when a list is shown there. */
-		const current = () => {
-			const place = parseAddress(window.location.pathname);
-
-			return ticket === listingAsked.current
-				&& areaOf(window.location.pathname) === null
-				&& (shown.current.view || DEFAULT_VIEW) !== AGENDA_VIEW
-				&& (place === null || (place.project || null) === (key || null));
-		};
+		   read, on a page still arranged as a listing and not an area or a journal. **Not compared
+		   with the project in the address** (`#4288`, M6 of the cold review of 2026-10-03): an open
+		   item's address is its own project, so a listing wider than that - the workspace's, a
+		   parent's - threw its own answer away while an item was open, and an item finished there was
+		   still listed after Back. The ticket already says which read is the latest. */
+		const current = () => ticket === listingAsked.current
+			&& areaOf(window.location.pathname) === null
+			&& (shown.current.view || DEFAULT_VIEW) !== AGENDA_VIEW;
 
 		/*
 			**The selection is read from the ref, not from state and not from an argument** —
