@@ -2719,6 +2719,45 @@ def _clock_moved (
 	).instant
 
 
+def _days_on_its_clock (
+	held: datetime.datetime,
+	*,
+	was: datetime.datetime,
+	now_holds: datetime.datetime,
+	was_in: str,
+	now_in: str,
+	column: str,
+	timezone: str,
+	now: datetime.datetime,
+) -> datetime.datetime | None:
+	"""Move a timed date by the days a whole-day date moved, keeping its time on its own clock.
+
+	`#4310`, decision `#4312`: the days are counted between the two calendar dates, each read in
+	its own zone as :func:`_days_moved` counts them, and added to ``held`` on ``timezone``'s clock,
+	so the time of day stays what it was there.
+	"""
+
+	days = (
+		now_holds.astimezone(subroutine.domain.dates.zone(now_in, "timezone")).date()
+		- was.astimezone(subroutine.domain.dates.zone(was_in, "timezone")).date()
+	).days
+
+	if days == 0:
+		return held
+
+	zone = subroutine.domain.dates.zone(timezone, column)
+
+	# **Naive on purpose**, for :func:`_clock_moved`'s reason: ``interpret`` reads it in ``timezone``.
+	return subroutine.domain.schedule.interpret(
+		held.astimezone(zone).replace(tzinfo=None) + datetime.timedelta(days=days),
+		boundary=subroutine.domain.schedule.WHOLE_DAY_EDGE[column],
+		timezone=timezone,
+		now=now,
+		all_day=False,
+		field=column,
+	).instant
+
+
 def _kept_on_its_grid (
 	row: subroutine.db.models.work.Task,
 	*,
@@ -3040,6 +3079,17 @@ def _carried (
 		else ""
 	)
 
+	# **A whole-day move keeps a timed row on its own clock** (`#4310`, M17 (c) of the cold review
+	# of 2026-10-03, decision `#4312`). An all-day occurrence moved a day from now on, by somebody
+	# reading the day in another zone, moved a timed series by that zone's offset and relabelled it
+	# theirs: Monday 10:00 London became Tuesday 02:00 from Tokyo. The move is a count of days, each
+	# end read on its own calendar, and this row keeps its time of day and its zone.
+	keeps_its_clock = any(
+		bool(now_holds.get(ALL_DAY_FLAG[column])) and not getattr(target, ALL_DAY_FLAG[column])
+		for column in deltas
+		if column in ALL_DAY_FLAG
+	)
+
 	# **A date with a time moves by the clock, a whole day by the day** (`#3764`), on the clock
 	# of the zone the source's dates were written in.
 	clock = (
@@ -3069,6 +3119,18 @@ def _carried (
 				now=instant,
 			)
 
+		if keeps_its_clock and now_holds.get(ALL_DAY_FLAG[column]):
+			return _days_on_its_clock(
+				held,
+				was=was[column],
+				now_holds=now_holds[column],
+				was_in=was.get("timezone") or held_in,
+				now_in=now_holds.get("timezone") or held_in,
+				column=column,
+				timezone=held_in,
+				now=instant,
+			)
+
 		return _clock_moved(
 			held,
 			was=was[column],
@@ -3084,6 +3146,10 @@ def _carried (
 
 	for column, value in now_holds.items():
 		if column in NEVER_CARRIED or was.get(column) == value:
+			continue
+
+		# The zone the move's day was read in is the mover's, not this row's (`#4310`).
+		if column == "timezone" and keeps_its_clock:
 			continue
 
 		if only_where_unchanged and before.get(column) != was.get(column):

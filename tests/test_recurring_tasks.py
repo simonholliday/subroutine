@@ -1659,10 +1659,17 @@ def test_a_repeat_added_to_finished_work_is_refused_naming_its_status (
 	assert series is not None and series.completed_at is None
 
 
+@pytest.mark.parametrize(
+	"mover", [None, "Asia/Tokyo", "America/Los_Angeles"], ids=["here", "from Tokyo", "from LA"]
+)
 def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_time (
-	session: sqlalchemy.orm.Session,
+	mover: str | None, session: sqlalchemy.orm.Session
 ) -> None:
 	"""`SR#4001`, M-4 of the cold review of 2026-09-30: the series lost its time of day.
+
+	**And from another zone** (`SR#4310`, M17 (c) of the cold review of 2026-10-03, decision
+	`#4312`): the series followed the mover's clock and took their zone - Tuesday 02:00 from Tokyo,
+	18:00 from Los Angeles. It keeps its own: Tuesday 10:00 London, from anywhere.
 
 	A weekly Monday series at 10:00, due at 17:00. One occurrence is made all-day for itself
 	alone, and then moved to Tuesday from now on. The move was read in the occurrence's shape,
@@ -1676,6 +1683,7 @@ def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_tim
 		recurrence="every monday",
 		starts=datetime.datetime(2026, 10, 12, 10, 0, tzinfo=london),
 		due=datetime.datetime(2026, 10, 12, 17, 0, tzinfo=london),
+		timezone=LONDON,
 	)
 	series = _template(session, made)
 
@@ -1691,6 +1699,7 @@ def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_tim
 
 	assert made.starts_is_all_day and not series.starts_is_all_day, "the occurrence alone is all-day"
 
+	moved: dict[str, typing.Any] = {} if mover is None else {"timezone": mover}
 	subroutine.domain.tasks.update(
 		session,
 		made,
@@ -1698,6 +1707,7 @@ def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_tim
 		due="2026-10-13",
 		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
+		**moved,
 	)
 	session.flush()
 
@@ -1707,6 +1717,7 @@ def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_tim
 	assert not series.starts_is_all_day and not series.due_is_all_day
 	assert (starts.date(), starts.time()) == (datetime.date(2026, 10, 13), datetime.time(10, 0)), starts
 	assert (due.date(), due.time()) == (datetime.date(2026, 10, 13), datetime.time(17, 0)), due
+	assert series.timezone == LONDON, "the series took the zone the day was read in"
 
 
 @pytest.mark.parametrize(

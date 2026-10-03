@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Moving a repeating item's day from now on keeps its time, whoever moves it.** An all-day
+  occurrence of a timed series, moved a day by somebody in another time zone, moved the whole
+  series by their offset - a London 10:00 became 2am from Tokyo - and gave it their zone. The
+  series now moves by the day and keeps its own time and zone.
 - **A repeat cannot be added to finished work.** It made a series that never came round while
   the task still said it repeated. It is refused, naming the status: reopen the task first, or
   file the next one with the repeat.
