@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A backup is readable by its owner alone from its first byte.** The copy staged in the data
+  directory, the backup itself and the note beside it were each made readable by every account
+  on the machine and tightened only afterwards, so the whole database - password and token
+  hashes included - could be read while a backup was taken, and for good if it was stopped part
+  way. A restore's copy lay beside the database the same way. The staging folder is now its
+  owner's alone, and a take clears away what a stopped one left there after a day.
 - **The plugins' skill corrects what it said about missing tools and the desktop apps, and teaches
   two things it left out.** When the `subroutine` plugin's tools are missing, uv is the only thing
   to install and `claude mcp get plugin:subroutine:tools` says why the server did not start; it

@@ -21,6 +21,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import time
 import typing
 import uuid
 
@@ -1512,7 +1513,7 @@ def test_a_backup_the_server_cannot_take_says_so_over_http (
 		)
 
 	else:
-		monkeypatch.setattr("subroutine.db.backup.shutil.copyfile", unwritable)
+		monkeypatch.setattr(subroutine.db.backup, "_copy_into", unwritable)
 
 	refused = world.call("POST", "/v1/admin/backups")
 
@@ -1725,6 +1726,104 @@ def test_the_database_never_gets_written_to_the_backup_volume (
 	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
 
 
+def test_no_other_account_can_read_a_backup_at_any_moment_of_taking_it (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4280` (H3 of the cold review of 2026-10-03): owner-only from the first byte, not after.
+
+	Measured at the service's umask, 022: the staged copy and its folder, the delivered backup and
+	the record beside it were each made readable by every account and tightened only afterwards,
+	and a take killed during delivery left a readable copy of the whole database staged for good.
+	**``keep_private`` is turned off here**, so every mode below is the one a file was created
+	with: the tightening afterwards is what used to hide the window.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+	monkeypatch.setattr(subroutine.config, "keep_private", lambda path: None)
+	seen: list[tuple[str, int]] = []
+
+	def watched (taking: typing.Callable[..., None]) -> typing.Callable[..., None]:
+		"""Record the modes the staged copy is held under, the moment it has been written."""
+
+		def take (engine: sqlalchemy.engine.Engine, target: pathlib.Path) -> None:
+			"""Take the copy, then look at what holds it."""
+
+			taking(engine, target)
+			seen.append(("the folder it is staged in", target.parent.stat().st_mode & 0o777))
+			seen.append(("the staging folder", target.parent.parent.stat().st_mode & 0o777))
+
+		return take
+
+	for name in ("_take_sqlite", "_take_postgresql"):
+		monkeypatch.setattr(subroutine.db.backup, name, watched(getattr(subroutine.db.backup, name)))
+
+	previous = os.umask(0o022)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		os.umask(previous)
+
+	record = written.path.with_name(written.path.name + subroutine.db.backup.RECORD_SUFFIX)
+	seen.append(("the backup", written.path.stat().st_mode & 0o777))
+	seen.append(("its record", record.stat().st_mode & 0o777))
+
+	assert len(seen) == 4, seen
+	assert all(mode & 0o077 == 0 for _, mode in seen), seen
+
+
+def test_a_take_clears_away_what_a_killed_one_left_staged (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4280`: a take killed part way can remove nothing, so the next one clears it after a day.
+
+	Something younger is left, since a take still running may own it.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path / "volume"))
+	staging = subroutine.config.data_home() / subroutine.db.backup.DIRECTORY_NAME / ".staging"
+	staging.mkdir(parents=True)
+	stale, recent = staging / "left-by-a-killed-take.db", staging / "a-take-still-running"
+	stale.write_bytes(b"a whole database")
+	recent.mkdir()
+	old = time.time() - subroutine.db.backup.STALE_STAGING.total_seconds() - 60
+	os.utime(stale, (old, old))
+
+	subroutine.db.backup.take(engine, _settings())
+
+	assert not stale.exists()
+	assert recent.exists()
+	assert staging.stat().st_mode & 0o077 == 0
+
+
+def test_a_delivery_never_writes_over_or_removes_a_file_already_at_its_name (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#4280`: the copy is created exclusively, and a name somebody reached first is theirs.
+
+	The name was free when it was chosen, so a file there now was written by another take; a
+	failed delivery removes what it wrote, and must not remove that.
+	"""
+
+	staged, target = tmp_path / "staged.db", tmp_path / "taken.db"
+	staged.write_bytes(b"this take's copy")
+	target.write_bytes(b"another take's backup")
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+		subroutine.db.backup._delivered(staged, target, head="0", size=len(b"this take's copy"))
+
+	assert refused.value.code == "backup_failed"
+	assert target.read_bytes() == b"another take's backup"
+
+
 def test_a_backup_that_does_not_arrive_intact_is_not_left_looking_usable (
 	engine: sqlalchemy.engine.Engine,
 	home: pathlib.Path,
@@ -1741,16 +1840,12 @@ def test_a_backup_that_does_not_arrive_intact_is_not_left_looking_usable (
 	elsewhere = tmp_path / "volume"
 	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
 
-	def truncating_copy (source: str, destination: str) -> str:
+	def truncating_copy (source: pathlib.Path, destination: pathlib.Path) -> None:
 		"""Stand in for a network write that stops half way through."""
 
-		pathlib.Path(destination).write_bytes(pathlib.Path(source).read_bytes()[:512])
+		destination.write_bytes(source.read_bytes()[:512])
 
-		return destination
-
-	# Named as a string: the module under test reaches `shutil` through its own namespace, and
-	# `--strict` will not have an attribute access into another module's imports.
-	monkeypatch.setattr("subroutine.db.backup.shutil.copyfile", truncating_copy)
+	monkeypatch.setattr(subroutine.db.backup, "_copy_into", truncating_copy)
 
 	with pytest.raises(subroutine.errors.ServiceUnavailable):
 		subroutine.db.backup.take(engine, _settings())
@@ -2066,6 +2161,41 @@ def test_restoring_a_readable_backup_leaves_the_database_private (
 		f"the database is {oct(database.stat().st_mode)} after restoring a 0644 backup, so the "
 		f"copy's mode came with it"
 	)
+
+
+def test_a_restore_never_lays_a_readable_copy_beside_the_database (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4280`: the restore's staged copy is owner-only from its first byte.
+
+	``copy2`` made ``<database>.restoring`` at the umask and then gave it the backup's own mode, so
+	the whole backup lay readable beside the live database while it was copied in, and the mode
+	was put right only after the rename. **``keep_private`` is turned off here**, so the database's
+	mode afterwards is the one its staged copy was created with.
+	"""
+
+	run("init", "--workspace", "Real")
+	run("add", "something worth keeping")
+
+	taken = _backup_name(run("db", "backup").output)
+	copy = subroutine.db.backup.directory(_settings()) / taken
+	copy.chmod(0o644)
+	database = _settings().sqlite_path
+
+	assert database is not None
+
+	monkeypatch.setattr(subroutine.config, "keep_private", lambda path: None)
+	previous = os.umask(0o022)
+
+	try:
+		run("db", "restore", str(copy), "--recover", "--yes", "--no-safety-backup")
+
+	finally:
+		os.umask(previous)
+
+	assert database.stat().st_mode & 0o077 == 0, oct(database.stat().st_mode)
 
 
 def test_a_backup_says_how_much_it_copied (

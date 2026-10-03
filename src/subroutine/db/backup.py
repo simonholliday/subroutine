@@ -27,7 +27,9 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import time
+import typing
 
 import alembic.script
 import sqlalchemy
@@ -248,9 +250,65 @@ def _staging_directory () -> pathlib.Path:
 	"""
 
 	path = subroutine.config.data_home() / DIRECTORY_NAME / ".staging"
-	path.mkdir(parents=True, exist_ok=True)
+	path.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+	# **Owner-only, and made so where it already exists** (`#4280`, H3 of the cold review of
+	# 2026-10-03). It was made at the umask, 0755 under the service's 022, so every account on the
+	# machine could reach the copy of the whole database staged here; and ``mkdir`` leaves an
+	# existing folder as it is, so asking for 0700 at creation alone would fix new installations
+	# only. Best effort, as ``keep_private`` is, for a filesystem that carries no modes.
+	with contextlib.suppress(OSError):
+		path.chmod(0o700)
 
 	return path
+
+
+#: How long something left in the staging folder waits before a take clears it away: long
+#: enough that no take still running can own it.
+STALE_STAGING = datetime.timedelta(days=1)
+
+
+def _staged_for (target: pathlib.Path) -> pathlib.Path:
+	"""Return a new folder of this take's own to stage its copy in, clearing out stale ones.
+
+	**A folder per take, made owner-only by ``mkdtemp``** (`#4280`), so the copy inside it is
+	out of every other account's reach whatever mode the engine gives the file, and two takes
+	never share one. :func:`take` removes it in a ``finally``; a take that was killed cannot, so
+	anything older than :data:`STALE_STAGING` is cleared here, by the next take.
+
+	A failure here is the server's, ``backup_failed`` at 503, as every failure is until the copy
+	is proved (`#4130`).
+	"""
+
+	try:
+		staging = _staging_directory()
+		_clear_stale(staging, now=time.time())
+
+		return pathlib.Path(tempfile.mkdtemp(dir=staging)) / target.name
+
+	except OSError as error:
+		raise subroutine.errors.ServiceUnavailable(
+			f"A backup could not be staged in the data directory: {error}",
+			code="backup_failed",
+		) from error
+
+
+def _clear_stale (staging: pathlib.Path, *, now: float) -> None:
+	"""Remove what takes that were stopped part way left in the staging folder.
+
+	Best effort: what cannot be removed is left for the next take, and never stops this one.
+	"""
+
+	for entry in staging.iterdir():
+		with contextlib.suppress(OSError):
+			if now - entry.lstat().st_mtime < STALE_STAGING.total_seconds():
+				continue
+
+			if entry.is_dir() and not entry.is_symlink():
+				shutil.rmtree(entry)
+
+			else:
+				entry.unlink()
 
 
 def _stamp (moment: datetime.datetime) -> str:
@@ -385,16 +443,16 @@ def _record (target: pathlib.Path, holdings: dict[str, int], taken_for: str) -> 
 	with contextlib.suppress(OSError, TypeError, ValueError):
 		beside = _record_beside(target)
 
-		beside.write_text(
-			json.dumps({"holdings": holdings, "taken_for": taken_for}, indent=1),
-			encoding="utf-8",
-		)
-
-		# **The same mode as the backup it describes** (`#927`'s L-8). This was written at
+		# **Owner-only from its first byte** (`#927`'s L-8, then `#4280`). This was written at
 		# whatever umask was in force, so a directory of `-rw-------` copies carried one
 		# `-rw-rw-r--` note beside each — and the note says how many rows of each kind the
-		# instance holds. Row counts are not the tasks, which is why this is small; a backup
-		# directory where one file in two is world-readable is the part worth not having.
+		# instance holds. Tightening it afterwards left it readable until then. Not
+		# ``config.write_private``, which renames into place, and the backup volume does not
+		# honour a rename (`#505`).
+		with _created_private(beside) as out:
+			out.write(json.dumps({"holdings": holdings, "taken_for": taken_for}, indent=1).encode())
+
+		# Reasserted, for a filesystem that ignores the mode asked for at creation.
 		subroutine.config.keep_private(beside)
 
 
@@ -1267,7 +1325,7 @@ def take (
 
 	# Built locally, then moved. See `_staging_directory` — the destination may be a volume
 	# SQLite cannot write a database to, which is a perfectly good place to keep a backup.
-	staged = _staging_directory() / target.name
+	staged = _staged_for(target)
 
 	try:
 		if _is_sqlite(engine):
@@ -1280,7 +1338,7 @@ def take (
 		_delivered(staged, target, head=head, size=size)
 
 	finally:
-		staged.unlink(missing_ok=True)
+		shutil.rmtree(staged.parent, ignore_errors=True)
 
 	held = _holdings(engine)
 
@@ -1406,7 +1464,16 @@ def _delivered (
 	"""
 
 	try:
-		shutil.copyfile(staged, target)
+		_copy_into(staged, target)
+
+	except FileExistsError as error:
+		# **Somebody else's file, so it is left alone.** The name was free a moment ago, so another
+		# take reached it first; removing it, as a failed copy is removed below, would delete a
+		# backup this take did not write.
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup could not be written to {target}: something else was written there first.",
+			code="backup_failed",
+		) from error
 
 	except OSError as error:
 		# **A copy that stopped part way leaves a short file behind**, which is the exact thing
@@ -1421,9 +1488,9 @@ def _delivered (
 			code="backup_failed",
 		) from error
 
-	# A backup is the database, so it gets the database's permissions. Doing it before the
-	# verification below means a copy that fails the check was never readable by anyone else
-	# either, however briefly.
+	# A backup is the database, so it gets the database's permissions. ``_copy_into`` created it
+	# owner-only, so a copy that fails the check below was never readable by anyone else either,
+	# however briefly; this reasserts the mode where a filesystem ignored the one asked for.
 	subroutine.config.keep_private(target)
 
 	try:
@@ -1462,6 +1529,33 @@ def _delivered (
 			target.unlink(missing_ok=True)
 
 		raise
+
+
+def _copy_into (source: pathlib.Path, target: pathlib.Path) -> None:
+	"""Copy a file's bytes into a new file only its owner can read, refusing one that exists.
+
+	**Owner-only from its first byte** (`#4280`). ``shutil.copyfile`` created the backup at the
+	umask, 0644 under the service's 022, and it was tightened only once every byte had arrived:
+	the whole database, password and token hashes included, readable by every account on the
+	machine for as long as the copy took.
+
+	**Data only, as `#505` requires**: no mode, owner or times are copied, which a volume whose
+	files this account cannot own refuses. And **no truncating open**: the name is new, so the
+	file is created exclusively, and the truncating write is the one that hangs on a CIFS share
+	(`#2433`).
+	"""
+
+	with source.open("rb") as copied, _created_private(target) as out:
+		shutil.copyfileobj(copied, out)
+
+
+def _created_private (path: pathlib.Path) -> typing.BinaryIO:
+	"""Return a new file opened for writing that only its owner can read.
+
+	Refuses one that already exists with ``FileExistsError``, so nothing is ever written over.
+	"""
+
+	return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
 
 
 def _take_sqlite (engine: sqlalchemy.engine.Engine, target: pathlib.Path) -> None:
@@ -1869,7 +1963,11 @@ def _restore_sqlite (
 	target.parent.mkdir(parents=True, exist_ok=True)
 	staged = target.with_name(target.name + ".restoring")
 
-	shutil.copy2(source, staged)
+	# **Owner-only from its first byte** (`#4280`). ``copy2`` created it at the umask and then
+	# copied the backup's own mode, so the whole backup lay beside the live database readable by
+	# every account while it was copied in. One left by a restore that was stopped is replaced.
+	staged.unlink(missing_ok=True)
+	_copy_into(source, staged)
 	os.replace(staged, target)
 
 	# **The copy carries the source's mode, so the live database inherits it** (`SR#1563`).
