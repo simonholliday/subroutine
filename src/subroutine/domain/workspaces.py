@@ -769,6 +769,15 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 		and not any(_deletes(role) for role in taking)
 		and not _an_owner_can_act(session, workspace)
 	):
+		# **By a person** (`#4276`, L-AA-4 of the cold review of 2026-10-03, decision `#3808` as
+		# amended that day, in line with `#4235`): an agent holding ``user:admin`` could make itself
+		# owner of such a workspace with nobody else involved.
+		if actor.user.is_service_account:
+			raise subroutine.errors.Forbidden(
+				f"Only a person makes an owner of {workspace.slug} where no owner can act.",
+				hint="Ask a person who administers this workspace, or whoever runs this instance.",
+			)
+
 		return
 
 	# **The token's own sentence where the token is what refused** (`#4020`, L-2 (2) of the cold

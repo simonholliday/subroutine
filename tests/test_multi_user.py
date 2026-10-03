@@ -1405,6 +1405,45 @@ def test_only_an_owner_makes_demotes_or_removes_an_owner (
 	workspaces.remove_member(session, workspace, hugo, actor=administering)
 
 
+def test_an_agent_cannot_make_an_owner_where_no_owner_can_act (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4276`, L-AA-4 of the cold review of 2026-10-03, decision `#3808` as amended that day.
+
+	An agent holding ``user:admin`` could make itself owner of a workspace whose owners can no
+	longer act, with nobody else involved. **Refused, saying a person must**; a person who
+	administers it still may.
+	"""
+
+	workspace, keanu, carrie_anne, _hugo = _metacortex(session)
+	workspaces = subroutine.domain.workspaces
+	dozer = subroutine.domain.users.create(
+		session, username="dozer", is_service_account=True, responsible_user_id=carrie_anne.id
+	)
+	workspaces.add_member(session, workspace, dozer, role_key="admin")
+	keanu.is_active = False
+	session.flush()
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		workspaces.set_member_role(
+			session,
+			workspace,
+			dozer,
+			role_key="owner",
+			actor=subroutine.domain.authentication.Principal(user=dozer),
+		)
+
+	assert "Only a person" in refused.value.detail, refused.value.detail
+
+	workspaces.set_member_role(
+		session,
+		workspace,
+		carrie_anne,
+		role_key="owner",
+		actor=subroutine.domain.authentication.Principal(user=carrie_anne),
+	)
+
+
 @pytest.mark.parametrize("gone", ["demoted", "removed", "deactivated"])
 def test_an_administrator_makes_an_owner_where_no_owner_can_act (
 	session: sqlalchemy.orm.Session, gone: str

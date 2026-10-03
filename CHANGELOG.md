@@ -20,6 +20,8 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Only a person makes an owner of a workspace whose owners can no longer act.** An agent that
+  administers the workspace could make itself its owner with nobody else involved.
 - **Moving a repeating item's day from now on keeps its time, whoever moves it.** An all-day
   occurrence of a timed series, moved a day by somebody in another time zone, moved the whole
   series by their offset - a London 10:00 became 2am from Tokyo - and gave it their zone. The
