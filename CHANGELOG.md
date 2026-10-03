@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`user create` and `user add` say that what is filed in the workspace without naming a
+  project goes to its Inbox, which everybody in it can see**, and the README and the hosting
+  guide name the two ways to a list of one's own: a private project, or a workspace of one's own.
 - **`subroutine explain handing-back` names `subroutine claim`**, beside the `release` it
   already named. Both are hidden from `--help` until a second connection is configured, and no
   topic mentioned claiming, so an agent with a shell had nothing in the program that did.

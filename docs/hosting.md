@@ -822,6 +822,7 @@ breath.
     /opt/subroutine/bin/subroutine user create keanu --name "Keanu Reeves" --email keanu@example.com
   Created keanu
   keanu is now a member of acme
+  What is filed in acme without naming a project goes to its Inbox, which everybody in acme can see.
   Local commands will go on acting as laurence.
 
   They cannot get in yet. Either of these hands it over, and both is fine:
@@ -844,6 +845,14 @@ breath.
 is only one. Both defaults do the same thing: they stop the ordinary case being a decision, and
 they still get out of the way - `--role viewer` narrows, `--role admin` widens, and once there
 is more than one workspace the command asks which rather than choosing.
+
+**What anybody files without naming a project goes to the workspace's Inbox, which everybody in
+the workspace can see** - and, while nobody is assigned to it, it is on everybody's agenda. A
+list of one's own takes one of two routes. A private project in a shared workspace:
+`subroutine project create errands Errands --private`, then `+errands` on a line, or
+`subroutine use --here --project errands` for everything filed under one directory. Or a
+workspace of one's own, which only an administrator of the installation can make:
+`subroutine workspace create keanu "Keanu's"`, then `subroutine user add keanu --role admin -w keanu`.
 
 An account with no workspace can see nothing at all, which reads as a broken credential rather
 than a missing role. That is why the membership arrives with the account instead of waiting for

@@ -105,6 +105,33 @@ def test_a_second_person_can_be_added_and_given_a_role (
 	assert "member" in members
 
 
+def test_joining_a_workspace_says_its_inbox_is_everybodys (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#4160`, decision `#4161`: the Inbox is shared, and a person joining is told so.
+
+	The README said *your own to-do list fits in the same install*, and what anybody files with no
+	project goes to the one Inbox every member reads. Both ways in say it: ``user create``, which
+	joins the account as it makes it, and ``user add``, which joins somebody already here.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	shared = "What is filed in {} without naming a project goes to its Inbox, which everybody in {} can see."
+
+	created = run("user", "create", "thomas").output
+
+	assert "thomas is now a member of acme" in created, created
+	assert shared.format("acme", "acme") in created, created
+
+	# A second workspace only now, since with two `user create` asks which one rather than choosing.
+	run("workspace", "create", "dojo", "The Dojo")
+	added = run("user", "add", "thomas", "--role", "member", "--workspace", "dojo").output
+
+	assert "thomas is now a member of dojo" in added, added
+	assert shared.format("dojo", "dojo") in added, added
+
+
 def test_the_roster_of_one_workspace_marks_somebody_who_has_left (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

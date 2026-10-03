@@ -84,8 +84,9 @@ class Item:
 	state: str = "open"
 
 
-#: The work on ``web``, and the errands beside it on Laurence's own list. Titles follow the moods
-#: of ``#2390``: work is an instruction, a bug a symptom, a question ends in a question mark.
+#: The work on ``web``, and the errands beside it in metacortex's Inbox, which everybody there can
+#: see. Titles follow the moods of ``#2390``: work is an instruction, a bug a symptom, a question
+#: ends in a question mark.
 ITEMS = (
 	Item(
 		"deploy", "Fix the deploy script", f"+{PROJECT} !4/4 ~2h @{AGENT}",

@@ -9407,6 +9407,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			program.say(
 				f"{joined.user.username} is now {_a_role(joined.role)} of {joined.workspace.slug}"
 			)
+			program.say(_the_shared_inbox(joined.workspace.slug))
 
 		if settled is not None:
 			program.say(f"Local commands will go on acting as {settled}.")
@@ -9539,6 +9540,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			)
 
 			program.say(f"{joined.user.username} is now {_a_role(joined.role)} of {joined.workspace.slug}")
+			program.say(_the_shared_inbox(joined.workspace.slug))
 
 	@user_app.command("role")
 	def user_role (
@@ -11973,6 +11975,20 @@ def _a_role (role: str) -> str:
 	member in projects*)."""
 
 	return f"{'an' if role[:1].lower() in 'aeiou' else 'a'} {role}"
+
+
+def _the_shared_inbox (workspace: str) -> str:
+	"""Say, where somebody joins, that what is filed there with no project is everybody's to see.
+
+	**The Inbox is shared, as docs/design.md §6.8 decided** (decision `#4161`, on `#3946`), and
+	nothing said so at the moment it matters: a person told *your own to-do list fits in the same
+	install* filed their errands into a list every member reads, and onto every agenda.
+	"""
+
+	return (
+		f"What is filed in {workspace} without naming a project goes to its Inbox, which everybody "
+		f"in {workspace} can see."
+	)
 
 
 def _something_was_piped () -> bool:

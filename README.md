@@ -175,7 +175,9 @@ Three ways in, and they compose:
 - **A browser**, for you and for everyone who is never going to use a terminal - an agenda, a
   list, a drag-and-drop board, and the whole of an item.
 
-Your own to-do list fits in the same install without being filed like work.
+Your own to-do list fits in the same install, in a private project or in a workspace of your
+own. What is filed without naming a project goes to the workspace's Inbox, which everybody in
+that workspace can see.
 
 **And you can leave with your work.** `subroutine export ~/leaving` writes everything you can
 read as a folder per workspace: a file of JSON lines for each kind of thing - items, documents,
