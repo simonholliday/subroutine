@@ -1984,6 +1984,7 @@ class Client:
 	) -> subroutine.domain.links.End:
 		"""Describe one side of a link, resolving the ref the way the endpoint does."""
 
+		subroutine.domain.links.refuse_an_unlinkable(entity_type)
 		row = self._in_the_trash_too(session, actor, ref, workspace.slug, entity_type)
 
 		return subroutine.domain.links.End(

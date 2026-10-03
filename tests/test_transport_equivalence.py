@@ -952,6 +952,44 @@ def test_both_name_the_workspaces_nobody_can_administer_and_repair_one (pair: Pa
 		assert operator.unadministered_workspaces() == []
 
 
+def test_both_find_a_workspace_whose_short_name_reads_as_an_id (pair: Pair) -> None:
+	"""`SR#4315`: an administrator outside it found it over HTTP, and was refused locally.
+
+	A short name of 32 hex digits parses as an id. The server reads a written name as an id and
+	then, finding none, as a short name; the local client read it as an id and stopped.
+	"""
+
+	operator = _as_the_operator(pair)
+	thomas = subroutine.domain.users.create(pair.session, username="thomas")
+	slug = "abcdef0123456789abcdef0123456789"
+	subroutine.domain.workspaces.create(pair.session, slug=slug, title="Hex", owner=thomas)
+	pair.session.flush()
+
+	with operator:
+		here = operator.members(workspace=slug)
+
+		assert [one.user.username for one in here] == ["thomas"], here
+		assert pair.remote.members(workspace=slug) == here
+
+
+def test_both_refuse_a_link_to_what_cannot_be_linked_by_name (pair: Pair) -> None:
+	"""`SR#4315`: locally, a project as a link's far end reached the database's own check.
+
+	It answered that the local database could not be read, where the server says what can be
+	linked. Nothing is stored either way.
+	"""
+
+	first = make(pair, "Fix the deploy script")
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			client.link(
+				ref=first.ref, link_type="relates_to", target=first.ref, target_type="project"
+			)
+
+		assert refused.value.errors[0].field == "target_type", refused.value.errors
+
+
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
 	"""Three writes — an account, a membership, a credential — as one call and one transaction.
 

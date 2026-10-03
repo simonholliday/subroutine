@@ -142,8 +142,8 @@ def _instructions (
 	# **A decision is always a document** (`#3731`, Simon's of 2026-09-27). One taken in passing
 	# was written as a comment on the task at hand, in another project, and never reached the
 	# conventions list, so a later session invented what had been decided (`#3728`). This text
-	# reaches every connected agent, so it carries the rule in a clause; the skill is to teach it
-	# as well (`#3732`), and does not yet.
+	# reaches every connected agent, so it carries the rule in a clause, and the skill teaches it
+	# as well (`#3732`).
 	return (
 		f"Shared project management for people and agents, on connection "
 		f"'{label}'. You are a principal here rather than a tool being driven: what "

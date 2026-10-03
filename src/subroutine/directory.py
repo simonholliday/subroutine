@@ -203,9 +203,10 @@ class Marker(typing.NamedTuple):
 #: What separates one key from the next in a project's address (decision `#957`).
 #:
 #: **The same character as ``subroutine.domain.projects.PATH_SEPARATOR``, held equal by a
-#: test rather than imported.** This module deliberately depends on nothing but the standard
-#: library, so that a client which has not built a domain can still read a marker; paying a
-#: package import for one character would spend the property to save the guard.
+#: test rather than imported.** This module depends on nothing heavier than
+#: :mod:`subroutine.addressing`, which needs only the standard library, so that a client which
+#: has not built a domain can still read a marker. ``addressing`` could hold this character as
+#: well, since it costs no more to import than this module does.
 PATH_SEPARATOR = "/"
 
 

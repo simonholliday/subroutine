@@ -248,17 +248,8 @@ def _for_an_administrator (
 	# **Asked of the database, by the one reading of a written name** (`#4031`, L-11 (7) of the cold
 	# review of 2026-09-30): every workspace was loaded to compare each. An id first, where the text
 	# is one, so a short name that happens to read as an id cannot shadow the workspace it names.
-	model = subroutine.db.models.identity.Workspace
-	named, short = subroutine.addressing.workspace_named(wanted)
-	live = sqlalchemy.select(model).where(model.deleted_at.is_(None))
-
-	if named is not None:
-		found = session.scalars(live.where(model.id == named)).first()
-
-		if found is not None:
-			return found
-
-	return session.scalars(live.where(model.slug == short)).first()
+	# Shared with the local client's lookup since `#4315`, which read a name differently.
+	return subroutine.domain.workspaces.named_live(session, wanted)
 
 
 def _names (found: subroutine.db.models.identity.Workspace, wanted: str) -> bool:

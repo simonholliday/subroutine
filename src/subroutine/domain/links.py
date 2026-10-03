@@ -49,6 +49,30 @@ import subroutine.permissions
 #: from a failing test (§14), and is not creatable through this module until those exist.
 LINKABLE = ("task", "document")
 
+
+def refuse_an_unlinkable (entity_type: str) -> None:
+	"""Refuse an end that is not something a link joins, naming ``target_type`` - `#4315`.
+
+	**Here, so both transports refuse it by name.** It was the endpoint's alone, so the local
+	client passed a project to the database, whose own check answered that the local database
+	could not be read.
+	"""
+
+	if entity_type in LINKABLE:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{entity_type!r} is not something that can be linked.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="target_type",
+				code="invalid_field_value",
+				message=f"Unknown entity type {entity_type!r}.",
+				hint=f"Linkable types are: {', '.join(LINKABLE)}.",
+			)
+		],
+	)
+
 #: One end of a chain, while a ring is being looked for — its kind and its id (`SR#2285`).
 #:
 #: **Not an :class:`End`**, which carries a row, a ref, a title and a project because it is

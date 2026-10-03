@@ -1167,18 +1167,7 @@ def _near (
 ) -> subroutine.domain.links.End:
 	"""Resolve one end of a link from a ref or an id, refusing an unknown entity type."""
 
-	if entity_type not in subroutine.domain.links.LINKABLE:
-		raise subroutine.errors.ValidationError(
-			f"{entity_type!r} is not something that can be linked.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="target_type",
-					code="invalid_field_value",
-					message=f"Unknown entity type {entity_type!r}.",
-					hint=f"Linkable types are: {', '.join(subroutine.domain.links.LINKABLE)}.",
-				)
-			],
-		)
+	subroutine.domain.links.refuse_an_unlinkable(entity_type)
 
 	if entity_type == "task":
 		row: typing.Any = subroutine.api.tasks._resolve(session, actor, workspace, id_or_ref)

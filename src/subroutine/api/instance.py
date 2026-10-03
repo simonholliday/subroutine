@@ -4,9 +4,11 @@
 things at once and this writes exactly one row. The address is a literal under ``/v1`` sharing
 a prefix with nothing, so ``api.routing.check`` is content wherever it is mounted.
 
-**There is no ``GET`` here.** ``/v1/meta`` already reports the instance to every authenticated
-caller, and a second reader would be two answers to one question — which is the defect this
-project keeps finding, rather than a convenience.
+**The instance's name and zone are read through ``/v1/meta``**, which reports them to every
+authenticated caller, so nothing here reads them a second time: two answers to one question is
+the defect this project keeps finding. The ``GET`` routes here are inventories for an
+administrator - every workspace, and what somebody leaving would make unreachable or leave with
+nobody to administer.
 """
 
 import typing

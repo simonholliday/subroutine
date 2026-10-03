@@ -425,9 +425,10 @@ def reaches_the_whole_installation (
 	the control an operator uses when handing a credential to an agent or to a second machine,
 	and ``scopes`` defaults to the owner's whole permission set.
 
-	**A predicate rather than a refusal, because the two callers refuse differently and both
-	are right.** ``api/workspaces._for_an_administrator`` returns ``None`` so its caller answers
-	as though the workspace does not exist — which is what stops a pinned credential probing for
+	**A predicate rather than a refusal, because each caller refuses in its own way and each is
+	right.** Two of them: ``api/workspaces._for_an_administrator`` returns ``None`` so its
+	caller answers as though the workspace does not exist — which is what stops a pinned
+	credential probing for
 	one by name — while ``domain/workspaces.on_instance`` raises, because the caller asked a
 	question about the installation rather than about a workspace they might not be able to
 	see. What they share is the rule, and the rule is what this is.

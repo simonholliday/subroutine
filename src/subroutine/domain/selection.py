@@ -230,20 +230,8 @@ def _outside (
 	):
 		return None
 
-	wanted = requested.strip()
-	model = subroutine.db.models.identity.Workspace
-
-	try:
-		named = model.id == uuid.UUID(wanted)
-
-	except ValueError:
-		named = model.slug == subroutine.domain.workspaces.normalize_slug(wanted)
-
-	found: subroutine.db.models.identity.Workspace | None = session.scalars(
-		sqlalchemy.select(model).where(named, model.deleted_at.is_(None))
-	).first()
-
-	return found
+	# **The server's reading** (`#4315`): an id, then a short name, so one of 32 hex digits is found.
+	return subroutine.domain.workspaces.named_live(session, requested)
 
 
 def _not_a_member (

@@ -1390,6 +1390,33 @@ def normalize_slug (slug: str) -> str:
 	return subroutine.addressing.normalize_slug(slug)
 
 
+def named_live (
+	session: sqlalchemy.orm.Session, wanted: str
+) -> subroutine.db.models.identity.Workspace | None:
+	"""Return the live workspace a written id or short name means: its id first, then its name.
+
+	**The one reading for a caller outside the workspace** (`#4315`, of the cold review of
+	2026-10-03). The server's administrator lookup tried an id and then a short name, and the local
+	client's tried only the id where the text parsed as one, so a short name of 32 hex digits was
+	found over HTTP and refused locally. An id first, so a short name that reads as an id cannot
+	shadow the workspace it names.
+	"""
+
+	model = subroutine.db.models.identity.Workspace
+	named, short = subroutine.addressing.workspace_named(wanted)
+	live = sqlalchemy.select(model).where(model.deleted_at.is_(None))
+
+	if named is not None:
+		found: subroutine.db.models.identity.Workspace | None = session.scalars(
+			live.where(model.id == named)
+		).first()
+
+		if found is not None:
+			return found
+
+	return session.scalars(live.where(model.slug == short)).first()
+
+
 def _slug_taken (
 	session: sqlalchemy.orm.Session, slug: str, *, except_id: uuid.UUID | None = None
 ) -> bool:
