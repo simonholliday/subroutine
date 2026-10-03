@@ -306,6 +306,7 @@ def listing (
 	statement = subroutine.domain.scoping.readable_documents(
 		actor, workspace_ids=[workspace.id], include_deleted=deleted
 	)
+	collection = subroutine.api.pagination.in_workspace("documents", workspace.id)
 
 	model = subroutine.db.models.work.Document
 
@@ -481,7 +482,7 @@ def listing (
 			include_total=include_total,
 			shape=shape,
 			render=_for_a_group,
-			collection="documents",
+			collection=collection,
 			# **No `held_back` here and that is not an omission**: readiness is a property of
 			# work, so a document listing has no rule that holds rows back and nothing to say.
 			unread=dates.unread,
@@ -502,7 +503,7 @@ def listing (
 			subroutine.api.pagination.after(
 				keys,
 				subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="documents"
+					settings.require_secret_key(), keys, cursor, collection=collection
 				),
 			)
 		)
@@ -540,7 +541,7 @@ def listing (
 			has_more=has_more,
 			next_cursor=(
 				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, rows[-1], collection="documents"
+					settings.require_secret_key(), keys, rows[-1], collection=collection
 				)
 				if has_more and rows
 				else None

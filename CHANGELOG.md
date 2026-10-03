@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A listing's cursor works only in the workspace it came from.** Passed to the same listing
+  in another workspace, it carried on there from where it had stopped: a task listing answered
+  with no rows and said there were no more, and nothing said anything was wrong. It is now
+  refused, as a cursor from a different listing already was, and the listing starts again. A
+  cursor issued before this upgrade is refused once in the same way.
 - **Listing tasks on PostgreSQL no longer spends seconds preparing a query that takes
   milliseconds.** PostgreSQL compiled the checks every task listing makes for what is ready
   before running them, having misjudged how much work they were: a page of eight took about

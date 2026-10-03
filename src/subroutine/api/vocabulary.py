@@ -443,6 +443,7 @@ def list_tags (
 
 	workspace = _chosen(session, actor, workspace_id)
 	model = subroutine.db.models.vocabulary.Tag
+	collection = subroutine.api.pagination.in_workspace("tags", workspace.id)
 	# **The tags the caller may see** (decision `#4094`): one only private work they cannot read
 	# uses is not listed to them, where it was listed to everybody in the workspace.
 	statement = sqlalchemy.select(model).where(
@@ -469,7 +470,7 @@ def list_tags (
 			subroutine.api.pagination.after(
 				keys,
 				subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="tags"
+					settings.require_secret_key(), keys, cursor, collection=collection
 				),
 			)
 		)
@@ -487,7 +488,7 @@ def list_tags (
 			has_more=has_more,
 			next_cursor=(
 				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, rows[-1], collection="tags"
+					settings.require_secret_key(), keys, rows[-1], collection=collection
 				)
 				if has_more and rows
 				else None

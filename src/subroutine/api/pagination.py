@@ -193,6 +193,20 @@ def after (keys: typing.Sequence[SortKey], values: typing.Sequence[typing.Any]) 
 LIMIT_DESCRIPTION = "How many to return. At least 1; capped at the instance's max_page_size."
 
 
+def in_workspace (name: str, workspace_id: uuid.UUID) -> str:
+	"""Return the collection a workspace's listing signs its cursors for (`#4284`, decision `#4301`).
+
+	**A listing's rows are one workspace's**, so a cursor signed with the listing's name alone was
+	accepted by the same listing in another workspace, and carried on there from where the first
+	had stopped: ``/v1/tasks`` answered 200 with no rows and ``has_more: false``. Bound to the
+	workspace it resolved, a cursor used elsewhere gets the refusal every other mismatch gets, as
+	one item's comments and history already do. Filters stay unbound: a cursor names a position,
+	and a narrower listing from the same place is still that listing.
+	"""
+
+	return f"{name}:{workspace_id}"
+
+
 def encode (
 	secret: str, keys: typing.Sequence[SortKey], row: typing.Any, *, collection: str
 ) -> str:
@@ -274,8 +288,9 @@ def _sign (secret: str, body: str, collection: str) -> str:
 	"""Return the signature for a cursor body, in the collection it belongs to.
 
 	The separator cannot appear in a collection name — each is a fixed word, or for one item's
-	history or comments a fixed word with the item's kind and id after colons (`#3939`) — so
-	there is no pair of (collection, body) that signs the same as another.
+	history or comments a fixed word with the item's kind and id after colons (`#3939`), or for a
+	workspace's listing a fixed word and the workspace's id after one (`#4284`) — so there is no
+	pair of (collection, body) that signs the same as another.
 	"""
 
 	signed = f"{collection}{_SEPARATOR}{body}"

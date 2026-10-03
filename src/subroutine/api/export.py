@@ -63,10 +63,11 @@ def _route (
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 		size = subroutine.domain.paging.size(limit, settings)
 		after = None
+		own = subroutine.api.pagination.in_workspace(collection, workspace.id)
 
 		if cursor is not None:
 			after = subroutine.api.pagination.decode(
-				settings.require_secret_key(), keys, cursor, collection=collection
+				settings.require_secret_key(), keys, cursor, collection=own
 			)[0]
 
 		found = subroutine.exporting.page(
@@ -84,7 +85,7 @@ def _route (
 				has_more=found.has_more,
 				next_cursor=(
 					subroutine.api.pagination.encode(
-						settings.require_secret_key(), keys, last, collection=collection
+						settings.require_secret_key(), keys, last, collection=own
 					)
 					if found.has_more
 					else None

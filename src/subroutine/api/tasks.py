@@ -1533,6 +1533,7 @@ def _page (
 
 	sortable = allowed
 	fallback = DEFAULT_ORDER if default is None else default
+	collection = subroutine.api.pagination.in_workspace("tasks", workspace_id)
 
 	keys = subroutine.api.pagination.parse_order(
 		order,
@@ -1567,7 +1568,7 @@ def _page (
 			include_total=include_total,
 			shape=shape,
 			render=functools.partial(_for_a_group, reader=actor),
-			collection="tasks",
+			collection=collection,
 			held_back=held_back,
 			unread=unread,
 			# **Which columns the completion rule never looked at** — `SR#2293`. A grouped
@@ -1592,7 +1593,7 @@ def _page (
 
 	if cursor is not None:
 		values = subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="tasks"
+					settings.require_secret_key(), keys, cursor, collection=collection
 				)
 		statement = statement.where(subroutine.api.pagination.after(keys, values))
 
@@ -1632,7 +1633,7 @@ def _page (
 			has_more=has_more,
 			next_cursor=(
 				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, rows[-1], collection="tasks"
+					settings.require_secret_key(), keys, rows[-1], collection=collection
 				)
 				if has_more and rows
 				else None

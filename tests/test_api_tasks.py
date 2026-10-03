@@ -707,6 +707,73 @@ def test_a_cursor_from_one_collection_is_refused_by_another (world: World) -> No
 	assert world.call("GET", f"/v1/tasks?limit=10&cursor={on_tasks}").status_code == 200
 
 
+def test_a_cursor_from_one_workspace_is_refused_in_another (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4284`, M16 of the cold review of 2026-10-03, decision `#4301`.
+
+	A cursor was bound to its listing's name and not to its workspace, so one issued in one
+	workspace was accepted by the same listing in another and carried on there from where the
+	first had stopped: ``/v1/tasks`` answered **200 with no rows and ``has_more: false``**, and the
+	export two rows of four. Every workspace's listing, and every kind the export pages that holds
+	more than a page here; the rest share the export's one code path. **And the control**: each
+	cursor still walks the workspace it came from.
+	"""
+
+	world = _world(session)
+	second = subroutine.domain.workspaces.create(
+		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Work", owner=world.user
+	)
+	session.flush()
+	here, there = str(world.workspace.slug), str(second.slug)
+
+	for slug in (here, there):
+		for index in range(2):
+			for path, body in (
+				("/v1/tasks", {"title": f"Task {index}", "tags": [f"tag{index}"]}),
+				("/v1/documents", {"title": f"Document {index}"}),
+				("/v1/projects", {"key": f"p{index}", "title": f"Project {index}"}),
+			):
+				made = world.call("POST", path, json={**body, "workspace_id": slug})
+
+				assert made.status_code == 201, made.text
+
+	listings = ["/v1/tasks", "/v1/documents", "/v1/projects", "/v1/tags"] + [
+		f"/v1/export/{kind}"
+		for kind in (
+			"projects",
+			"tasks",
+			"documents",
+			"events",
+			"tags",
+			"statuses",
+			"item_types",
+			"link_types",
+		)
+	]
+
+	for path in listings:
+		issued = world.call("GET", path, params={"workspace_id": here, "limit": 1}).json()["page"][
+			"next_cursor"
+		]
+
+		assert issued is not None, f"{path} holds one page here, so crossing it tests nothing"
+
+		crossed = world.call(
+			"GET", path, params={"workspace_id": there, "limit": 10, "cursor": issued}
+		)
+
+		assert crossed.status_code == 422, (
+			f"{path} accepted a cursor from another workspace and answered {crossed.status_code}: "
+			f"{crossed.text[:300]}"
+		)
+		assert crossed.json()["errors"][0]["field"] == "query.cursor"
+
+		walked = world.call("GET", path, params={"workspace_id": here, "limit": 10, "cursor": issued})
+
+		assert walked.status_code == 200, f"{path} refused its own cursor: {walked.text[:300]}"
+
+
 def test_a_value_that_never_reached_our_validation_still_refuses_in_our_voice (
 	world: World,
 ) -> None:

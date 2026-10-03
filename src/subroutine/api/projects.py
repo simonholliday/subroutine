@@ -216,6 +216,7 @@ def listing (
 	statement = subroutine.domain.scoping.readable_projects(
 		actor, workspace_ids=[workspace.id], include_archived=include_archived
 	)
+	collection = subroutine.api.pagination.in_workspace("projects", workspace.id)
 
 	model = subroutine.db.models.project.Project
 
@@ -250,7 +251,7 @@ def listing (
 			subroutine.api.pagination.after(
 				keys,
 				subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="projects"
+					settings.require_secret_key(), keys, cursor, collection=collection
 				),
 			)
 		)
@@ -270,7 +271,7 @@ def listing (
 			has_more=has_more,
 			next_cursor=(
 				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, rows[-1], collection="projects"
+					settings.require_secret_key(), keys, rows[-1], collection=collection
 				)
 				if has_more and rows
 				else None
