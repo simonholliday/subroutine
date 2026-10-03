@@ -2172,6 +2172,65 @@ def test_finishing_the_blocker_makes_the_blocked_task_ready (world: World) -> No
 	assert second in listed, "the blocker is done and the task is still held back"
 
 
+@pytest.mark.parametrize("status", ["done", "cancelled"])
+@pytest.mark.parametrize("given", ["title", "text"])
+def test_a_task_created_finished_is_finished_everywhere (
+	world: World, status: str, given: str
+) -> None:
+	"""`#4156`, decision `#4236`: one created finished records when, as one finished later does.
+
+	`tasks.create` resolved the status and never set `completed_at`, which only `update` wrote. So a
+	task created done or cancelled stayed on the list of open work and went on blocking what it
+	blocked, because both read that column rather than the status (docs/design.md §10.7's fifth
+	invariant). A captured line reaches the same function, so both ways in are asked.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={given: "Already settled", "status": status})
+
+	assert made.status_code == 201, made.text
+	assert made.json()["status"] == status
+	assert made.json()["completed_at"] is not None, "finished, and no record of when"
+
+	settled = made.json()["ref"]
+	later = world.call("POST", "/v1/tasks", json={"title": "Built on it"}).json()["ref"]
+	_blocking(world, settled, later)
+
+	listed = [item["ref"] for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]]
+
+	assert settled not in listed, "finished work stayed on the list of open work"
+	assert later in _ready_refs(world), "finished work went on blocking"
+
+
+def test_a_repeat_cannot_be_created_finished (world: World) -> None:
+	"""`#4156`. A finished series is a stopped one, so nothing would ever come of it.
+
+	It was created open: the status was written on the series, its first occurrence took the
+	workspace's default, and the status given was lost. Stamping the series instead would stop it
+	before that occurrence, and the refusal for a rule with no dates left would blame the dates.
+	"""
+
+	before = world.call("GET", "/v1/tasks?limit=50").json()["items"]
+
+	refused = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Water the plants", "recurrence": "every week", "due": "2026-12-01", "status": "done"},
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert [error["field"] for error in refused.json()["errors"]] == ["status"]
+	assert world.call("GET", "/v1/tasks?limit=50").json()["items"] == before, "it wrote something"
+
+	kept = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Water the plants", "recurrence": "every week", "due": "2026-12-01"},
+	)
+
+	assert kept.status_code == 201, "a repeat with no status given must still be made"
+	assert kept.json()["completed_at"] is None
+
+
 def _filed_under (world: World, parent: dict[str, typing.Any], title: str) -> dict[str, typing.Any]:
 	"""Make a sub-task of an existing task, and return it."""
 

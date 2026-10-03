@@ -14,18 +14,23 @@ upgrade involves.
 
 ## Unreleased
 
-- **`subroutine://conventions` reaches the projects above yours and every rule that binds the
-  whole workspace**: an agent in a project inside another is shown the rules filed above it as
-  well as its own, and a document marked to bind the whole workspace is listed wherever the
-  reader stands, saying so beside its project. The list closes with how many in force elsewhere
-  were left out, including when nothing is listed for the reader, where it used to say nothing
-  was in force at all.
 > **This release changes the database schema**, to `124f22afc629`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A task created already finished says when**: one created with a done or cancelled
+  status, through `status` on `POST /v1/tasks`, was stored with no `completed_at`, so it
+  stayed on the list of open work and went on blocking whatever it blocked. A repeat cannot be
+  created finished, and is refused naming `status`: it was created open, and the status given
+  was lost.
+- **`subroutine://conventions` reaches the projects above yours and every rule that binds the
+  whole workspace**: an agent in a project inside another is shown the rules filed above it as
+  well as its own, and a document marked to bind the whole workspace is listed wherever the
+  reader stands, saying so beside its project. The list closes with how many in force elsewhere
+  were left out, including when nothing is listed for the reader, where it used to say nothing
+  was in force at all.
 - **A document can bind the whole workspace**: `--binds workspace` on `document create` and
   `document edit`, `binds` on `subroutine_document` and on `POST` and `PATCH /v1/documents`, and
   `binds.eq=workspace` on the listing. Every document binds its own project until it is marked.

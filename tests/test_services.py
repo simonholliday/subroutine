@@ -1712,6 +1712,33 @@ def test_completing_a_task_records_when (session: sqlalchemy.orm.Session) -> Non
 	assert cancelled is not None, "cancelled is a finished category too"
 
 
+def test_a_task_created_finished_records_when_at_the_calls_own_instant (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#4156`: invariant 5 holds from the first write, not from the first update.
+
+	Stamped from ``now`` rather than the wall clock, as `update` stamps it (`#94`), so a caller
+	resolving a batch against one moment records that moment.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	moment = datetime.datetime(2026, 10, 3, 9, 30, tzinfo=datetime.UTC)
+
+	for key in ("done", "cancelled"):
+		finished = subroutine.domain.tasks.create(
+			session, project=project, title=f"Already {key}", status_key=key, now=moment
+		)
+
+		assert finished.completed_at == moment, f"created {key} and stamped {finished.completed_at}"
+
+	underway = subroutine.domain.tasks.create(
+		session, project=project, title="Not yet", status_key="in_progress", now=moment
+	)
+
+	assert underway.completed_at is None, "only a finished status is stamped"
+
+
 def test_finishing_something_twice_does_not_move_when_it_finished (
 	session: sqlalchemy.orm.Session,
 ) -> None:

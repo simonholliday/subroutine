@@ -1029,6 +1029,25 @@ def create (
 
 	repeat = _repeat(recurrence, anchor=recurrence_anchor, trigger=recurrence_trigger)
 
+	# **A repeat cannot start finished** (`#4156`). Its status is the series', and a finished series
+	# is a stopped one (`materialise`), so stamping it below would stop it before its first
+	# occurrence - and the refusal for a rule with no dates left would then blame the dates. Before
+	# this the status was written on the series and read by nothing: the occurrence handed back was
+	# open, and the status given was lost.
+	if repeat is not None and status.category in FINISHED_CATEGORIES:
+		raise subroutine.errors.ValidationError(
+			"A repeat cannot be created finished.",
+			code="invalid_field_value",
+			hint="Create it without a status, then complete its first occurrence.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="status",
+					code="invalid_field_value",
+					message=f"'{status.key}' means finished, and a repeat that starts finished never comes round.",
+				)
+			],
+		)
+
 	deadline = subroutine.domain.schedule.interpret(
 		due,
 		boundary=subroutine.domain.schedule.Boundary.END,
@@ -1123,6 +1142,11 @@ def create (
 		title=cleaned_title,
 		description=description,
 		status_id=status.id,
+		# docs/design.md §10.7 invariant 5, from the first write (`#4156`): `completed_at` is set
+		# exactly when the status is finished, at the call's own instant as `update` sets it. Only
+		# `update` wrote it, so a task created done or cancelled stayed on the list of open work and
+		# went on blocking what it blocked, since both read this column rather than the status.
+		completed_at=instant if status.category in FINISHED_CATEGORIES else None,
 		assignee_id=assignee_id,
 		assigned_by_id=_assigner(actor, assignee_id),
 		importance=_priority(importance, field="importance"),
@@ -1798,8 +1822,8 @@ def update (
 		#
 		# **`completed_at is not None` is the test for "was it already finished", and that is
 		# not a shortcut**: it is the reading `readiness`, `scoping`, `links` and `schedule`
-		# all already apply, and this assignment is the only thing in the program that writes
-		# the column, so the invariant it maintains is the invariant it may rely on.
+		# all already apply, and this assignment and `create`'s are the only things in the program
+		# that write the column, so the invariant they maintain is the invariant this may rely on.
 		#
 		# `cancelled` to `done` therefore keeps the original instant. Both are finished, the
 		# work stopped when it stopped, and a column that moved on a change of *which kind* of
