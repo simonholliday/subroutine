@@ -122,19 +122,47 @@ def _exported (program: subroutine.cli.personal.Program, *, directory: pathlib.P
 			)
 
 		for workspace in chosen:
+			folder: pathlib.Path | None = None
+
 			try:
-				written = write(
-					reached.client,
-					folder_for(directory, workspace, connection=reached.name),
-					workspace=workspace,
-					connection=reached.name,
-				)
+				folder = folder_for(directory, workspace, connection=reached.name)
+				written = write(reached.client, folder, workspace=workspace, connection=reached.name)
 
 			except subroutine.errors.SubroutineError as error:
 				program.fail(error)
 
+			# **What cannot be written is the reader's to put right, never a crash report** (`#4283`, M5
+			# of the cold review of 2026-10-03): a name too long for the filesystem, a file where the
+			# folder should be, or a folder this account may not write in each ended in *please report
+			# it*, with the files written so far left behind and no word of what they were.
+			except OSError as error:
+				program.fail(_not_written(directory if folder is None else folder, error))
+
 			for said in described(workspace, written):
 				program.say(said)
+
+
+def _not_written (folder: pathlib.Path, error: OSError) -> subroutine.errors.SubroutineError:
+	"""Return the refusal for an export that could not be written, and what it left behind.
+
+	**Where the export got to is said, not only that it stopped**: a folder holding what was
+	written and no ``manifest.json`` is refused by the next export as not empty, so the reader is
+	told it is an unfinished export and theirs to delete.
+	"""
+
+	where = error.filename or folder
+	unfinished = folder.is_dir() and not (folder / MANIFEST).exists() and any(folder.iterdir())
+
+	return subroutine.errors.ServiceUnavailable(
+		f"The export could not be written to {where}: {error.strerror or error}.",
+		hint=(
+			f"{folder} holds what was written before it stopped, and no {MANIFEST}, so it is an "
+			"unfinished export and can be deleted. "
+			if unfinished
+			else ""
+		)
+		+ "Name a folder this account can write to, on a disk with room.",
+	)
 
 
 def folder_for (
@@ -203,9 +231,22 @@ def write (
 	"""
 
 	if folder.exists() and (not folder.is_dir() or any(folder.iterdir())):
+		# **An export that stopped part way is recognised by name** (`#4283`): files of lines and
+		# no manifest are what one leaves, and the reader asking again needs telling it is theirs.
+		stopped = (
+			folder.is_dir()
+			and not (folder / MANIFEST).exists()
+			and any(folder.glob("*.jsonl"))
+		)
+
 		raise subroutine.errors.Conflict(
 			f"{folder} already holds something, and an export writes only into an empty folder.",
-			hint="Name a folder that does not exist yet, or empty this one first.",
+			hint=(
+				f"It has no {MANIFEST}, so it is an export that did not finish, and can be deleted. "
+				"Or name a folder that does not exist yet."
+				if stopped
+				else "Name a folder that does not exist yet, or empty this one first."
+			),
 		)
 
 	folder.mkdir(parents=True, exist_ok=True)
@@ -260,7 +301,7 @@ def write (
 		},
 	}
 
-	(folder / "manifest.json").write_text(
+	(folder / MANIFEST).write_text(
 		json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 	)
 
@@ -296,6 +337,16 @@ def _lines (
 
 #: The kinds the readable copy is made from: the pages, and what was said on them.
 READ_AS_PAGES = ("tasks", "documents", "comments")
+
+#: The file an export writes last, so a folder without one is an export that did not finish.
+MANIFEST = "manifest.json"
+
+#: The most a page's file name may take, in bytes (`#4283`, M5 of the cold review of 2026-10-03).
+#:
+#: **The tightest of the common filesystems**: eCryptfs, an encrypted home folder, takes 143 bytes
+#: where ext4 and most others take 255. Eighty characters of a title fit every one of them in a
+#: script written a byte a character, and eighty emoji are 320 bytes, which none of them takes.
+NAME_BYTES = 143
 
 #: Where a deleted item's page goes. **No project key can be it**, since a key has no underscore,
 #: so the trash never shares a folder with a project called ``trash``.
@@ -408,6 +459,12 @@ def filename (ref: int, title: str) -> str:
 	"""
 
 	safe = " ".join(_UNSAFE.sub(" ", title).split())[:80].rstrip(" .")
+
+	# **And no more bytes than a filesystem takes** (`#4283`). The eighty characters stay, so a
+	# title written a byte a character is cut where it always was; a cut inside a character's
+	# bytes drops that character rather than leaving half of it.
+	room = NAME_BYTES - len(f"{ref} .md".encode())
+	safe = safe.encode()[:room].decode(errors="ignore").rstrip(" .")
 
 	return f"{ref} {safe}.md" if safe else f"{ref}.md"
 

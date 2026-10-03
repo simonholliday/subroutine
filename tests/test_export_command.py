@@ -139,6 +139,63 @@ def test_a_page_s_name_is_safe_on_every_common_system (title: str, named: str) -
 	assert subroutine.cli.export.filename(12, title) == named
 
 
+def test_a_page_s_name_is_never_longer_than_a_filesystem_takes () -> None:
+	"""`SR#4283`: eighty emoji are 320 bytes, and no common filesystem takes a name that long."""
+
+	named = subroutine.cli.export.filename(12, "\N{GRINNING FACE}" * 80)
+
+	assert len(named.encode()) <= subroutine.cli.export.NAME_BYTES, named
+	assert named.startswith("12 \N{GRINNING FACE}") and named.endswith("\N{GRINNING FACE}.md"), named
+
+
+@pytest.mark.parametrize("where", ["a file", "a long name"])
+def test_an_export_that_cannot_be_written_says_so_rather_than_crashing (
+	where: str,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4283`, M5 of the cold review of 2026-10-03: a crash report, then a refusal to try again.
+
+	A file where the folder should go, or a name the filesystem refused part way through, ended in
+	*please report it*. The second left files of lines and no manifest, and a re-run was refused as
+	a folder that *already holds something* with nothing to say whose they were.
+	"""
+
+	run("init")
+	run("add", "Fix the deploy script")
+	target = tmp_path / "leaving"
+
+	if where == "a file":
+		target.write_text("Somebody's notes.\n", encoding="utf-8")
+
+	else:
+
+		def refused (*_: typing.Any, **__: typing.Any) -> int:
+			"""Refuse the readable copy as a filesystem refuses a name too long for it."""
+
+			raise OSError(36, "File name too long", str(target / "markdown" / ("x" * 300)))
+
+		monkeypatch.setattr(subroutine.cli.export, "_markdown", refused)
+
+	result = run("export", str(target), expect=1)
+	said = " ".join(result.output.split())
+
+	assert not isinstance(result.exception, OSError), result.exception
+	assert "Something went wrong" not in said and "could not be written to" in said, said
+
+	if where == "a file":
+		assert target.read_text(encoding="utf-8") == "Somebody's notes.\n"
+
+		return
+
+	assert "unfinished export and can be deleted" in said, said
+
+	again = " ".join(run("export", str(target), expect=1).output.split())
+
+	assert "already holds something" in again and "did not finish" in again, again
+
+
 def test_an_export_never_writes_over_what_is_there (
 	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
 ) -> None:
