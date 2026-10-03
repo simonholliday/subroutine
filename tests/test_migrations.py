@@ -309,6 +309,40 @@ def test_an_installation_whose_path_holds_a_percent_can_migrate (
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_going_below_the_archive_puts_its_events_back (migrated_url: str) -> None:
+	"""`#251`: the revision before the archive has nowhere to hold one, so nothing is left in it.
+
+	**Moved back rather than refused**, because the move loses nothing: every archived event is a
+	row ``event`` held once and can hold again, under the ``seq`` it had.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		_populate(engine)
+		tables = subroutine.db.base.Base.metadata.tables
+
+		with engine.connect() as connection:
+			held = {
+				row.id
+				for name in ("event", "event_archive")
+				for row in connection.execute(sqlalchemy.select(tables[name].c.id))
+			}
+
+		subroutine.db.migrate.downgrade(migrated_url, "124f22afc629")
+
+		with engine.connect() as connection:
+			kept: set[typing.Any] = set(connection.scalars(sqlalchemy.select(tables["event"].c.id)))
+			seqs: set[int] = set(connection.scalars(sqlalchemy.select(tables["event"].c.seq)))
+
+		assert kept == held, "an archived event was lost going back"
+		assert 1_000_000 in seqs, "the archived event did not keep its seq"
+
+	finally:
+		engine.dispose()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
 def test_every_migration_survives_a_database_with_data_in_it (migrated_url: str) -> None:
 	"""Walk the whole revision history backwards and forwards with real rows present.
 
@@ -1476,6 +1510,19 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 				"actor_token_id": token,
 			},
 		),
+		# **One event already moved** (`#251`), whose `seq` the live table never hands out, so going
+		# below the archive has a row to put back.
+		(
+			"event_archive",
+			{
+				"seq": 1_000_000,
+				"workspace_id": workspace,
+				"entity_type": "task",
+				"entity_id": task,
+				"action": "updated",
+				"actor_user_id": user,
+			},
+		),
 		(
 			"link_type",
 			{
@@ -1562,6 +1609,7 @@ SEEDED = frozenset(
 		"calendar_feed",
 		"comment",
 		"event",
+		"event_archive",
 		"link_type",
 		"link",
 		"mention",

@@ -242,6 +242,17 @@ export function pollRequest (slug, since) {
 	return { path: slug ? scoped(asking, slug) : asking, method: "GET" };
 }
 
+export function resumeFrom (failure, since) {
+	/* Where the poll carries on from after `failure` - `#251`.
+
+	   **A cursor the feed has expired starts again from the newest event.** An instance with a
+	   retention floor moves old events out of the feed, and a page left open across the move is
+	   answered 410 for the cursor it holds. The poll swallows its failures so that a timeout is ten
+	   seconds of staleness, and a 410 swallowed would be every poll refused the same way for as
+	   long as the page stays open. With no cursor the next poll asks for the newest. */
+	return failure && failure.status === 410 ? null : since;
+}
+
 export function freshly (items, since) {
 	/*
 		The events in a poll's answer that the caller has not already dealt with — `#781`.

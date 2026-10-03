@@ -859,8 +859,8 @@ def test_an_instance_that_has_pruned_nothing_never_calls_a_cursor_expired (
 	lowest well above 1 - and ``since=1`` is what the refusal of ``since=0`` tells a caller to
 	send. On PostgreSQL a sequence has gaps by construction, which a rolled-back first write
 	leaves; the oldest rows are deleted here to stand for one, which is how the refusal used to be
-	tested, and it cannot tell that from pruning. **Nothing prunes yet, so nothing is expired**:
-	`#251` brings the refusal back with a record of the highest ``seq`` it pruned.
+	tested, and it cannot tell that from pruning. **A cursor is expired only at or below the
+	highest ``seq`` moved to the archive** (`#251`), which deleting rows records nowhere.
 	"""
 
 	world.call("POST", "/v1/tasks", json={"title": "Filed in the first workspace"})

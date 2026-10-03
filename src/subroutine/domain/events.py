@@ -20,6 +20,7 @@ import uuid
 
 import sqlalchemy
 import sqlalchemy.orm
+import sqlalchemy.sql.util
 
 import subroutine.db.models.activity
 import subroutine.db.models.identity
@@ -27,6 +28,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.retention
 import subroutine.domain.scoping
 import subroutine.domain.sounds
 import subroutine.errors
@@ -351,7 +353,8 @@ def revisions_of (
 	if field is None:
 		return None
 
-	model = subroutine.db.models.activity.Event
+	# **Both tables** (`#251`): a rewrite moved to the archive past a retention floor is still one.
+	model = HISTORY
 	actor = sqlalchemy.orm.aliased(subroutine.db.models.identity.User)
 
 	rows = session.execute(
@@ -401,6 +404,33 @@ def changes_between (
 	return differences
 
 
+#: Every event this instance holds, the live table's and the archive's (`#251`, decision `#4233`).
+#:
+#: **The change feed reads the live table, and everything that reads history reads this**: the
+#: journal, an item's history, *revised N times* and an export, and the ``touched_at`` and
+#: ``touched_by`` filters through two clauses of their own. An operator's retention floor moves
+#: old events out of the feed, so its cursors expire as §5.11 says, and takes nothing from the
+#: record.
+EVERY_EVENT = sqlalchemy.union_all(
+	sqlalchemy.select(subroutine.db.models.activity.Event.__table__),
+	sqlalchemy.select(subroutine.db.models.activity.ARCHIVE),
+).subquery("every_event")
+
+#: :data:`EVERY_EVENT` read as events, so a reader of history is handed the rows the feed is.
+HISTORY = sqlalchemy.orm.aliased(subroutine.db.models.activity.Event, EVERY_EVENT, name="history")
+
+
+def held (clause: typing.Any) -> typing.Any:
+	"""Return ``clause``, written about the live table, as asked of every event held - `#251`.
+
+	**One translation rather than a second copy of each predicate.** Who may see an event, the
+	filters and the journal's own rule are written once, against :class:`Event`, and this re-points
+	their columns at :data:`EVERY_EVENT` - a correlated ``EXISTS`` inside one included.
+	"""
+
+	return sqlalchemy.sql.util.ClauseAdapter(EVERY_EVENT).traverse(clause)
+
+
 def selected (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
@@ -412,6 +442,7 @@ def selected (
 	visible: sqlalchemy.ColumnElement[bool] | None = None,
 	actor_token_id: uuid.UUID | None = None,
 	narrowing: typing.Sequence[typing.Any] = (),
+	everything: bool = False,
 ) -> sqlalchemy.Select[subroutine.db.models.activity.Event]:
 	"""Return the statement both readers of this table are built on (docs/design.md §5.11a).
 
@@ -472,13 +503,18 @@ def selected (
 	``updated_at`` deliberately does not move for a comment either (``#52``). The subject pair
 	is the join that fixes it, and matching it here rather than at the route means the feed
 	inherits the same answer instead of inventing a second one.
+
+	**``everything`` reads the archive as well as the live table** (`#251`), and is for a reader of
+	history: an item's history, the journal and an export. The change feed never asks for it, since
+	its cursor is the thing a retention floor expires. Every condition is written about the live
+	table once and, for history, asked of both through :func:`held`.
 	"""
 
 	model = subroutine.db.models.activity.Event
-	statement = sqlalchemy.select(model).where(model.workspace_id.in_(workspace_ids))
+	conditions: list[typing.Any] = [model.workspace_id.in_(workspace_ids)]
 
 	if entity_type is not None and entity_id is not None:
-		statement = statement.where(
+		conditions.append(
 			sqlalchemy.or_(
 				sqlalchemy.and_(model.entity_type == entity_type, model.entity_id == entity_id),
 				sqlalchemy.and_(model.subject_type == entity_type, model.subject_id == entity_id),
@@ -487,31 +523,34 @@ def selected (
 
 	else:
 		if entity_type is not None:
-			statement = statement.where(model.entity_type == entity_type)
+			conditions.append(model.entity_type == entity_type)
 
 		if entity_id is not None:
-			statement = statement.where(model.entity_id == entity_id)
+			conditions.append(model.entity_id == entity_id)
 
 	if upper_bound is not None:
-		statement = statement.where(model.created_at <= upper_bound)
+		conditions.append(model.created_at <= upper_bound)
 
 	if since is not None:
-		statement = statement.where(model.seq >= since)
+		conditions.append(model.seq >= since)
 
 	if before is not None:
-		statement = statement.where(model.seq < before)
+		conditions.append(model.seq < before)
 
 	if visible is not None:
-		statement = statement.where(visible)
+		conditions.append(visible)
 
 	if actor_token_id is not None:
-		statement = statement.where(model.actor_token_id == actor_token_id)
+		conditions.append(model.actor_token_id == actor_token_id)
 
 	# Unconditional: an empty sequence narrows by nothing, so every caller passes whatever it
 	# was asked without testing first — the same shape `api.filters.narrowed` already has.
-	statement = statement.where(*narrowing)
+	conditions.extend(narrowing)
 
-	return statement
+	if not everything:
+		return sqlalchemy.select(model).where(*conditions)
+
+	return sqlalchemy.select(HISTORY).where(*[held(condition) for condition in conditions])
 
 
 #: How far behind the clock the newest reportable event sits. §5.11 fixes the value because it
@@ -545,6 +584,7 @@ def feed (
 	by: uuid.UUID | None = None,
 	newest: bool = False,
 	narrowing: typing.Sequence[typing.Any] = (),
+	everything: bool = False,
 ) -> sqlalchemy.Select[subroutine.db.models.activity.Event]:
 	"""Return the change feed's statement — ordered, watermarked and narrowed (§5.11a).
 
@@ -566,7 +606,8 @@ def feed (
 	been doing* is the commonest thing a human asks about the record and had no query at all.
 	"""
 
-	model = subroutine.db.models.activity.Event
+	# The archive too for a reader of history, which :func:`selected` explains (`#251`).
+	model: typing.Any = HISTORY if everything else subroutine.db.models.activity.Event
 	token_id = None if principal.token is None else principal.token.id
 
 	statement = selected(
@@ -579,6 +620,7 @@ def feed (
 		),
 		actor_token_id=token_id if mine else None,
 		narrowing=narrowing,
+		everything=everything,
 	)
 
 	if mine and token_id is None:
@@ -630,6 +672,7 @@ def history (
 		entity_id=entity_id,
 		upper_bound=None,
 		visible=subroutine.domain.scoping.visible_events(principal, workspace_ids=[workspace_id]),
+		everything=True,
 	)
 
 
@@ -645,6 +688,7 @@ def page (
 	by: uuid.UUID | None = None,
 	newest: bool = False,
 	narrowing: typing.Sequence[typing.Any] = (),
+	everything: bool = False,
 ) -> tuple[list[subroutine.db.models.activity.Event], bool]:
 	"""Return one page of the feed, **always oldest first**, and whether more follow.
 
@@ -682,6 +726,7 @@ def page (
 		by=by,
 		newest=newest,
 		narrowing=narrowing,
+		everything=everything,
 	)
 	rows = list(session.scalars(statement.limit(size + 1)))
 	has_more = len(rows) > size
@@ -758,17 +803,12 @@ def refuse_unusable_cursor (
 	everything pruned in between — the one failure a feed must never have, because it looks
 	exactly like nothing having happened.
 
-	**Nothing prunes yet, so nothing is refused as expired** (`#3929`). The refusal asked
-	whether ``since`` fell below the lowest ``seq`` held, and that cannot tell *pruned* from
-	*never written*: ``seq`` is one sequence for the whole instance, so narrowing to one
-	workspace put its lowest well above 1, and on PostgreSQL a sequence has gaps by
-	construction - one rolled-back first write is enough. So ``since=1``, which the refusal above
-	tells a caller to send, was answered *Events before seq 8 are no longer held* by an instance
-	that had never pruned anything.
-
-	**It comes back with the pruning, `#251`**, which records the highest ``seq`` it has pruned:
-	a cursor below that is expired, which is right under gaps and under narrowing, and one read.
-	That is also `#133`'s rule, that a control for an unbuilt feature belongs with the feature.
+	**A cursor at or below the highest ``seq`` moved to the archive is expired** (`#251`), and
+	nothing else is. ``since`` is inclusive, so one naming a moved event asks for it. That number is
+	right under gaps and under narrowing, and one read; the first version of this asked whether
+	``since`` fell below the lowest ``seq`` held, which cannot tell *moved* from *never written* -
+	``seq`` is one sequence for the whole instance and has gaps on PostgreSQL - and so answered *no
+	longer held* on instances that had never moved anything (`#3929`).
 	"""
 
 	if since is None:
@@ -789,6 +829,16 @@ def refuse_unusable_cursor (
 					"to start from the oldest event still held.",
 				)
 			],
+		)
+
+	through = subroutine.domain.retention.archived_through(session)
+
+	if through is not None and since <= through:
+		raise subroutine.errors.CursorExpired(
+			f"Events up to seq {through} have been moved to the archive, so what happened since "
+			f"{since} cannot be reported in full.",
+			hint="Ask again without 'since' to start from the oldest event the feed still holds. "
+			"The journal and each item's history still read the ones that moved.",
 		)
 
 

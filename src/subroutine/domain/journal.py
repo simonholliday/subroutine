@@ -172,6 +172,9 @@ def page (
 		# A condition beside the caller's filters rather than one of them: both are clauses
 		# this statement is narrowed by, and only this one is the journal's own rule.
 		narrowing=(*narrowing, _not_a_rule_bearing_row()),
+		# **History, so the archive too** (`#251`): a period behind a retention floor is still a
+		# period somebody may ask what happened in.
+		everything=True,
 	)
 
 	if not oldest:

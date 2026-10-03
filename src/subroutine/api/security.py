@@ -563,6 +563,13 @@ def principal (
 	if watch is not None:
 		watch.ask_if_due()
 
+	# **And where it moves events past a retention floor** (`#251`), on the same terms: after
+	# somebody has been recognised, at most once a day, on a thread nothing here waits on.
+	keeper = getattr(request.app.state, "retention", None)
+
+	if keeper is not None:
+		keeper.archive_if_due()
+
 	return found
 
 

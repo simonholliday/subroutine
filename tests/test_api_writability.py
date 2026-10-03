@@ -816,6 +816,10 @@ INTERNAL: dict[str, str] = {
 		"name differs and the fact does not."
 	),
 	"User.password_hash": "§7.4 again. A hash is not a field, it is the absence of one.",
+	"Instance.events_archived_through": (
+		"The highest `seq` moved to the archive (`#251`), read only to answer a change-feed cursor at "
+		"or below it with 410. A client learns it from that refusal, which names it."
+	),
 	"Instance.singleton": (
 		"The constant column a unique index uses to make this table hold one row. An "
 		"implementation of *there is one instance*, which the response already says by shape."

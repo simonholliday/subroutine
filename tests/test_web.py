@@ -11729,6 +11729,7 @@ def _views (
 			}})()
 			: name === "people" ? app.people(argument.roster)
 			: name === "freshly" ? app.freshly(argument.items, argument.since)
+			: name === "resumeFrom" ? app.resumeFrom(argument.failure, argument.since)
 			: name === "touching"
 				? app.touching(argument.events, argument.open, argument.page, argument.links)
 			: name === "orderedAs" ? app.orderedAs(argument.selection)
@@ -13452,6 +13453,27 @@ def test_only_what_the_page_has_not_seen_counts_as_a_change (
 	])[0]
 
 	assert [one["seq"] for one in answer] == kept
+
+
+@pytest.mark.parametrize(
+	("status", "kept"),
+	[(410, None), (500, 42), (401, 42)],
+	ids=["expired", "a failure the next poll may not meet", "signed out"],
+)
+def test_a_cursor_the_feed_has_expired_starts_the_poll_again_from_the_newest (
+	tmp_path: pathlib.Path, status: int, kept: int | None
+) -> None:
+	"""`#251`: an instance with a retention floor answers 410 for a cursor behind it.
+
+	The poll swallows its failures, so a 410 swallowed with the cursor kept would be every poll
+	refused the same way for as long as the page is open. Anything else keeps the cursor.
+	"""
+
+	answer = _views(tmp_path, [
+		("resumeFrom", {"failure": {"status": status}, "since": 42}),
+	])[0]
+
+	assert answer == kept
 
 
 @pytest.mark.parametrize(

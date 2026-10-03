@@ -962,15 +962,17 @@ class Settings(pydantic_settings.BaseSettings):
 	# Installation-wide defaults for behavioural settings. A workspace or a project may
 	# override any of these; see the module docstring.
 	#
-	# **`trash_retention_days` and `events_retention_days` were here and are gone** (`#187`).
-	# Both were declared, printed by `config show`, described by a specification section — and
-	# read by nothing anywhere. `#133` settled what to do with that shape: *a setting for an
-	# unbuilt feature belongs with the feature.* Somebody who set one got no error, no pruning
-	# and no way to find out; documenting them instead would have made the promise worse.
+	# **How many days of events the change feed keeps** (`#251`, decision `#4233`). Unset keeps
+	# every one there for ever, which is decision `#1835`'s default. Set, older events move to an
+	# archive that the journal, an item's history, *revised N times*, the `touched_at` filters and an
+	# export all still read, and nothing is deleted - so `#473`'s assignment history, which is the
+	# event log, is moved and still read rather than exempted.
 	#
-	# They come back with what enforces them — `#251` for events, §6.9's purge for the trash —
-	# and `#473` adds a requirement to the first: assignment events are exempt from retention,
-	# so the day pruning is built is the day an unexempted history would silently truncate.
+	# **It arrived with what enforces it**, as `#133` requires: `#187` removed it, and
+	# `trash_retention_days` with it, while both were read by nothing. The trash's comes back with
+	# §6.9's purge.
+	events_retention_days: int | None = pydantic.Field(default=None, ge=1)
+
 	# **Zero here hid every row and reported nothing.** Both page sizes at zero answered 200
 	# with an empty list on every listing, clamped an explicit `?limit=5` to nothing, and
 	# published the zeroes through `/v1/meta` without comment — an instance that reads as

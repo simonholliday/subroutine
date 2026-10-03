@@ -70,6 +70,8 @@ CARRIED = (
 	"mention",
 	"verification",
 	"event",
+	# Its archive too (`#251`): history moved out of the feed is still the instance's history.
+	"event_archive",
 )
 
 #: Not copied, each for a stated reason, so that a table missing from ``CARRIED`` is a decision
@@ -111,6 +113,7 @@ USER_COLUMNS = {
 	"link": ("created_by",),
 	"verification": ("created_by", "updated_by"),
 	"event": ("actor_user_id",),
+	"event_archive": ("actor_user_id",),
 }
 
 #: Where prose lives. These are the columns a ``#N`` can be written in, and the only ones
@@ -653,7 +656,7 @@ def _rewrite (
 	for column in PROSE_COLUMNS.get(name, ()):
 		out[column] = _renumbered(out.get(column), maps.refs, report)
 
-	if name == "event":
+	if name in ("event", "event_archive"):
 		out["seq"] = int(out["seq"]) + maps.seq_offset
 		out["changes"] = _renumbered_inside(out.get("changes"), maps.refs, report)
 
@@ -906,12 +909,17 @@ def merge (
 				tags_made=frozenset(tags_made),
 				refs=report.refs,
 				offset=offset,
-				seq_offset=int(
-					target.execute(
-						sqlalchemy.select(sqlalchemy.func.coalesce(
-							sqlalchemy.func.max(_table("event").c.seq), 0
-						))
-					).scalar_one()
+				# **Past every `seq` the target holds, archived ones included** (`#251`), or an
+				# event carried in could take a number its archive already has.
+				seq_offset=max(
+					int(
+						target.execute(
+							sqlalchemy.select(sqlalchemy.func.coalesce(
+								sqlalchemy.func.max(_table(name).c.seq), 0
+							))
+						).scalar_one()
+					)
+					for name in ("event", "event_archive")
 				),
 			)
 

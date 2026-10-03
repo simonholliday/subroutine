@@ -14,12 +14,19 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `124f22afc629`.
+> **This release changes the database schema**, to `340ff3f92fa6`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Events can be kept in the change feed for a set number of days, and nothing is deleted.**
+  Set `events_retention_days` and older events move to an archive, which the journal, each item's
+  history, *revised N times*, the `touched_at` and `touched_by` filters and an export all still
+  read. A served instance moves them once a day while it is in use, and `subroutine db archive`
+  does it on demand. A client resuming the change feed from before them is answered
+  `410 cursor_expired` and starts again from the newest, and the browser does so by itself.
+  Unset, which is the default, every event stays in the feed as before.
 - **`user create` and `user add` say that what is filed in the workspace without naming a
   project goes to its Inbox, which everybody in it can see**, and the README and the hosting
   guide name the two ways to a list of one's own: a private project, or a workspace of one's own.

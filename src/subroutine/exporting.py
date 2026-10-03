@@ -383,6 +383,8 @@ def _events (
 		workspace_ids=[workspace_id],
 		size=size,
 		since=None if after is None else after + 1,
+		# **Every event held, archived ones included** (`#251`): leaving is taking the history.
+		everything=True,
 	)
 
 

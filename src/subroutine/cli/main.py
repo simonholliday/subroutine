@@ -52,6 +52,7 @@ import subroutine.diagnosis
 import subroutine.directory
 import subroutine.domain.bootstrap
 import subroutine.domain.profiles
+import subroutine.domain.retention
 import subroutine.domain.tokens
 import subroutine.errors
 import subroutine.installations
@@ -1982,6 +1983,58 @@ def _holdings_cell (backup: subroutine.db.backup.Backup) -> str:
 		f"{count:,} {name}{'' if count == 1 else 's'}"
 		for name, count in held.items()
 		if count
+	)
+
+
+@database_app.command("archive")
+def database_archive () -> None:
+	"""Move events older than events_retention_days out of the change feed, into the archive.
+
+	Nothing is deleted. The journal, each item's history and an export still read the events
+	that move; a client resuming the change feed from before them is told to start again. The
+	newest event always stays. A served instance does this itself once a day while it is in use,
+	so this is for one that is not served, or for a timer.
+	"""
+
+	settings = _settings()
+	days = settings.events_retention_days
+
+	# **Said rather than done, with the setting named** (`#251`): with no floor every event stays
+	# in the feed, which is the default and not a fault.
+	if days is None:
+		_say(
+			"No events_retention_days is set, so every event stays in the change feed. Set it to "
+			"move older ones to the archive."
+		)
+
+		return
+
+	if _database_is_absent(settings):
+		_refuse_absent_database(settings)
+
+	with _database(settings) as engine:
+		try:
+			archived = subroutine.domain.retention.run(
+				subroutine.db.session.create_session_factory(engine),
+				days=days,
+				now=subroutine.db.types.utcnow(),
+			)
+
+		except sqlalchemy.exc.SQLAlchemyError as failure:
+			_fail(
+				subroutine.errors.ServiceUnavailable(
+					f"The events could not be moved: {getattr(failure, 'orig', None) or failure}"
+				)
+			)
+
+	if not archived.moved:
+		_say(f"Nothing in {_instance_label()} is older than {days} days, so nothing moved.")
+
+		return
+
+	_say(
+		f"Moved {archived.moved:,} events older than {days} days from {_instance_label()}'s change "
+		"feed to its archive."
 	)
 
 

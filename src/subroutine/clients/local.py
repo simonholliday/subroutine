@@ -2048,7 +2048,7 @@ class Client:
 			)
 			rows = session.scalars(
 				statement.order_by(
-					subroutine.db.models.activity.Event.seq.desc()
+					subroutine.domain.events.HISTORY.seq.desc()
 				).limit(size + 1)
 			).all()
 			described = subroutine.domain.events.descriptions(session, rows)
@@ -2082,7 +2082,7 @@ class Client:
 				subroutine.domain.events.history(
 					actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
 				)
-				.order_by(subroutine.db.models.activity.Event.seq.desc())
+				.order_by(subroutine.domain.events.HISTORY.seq.desc())
 				.limit(size + 1)
 			).all()
 

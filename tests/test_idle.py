@@ -67,6 +67,12 @@ EXCUSED = {
 		"and only where an operator has set 'check' under [releases]. An instance nobody is "
 		"using is never asked, so it never asks."
 	),
+	# **Moving events past a retention floor** (`SR#251`), on the release check's terms.
+	("subroutine/domain/retention.py", "threading.Thread"): (
+		"Moving events past a retention floor: started by a request from somebody signed in, at "
+		"most once a day, and only where an operator has set events_retention_days. An instance "
+		"nobody is using is never asked, so it never moves anything."
+	),
 	# **The OSC sender** (`SR#2722`): a thread that exists only once something has been sent.
 	("subroutine/osc.py", "threading.Thread"): (
 		"The OSC sender: started by the first message a write hands it, and a write hands it one "

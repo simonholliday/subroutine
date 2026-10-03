@@ -1,0 +1,277 @@
+"""Events past a retention floor move to an archive, and nothing is deleted - `#251`, decision `#4233`.
+
+The change feed reads the live table, so its floor moves and a cursor at or below the highest
+``seq`` moved is answered ``410 cursor_expired``; everything that reads history reads both tables.
+Each test ages the events it wants moved, rather than waiting for them to age.
+"""
+
+import datetime
+import pathlib
+import typing
+import uuid
+
+import pytest
+import sqlalchemy
+import sqlalchemy.orm
+import typer.testing
+
+import api_support
+import subroutine.cli.main
+import subroutine.db.models.activity
+import subroutine.db.models.system
+import subroutine.db.types
+import subroutine.domain.events
+import subroutine.domain.retention
+import subroutine.errors
+import test_api_tasks
+
+#: The floor every test here sets.
+DAYS = 30
+
+#: Well behind the floor, so nothing depends on the hour the suite runs at.
+LONG_AGO = subroutine.db.types.utcnow() - datetime.timedelta(days=90)
+
+LIVE = typing.cast(sqlalchemy.Table, subroutine.db.models.activity.Event.__table__)
+ARCHIVE = subroutine.db.models.activity.ARCHIVE
+
+
+@pytest.fixture
+def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
+	"""An installation reachable over HTTP, sharing the test's transaction."""
+
+	return test_api_tasks._world(session)
+
+
+def _filed (world: test_api_tasks.World, title: str) -> dict[str, typing.Any]:
+	"""File a task over HTTP and return it."""
+
+	made = world.call("POST", "/v1/tasks", json={"title": title})
+
+	assert made.status_code == 201, made.text
+
+	return typing.cast(dict[str, typing.Any], made.json())
+
+
+def _aged (session: sqlalchemy.orm.Session, *, by: datetime.timedelta | None = None) -> None:
+	"""Move every live event back: behind the floor, or by ``by`` past the feed's watermark."""
+
+	for event in session.scalars(sqlalchemy.select(subroutine.db.models.activity.Event)):
+		event.created_at = LONG_AGO if by is None else event.created_at - by
+
+	session.flush()
+
+
+def _archived (world: test_api_tasks.World) -> subroutine.domain.retention.Archived:
+	"""Move what is past the floor, as ``db archive`` and a serving instance both do."""
+
+	world.session.flush()
+	archived = subroutine.domain.retention.run(
+		api_support.factory_for(world.session), days=DAYS, now=subroutine.db.types.utcnow()
+	)
+	world.session.expire_all()
+
+	return archived
+
+
+def _count (session: sqlalchemy.orm.Session, table: sqlalchemy.Table) -> int:
+	"""Return how many rows a table holds."""
+
+	return int(session.scalar(sqlalchemy.select(sqlalchemy.func.count()).select_from(table)) or 0)
+
+
+def test_events_past_the_floor_move_and_none_is_lost (world: test_api_tasks.World) -> None:
+	"""The move: old events leave the feed for the archive, every one arrives, and the floor is kept."""
+
+	_filed(world, "Fix the deploy script")
+	_filed(world, "Find the white rabbit")
+	_aged(world.session)
+	_filed(world, "Take the red pill")
+
+	held = _count(world.session, LIVE)
+	archived = _archived(world)
+
+	assert archived.moved > 0
+	assert _count(world.session, ARCHIVE) == archived.moved
+	assert _count(world.session, LIVE) + archived.moved == held, "an event was lost on the way"
+	assert archived.through == world.session.scalar(sqlalchemy.select(sqlalchemy.func.max(ARCHIVE.c.seq)))
+	assert world.session.scalar(sqlalchemy.select(sqlalchemy.func.min(LIVE.c.seq))) > archived.through
+
+	instance = world.session.scalar(sqlalchemy.select(subroutine.db.models.system.Instance))
+
+	assert instance is not None
+	assert instance.events_archived_through == archived.through, "the floor a cursor is refused by"
+
+	again = _archived(world)
+
+	assert again.moved == 0, "a second run moved what had already gone"
+
+
+def test_the_newest_event_stays_however_old (world: test_api_tasks.World) -> None:
+	"""An emptied table would make SQLite number the next event 1 again, which the archive holds."""
+
+	_filed(world, "Feed the cat")
+	_aged(world.session)
+
+	newest = world.session.scalar(sqlalchemy.select(sqlalchemy.func.max(LIVE.c.seq)))
+	_archived(world)
+
+	assert world.session.scalars(sqlalchemy.select(LIVE.c.seq)).all() == [newest]
+
+
+@pytest.mark.parametrize("past", [0, 1], ids=["at the floor", "below it"])
+def test_a_cursor_behind_the_archive_is_expired_and_one_after_it_is_not (
+	world: test_api_tasks.World, past: int
+) -> None:
+	"""§5.11: a client resuming from a moved event is told to start again, not handed a page with a hole.
+
+	``since`` is inclusive, so naming the last event moved asks for it too.
+	"""
+
+	_filed(world, "Fix the deploy script")
+	_aged(world.session)
+	_filed(world, "Take the red pill")
+	archived = _archived(world)
+
+	assert archived.through is not None
+
+	refused = world.call("GET", "/v1/changes", params={"since": archived.through - past})
+
+	assert refused.status_code == 410, refused.text
+	assert refused.json()["code"] == "cursor_expired"
+	assert str(archived.through) in refused.json()["detail"], "it says how far the archive reaches"
+
+	# The same refusal locally, where `clients.local` asks the same function.
+	with pytest.raises(subroutine.errors.CursorExpired):
+		subroutine.domain.events.refuse_unusable_cursor(world.session, since=archived.through - past)
+
+	_aged(world.session, by=datetime.timedelta(seconds=2))
+	answered = world.call("GET", "/v1/changes", params={"since": archived.through + 1})
+
+	assert answered.status_code == 200, answered.text
+	assert answered.json()["items"], "the feed after the archive is still read"
+
+
+def test_what_reads_history_still_reads_what_moved (world: test_api_tasks.World) -> None:
+	"""Decision `#4233`: the feed's floor takes nothing from the record.
+
+	An item's history and journal, *revised N times*, the ``touched_at`` filter, the period journal
+	and an export, each asked about an item every event of which was moved.
+	"""
+
+	old = _filed(world, "Fix the deploy script")
+	ref = old["ref"]
+
+	for plan in ("Restart it by hand.", "Clear the cache first."):
+		changed = world.call("PATCH", f"/v1/tasks/{ref}", json={"description": plan})
+
+		assert changed.status_code == 200, changed.text
+
+	_aged(world.session)
+	newer = _filed(world, "Take the red pill")["ref"]
+	_archived(world)
+
+	assert _count(world.session, LIVE) > 0
+	assert not world.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).where(LIVE.c.entity_id == uuid.UUID(old["id"]))
+	), "the item's events were meant to have moved"
+
+	history = world.call("GET", f"/v1/tasks/{ref}/events").json()["items"]
+
+	assert {item["action"] for item in history} >= {"created", "updated"}, history
+
+	assert world.call("GET", f"/v1/tasks/{ref}/journal").json()["items"], "the item's journal"
+
+	shown = world.call("GET", f"/v1/tasks/{ref}").json()
+
+	assert shown["revisions"]["count"] == 1, shown["revisions"]
+
+	before = (LONG_AGO + datetime.timedelta(days=1)).date().isoformat()
+	touched = world.call("GET", "/v1/tasks", params={"touched_at.lt": before}).json()["items"]
+
+	assert [item["ref"] for item in touched] == [ref], touched
+
+	journal = world.call("GET", "/v1/journal", params={"created_at.lt": before}).json()["items"]
+	named = {entry["item_ref"] for entry in journal}
+
+	assert ref in named and newer not in named, journal
+
+	exported = world.call("GET", "/v1/export/events").json()["items"]
+
+	assert any(item["entity_id"] == old["id"] for item in exported), "an export left them behind"
+
+
+def test_a_serving_instance_moves_them_in_the_background_at_most_once_a_day (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Built only with a floor, and started by somebody using the instance - never by a timer."""
+
+	ran: list[int] = []
+
+	def counted (
+		factory: typing.Any, *, days: int, now: datetime.datetime
+	) -> subroutine.domain.retention.Archived:
+		"""Stand in for the move, so this is about when it starts."""
+
+		ran.append(days)
+
+		return subroutine.domain.retention.Archived(moved=0, through=None)
+
+	monkeypatch.setattr(subroutine.domain.retention, "run", counted)
+
+	assert test_api_tasks._world(session).application.state.retention is None, (
+		"an instance keeping every event built something that could move one"
+	)
+
+	world = test_api_tasks._world(session, instance={"events_retention_days": DAYS})
+	keeper = world.application.state.retention
+
+	assert isinstance(keeper, subroutine.domain.retention.Keeper)
+
+	for _ in range(2):
+		assert world.call("GET", "/v1/me").status_code == 200
+
+		if keeper.moving is not None:
+			keeper.moving.join(timeout=10)
+
+	assert ran == [DAYS], "it should have run once, for the floor set"
+
+
+def test_the_terminal_moves_them_on_demand_and_says_when_there_is_no_floor (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``subroutine db archive``, for an instance nobody serves, or a timer."""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	runner = typer.testing.CliRunner()
+
+	def run (*arguments: str) -> str:
+		"""Run one command, which must succeed, and return what it printed."""
+
+		result = runner.invoke(subroutine.cli.main.app, list(arguments))
+
+		assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+
+		return result.output
+
+	run("init", "--workspace", "Metacortex")
+	run("add", "Fix the deploy script")
+	run("add", "Take the red pill")
+
+	assert "every event stays in the change feed" in run("db", "archive")
+
+	database = tmp_path / "xdg_data_home" / "subroutine" / "subroutine.db"
+	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
+
+	try:
+		with engine.begin() as connection:
+			connection.execute(sqlalchemy.update(LIVE).values(created_at=LONG_AGO))
+
+	finally:
+		engine.dispose()
+
+	monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", str(DAYS))
+
+	assert "events older than 30 days" in run("db", "archive")
+	assert "nothing moved" in run("db", "archive"), "a second run found something to move"

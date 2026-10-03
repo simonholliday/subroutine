@@ -204,6 +204,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
 | `max_page_size` | `200` | The largest **single response**. A client asking for more is answered across as many responses as it takes, and is told when a page it was handed is not everything - so this bounds a body rather than a call |
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |
+| `events_retention_days` | unset | How many days of events the change feed keeps. Unset keeps every one there. Set, older events move to an archive that the journal, each item's history and an export still read, and nothing is deleted - a served instance moves them once a day while it is in use, and `subroutine db archive` does it on demand. A client resuming the feed from before them is answered `410 cursor_expired` and starts again from the newest |
 | `claim_lease_minutes` | `30` | How long a task claim lasts before it expires. A lease rather than a lock, so a worker that dies does not strand the work |
 | `search_backend` | `like` | Which implementation answers a search. `native` uses a full-text index and is **PostgreSQL only** - see below |
 
@@ -255,11 +256,11 @@ had to be written for it. The same is true of a restore and of `subroutine db up
 A request that hits the limit is answered with `503 request_timed_out` saying so, and nothing
 it was doing was written. Set it to `0` to go back to waiting indefinitely.
 
-**There are deliberately no retention settings.** The history and the trash are both meant to
-have a retention period, and nothing purges anything yet - so `events_retention_days` and
-`trash_retention_days` were removed rather than documented. A setting that silently does
-nothing is worse than an absent one: you can set it, get no error, and believe it. They come
-back with what enforces them.
+**There is deliberately no retention setting for the trash.** It is meant to have a retention
+period, and nothing purges it yet - so `trash_retention_days` was removed rather than
+documented. A setting that silently does nothing is worse than an absent one: you can set it,
+get no error, and believe it. It comes back with what enforces it, as `events_retention_days`
+did.
 
 ## PostgreSQL, and when to switch
 
@@ -439,7 +440,7 @@ before starting the service, as the account the service runs as:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db current
-  Schema is at 124f22afc629.
+  Schema is at 340ff3f92fa6.
 ```
 
 A database with no schema in it says so **and names which database it looked at**, which is the
@@ -685,7 +686,7 @@ $ curl -s localhost:8471/healthz
   {"status":"ok","api_version":"1.0"}
 
 $ curl -s localhost:8471/readyz
-  {"status":"ready","api_version":"1.0","schema_revision":"124f22afc629"}
+  {"status":"ready","api_version":"1.0","schema_revision":"340ff3f92fa6"}
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database, that the database
@@ -1950,13 +1951,13 @@ transcripts below, `<version>` is the release you installed in the first step.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine <version> expects schema 124f22afc629.
+  Subroutine <version> expects schema 340ff3f92fa6.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.dump (63,584 bytes).
   The newest 3 of these are kept, and older ones go.
   Your routine backups are untouched by that; only an upgrade's own copies count.
-  Upgraded from f159c8635e54 to 124f22afc629.
+  Upgraded from f159c8635e54 to 340ff3f92fa6.
 ```
 
 It is safe to run when there is nothing to do - it prints the three numbers and stops, which is
@@ -1968,8 +1969,8 @@ also the cheapest way to ask the question:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine <version> expects schema 124f22afc629.
-  The database is at 124f22afc629.
+  Subroutine <version> expects schema 340ff3f92fa6.
+  The database is at 340ff3f92fa6.
   Nothing to do.
 ```
 
@@ -2001,7 +2002,7 @@ deciding the remedy:
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine agenda
   Nothing could be opened.
-  Local: This database is at schema 233f898a2bee, and this build expects 124f22afc629.
+  Local: This database is at schema 233f898a2bee, and this build expects 340ff3f92fa6.
     Run 'subroutine db upgrade' - it backs up first, then migrates.
 ```
 
@@ -2043,7 +2044,7 @@ and the rest of the line is what a build from it prints:
 ```console
 $ /opt/subroutine/bin/subroutine --version
   subroutine <version>.dev14+g80e1a4a06
-  schema 124f22afc629
+  schema 340ff3f92fa6
 ```
 
 The part after `+g` is the commit. If it has not moved, neither has the software, whatever the
@@ -2076,10 +2077,10 @@ variables as everything else here**, for the same reason:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db current
-  Schema is at 4f177421eb91; newest is 124f22afc629.
+  Schema is at 4f177421eb91; newest is 340ff3f92fa6.
 ```
 
-When the two match it says so in one line - `Schema is at 124f22afc629.` - and there is nothing
+When the two match it says so in one line - `Schema is at 340ff3f92fa6.` - and there is nothing
 to do.
 
 **Run bare, it answers about your own account's database** and the answer looks just like the one
@@ -2103,8 +2104,8 @@ substitute.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine <version>.dev14+g80e1a4a06 expects schema 124f22afc629.
-  The database is at 124f22afc629.
+  Subroutine <version>.dev14+g80e1a4a06 expects schema 340ff3f92fa6.
+  The database is at 340ff3f92fa6.
   <version>.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it - it can compare as newer than anything published.
   Nothing to do.
 ```

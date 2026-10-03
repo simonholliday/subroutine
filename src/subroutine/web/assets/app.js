@@ -81,7 +81,7 @@ import {
 	linkChoices, linkRequest,
 	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
 	eventsLeftOutRequest,
-	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
+	peopleRequest, pollRequest, prioritiseRequest, resumeFrom, revokeRequest,
 	savedViewsRequest, saveViewRequest, forgetViewRequest,
 	readForm,
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
@@ -1486,6 +1486,8 @@ export function App () {
 				   nothing saying why. That is the one failure the *next* poll cannot fix, so
 				   it is the one that has to reach the reader. */
 				if (failure.status === 401) setError(failure);
+
+				since.current = resumeFrom(failure, since.current);
 			}
 		};
 
@@ -4485,6 +4487,7 @@ export {
 	filed,
 	freshly,
 	fromItem,
+	resumeFrom,
 	headRequest,
 	identityRequest,
 	instanceRequest,

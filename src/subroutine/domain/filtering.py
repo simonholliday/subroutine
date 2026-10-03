@@ -2134,22 +2134,13 @@ def _touched (comparisons: list[Comparison], where: Where) -> typing.Any:
 	be reached at all.
 	"""
 
-	event = subroutine.db.models.activity.Event
 	identity = comparisons[0].against.column
-
-	narrowing = [
-		sqlalchemy.or_(
-			event.entity_id == identity, event.subject_id == identity
-		),
-		event.action.notin_([action.value for action in BOOKKEEPING]),
-	]
-
-	if where.workspace_ids:
-		narrowing.append(event.workspace_id.in_(list(where.workspace_ids)))
+	actors: list[uuid.UUID] = []
+	bounds: list[tuple[typing.Any, datetime.datetime]] = []
 
 	for comparison in comparisons:
 		if comparison.field == TOUCHED_BY:
-			narrowing.append(event.actor_user_id == _whoever(comparison, where))
+			actors.append(_whoever(comparison, where))
 
 			continue
 
@@ -2164,11 +2155,34 @@ def _touched (comparisons: list[Comparison], where: Where) -> typing.Any:
 		if moment.instant is None:
 			raise _unreadable(comparison.field, comparison.value)
 
-		narrowing.append(
-			OPERATORS[comparison.operator](event.created_at, moment.instant)
+		bounds.append((comparison.operator, moment.instant))
+
+	def worked_on (event: typing.Any) -> list[typing.Any]:
+		"""Return the clauses matching one table's events about this row."""
+
+		narrowing = [
+			sqlalchemy.or_(event.entity_id == identity, event.subject_id == identity),
+			event.action.notin_([action.value for action in BOOKKEEPING]),
+		]
+
+		if where.workspace_ids:
+			narrowing.append(event.workspace_id.in_(list(where.workspace_ids)))
+
+		narrowing.extend(event.actor_user_id == actor for actor in actors)
+		narrowing.extend(
+			OPERATORS[operator](event.created_at, instant) for operator, instant in bounds
 		)
 
-	return sqlalchemy.exists().where(*narrowing)
+		return narrowing
+
+	# **Both tables, each in its own ``EXISTS``** (`#251`, decision `#4233`): an event moved to the
+	# archive past a retention floor is still work somebody did. Two clauses rather than one over
+	# :data:`subroutine.domain.events.EVERY_EVENT`, so that each is answered by its own table's
+	# ``(workspace_id, created_at)`` index, as the paragraph above requires.
+	return sqlalchemy.or_(
+		sqlalchemy.exists().where(*worked_on(subroutine.db.models.activity.Event)),
+		sqlalchemy.exists().where(*worked_on(subroutine.db.models.activity.ARCHIVE.c)),
+	)
 
 
 def _whoever (comparison: Comparison, where: Where) -> uuid.UUID:

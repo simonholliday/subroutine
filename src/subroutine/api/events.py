@@ -76,7 +76,7 @@ JOURNAL_SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.JournalE
 
 #: What ``?order=`` accepts. One field, because ``seq`` is the only ordering an event log
 #: has that means anything: it is the order things happened in, and it is monotonic.
-SORTABLE = {"seq": subroutine.db.models.activity.Event.seq}
+SORTABLE = {"seq": subroutine.domain.events.HISTORY.seq}
 
 #: Newest first, which is what "what happened to this" means when you are looking at it now.
 #: The opposite of the feed, which runs forwards because a cursor goes forwards.
@@ -105,7 +105,8 @@ def _page (
 	history renders events and the item's journal renders journal entries, over the same page.
 	"""
 
-	model = subroutine.db.models.activity.Event
+	# **The history's own rows, live and archived** (`#251`), so the order and the cursor are.
+	model = subroutine.domain.events.HISTORY
 	statement = subroutine.domain.events.history(
 		principal, workspace_id=workspace_id, entity_type=entity_type, entity_id=entity_id
 	)

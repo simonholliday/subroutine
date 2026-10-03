@@ -443,6 +443,12 @@ NOT_TYPED: dict[str, str] = {
 	"event.entity_type": "a discriminator this code writes, from a fixed set",
 	"event.subject_b_type": "a discriminator this code writes, from a fixed set",
 	"event.subject_type": "a discriminator this code writes, from a fixed set",
+	# **The archive's are the event's, copied whole** (`#251`): nothing writes one but the move.
+	"event_archive.action": "copied from `event`, which says why",
+	"event_archive.actor_interface": "copied from `event`, which says why",
+	"event_archive.entity_type": "copied from `event`, which says why",
+	"event_archive.subject_b_type": "copied from `event`, which says why",
+	"event_archive.subject_type": "copied from `event`, which says why",
 	"instance.timezone": "a zone name, checked against the zone database",
 	"item_type.category": "one of a fixed set, refused by name",
 	"item_type.entity_type": "a discriminator this code writes, from a fixed set",

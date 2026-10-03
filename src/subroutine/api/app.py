@@ -50,6 +50,7 @@ import subroutine.api.workspaces
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
+import subroutine.domain.retention
 import subroutine.domain.sounds
 import subroutine.installations
 import subroutine.releases
@@ -272,6 +273,19 @@ def create_app (
 	# is running - which on a server is the instance.
 	application.state.releases = (
 		subroutine.releases.Watch(tell=_told_to_the_log) if resolved.releases.check else None
+	)
+
+	# **Built only when the operator set a retention floor** (`#251`, decision `#4233`), for the
+	# watch's reason: an instance keeping every event holds nothing that could move one. It moves
+	# them in the background of an authenticated request, at most once a day, on a session of the
+	# requests' own kind - looked up when it runs, because the factory is chosen below.
+	application.state.retention = (
+		subroutine.domain.retention.Keeper(
+			days=resolved.events_retention_days,
+			factory=lambda: application.state.session_factory(),
+		)
+		if resolved.events_retention_days is not None
+		else None
 	)
 
 	# **Built once, here, because it is derived from the page this instance serves** (`#805`).

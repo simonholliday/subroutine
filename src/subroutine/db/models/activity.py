@@ -217,6 +217,57 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 	)
 
 
+def _archive_of (live: sqlalchemy.Table) -> sqlalchemy.Table:
+	"""Return a table holding ``live``'s rows column for column, under its own names.
+
+	**Copied from the live table rather than written out a second time**, so the two cannot come to
+	disagree about a column: one added to :class:`Event` arrives here too, and the migration drift
+	check says so until a migration adds it. ``seq`` is the one difference. It is copied, never
+	allocated, so it carries no sequence of its own for a copy to re-seat (`db/transfer.py`).
+	"""
+
+	columns = []
+
+	for column in live.columns:
+		copied = column._copy()
+
+		if column.primary_key:
+			copied.autoincrement = False
+
+		columns.append(copied)
+
+	# **A copied column leaves its foreign key behind**, so each is declared again on the table:
+	# an archived event goes with its workspace exactly as a live one does.
+	keys = [
+		sqlalchemy.ForeignKeyConstraint(
+			[key.parent.name], [key.target_fullname], ondelete=key.ondelete, onupdate=key.onupdate
+		)
+		for key in sorted(live.foreign_keys, key=lambda key: key.parent.name)
+	]
+
+	# Every index the live table has, under the archive's name: the history readers ask the same
+	# questions of both. The one `index=True` makes on `workspace_id` is made again by the copy.
+	indexes = [
+		sqlalchemy.Index(
+			str(index.name).replace(live.name, f"{live.name}_archive", 1),
+			*[column.name for column in index.columns],
+		)
+		for index in sorted(live.indexes, key=lambda index: str(index.name))
+		if not (len(index.columns) == 1 and next(iter(index.columns)).index)
+	]
+
+	return sqlalchemy.Table(f"{live.name}_archive", live.metadata, *columns, *keys, *indexes)
+
+
+#: **Events an operator's retention floor has moved out of the change feed** - `#251`, decision
+#: `#4233`. Nothing is deleted: the feed reads :class:`Event` alone, so its floor moves and a cursor
+#: below it is answered ``410 cursor_expired`` (docs/design.md §5.11), and everything that reads
+#: history reads both, through :data:`subroutine.domain.events.HISTORY`. A table rather than a
+#: mapped class, because nothing writes a row here but the move, and every row read from it is
+#: read as an :class:`Event`.
+ARCHIVE = _archive_of(typing.cast(sqlalchemy.Table, Event.__table__))
+
+
 #: `#83`: a comment is prose a search has to reach, and on a working instance there is more of
 #: it than there is of anything else. Same rule as the item indexes in
 #: :mod:`subroutine.db.models.work` — see those for why this is not in ``__table_args__``.
