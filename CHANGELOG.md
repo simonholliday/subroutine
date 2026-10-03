@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The plugins' skill names the five routes `subroutine_call_api` will not reach**, where it
+  said three, and why the two that answer with a credential are among them. It says the
+  `.subroutine` file is read only where the `subroutine` plugin or `subroutine mcp` runs, and not
+  through `subroutine-remote`.
 - **The conventions an agent reads no longer advise an argument the listing refuses.** They told
   it to call `subroutine_list` with a `type`, and now name `filter={"type.eq": "decision"}`,
   which finds drafts too.

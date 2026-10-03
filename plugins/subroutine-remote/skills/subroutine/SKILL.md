@@ -158,7 +158,9 @@ setup interview is how a tool loses the person who just installed it.
    and that it is safe to commit — it names a project, not a credential. From then on, work
    added anywhere under this directory goes to that project unless a line says `+other`.
    **The order is a project the write names, then this file, then the address, then the
-   workspace's Inbox**, and the answer to a write says which it was.
+   workspace's Inbox**, and the answer to a write says which it was. This file is read only
+   where the `subroutine` plugin or `subroutine mcp` runs: through `subroutine-remote` the order
+   is the write, then the address, then the Inbox.
 
    **Only where the directory is the project's own.** A marker covers everything beneath it, so
    one written in a home directory would file every capture made anywhere under it into that
@@ -729,15 +731,16 @@ document for anything you decided, and mark done what is done. `subroutine_done(
 ## When the tools do not cover it
 
 `subroutine_call_api(method="PATCH", path="/v1/documents/42", body={"title": "…"})` reaches any
-route your credential already allows. Use it for the thing you cannot otherwise do — and reach
+route your credential already allows but the five below. Use it for the thing you cannot
+otherwise do — and reach
 for a named tool first, every time you have one.
 
 **That is not politeness, it is the difference between a call that works and a call that is
 right.** The tools carry conventions the API does not enforce. `subroutine_add` reads a whole
-line — `Fix the boiler by friday !4/2 ~2h #home +sr` — and `POST /v1/tasks` will happily take
-`{"title": "Fix the boiler", "importance": 4}` instead. Both succeed. The second quietly stops
-using the grammar, sets no deadline because nobody parsed "by friday", and nothing anywhere
-reports it. A raw call is the one place this tool surface cannot help you.
+line — `Fix the deploy script by friday !4/2 ~2h #release +web` — and `POST /v1/tasks` will
+happily take `{"title": "Fix the deploy script", "importance": 4}` instead. Both succeed. The
+second quietly stops using the grammar, sets no deadline because nobody parsed "by friday", and
+nothing anywhere reports it. A raw call is the one place this tool surface cannot help you.
 
 So: **the tools are a budget, and the command line is the whole product.** The list you were
 given is short because each tool costs context in every session whether you call it or not —
@@ -753,9 +756,11 @@ renameable, so `done` may be called something else here and guessing is how you 
 `subroutine://docs/examples` is a worked request for each common act, every one of them executed
 by the project's own test suite.
 
-**Three routes are deliberately out of reach**: creating a workspace, renaming one, and moving a
-project. Each is consequential, none can be undone, and the command line counts what will change
-and asks first — which a tool call cannot do here yet. The refusal names the command to run.
+**Five routes are deliberately out of reach.** Creating a workspace, renaming one and moving a
+project are consequential, none can be undone, and the command line counts what will change and
+asks first - which a tool call cannot do here yet. Issuing a token and making a sign-in link each
+answer with a credential, which would pass through your context and stay in it. The refusal
+names the command to run.
 
 ## Things worth knowing
 
