@@ -33,7 +33,6 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
-import subroutine.domain.retention
 import subroutine.domain.scoping
 import subroutine.domain.sounds
 import subroutine.errors
@@ -923,18 +922,13 @@ def refuse_a_bound_that_names_nothing (before: int | None) -> None:
 	)
 
 
-def refuse_unusable_cursor (
-	session: sqlalchemy.orm.Session,
-	*,
-	since: int | None,
-) -> None:
-	"""Refuse a cursor that names nothing - and, once events are pruned, one below what is held.
+def refuse_unusable_cursor (*, since: int | None) -> None:
+	"""Refuse a cursor that names nothing: a ``seq`` past the last any column holds, or below the first.
 
-	``session`` is what the refusal of an expired cursor will read, the highest ``seq`` pruned, and
-	is taken now so that neither caller changes when it arrives. **Not the workspaces** (`#4028`,
-	L-8 (9) of the cold review of 2026-09-30): that refusal is instance-wide, as below says.
+	**Whether one has expired is :func:`refuse_an_expired_cursor`'s**, asked after the page rather
+	than here before it (`#4293`): a run moving events between the two let rows go unreported.
 
-	**Two refusals now: a ``seq`` past the last any column holds, and one below the first**
+	**Two refusals: a ``seq`` past the last any column holds, and one below the first**
 	(`#309`, `#3933`). ``since`` is a ``seq`` and the first one is 1, so ``since=0`` names
 	nothing — and, read as a cursor, it is below every
 	surviving event and therefore looks exactly like one that expired. That is what happened:
@@ -947,17 +941,6 @@ def refuse_unusable_cursor (
 	Both live here rather than in either caller because §5.11a's whole reason for this module is
 	that a feed must not answer differently over two transports.
 
-	§5.11 retains events for a configurable period and requires ``410 cursor_expired`` below
-	that floor, so a client resyncs rather than being handed a page that silently omits
-	everything pruned in between — the one failure a feed must never have, because it looks
-	exactly like nothing having happened.
-
-	**A cursor at or below the highest ``seq`` moved to the archive is expired** (`#251`), and
-	nothing else is. ``since`` is inclusive, so one naming a moved event asks for it. That number is
-	right under gaps and under narrowing, and one read; the first version of this asked whether
-	``since`` fell below the lowest ``seq`` held, which cannot tell *moved* from *never written* -
-	``seq`` is one sequence for the whole instance and has gaps on PostgreSQL - and so answered *no
-	longer held* on instances that had never moved anything (`#3929`).
 	"""
 
 	if since is None:
@@ -980,15 +963,50 @@ def refuse_unusable_cursor (
 			],
 		)
 
-	through = subroutine.domain.retention.archived_through(session)
 
-	if through is not None and since <= through:
-		raise subroutine.errors.CursorExpired(
-			f"Events up to seq {through} have been moved to the archive, so what happened since "
-			f"{since} cannot be reported in full.",
-			hint="Ask again without 'since' to start from the oldest event the feed still holds. "
-			"The journal and each item's history still read the ones that moved.",
+def refuse_an_expired_cursor (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	since: int | None,
+) -> None:
+	"""Refuse a cursor after which events in the reader's workspaces have moved to the archive.
+
+	§5.11 retains events for a configurable period and requires ``410 cursor_expired`` past that
+	floor, so a client resyncs rather than being handed a page that silently omits what moved - the
+	one failure a feed must never have, because it looks exactly like nothing having happened.
+
+	**Per workspace, and only past the cursor** (`#4293`, M13 and NEW-C-1 of the cold review of
+	2026-10-03, decision `#4305`). One number for the whole instance refused a quiet workspace's
+	cursor when only other workspaces' events had moved, and refused a cursor naming the last event
+	moved, which the client had already processed: ``since`` is inclusive, so nothing after it is
+	lost. One lookup on the archive's ``(workspace_id, seq)`` index; the reader's workspaces rather
+	than what each reader may see, which would scan every archived row past the cursor whenever none
+	of it is visible.
+
+	**Asked after the page, by both transports.** Asked before it, a run committing in between moved
+	rows the page then never read - measured on PostgreSQL, rows 12 to 23 gone and no 410.
+	"""
+
+	if since is None:
+		return
+
+	archive = subroutine.db.models.activity.ARCHIVE
+	through = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.max(archive.c.seq)).where(
+			archive.c.workspace_id.in_(workspace_ids), archive.c.seq > since
 		)
+	)
+
+	if through is None:
+		return
+
+	raise subroutine.errors.CursorExpired(
+		f"Events up to seq {through} have been moved to the archive, so what happened since "
+		f"{since} cannot be reported in full.",
+		hint="Ask again without 'since' to start from the oldest event the feed still holds. "
+		"The journal and each item's history still read the ones that moved.",
+	)
 
 
 def refuse_a_period_behind_the_floor (

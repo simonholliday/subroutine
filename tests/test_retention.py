@@ -25,6 +25,7 @@ import subroutine.db.models.system
 import subroutine.db.types
 import subroutine.domain.events
 import subroutine.domain.retention
+import subroutine.domain.workspaces
 import subroutine.errors
 import test_api_tasks
 
@@ -121,23 +122,25 @@ def test_the_newest_event_stays_however_old (world: test_api_tasks.World) -> Non
 	assert world.session.scalars(sqlalchemy.select(LIVE.c.seq)).all() == [newest]
 
 
-@pytest.mark.parametrize("past", [0, 1], ids=["at the floor", "below it"])
 def test_a_cursor_behind_the_archive_is_expired_and_one_after_it_is_not (
-	world: test_api_tasks.World, past: int
+	world: test_api_tasks.World,
 ) -> None:
 	"""§5.11: a client resuming from a moved event is told to start again, not handed a page with a hole.
 
-	``since`` is inclusive, so naming the last event moved asks for it too.
+	**A cursor naming the last event moved is answered** (`SR#4293`, decision `#4305`): ``since`` is
+	inclusive, so the client processed that event and nothing after it is lost. This test refused
+	it until then, which is the spurious half of one number for the whole instance.
 	"""
 
 	_filed(world, "Fix the deploy script")
+	_filed(world, "Collect the package from reception")
 	_aged(world.session)
 	_filed(world, "Take the red pill")
 	archived = _archived(world)
 
 	assert archived.through is not None
 
-	refused = world.call("GET", "/v1/changes", params={"since": archived.through - past})
+	refused = world.call("GET", "/v1/changes", params={"since": archived.through - 1})
 
 	assert refused.status_code == 410, refused.text
 	assert refused.json()["code"] == "cursor_expired"
@@ -145,9 +148,15 @@ def test_a_cursor_behind_the_archive_is_expired_and_one_after_it_is_not (
 
 	# The same refusal locally, where `clients.local` asks the same function.
 	with pytest.raises(subroutine.errors.CursorExpired):
-		subroutine.domain.events.refuse_unusable_cursor(world.session, since=archived.through - past)
+		subroutine.domain.events.refuse_an_expired_cursor(
+			world.session, workspace_ids=[world.workspace.id], since=archived.through - 1
+		)
 
 	_aged(world.session, by=datetime.timedelta(seconds=2))
+
+	at_the_floor = world.call("GET", "/v1/changes", params={"since": archived.through})
+
+	assert at_the_floor.status_code == 200, at_the_floor.text
 	answered = world.call("GET", "/v1/changes", params={"since": archived.through + 1})
 
 	assert answered.status_code == 200, answered.text
@@ -201,6 +210,84 @@ def test_a_period_the_feed_no_longer_holds_is_refused_naming_the_journal (
 
 	with local, pytest.raises(subroutine.errors.PeriodArchived):
 		local.changes(dated=[("created_at.lt", then)])
+
+
+def test_a_quiet_workspaces_cursor_is_not_refused_for_what_moved_elsewhere (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4293`, M13 of the cold review of 2026-10-03: one number for the whole instance.
+
+	A quiet workspace's cursor on its own last event, with none of its own events moved after it,
+	was refused because another workspace's events, numbered after it, had been.
+	"""
+
+	quiet = subroutine.domain.workspaces.create(
+		world.session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Quiet", owner=world.user
+	)
+	world.session.flush()
+	said = world.call("POST", "/v1/tasks", json={"title": "Water the plants", "workspace_id": quiet.slug})
+
+	assert said.status_code == 201, said.text
+
+	own = world.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.max(LIVE.c.seq)).where(LIVE.c.workspace_id == quiet.id)
+	)
+
+	def filed (title: str) -> None:
+		"""File a task in the busy workspace, named now that there are two."""
+
+		made = world.call(
+			"POST", "/v1/tasks", json={"title": title, "workspace_id": str(world.workspace.slug)}
+		)
+
+		assert made.status_code == 201, made.text
+
+	for title in ("Fix the deploy script", "Take the red pill", "Ring the dentist"):
+		filed(title)
+
+	# **Every event so far is old**, the quiet workspace's too: it moves with the busy one's, and
+	# nothing of its own is moved after its last.
+	_aged(world.session)
+	filed("Feed the cat")
+	archived = _archived(world)
+	_aged(world.session, by=datetime.timedelta(seconds=2))
+
+	assert archived.through is not None and own is not None and own < archived.through
+
+	answered = world.call(
+		"GET", "/v1/changes", params={"since": own, "workspace_id": quiet.slug}
+	)
+
+	assert answered.status_code == 200, f"refused for another workspace's events: {answered.text}"
+
+
+def test_a_run_between_the_check_and_the_page_cannot_hide_rows (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4293`, NEW-C-1 of the cold review of 2026-10-03: asked before the page, a run in between
+	moved rows the page then never read, and nothing said so. Asked after it, the run is seen.
+	"""
+
+	first = _filed(world, "Fix the deploy script")
+	_filed(world, "Take the red pill")
+	_aged(world.session)
+	_filed(world, "Ring the dentist")
+	since = world.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.min(LIVE.c.seq)).where(LIVE.c.entity_id == uuid.UUID(first["id"]))
+	)
+	reading = subroutine.domain.events.page
+
+	def raced (*arguments: typing.Any, **named: typing.Any) -> typing.Any:
+		"""Let a retention run commit just before the page is read."""
+
+		_archived(world)
+
+		return reading(*arguments, **named)
+
+	monkeypatch.setattr(subroutine.domain.events, "page", raced)
+	answered = world.call("GET", "/v1/changes", params={"since": since})
+
+	assert answered.status_code == 410, f"rows moved under the page unsaid: {answered.text}"
 
 
 def test_what_reads_history_still_reads_what_moved (world: test_api_tasks.World) -> None:

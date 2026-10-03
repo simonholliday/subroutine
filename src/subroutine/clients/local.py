@@ -2206,7 +2206,7 @@ class Client:
 
 			workspace_ids = [each.id for each in chosen]
 
-			subroutine.domain.events.refuse_unusable_cursor(session, since=since)
+			subroutine.domain.events.refuse_unusable_cursor(since=since)
 			subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
 			# Compiled once, for the page and for the refusal after it (`#4292`).
@@ -2246,7 +2246,10 @@ class Client:
 				by=whose,
 				newest=newest,
 			)
-			# **After the page, as the route asks it** (`#4292`, decision `#4305`).
+			# **After the page, as the route asks it** (`#4292`, `#4293`, decision `#4305`).
+			subroutine.domain.events.refuse_an_expired_cursor(
+				session, workspace_ids=workspace_ids, since=since
+			)
 			subroutine.domain.events.refuse_a_period_behind_the_floor(
 				session,
 				actor,

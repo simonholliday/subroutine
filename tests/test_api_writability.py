@@ -817,8 +817,8 @@ INTERNAL: dict[str, str] = {
 	),
 	"User.password_hash": "§7.4 again. A hash is not a field, it is the absence of one.",
 	"Instance.events_archived_through": (
-		"The highest `seq` moved to the archive (`#251`), read only to answer a change-feed cursor at "
-		"or below it with 410. A client learns it from that refusal, which names it."
+		"The highest `seq` moved to the archive (`#251`), read only by a retention run to carry on "
+		"from. A cursor's refusal names the highest moved in its own workspaces instead (`#4293`)."
 	),
 	"Instance.singleton": (
 		"The constant column a unique index uses to make this table hold one row. An "

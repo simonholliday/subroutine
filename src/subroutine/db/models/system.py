@@ -55,10 +55,10 @@ class Instance(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 		sqlalchemy.String(64), server_default="UTC", nullable=False
 	)
 
-	#: **The highest ``seq`` moved to the archive**, or null while nothing has been (`#251`). A
-	#: change-feed cursor at or below it has lost events and is answered ``410 cursor_expired``. One
-	#: number rather than the lowest ``seq`` still held, which could not tell *moved* from *never
-	#: written* (`#3929`): ``seq`` is one sequence for the instance and has gaps on PostgreSQL.
+	#: **The highest ``seq`` moved to the archive**, or null while nothing has been (`#251`), which
+	#: is where a retention run carries on from. **Not what expires a cursor** (`#4293`): that asks
+	#: the archive about the reader's own workspaces, since one number for the instance refused a
+	#: quiet workspace's cursor when only others' events had moved.
 	events_archived_through: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.BigInteger, nullable=True
 	)

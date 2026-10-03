@@ -162,7 +162,7 @@ def listing (
 
 	# Both cursor refusals, in the domain so that this transport and `clients.local` cannot
 	# answer differently — which is what they were doing for `since=0` (`#309`).
-	subroutine.domain.events.refuse_unusable_cursor(session, since=since)
+	subroutine.domain.events.refuse_unusable_cursor(since=since)
 	subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
 	return _page(
@@ -222,7 +222,11 @@ def _page (
 		newest=newest,
 		narrowing=narrowing,
 	)
-	# **After the page, so nothing moved in between goes unsaid** (`#4292`, decision `#4305`).
+	# **After the page, so nothing moved in between goes unsaid** (`#4292`, `#4293`, decision
+	# `#4305`).
+	subroutine.domain.events.refuse_an_expired_cursor(
+		session, workspace_ids=workspace_ids, since=since
+	)
 	subroutine.domain.events.refuse_a_period_behind_the_floor(
 		session,
 		actor,
