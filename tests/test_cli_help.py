@@ -19,6 +19,7 @@ import re
 import shlex
 import textwrap
 import typing
+import unittest.mock
 
 import click
 import pytest
@@ -81,6 +82,101 @@ def _commands () -> typing.Iterator[tuple[str, typing.Any]]:
 
 			if child is not None:
 				pending.append((child, f"{path} {name}"))
+
+
+def _hidden () -> set[str]:
+	"""Return every command hidden from ``--help`` on an installation with one connection.
+
+	**The disclosure switch is read as the commands are registered** (``_worth_showing``), and
+	``conftest`` imports the program before it isolates the configuration, so on a machine with two
+	connections ``claim`` and its neighbours are shown. The personal commands are therefore
+	registered a second time with the switch held off, and both walks are counted.
+	"""
+
+	found = {path for path, command in _commands() if getattr(command, "hidden", False)}
+	again = typer.Typer()
+
+	with unittest.mock.patch.object(subroutine.cli.personal, "_worth_showing", lambda settings: False):
+		subroutine.cli.personal.register(
+			again,
+			say=subroutine.cli.main._say,
+			fail=subroutine.cli.main._fail,
+			stop=subroutine.cli.main._stop,
+			settings=subroutine.cli.main._settings,
+			console=subroutine.cli.main._out,
+			warn=subroutine.cli.main._warn,
+			refused=subroutine.cli.main._refused,
+			mask=subroutine.cli.main.safe_url,
+		)
+
+	# Typed loosely for the reason `_commands` gives: Typer's command class is its own shim's.
+	command: typing.Any = typer.main.get_command(again)
+	context = click.Context(command, info_name="subroutine")
+
+	for name in command.list_commands(context):
+		if getattr(command.get_command(context, name), "hidden", False):
+			found.add(f"subroutine {name}")
+
+	return found
+
+
+#: Commands hidden from ``--help`` that no ``explain`` topic needs to name, and why.
+#:
+#: **Hidden for a reason other than being revealed later.** §1.4 hides ``claim``, ``use`` and their
+#: neighbours so that a topic or a tip can reveal them when they are useful, and a topic is the
+#: reveal a reader can ask for. These four are hidden because they are not commands anybody should
+#: learn. An entry goes when the command does, or when a topic names it; the last names its item.
+HIDDEN_FOR_ANOTHER_REASON = {
+	"subroutine doc": "the second spelling of 'document' (#1549), which the help shows",
+	"subroutine ls": "the synonym for 'list' (docs/design.md §12.2a), which the help shows",
+	"subroutine today": "#509's signpost to 'agenda', which reports where it went and cannot succeed",
+	"subroutine upgrade": "#509's signpost to 'db upgrade', which reports where it went and cannot "
+	"succeed",
+	"subroutine verify": "#4244: no topic names it yet, and the wording is waiting on Simon",
+}
+
+
+def _named_by_a_topic (path: str) -> list[str]:
+	"""Return the topics that name a command, as somebody would type it."""
+
+	pattern = re.compile(re.escape(path) + r"(?![\w-])")
+
+	return [topic.name for topic in subroutine.cli.topics.TOPICS if pattern.search(topic.body)]
+
+
+def test_every_command_hidden_until_it_is_useful_is_named_by_a_topic () -> None:
+	"""`#4241`: a hidden command nothing mentions is one an agent with a shell never meets.
+
+	Measured on 2026-10-02 for `#3945`: ``explain connecting`` named ``use`` and ``connections`` and
+	``explain handing-back`` named ``release``, and nothing named ``claim``, which is the gap `#777`
+	traced. Asked of every hidden command rather than of ``claim``, so the next one cannot go
+	unmentioned either.
+	"""
+
+	hidden = _hidden()
+
+	assert {"subroutine claim", "subroutine release", "subroutine use"} <= hidden, (
+		f"the walk found {sorted(hidden)}, which is not the commands held back until they are useful"
+	)
+
+	unnamed = sorted(
+		path for path in hidden - HIDDEN_FOR_ANOTHER_REASON.keys() if not _named_by_a_topic(path)
+	)
+
+	assert not unnamed, f"hidden from --help, and no 'subroutine explain' topic names: {unnamed}"
+
+
+def test_every_command_excused_from_a_topic_is_still_hidden_and_unnamed () -> None:
+	"""The other direction: an excuse goes when the command does, or when a topic names it."""
+
+	everything = {path for path, _command in _commands()}
+	stale = sorted(
+		path
+		for path in HIDDEN_FOR_ANOTHER_REASON
+		if path not in everything or path not in _hidden() or _named_by_a_topic(path)
+	)
+
+	assert not stale, f"excused from being named, and the reason has gone: {stale}"
 
 
 def _texts (command: typing.Any) -> typing.Iterator[tuple[str, str]]:

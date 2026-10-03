@@ -552,7 +552,13 @@ token over the network are for.""",
 	Topic(
 		name="handing-back",
 		summary="What to do with work you cannot finish, and whom it goes back to.",
-		body="""When something you were given cannot go on without an answer, hand it
+		# **`claim` is named here, beside `release`** (`#4241`, Simon's decision on `#3945`). Both
+		# are hidden from `--help` until a second connection is configured, and no topic named
+		# `claim`, so an agent with a shell had nothing in the program that mentioned it (`#777`).
+		body="""Claim an item before you start it, with 'subroutine claim 42', and give
+it back with 'subroutine release 42'.
+
+When something you were given cannot go on without an answer, hand it
 back rather than stopping or guessing. That means a question the item,
 the decisions behind it and the code do not answer - anything resting on
 taste, priority, scope or a word somebody will read - or a permission
