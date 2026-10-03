@@ -63,6 +63,9 @@ def readiness (request: starlette.requests.Request) -> dict[str, typing.Any]:
 	try:
 		with factory() as opened:
 			revision = subroutine.db.migrate.revision_on(opened.connection())
+			set_aside = (
+				subroutine.db.migrate.set_aside_on(opened.connection()) if revision is None else []
+			)
 
 	except sqlalchemy.exc.SQLAlchemyError as error:
 		# The cause is reported rather than hidden *while only this machine can read it*: the
@@ -89,7 +92,7 @@ def readiness (request: starlette.requests.Request) -> dict[str, typing.Any]:
 	# The same three-way decision the CLI makes, from the same function. A monitoring alert
 	# quotes this endpoint, so a remedy that differs from the one a person is given at the
 	# terminal — or that cannot be followed at all — is worse here than anywhere.
-	mismatch = subroutine.db.migrate.mismatch_reason(revision, expected)
+	mismatch = subroutine.db.migrate.mismatch_reason(revision, expected, set_aside=set_aside)
 
 	if mismatch is not None:
 		detail, hint = mismatch

@@ -1869,6 +1869,13 @@ def database_backup (
 	for gone in written.removed:
 		_say(f"Deleted {gone.path} to keep {keep}.")
 
+	# **Said on every take while it is there** (`#4281`): the timer's log is where somebody looks.
+	for schema in written.left_out:
+		_say(
+			f"Left out schema {schema}, set aside by a restore that did not finish - it is not in "
+			"this backup. 'subroutine doctor' says what to do about it."
+		)
+
 
 def _taken_for_cell (backup: subroutine.db.backup.Backup) -> str:
 	"""Say what a copy was taken for, in the words an operator would use.
@@ -2145,6 +2152,7 @@ def database_restore (
 				subroutine.db.backup.check_unused(engine)
 
 			subroutine.db.backup.check_engine(engine, path)
+			subroutine.db.backup.check_nothing_set_aside(engine)
 
 		head = subroutine.db.backup.check_restorable(path)
 

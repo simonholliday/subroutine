@@ -898,6 +898,7 @@ NOT_OUR_OPTIONS = {
 	"claude_code.py::--stdin": "git's, passed to it with -z, so the ignore rule's source is not quoted",
 	"db/backup.py::--data-only": "pg_restore's, passed to it",
 	"db/backup.py::--dbname": "psql's, passed to it",
+	"db/backup.py::--exclude-schema": "pg_dump's, passed to it",
 	"db/backup.py::--exit-on-error": "pg_restore's, passed to it",
 	"db/backup.py::--file": "psql's, passed to it",
 	"db/backup.py::--list": "pg_restore's, passed to it",

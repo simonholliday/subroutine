@@ -4127,7 +4127,11 @@ class Client:
 
 		current = subroutine.db.migrate.revision_on(session.connection())
 		expected = subroutine.db.migrate.head_revision()
-		mismatch = subroutine.db.migrate.mismatch_reason(current, expected)
+		mismatch = subroutine.db.migrate.mismatch_reason(
+			current,
+			expected,
+			set_aside=subroutine.db.migrate.set_aside_on(session.connection()) if current is None else (),
+		)
 
 		# **Marked checked only once it has passed** (`#2647`). The flag was set before the
 		# comparison, so a client refused once returned here on every later session and ran

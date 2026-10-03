@@ -20,6 +20,13 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A PostgreSQL restore that is stopped part way leaves nothing hidden.** Stopped before its
+  backup loaded, it left the database empty and its data in a schema nothing named, and every
+  command then advised `subroutine init`, which made an empty-looking instance beside it; later
+  backups carried that schema, and restoring one failed. Now every command names the schema and
+  says how to put it back or drop it, `doctor` reports one wherever it is, backups leave it out
+  and say so, and `db restore` refuses to start until it is dealt with. A restore that cannot put
+  the old schema back says where the data is.
 - **A backup stopped on its way to the backup folder is never taken for a real one.** A copy
   interrupted part way - Ctrl-C, `systemctl stop`, the out-of-memory killer - left a short file
   under a backup's name: listed as a routine backup, counted by `--keep`, which could delete a

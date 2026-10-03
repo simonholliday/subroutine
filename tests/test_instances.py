@@ -33,7 +33,9 @@ import typer.testing
 
 import conftest
 import subroutine.cli.main
+import subroutine.clients.local
 import subroutine.config
+import subroutine.connections
 import subroutine.db.backup
 import subroutine.db.base
 import subroutine.db.migrate
@@ -843,6 +845,164 @@ def test_a_postgresql_restore_that_is_stopped_leaves_the_database_as_it_was (
 
 	assert left == [], f"a restore that went through left the old schema behind: {left}"
 	assert _instance_id(own_database) == identity
+
+
+def _set_aside_schemas (database_url: str) -> list[str]:
+	"""Return the set-aside schemas a database holds, asked directly."""
+
+	engine = subroutine.db.session.create_engine(database_url)
+
+	try:
+		with engine.connect() as connection:
+			return subroutine.db.migrate.set_aside_on(connection)
+
+	finally:
+		engine.dispose()
+
+
+def test_an_emptied_database_beside_set_aside_data_is_never_told_to_init (
+	own_database: str,
+) -> None:
+	"""`#4281` (M10 of the cold review of 2026-10-03), decision `#4302`: stopped before the load.
+
+	A restore stopped after it set ``public`` aside and before the backup loaded leaves an empty
+	``public`` beside the data. Every command then said *Run 'subroutine init' to set it up*, which
+	made an empty-looking instance beside the hidden data. And a restore over it is refused,
+	naming the schema, so it cannot be buried under a second one.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+	aside = f"{subroutine.db.backup._SET_ASIDE}_0badc0de"
+
+	try:
+		if subroutine.db.backup._is_sqlite(engine):
+			return
+
+		written = subroutine.db.backup.take(engine, _settings())
+
+		with engine.begin() as connection:
+			connection.exec_driver_sql(f'ALTER SCHEMA public RENAME TO "{aside}"')
+			connection.exec_driver_sql("CREATE SCHEMA public")
+
+		engine.dispose()
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=subroutine.db.session.create_session_factory(engine),
+		)
+
+		with client, pytest.raises(subroutine.errors.SchemaMismatch) as told:
+			client.me()
+
+		with pytest.raises(subroutine.errors.Conflict) as refused:
+			subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	assert aside in told.value.detail, told.value.detail
+	assert "init" not in (told.value.hint or ""), told.value.hint
+	assert aside in refused.value.detail and "RENAME TO public" in (refused.value.hint or "")
+	assert _set_aside_schemas(own_database) == [aside], "the refusal touched what was set aside"
+
+
+def test_a_schema_set_aside_beside_restored_data_is_left_out_of_backups_and_named (
+	own_database: str, home: pathlib.Path
+) -> None:
+	"""`#4281`, decision `#4302`: stopped after the load, as a kill of the parent alone leaves it.
+
+	The restored data is in place and what it replaced is in a schema nothing named. Every later
+	backup carried that schema, and restoring one failed - the restore makes a schema of that
+	name itself. Measured besides: ``--schema=public``, the review's remedy, made every backup
+	unrestorable for the same reason about ``public``.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+	aside = f"{subroutine.db.backup._SET_ASIDE}_0badc0de"
+
+	try:
+		if subroutine.db.backup._is_sqlite(engine):
+			return
+
+		with engine.begin() as connection:
+			connection.exec_driver_sql(f'CREATE SCHEMA "{aside}"')
+			connection.exec_driver_sql(f'CREATE TABLE "{aside}".what_was_replaced (kept integer)')
+
+		written = subroutine.db.backup.take(engine, _settings())
+		found = subroutine.diagnosis._the_set_aside(
+			subroutine.config.Settings(dev_mode=True, database_url=own_database)
+		)
+
+		with engine.begin() as connection:
+			connection.exec_driver_sql(f'DROP SCHEMA "{aside}" CASCADE')
+
+		engine.dispose()
+		subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	assert written.left_out == (aside,)
+	assert [one.ok for one in found] == [False] and aside in found[0].detail, found
+	assert _set_aside_schemas(own_database) == [], "the backup carried the set-aside schema"
+
+
+def test_a_restore_that_cannot_put_the_old_schema_back_says_where_the_data_is (
+	own_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#4281`: the load failed, and so did putting the database back.
+
+	The operator was told to check ``database_url``, while every row they had was in a schema
+	with a random name that nothing would mention again.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		if subroutine.db.backup._is_sqlite(engine):
+			return
+
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	real = subroutine.db.backup._run
+
+	def stopped (command: list[str], *, what: str, secrets: dict[str, str] | None = None) -> str:
+		"""Fail the load, as a backup that will not load fails it, and run every other tool."""
+
+		if "--single-transaction" in command:
+			raise subroutine.errors.BadRequest(f"{what} could not load it.")
+
+		return real(command, what=what, secrets=secrets)
+
+	def unreachable (engine: sqlalchemy.engine.Engine, aside: str) -> None:
+		"""Fail to put it back, as a lost connection fails it."""
+
+		raise sqlalchemy.exc.OperationalError("ALTER SCHEMA", {}, Exception("connection lost"))
+
+	monkeypatch.setattr(subroutine.db.backup, "_run", stopped)
+	monkeypatch.setattr(subroutine.db.backup, "_put_back", unreachable)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+			subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	left = _set_aside_schemas(own_database)
+
+	assert len(left) == 1, left
+	assert left[0] in refused.value.detail and "could not load it" in refused.value.detail
 
 
 def test_a_postgresql_backup_is_an_archive_that_no_command_can_be_written_into (

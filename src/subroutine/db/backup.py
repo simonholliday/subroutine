@@ -190,6 +190,10 @@ class Backup:
 	#: reports is one nobody can audit, on the command whose whole subject is not losing data.
 	removed: tuple["Backup", ...] = ()
 
+	#: Schemas a restore set aside that this copy deliberately leaves out (`#4281`), so whoever
+	#: took it can be told. Only a PostgreSQL copy that was just taken knows this.
+	left_out: tuple[str, ...] = ()
+
 	@property
 	def name (self) -> str:
 		"""Return the filename, which is what an operator names on the command line."""
@@ -1367,6 +1371,7 @@ def take (
 		)
 
 	suffix = SQLITE_SUFFIX if _is_sqlite(engine) else POSTGRESQL_ARCHIVE_SUFFIX
+	left_out = tuple(_set_aside_in(engine))
 	active = subroutine.config.profile()
 	into = directory(settings)
 
@@ -1408,6 +1413,7 @@ def take (
 		profile=active,
 		taken_for=taken_for,
 		removed=tuple(_pruned_after(settings, taken_for=taken_for, keep=keep, now=taken_at)),
+		left_out=left_out,
 	)
 
 
@@ -1704,6 +1710,11 @@ def _take_postgresql (engine: sqlalchemy.engine.Engine, target: pathlib.Path) ->
 				"--format=custom",
 				"--no-owner",
 				"--no-privileges",
+				# **Never what a stopped restore set aside** (`#4281`, decision `#4302`): a backup that
+				# carried it could not be restored, since the restore makes a schema of that name
+				# itself. ``--schema=public`` instead would make every backup unrestorable, for the
+				# same reason about ``public``. ``take`` says what was left out.
+				f"--exclude-schema={_SET_ASIDE}_*",
 				"--file",
 				str(target),
 				"--dbname",
@@ -2017,6 +2028,7 @@ def restore (
 		check_unused(engine)
 
 	check_engine(engine, source)
+	check_nothing_set_aside(engine)
 
 	head = check_restorable(source)
 
@@ -2122,7 +2134,36 @@ def _discard_the_replaced_log (target: pathlib.Path) -> None:
 
 #: What the schema a restore replaces is called while the backup loads beside it (`#4002`), with
 #: a few random characters after it so a set-aside left by a restore that died cannot block the next.
-_SET_ASIDE = "subroutine_before_restore"
+_SET_ASIDE = subroutine.db.migrate.SET_ASIDE
+
+
+def _set_aside_in (engine: sqlalchemy.engine.Engine) -> list[str]:
+	"""Return the schemas a stopped restore left in this database, or none if it cannot say."""
+
+	try:
+		with engine.connect() as connection:
+			return subroutine.db.migrate.set_aside_on(connection)
+
+	except sqlalchemy.exc.SQLAlchemyError:
+		return []
+
+
+def check_nothing_set_aside (engine: sqlalchemy.engine.Engine) -> None:
+	"""Refuse to restore over a database still holding what a stopped restore set aside.
+
+	**Decided on `#4302`** (M10 of the cold review of 2026-10-03). The schema may be the only copy
+	of what that restore replaced, and a second restore beside it would leave two for somebody to
+	tell apart. So it is put back or dropped first, by a person who has looked.
+	"""
+
+	found = _set_aside_in(engine)
+
+	if found:
+		raise subroutine.errors.Conflict(
+			f"This database still holds schema {', '.join(found)}, set aside by a restore that did "
+			"not finish, so nothing was restored over it.",
+			hint=subroutine.db.migrate.set_aside_remedy(found),
+		)
 
 
 def _restore_postgresql (
@@ -2153,15 +2194,20 @@ def _restore_postgresql (
 		_load_postgresql(engine, source)
 
 	except subroutine.errors.SubroutineError as failure:
-		_put_back(engine, aside)
+		_put_back_or_say(engine, aside, failure)
 
+		# Every part of the failure kept but the sentence (`#4281`): rebuilding it from the detail
+		# and hint alone dropped its code and errors.
 		raise type(failure)(
 			f"{failure.detail} The database was left as it was before the restore.",
+			code=failure.code,
+			errors=failure.errors,
 			hint=failure.hint,
+			extensions=failure.extensions,
 		) from failure
 
-	except BaseException:
-		_put_back(engine, aside)
+	except BaseException as failure:
+		_put_back_or_say(engine, aside, failure)
 
 		raise
 
@@ -2169,6 +2215,28 @@ def _restore_postgresql (
 		connection.exec_driver_sql(f'DROP SCHEMA "{aside}" CASCADE')
 
 	engine.dispose()
+
+
+def _put_back_or_say (
+	engine: sqlalchemy.engine.Engine, aside: str, failure: BaseException
+) -> None:
+	"""Put the set-aside schema back, or say where the data is if that fails too (`#4281`).
+
+	Putting it back failing told the operator to check ``database_url`` and nothing more, while
+	every row they had was in a schema with a random name that nothing would ever mention again.
+	"""
+
+	try:
+		_put_back(engine, aside)
+
+	except (sqlalchemy.exc.SQLAlchemyError, subroutine.errors.SubroutineError) as error:
+		said = getattr(error, "detail", None) or getattr(error, "orig", None) or error
+
+		raise subroutine.errors.ServiceUnavailable(
+			f"The restore failed ({getattr(failure, 'detail', None) or failure}), and putting the "
+			f"database back failed too ({said}). Its data is in schema \"{aside}\".",
+			hint=subroutine.db.migrate.set_aside_remedy([aside]),
+		) from error
 
 
 def _put_back (engine: sqlalchemy.engine.Engine, aside: str) -> None:

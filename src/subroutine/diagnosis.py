@@ -34,6 +34,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.db.backup
 import subroutine.db.migrate
+import subroutine.db.session
 import subroutine.db.types
 import subroutine.errors
 import subroutine.installations
@@ -78,6 +79,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 		*_the_settings(resolved),
 		*_the_connections(resolved),
 		*_the_backups(resolved),
+		*_the_set_aside(resolved),
 	]
 
 
@@ -400,6 +402,45 @@ def _one_connection (
 		area=connection.name,
 		detail=f"{version}{schema}, as {me.user.username} ({kind})",
 	)
+
+
+def _the_set_aside (settings: subroutine.config.Settings) -> list[Finding]:
+	"""Name any schema a stopped restore left in this installation's PostgreSQL database.
+
+	**Its own check** (`#4281`, decision `#4302`), because the connections' check meets it only
+	when the database is empty: a restore stopped after its backup loaded leaves the restored data
+	in place, and what it replaced in a schema nothing would otherwise mention, kept out of every
+	backup.
+	"""
+
+	if settings.is_sqlite or not settings.database_url:
+		return []
+
+	try:
+		engine = subroutine.db.session.create_engine(settings.database_url)
+
+	except subroutine.errors.SubroutineError:
+		return []
+
+	try:
+		found = subroutine.db.backup._set_aside_in(engine)
+
+	finally:
+		engine.dispose()
+
+	if not found:
+		return []
+
+	return [
+		Finding(
+			area="backups",
+			detail=(
+				f"schema {', '.join(found)} was set aside by a restore that did not finish, and is "
+				f"in no backup. {subroutine.db.migrate.set_aside_remedy(found)}"
+			),
+			ok=False,
+		)
+	]
 
 
 def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:

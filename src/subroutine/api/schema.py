@@ -122,11 +122,16 @@ def _disagreement (application: fastapi.FastAPI) -> tuple[str, str] | None:
 	try:
 		with factory() as opened:
 			revision = subroutine.db.migrate.revision_on(opened.connection())
+			set_aside = (
+				subroutine.db.migrate.set_aside_on(opened.connection()) if revision is None else []
+			)
 
 	except sqlalchemy.exc.SQLAlchemyError:
 		return None
 
-	mismatch = subroutine.db.migrate.mismatch_reason(revision, application.state.schema_head)
+	mismatch = subroutine.db.migrate.mismatch_reason(
+		revision, application.state.schema_head, set_aside=set_aside
+	)
 
 	if mismatch is None:
 		application.state.schema_agrees = True

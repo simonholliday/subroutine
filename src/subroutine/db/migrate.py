@@ -139,8 +139,52 @@ def is_up_to_date (engine: sqlalchemy.engine.Engine) -> bool:
 	return current_revision(engine) == head_revision()
 
 
+#: What a PostgreSQL restore calls the schema it replaces while the backup loads beside it
+#: (`#4002`), followed by ``_`` and a few random characters. **Here rather than in ``db.backup``**
+#: because the schema check has to recognise one as well (`#4281`).
+SET_ASIDE = "subroutine_before_restore"
+
+
+def set_aside_on (connection: sqlalchemy.engine.Connection) -> list[str]:
+	"""Return the schemas a PostgreSQL restore set aside that are still there (`#4281`).
+
+	A restore stopped part way - a kill, or putting the old schema back failing - leaves one,
+	holding whatever the restore was replacing, and nothing else in the program names it. So
+	every surface that meets such a database asks here, and says so.
+	"""
+
+	if connection.dialect.name != "postgresql":
+		return []
+
+	names: list[str] = list(
+		connection.execute(
+			sqlalchemy.text("SELECT schema_name FROM information_schema.schemata")
+		).scalars()
+	)
+
+	return sorted(str(name) for name in names if str(name).startswith(f"{SET_ASIDE}_"))
+
+
+def set_aside_remedy (names: typing.Sequence[str]) -> str:
+	"""Return what to do about a schema a restore set aside: put it back, or drop it.
+
+	**Both, because which is right depends on what the restore got to**, and only the operator can
+	look. Stopped before the backup loaded, the database is empty and the set-aside schema is
+	the data; stopped after, the database holds the restored copy and the schema is what it
+	replaced. Given as the statements, since nothing in the program does either.
+	"""
+
+	named = f'"{names[0]}"' if len(names) == 1 else "<one of them>"
+
+	return (
+		f"If this database is empty, put it back with psql: DROP SCHEMA public CASCADE; ALTER "
+		f"SCHEMA {named} RENAME TO public; - and if it holds what you restored, drop it: DROP "
+		f"SCHEMA {named} CASCADE;"
+	)
+
+
 def mismatch_reason (
-	current: str | None, expected: str | None
+	current: str | None, expected: str | None, *, set_aside: typing.Sequence[str] = ()
 ) -> tuple[str, str] | None:
 	"""Return what to say about a schema that is not the expected one, and what to do.
 
@@ -166,6 +210,16 @@ def mismatch_reason (
 
 	if current == expected:
 		return None
+
+	# **Not ``init`` over data a restore set aside** (`#4281`, M10 of the cold review of 2026-10-03).
+	# A restore stopped before its backup loaded leaves ``public`` empty and the data in a schema
+	# of its own, and the advice here made an empty-looking instance beside it.
+	if current is None and set_aside:
+		return (
+			f"This database's data was set aside by a restore that did not finish, in schema "
+			f"{', '.join(set_aside)}, and nothing has taken its place.",
+			set_aside_remedy(set_aside),
+		)
 
 	if current is None:
 		return (
