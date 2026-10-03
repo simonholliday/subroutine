@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Clearing a repeating series' own date is refused, whichever occurrence the edit is for.**
+  Cleared for that one occurrence it was accepted, and finishing the occurrence was then refused
+  for want of a date it already had.
 - **A repeat whose dates have all passed is refused when it is made or changed.** One running
   since January took an end date last week, or a count long since reached, and the next time it
   was finished the series simply ended; one made with every date behind it handed back an

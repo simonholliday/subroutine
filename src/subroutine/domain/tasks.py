@@ -1789,6 +1789,23 @@ def update (
 		)
 	)
 
+	# **A series is not left with no date to repeat from** (`#4026`), as :func:`_series_anchor`
+	# refuses one being made - **asked here, before anything is assigned** (`#4307`, M9 of the cold
+	# review of 2026-10-03). It was asked only on the way to the series for `from_now_on`, after the
+	# row was written: clearing the series' own date with `this_one` was accepted, and every
+	# completion after it was refused for a date the occurrence already had.
+	_refuse_a_series_left_undated(
+		session,
+		task,
+		repeating=repeating,
+		due_at=task.due_at if deadline is subroutine.domain.patch.UNSET else deadline.instant,
+		starts_at=(
+			task.starts_at if beginning is subroutine.domain.patch.UNSET else beginning.instant
+		),
+		applies_to=applies_to,
+		instant=instant,
+	)
+
 	before = _snapshot(session, task)
 
 	if cleaned_title is not subroutine.domain.patch.UNSET:
@@ -3131,6 +3148,50 @@ def _carried (
 	session.flush()
 
 
+def _refuse_a_series_left_undated (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	repeating: typing.Any,
+	due_at: datetime.datetime | None,
+	starts_at: datetime.datetime | None,
+	applies_to: str | None,
+	instant: datetime.datetime,
+) -> None:
+	"""Refuse an edit that leaves a repeating series no date to repeat from - `#4026`, `#4307`.
+
+	Asked of the dates the row **will** have, where the edit clears the one the series hangs on and
+	the row it writes is the series - the series itself, or an occurrence's edit answered
+	``from_now_on``. A repeat stopped in the same edit needs no date, and a rule changed in it is the
+	one asked; a rule that names its own day needs none.
+	"""
+
+	will = due_at if due_at is not None else starts_at
+
+	if grid_date(task) is None or will is not None:
+		return
+
+	if not (task.is_template or applies_to == FROM_NOW_ON):
+		return
+
+	if repeating is not subroutine.domain.patch.UNSET and repeating.stopping:
+		return
+
+	ruling = task if task.is_template else series_of(session, task)
+
+	if ruling is None:
+		return
+
+	rule = (
+		repeating.repeat.rule
+		if repeating is not subroutine.domain.patch.UNSET and repeating.repeat is not None
+		else ruling.recurrence_rule
+	)
+
+	if rule is not None:
+		_series_anchor(rule, grid=None, filed=instant)
+
+
 def _applied_to_the_series (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
@@ -3156,16 +3217,8 @@ def _applied_to_the_series (
 	# slot nothing left. Applied to whichever row was addressed; the other gets it in
 	# :func:`_carried`.
 	#
-	# **A series is not left with no date to repeat from** (`#4026`, L-3 (1) of the cold review of
-	# 2026-09-30), as :func:`_series_anchor` refuses one being made: clearing the only date of
-	# *every 14 days* from now on was accepted, and every completion after it was refused until it
-	# was dated again. Asked only where this edit cleared the date the series hangs on, of the
-	# dates this row now holds, which the series is about to carry.
-	if was.get(grid_field_for(was.get("due_at"))) is not None and grid_date(task) is None:
-		ruling = task if task.is_template else series_of(session, task)
-
-		if ruling is not None and ruling.recurrence_rule is not None:
-			_series_anchor(ruling.recurrence_rule, grid=None, filed=instant)
+	# Whether the series is left with a date to repeat from is asked before any of this, by
+	# :func:`_refuse_a_series_left_undated` (`#4307`).
 
 	# ``was`` is this row's own before, so it is the grid test :func:`_kept_on_its_grid` needs.
 	# **In the zone the row is in now**: `update` has already moved its dates onto it.

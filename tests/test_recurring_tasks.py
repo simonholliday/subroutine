@@ -1508,6 +1508,29 @@ def test_a_series_made_with_every_date_behind_it_is_refused (
 	assert made.due_at is not None
 
 
+def test_clearing_the_series_own_date_is_refused_before_anything_changes (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4307`, M9 of the cold review of 2026-10-03: the series' own date, cleared ``this_one``.
+
+	Accepted, and every completion after it was then refused, *A repeat needs a date to repeat
+	from*, for a date the occurrence already had. **Refused, and the series keeps its date.**
+	"""
+
+	made = _repeating(session, recurrence="every 14 days", due="2026-08-17")
+	series = _template(session, made)
+	before = series.due_at
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(session, series, now=NOW, due=None, applies_to="this_one")
+
+	assert refused.value.detail == "A repeat needs a date to repeat from."
+
+	session.refresh(series)
+
+	assert series.due_at == before
+
+
 def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_time (
 	session: sqlalchemy.orm.Session,
 ) -> None:
