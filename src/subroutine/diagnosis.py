@@ -436,8 +436,10 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 	try:
 		found = subroutine.db.backup.catalogue(settings)
 
-	except OSError as failure:
-		return [Finding(area="backups", detail=f"{where}: {failure}", ok=False)]
+	# **The catalogue says what failed, naming the folder** (`#4242`), where it used to let the
+	# operating system's error out for this to catch.
+	except subroutine.errors.SubroutineError as failure:
+		return [Finding(area="backups", detail=str(failure), ok=False)]
 
 	if not found:
 		return [Finding(area="backups", detail=f"{where} holds none yet", unknown=True)]

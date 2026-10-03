@@ -1523,6 +1523,56 @@ def test_a_backup_the_server_cannot_take_says_so_over_http (
 	)
 
 
+def _locked (folder: pathlib.Path) -> None:
+	"""Make a folder this process cannot list, or skip where nothing can refuse it."""
+
+	folder.mkdir(parents=True, exist_ok=True)
+	folder.chmod(0o000)
+
+	try:
+		list(folder.iterdir())
+
+	except PermissionError:
+		return
+
+	folder.chmod(0o700)
+	pytest.skip("this process can list a folder with no permissions on it")
+
+
+@pytest.mark.parametrize("fault", ["made", "read"])
+def test_listing_the_backups_when_their_folder_fails_says_backup_failed (
+	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path, fault: str
+) -> None:
+	"""`#4171` (decision `#4236`) and `#4242`: one fault, answered as taking a backup answers it.
+
+	A folder that could not be *made* answered 503 ``service_unavailable``, which says the instance
+	cannot serve anything yet, and `#4130` had moved only the taking of a backup to
+	``backup_failed``. One that could not be *read* escaped as an unexpected error, at 500.
+	"""
+
+	blocker = elsewhere / "blocker"
+	folder = blocker / "backups" if fault == "made" else elsewhere / "locked"
+	world = test_api_tasks._world(session, instance={"backup_directory": str(folder)})
+
+	if fault == "made":
+		blocker.parent.mkdir(parents=True, exist_ok=True)
+		blocker.write_text("not a folder", encoding="utf-8")
+
+	else:
+		_locked(folder)
+
+	try:
+		refused = world.call("GET", "/v1/admin/backups")
+
+	finally:
+		if fault == "read":
+			folder.chmod(0o700)
+
+	assert refused.status_code == 503, refused.text
+	assert refused.json()["code"] == "backup_failed", refused.text
+	assert str(folder) in refused.json()["detail"], "it should name the folder"
+
+
 def test_a_narrowed_token_cannot_take_a_backup (
 	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path
 ) -> None:

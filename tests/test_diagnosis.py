@@ -476,6 +476,35 @@ class TestWhenThingsAreBroken:
 		assert backups.ok
 		assert backups.unknown
 
+	def test_a_backup_directory_that_cannot_be_read_is_a_failure_it_names (
+		self, home: pathlib.Path, tmp_path: pathlib.Path
+	) -> None:
+		"""`#4242`: the catalogue refuses in its own words now, and the doctor reports them."""
+
+		locked = tmp_path / "locked"
+		locked.mkdir()
+		locked.chmod(0o000)
+
+		try:
+			try:
+				list(locked.iterdir())
+
+			except PermissionError:
+				pass
+
+			else:
+				pytest.skip("this process can list a folder with no permissions on it")
+
+			settings = subroutine.config.Settings(backup_directory=str(locked))
+			backups = _named(subroutine.diagnosis.examine(settings), "backups")
+
+		finally:
+			locked.chmod(0o700)
+
+		assert not backups.ok
+		assert str(locked) in backups.detail
+		assert "could not be read" in backups.detail
+
 
 class TestTheVerdict:
 	"""What the closing line says, and what the exit code follows."""

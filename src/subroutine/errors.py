@@ -189,7 +189,8 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"backup_failed",
 			503,
 			"Backup failed",
-			"The server could not take a backup. The database could not be read for one or records "
+			"The server could not take a backup, or could not list them. The folder they are kept in "
+			"could not be made or read, the database could not be read for one or records "
 			"no schema version, no unused name was found for it, or the copy could not be made, "
 			"written where it was to go, or read back once it was there; a copy that fails is removed "
 			"rather than left looking usable. The message says which. Distinct from "

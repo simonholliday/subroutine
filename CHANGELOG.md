@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Listing the backups answers `backup_failed` when their folder cannot be made or read**, as
+  taking one does. `GET /v1/admin/backups` answered `service_unavailable`, which says the
+  instance cannot serve anything yet, for a folder it could not make, and an unexpected error
+  for one it could not read, which `subroutine db backups` met too.
 - **A task created already finished says when**: one created with a done or cancelled
   status, through `status` on `POST /v1/tasks`, was stored with no `completed_at`, so it
   stayed on the list of open work and went on blocking whatever it blocked. A repeat cannot be

@@ -225,9 +225,13 @@ def directory (settings: subroutine.config.Settings, *, create: bool = True) -> 
 		path.mkdir(parents=True, exist_ok=True)
 
 	except OSError as error:
+		# **`backup_failed` for every caller** (`#4171`, decision `#4236`). Taking a backup and listing
+		# them both meet this fault, and `#4130` gave it that code on the first only, so listing
+		# answered `service_unavailable` - which says the instance cannot serve anything yet.
 		raise subroutine.errors.ServiceUnavailable(
 			f"The backup directory {path} could not be used: {error}. If it is on a network "
-			f"volume, check that the volume is mounted."
+			f"volume, check that the volume is mounted.",
+			code="backup_failed",
 		) from error
 
 	return path
@@ -493,11 +497,20 @@ def _described (path: pathlib.Path) -> Backup | None:
 def catalogue (settings: subroutine.config.Settings) -> list[Backup]:
 	"""Return this instance's backups, newest first."""
 
-	found = [
-		described
-		for path in directory(settings).iterdir()
-		if (described := _described(path))
-	]
+	where = directory(settings)
+
+	try:
+		found = [described for path in where.iterdir() if (described := _described(path))]
+
+	except OSError as error:
+		# **A folder that is there and cannot be read is the same fault as one that cannot be made**
+		# (`#4242`): it escaped as an unexpected error, a 500 over HTTP, and only `doctor` caught it.
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup directory {where} could not be read: {error}. If it is on a network "
+			f"volume, check that the volume is mounted.",
+			code="backup_failed",
+		) from error
+
 	found.sort(key=lambda backup: backup.taken_at, reverse=True)
 
 	return found
@@ -1246,14 +1259,7 @@ def take (
 
 	suffix = SQLITE_SUFFIX if _is_sqlite(engine) else POSTGRESQL_ARCHIVE_SUFFIX
 	active = subroutine.config.profile()
-	try:
-		into = directory(settings)
-
-	except subroutine.errors.ServiceUnavailable as error:
-		# Shared with listing the backups, which keeps its own answer. Taking one is this refusal.
-		raise subroutine.errors.ServiceUnavailable(
-			error.detail, code="backup_failed", hint=error.hint
-		) from error
+	into = directory(settings)
 
 	taken_at, target = _free_name(
 		into, moment or datetime.datetime.now(datetime.UTC), active, head, suffix
