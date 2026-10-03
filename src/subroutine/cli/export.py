@@ -26,6 +26,7 @@ import subroutine.clients.base
 import subroutine.domain.projects
 import subroutine.errors
 import subroutine.exporting
+import subroutine.installations
 import subroutine.views
 
 #: What a kind is called in a sentence, one and many.
@@ -78,6 +79,9 @@ def register (app: typer.Typer, program: subroutine.cli.personal.Program) -> Non
 	) -> None:
 		"""Take away everything you can read, as files you can keep.
 
+		It reads one connection: the one a write would go to, or the one -c names, from an
+		instance running 0.10.0 or later.
+
 		Each workspace becomes a folder holding one file for each kind of thing - items,
 		documents, comments, links, changes, tags and the rest - with one line per row, and a
 		manifest saying what is in it, what was left out, and which version wrote it. Done,
@@ -107,10 +111,15 @@ def _exported (program: subroutine.cli.personal.Program, *, directory: pathlib.P
 			program.fail(error)
 
 		asked = program.selected.workspace
+
+		# **Read as every command reads a workspace's name** (`#4317`, of the cold review of
+		# 2026-10-03): compared letter for letter, ``-w METACORTEX`` found nothing where ``list``
+		# found it, and so did an id written in capitals.
 		chosen = [
 			workspace
 			for workspace in reached.identity.workspaces
-			if asked is None or asked in (workspace.slug, str(workspace.id))
+			if asked is None
+			or subroutine.addressing.names_workspace(asked, slug=workspace.slug, identifier=workspace.id)
 		]
 
 		if not chosen:
@@ -255,7 +264,9 @@ def write (
 
 	# **Kept as they are written, for the readable copy, rather than read back afterwards**
 	# (`#4054`): on a network share a file written and then read in one process can hang, and a
-	# share is an ordinary place to want an export.
+	# share is an ordinary place to want an export. **The cost is memory** (`#4317`): every item,
+	# document and comment of the workspace is held until the pages are written, about 11 KB a
+	# task by the count of the cold review of 2026-10-03.
 	held: dict[str, list[typing.Any]] = {kind: [] for kind in READ_AS_PAGES}
 
 	for kind in subroutine.views.EXPORTED:
@@ -269,6 +280,18 @@ def write (
 		except subroutine.errors.Forbidden as error:
 			target.unlink(missing_ok=True)
 			refused[kind] = error.detail
+
+			# **And none of its pages** (`#4317`): refused part way, the rows already read still
+			# became pages, beside a manifest saying the kind was refused.
+			if kind in held:
+				held[kind].clear()
+
+		# **An instance older than export answers that nothing is there** (`#4317`), and left an
+		# empty file behind, so the next export into the same place was refused as not empty.
+		except subroutine.errors.NotFound as error:
+			target.unlink(missing_ok=True)
+
+			raise _older_than_export(client, error) from error
 
 	pages = _markdown(folder / "markdown", held, connection=connection)
 	me = client.me()
@@ -337,6 +360,37 @@ def _lines (
 
 #: The kinds the readable copy is made from: the pages, and what was said on them.
 READ_AS_PAGES = ("tasks", "documents", "comments")
+
+#: The release ``/v1/export/*`` first ships in. An instance older than it has no such route.
+EXPORT_SINCE = (0, 10, 0)
+
+
+def _older_than_export (
+	client: subroutine.clients.base.Client, error: subroutine.errors.NotFound
+) -> subroutine.errors.SubroutineError:
+	"""Return why an instance answered ``not_found`` to an export, where it is too old - `#4317`.
+
+	A path with no route and an item that does not exist both answer ``not_found``, so the
+	instance's own version decides, and where it cannot be ranked - a build from source - the
+	answer is left as the instance gave it.
+	"""
+
+	try:
+		running = client.me().instance_version
+
+	except subroutine.errors.SubroutineError:
+		return error
+
+	ranked = None if running is None else subroutine.installations.ordered(running)
+
+	if ranked is None or ranked >= EXPORT_SINCE:
+		return error
+
+	return subroutine.errors.NotFound(
+		f"This instance runs Subroutine {running}, and export needs "
+		f"{'.'.join(str(part) for part in EXPORT_SINCE)} or later.",
+		hint="Whoever runs it can upgrade it, and an export then takes the same command.",
+	)
 
 #: The file an export writes last, so a folder without one is an export that did not finish.
 MANIFEST = "manifest.json"

@@ -179,11 +179,11 @@ Your own to-do list fits in the same install, in a private project or in a works
 own. What is filed without naming a project goes to the workspace's Inbox, which everybody in
 that workspace can see.
 
-**And you can leave with your work.** `subroutine export ~/leaving` writes everything you can
-read as a folder per workspace: a file of JSON lines for each kind of thing - items, documents,
-comments, links, the history of changes, and who belongs where - with a Markdown copy beside it
-that reads without Subroutine. It runs over any connection, so it works the same on somebody
-else's instance as on your own.
+**And you can leave with your work.** `subroutine export ~/leaving` writes everything one
+connection's credential can read - `-c` chooses which - as a folder per workspace: a file of JSON
+lines for each kind of thing - items, documents, comments, links, the history of changes, and who
+belongs where - with a Markdown copy beside it that reads without Subroutine. It works the same
+on somebody else's instance as on your own, from one running 0.10.0 or later.
 
 ### About Claude
 

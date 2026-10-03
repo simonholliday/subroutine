@@ -236,6 +236,105 @@ class _Refusing:
 		return getattr(self.inner, name)
 
 
+class _PartWay:
+	"""A client that answers two rows of one kind and is then refused the rest."""
+
+	def __init__ (self, inner: subroutine.clients.base.Client, refused: str) -> None:
+		"""Wrap ``inner``, refusing ``refused`` after its second row."""
+
+		self.inner = inner
+		self.refused = refused
+
+	def export (self, kind: str, *, workspace: str | None = None) -> typing.Iterator[typing.Any]:
+		"""Answer as the wrapped client does, until the third row of the refused kind."""
+
+		for count, item in enumerate(self.inner.export(kind, workspace=workspace)):
+			if kind == self.refused and count == 2:
+				raise subroutine.errors.Forbidden("This credential may no longer read items.")
+
+			yield item
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Answer everything else as the wrapped client does."""
+
+		return getattr(self.inner, name)
+
+
+class _Older:
+	"""A client for an instance released before export: no route, and an older version."""
+
+	def __init__ (self, inner: subroutine.clients.base.Client) -> None:
+		"""Wrap ``inner``."""
+
+		self.inner = inner
+
+	def export (self, kind: str, *, workspace: str | None = None) -> typing.Iterator[typing.Any]:
+		"""Answer as a server with no such route does."""
+
+		raise subroutine.errors.NotFound(f"There is nothing at /v1/export/{kind}.")
+
+	def me (self) -> subroutine.views.Me:
+		"""Say the instance runs the last release before export."""
+
+		return self.inner.me().model_copy(update={"instance_version": "0.9.13"})
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Answer everything else as the wrapped client does."""
+
+		return getattr(self.inner, name)
+
+
+def test_a_kind_refused_part_way_leaves_no_pages (pair: Pair, tmp_path: pathlib.Path) -> None:
+	"""`SR#4317`: two rows read before the refusal still became pages, beside *refused: tasks*."""
+
+	for title in ("Fix the deploy script", "Ring the dentist", "Take the red pill"):
+		pair.local.capture(text=title)
+
+	workspace = pair.local.identity().workspaces[0]
+	written = subroutine.cli.export.write(
+		typing.cast(typing.Any, _PartWay(pair.local, "tasks")),
+		tmp_path / workspace.slug,
+		workspace=workspace,
+		connection="local",
+	)
+
+	assert written.refused == {"tasks": "This credential may no longer read items."}
+	assert written.pages == 0, "pages were written for a kind the manifest calls refused"
+
+
+def test_an_instance_older_than_export_is_named_and_leaves_nothing (
+	pair: Pair, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4317`: a 0.9.13 server said only that nothing was at ``/v1/export/workspace``.
+
+	And left an empty ``workspace.jsonl``, so the next export into the same place was refused.
+	"""
+
+	workspace = pair.local.identity().workspaces[0]
+	folder = tmp_path / workspace.slug
+
+	with pytest.raises(subroutine.errors.NotFound) as refused:
+		subroutine.cli.export.write(
+			typing.cast(typing.Any, _Older(pair.local)), folder, workspace=workspace, connection="work"
+		)
+
+	assert "runs Subroutine 0.9.13, and export needs 0.10.0 or later" in refused.value.detail
+	assert not any(folder.iterdir()), sorted(path.name for path in folder.iterdir())
+
+
+def test_w_names_the_workspace_to_export_as_every_command_does (
+	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4317`: ``-w METACORTEX export`` found nothing, where ``-w METACORTEX list`` works."""
+
+	run("init", "--workspace", "Metacortex")
+	run("add", "Fix the deploy script")
+
+	said = " ".join(run("-w", "METACORTEX", "export", str(tmp_path / "leaving")).output.split())
+
+	assert "Exported metacortex to" in said, said
+
+
 @pytest.mark.parametrize("slug", ["../../escaped", "<absolute>", "", "My_Team", "a/b"])
 def test_a_workspace_name_no_instance_makes_stops_the_export (
 	slug: str, pair: Pair, tmp_path: pathlib.Path

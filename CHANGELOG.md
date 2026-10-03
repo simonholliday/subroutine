@@ -243,8 +243,9 @@ upgrade involves.
   who belongs to it and to each project, and the rest - and a `manifest.json` saying what is in
   it, what an export never holds, and which version wrote it.
   Done, archived and deleted items are included, and so is the history of changes; nothing you
-  could not already read is, and no password, token or sign-in link ever is. It works on any
-  connection, so you can leave somebody else's instance with your work too. Beside the files is a
+  could not already read is, and no password, token or sign-in link ever is. It reads one
+  connection - the one a write would go to, or the one `-c` names - so you can leave somebody
+  else's instance with your work too, where it runs this release or later. Beside the files is a
   `markdown/` folder you can read: a page for each item and document, foldered by project, with
   its comments under it. A workspace or project name no instance would send stops the export,
   rather than writing where it points.
