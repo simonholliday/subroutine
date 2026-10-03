@@ -369,6 +369,17 @@ def move (
 			],
 		)
 
+	# **Nor under a private project, where it holds a rule for the whole workspace** (`#4286`), for
+	# the reason :func:`update` gives: privacy inherits, so this hides the rule as making it would.
+	if parent is not None and _private_at_or_above(session, parent):
+		_refuse_hiding_a_rule(
+			session,
+			actor,
+			project,
+			act="move under a private project a project holding a rule that binds the whole workspace",
+			field="parent",
+		)
+
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
 	destination = None if parent is None else parent.id
@@ -528,6 +539,17 @@ def update (
 					hint="For a list of your own, make a private project and file into it with +key.",
 				)
 			],
+		)
+
+	# **Nor a project holding a rule for the whole workspace** (`#4286`, decision `#4134`), unless
+	# by somebody who may mark one: it takes the rule out of sight of everybody not shared into it.
+	if visibility == "private" and project.visibility != "private":
+		_refuse_hiding_a_rule(
+			session,
+			actor,
+			project,
+			act="make private a project holding a rule that binds the whole workspace",
+			field="visibility",
 		)
 
 	# **Membership, not existence** (`#3934`): an account outside the workspace was taken here too,
@@ -711,6 +733,16 @@ def delete (
 				)
 			],
 		)
+
+	# **Nor a project holding a rule for the whole workspace** (`#4286`): the rule goes to the trash
+	# with it, which retires it for everybody.
+	_refuse_hiding_a_rule(
+		session,
+		actor,
+		project,
+		act="delete a project holding a rule that binds the whole workspace",
+		field="project",
+	)
 
 	project.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 	project.version += 1
@@ -1007,6 +1039,48 @@ def hidden_by (
 			return ancestor
 
 	return None
+
+
+def _refuse_hiding_a_rule (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+	*,
+	act: str,
+	field: str,
+) -> None:
+	"""Refuse hiding a project holding a rule for the whole workspace, as `domain.documents` says.
+
+	**Reached late, because ``domain.documents`` imports ``domain.tasks``**, whose ordering reads
+	``domain.filtering`` at module scope while that is still being imported through this module: a
+	module-level import here is a circular import that fails at load. The house style's
+	nested-import exception covers exactly this, and the alias keeps ``subroutine`` from being
+	rebound as a local.
+	"""
+
+	from subroutine.domain import documents as rules
+
+	rules.refuse_hiding_a_rule(session, actor, project, act=act, field=field)
+
+
+def _private_at_or_above (
+	session: sqlalchemy.orm.Session, project: subroutine.db.models.project.Project
+) -> bool:
+	"""Return whether a project, or any project above it, is private."""
+
+	model = subroutine.db.models.project.Project
+	identifiers = [
+		uuid.UUID(segment) for segment in subroutine.domain.hierarchy.path_segments(project.path)
+	]
+
+	return (
+		session.scalar(
+			sqlalchemy.select(model.id)
+			.where(model.id.in_(identifiers), model.visibility == "private")
+			.limit(1)
+		)
+		is not None
+	)
 
 
 def _membership_of (

@@ -543,6 +543,19 @@ def update (
 			hint=f"Leave what it binds as it is. {_ASK_FROM_THE_WHOLE}",
 		)
 
+	# **Nor retired by another door** (`#4286`, M1 of the cold review of 2026-10-03, decision
+	# `#4134` as amended that day). A status out of force, a type that binds nobody and a move
+	# elsewhere each take a marked rule out of every agent's conventions as surely as setting the
+	# mark back, which a contributor and a narrowed credential were refused while these went through.
+	retiring = _retiring(
+		session, document, status=status, item_type=item_type, moving=moving, beneath=descendants
+	)
+
+	if retiring is not None:
+		act, field = retiring
+
+		_permitted_to_mark(session, actor, document.workspace_id, act=act, hint=_LEAVE_IT, field=field)
+
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
 	previous_text = (document.title, document.body)
@@ -809,6 +822,18 @@ def delete (
 
 	if document.deleted_at is not None:
 		return document
+
+	# **Nor deleted, nor a document holding one** (`#4286`): a section goes to the trash with the
+	# document it is part of (decision `#4091`), so a marked section leaves with an unmarked parent.
+	if _marked_beneath(session, document):
+		_permitted_to_mark(
+			session,
+			actor,
+			document.workspace_id,
+			act="delete a document that binds the whole workspace, or one holding it",
+			hint=_LEAVE_IT,
+			field="binds",
+		)
 
 	document.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 
@@ -1344,8 +1369,9 @@ def _permitted_to_mark (
 	not narrowed to some projects. A rule that binds the whole workspace is listed for every
 	reader of the conventions, which every agent is told to read before its first write - the
 	channel §14.12 warns about, through which one user can place text in another user's agent's
-	context. So only somebody who may administer projects, from a credential that reaches all of
-	them, can widen a rule's reach or narrow it again. ``None`` is an internal caller.
+	context. So only somebody holding ``project:write`` in the workspace - a member or above - from
+	a credential that reaches all of its projects, can widen a rule's reach, narrow it again, or
+	retire it by another door (`#4286`). ``None`` is an internal caller.
 	"""
 
 	if actor is None:
@@ -1361,6 +1387,119 @@ def _permitted_to_mark (
 		why="A rule for the whole workspace is an act on the workspace, and this credential "
 		"reaches part of it.",
 		hint=hint,
+	)
+
+
+#: What to do instead, for every refusal to retire a rule that binds the whole workspace.
+_LEAVE_IT = f"Leave the rule as it is, or set it back to its project first. {_ASK_FROM_THE_WHOLE}"
+
+
+def _retiring (
+	session: sqlalchemy.orm.Session,
+	document: subroutine.db.models.work.Document,
+	*,
+	status: typing.Any,
+	item_type: typing.Any,
+	moving: bool,
+	beneath: typing.Sequence[subroutine.db.models.work.Document],
+) -> tuple[str, str] | None:
+	"""Return how an update would retire a rule binding the whole workspace, and its field - `#4286`.
+
+	Decision `#4134` names the doors: a status leaving the current category, a type leaving the
+	governing types, and a move to another project - which takes a document's sections with it, so
+	a marked section moves with an unmarked parent. ``None`` where the update does none of them.
+	"""
+
+	if moving and any(one.binds == BINDS_THE_WORKSPACE for one in (document, *beneath)):
+		return "move a document that binds the whole workspace, or one holding it", "project"
+
+	if document.binds != BINDS_THE_WORKSPACE:
+		return None
+
+	if status is not subroutine.domain.patch.UNSET:
+		was = session.get(subroutine.db.models.vocabulary.Status, document.status_id)
+
+		if was is not None and was.category == CURRENT_CATEGORY and status.category != CURRENT_CATEGORY:
+			return "take a document that binds the whole workspace out of force", "status"
+
+	if item_type is not subroutine.domain.patch.UNSET:
+		kind = session.get(subroutine.db.models.vocabulary.ItemType, document.type_id)
+
+		if kind is not None and kind.key in GOVERNS and item_type.key not in GOVERNS:
+			return "make a document that binds the whole workspace a type that binds nobody", "type"
+
+	return None
+
+
+def _marked_beneath (
+	session: sqlalchemy.orm.Session, document: subroutine.db.models.work.Document
+) -> bool:
+	"""Return whether a document, or any section of it, binds the whole workspace."""
+
+	model = subroutine.db.models.work.Document
+
+	return document.binds == BINDS_THE_WORKSPACE or (
+		session.scalar(
+			sqlalchemy.select(model.id)
+			.where(
+				model.workspace_id == document.workspace_id,
+				subroutine.domain.hierarchy.subtree(model, document),
+				model.binds == BINDS_THE_WORKSPACE,
+			)
+			.limit(1)
+		)
+		is not None
+	)
+
+
+def refuse_hiding_a_rule (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+	*,
+	act: str,
+	field: str,
+) -> None:
+	"""Refuse hiding a project that holds a rule binding the whole workspace, unless the actor may
+	mark one - `#4286`, decision `#4134`.
+
+	**Making the project that holds a rule private is retiring it by another door**: privacy
+	inherits down the tree, so a project above it made private, or a move under a private one, does
+	the same, and deleting the project takes the rule to the trash with it (decision `#4091`). Only
+	a live rule counts; one already in the trash binds nobody.
+	"""
+
+	if actor is None:
+		return
+
+	projects = subroutine.db.models.project.Project
+	model = subroutine.db.models.work.Document
+	held = session.scalar(
+		sqlalchemy.select(model.id)
+		.where(
+			model.workspace_id == project.workspace_id,
+			model.project_id.in_(
+				sqlalchemy.select(projects.id).where(
+					projects.workspace_id == project.workspace_id,
+					subroutine.domain.hierarchy.subtree(projects, project),
+				)
+			),
+			model.binds == BINDS_THE_WORKSPACE,
+			model.deleted_at.is_(None),
+		)
+		.limit(1)
+	)
+
+	if held is None:
+		return
+
+	_permitted_to_mark(
+		session,
+		actor,
+		project.workspace_id,
+		act=act,
+		hint=f"It holds a rule that binds the whole workspace. {_ASK_FROM_THE_WHOLE}",
+		field=field,
 	)
 
 
