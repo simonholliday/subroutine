@@ -224,17 +224,16 @@ def test_a_nul_in_a_name_to_look_something_up_by_is_refused (
 ) -> None:
 	"""The same NUL in a body: a 500 on PostgreSQL, where no query could bind it.
 
-	**Refused without the field's name on PostgreSQL**, by the backstop that turns the
-	database's refusal into the caller's: it knows a value held a NUL and not which. SQLite
-	binds one, and says nothing is called that.
+	**Refused by name on both backends** (`SR#4287`), since each lookup now reads the name it is
+	given before asking the database. It was refused without the field's name on PostgreSQL, by
+	the backstop that knows a value held a NUL and not which, and SQLite said nothing was called
+	that.
 	"""
 
 	answered = world.call("POST", "/v1/tasks", json={"title": "Fine", field: "a\x00b"})
 
-	assert answered.status_code in {404, 422}, answered.text
-
-	if world.session.get_bind().dialect.name == "postgresql":
-		assert "NUL" in answered.json()["detail"], answered.text
+	assert answered.status_code == 422, answered.text
+	assert answered.json()["errors"][0]["field"] == field, answered.text
 
 
 @pytest.mark.parametrize(

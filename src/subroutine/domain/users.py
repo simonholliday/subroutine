@@ -520,6 +520,11 @@ def by_username (
 	which is what the unique index on that column already says.
 	"""
 
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(username, field="username")
+
 	model = subroutine.db.models.identity.User
 	found = session.scalars(
 		sqlalchemy.select(model).where(
@@ -558,6 +563,11 @@ def member (
 	A value that parses as a UUID is taken as an id, matching ``id_or_ref`` and ``id_or_key``
 	and :func:`subroutine.domain.selection.user`; anything else is a username.
 	"""
+
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(given, field=field)
 
 	try:
 		identifier = uuid.UUID(given)

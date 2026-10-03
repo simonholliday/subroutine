@@ -1235,6 +1235,11 @@ def _vocabulary (
 	have to name the valid alternatives when they fail (docs/design.md §5.5).
 	"""
 
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(key, field=field)
+
 	statement = sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id, model.entity_type == "document"
 	)

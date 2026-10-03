@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Half a character in a status, a type, an assignee, a project or an `@name` is refused by
+  name.** Text was refused that way already; a name that is looked up reached the database as it
+  was, and the answer was a server error, or a crash at the command line when an argument held a
+  byte that is not text.
 - **A listing's cursor works only in the workspace it came from.** Passed to the same listing
   in another workspace, it carried on there from where it had stopped: a task listing answered
   with no rows and said there were no more, and nothing said anything was wrong. It is now

@@ -1590,6 +1590,11 @@ def status_for (
 	asserting something an installation is free to have renamed.
 	"""
 
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(key, field="status")
+
 	model = subroutine.db.models.vocabulary.Status
 
 	statement = sqlalchemy.select(model).where(

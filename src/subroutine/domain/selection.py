@@ -32,6 +32,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.text
 import subroutine.domain.trash
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -713,6 +714,11 @@ def addressed (
 	``nameable`` is for a caller naming a project on the way to something else - filing,
 	moving, narrowing a read - rather than asking for the project (`#3909`): :func:`_nameable`.
 	"""
+
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(wanted, field=field)
 
 	model = subroutine.db.models.project.Project
 	# **Every project in the workspace, for walking the ancestors of an address** (`#2645`), and

@@ -4021,6 +4021,11 @@ def item_type_for (
 	got. The second caller is why this is a parameter rather than a literal.
 	"""
 
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(key, field=field)
+
 	model = subroutine.db.models.vocabulary.ItemType
 
 	found = session.scalars(
@@ -4057,6 +4062,11 @@ def status_for (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str | None
 ) -> subroutine.db.models.vocabulary.Status:
 	"""Return a task status by key, or the workspace's default when none is named."""
+
+	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
+	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
+	# terminal as a traceback.
+	subroutine.domain.text.readable(key, field="status")
 
 	model = subroutine.db.models.vocabulary.Status
 
