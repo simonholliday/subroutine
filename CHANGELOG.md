@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Taking a backup into a folder the server may not search is refused by name**, as listing that
+  folder already was, rather than failing as an unexpected error - a 500 over HTTP and a crash
+  report in the terminal.
 - **A backup is readable by its owner alone from its first byte.** The copy staged in the data
   directory, the backup itself and the note beside it were each made readable by every account
   on the machine and tightened only afterwards, so the whole database - password and token

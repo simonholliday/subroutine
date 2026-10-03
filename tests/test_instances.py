@@ -1804,6 +1804,34 @@ def test_a_take_clears_away_what_a_killed_one_left_staged (
 	assert staging.stat().st_mode & 0o077 == 0
 
 
+def test_a_backup_folder_that_cannot_be_searched_is_refused_by_name (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4285` (NEW-B-1 of the verification of the cold review of 2026-10-03).
+
+	Choosing a free name asks whether each candidate exists, and ``Path.exists`` swallows only a
+	missing path: in a folder this account may not search it raised ``PermissionError``, a 500 over
+	HTTP and a crash report in the terminal, where listing the same folder said what was wrong.
+	"""
+
+	locked = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(locked))
+	_locked(locked)
+
+	try:
+		with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+			subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		locked.chmod(0o700)
+
+	assert refused.value.code == "backup_failed"
+	assert str(locked) in refused.value.detail
+
+
 def test_a_delivery_never_writes_over_or_removes_a_file_already_at_its_name (
 	tmp_path: pathlib.Path,
 ) -> None:

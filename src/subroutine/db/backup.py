@@ -369,7 +369,20 @@ def _free_name (
 		when = moment + datetime.timedelta(seconds=step)
 		candidate = into / filename(profile, when, head, suffix)
 
-		if not candidate.exists():
+		try:
+			taken = candidate.exists()
+
+		except OSError as error:
+			# **A folder that is there and cannot be searched** (`#4285`). ``exists`` swallows only a
+			# missing path, so a folder this account may not enter escaped as an unexpected error, a
+			# 500 over HTTP, where listing the same folder already said what was wrong (`#4242`).
+			raise subroutine.errors.ServiceUnavailable(
+				f"The backup directory {into} could not be read: {error}. If it is on a network "
+				f"volume, check that the volume is mounted.",
+				code="backup_failed",
+			) from error
+
+		if not taken:
 			return when, candidate
 
 	raise subroutine.errors.ServiceUnavailable(

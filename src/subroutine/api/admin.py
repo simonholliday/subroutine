@@ -34,11 +34,15 @@ router = fastapi.APIRouter(
 class Backup(pydantic.BaseModel):
 	"""One copy of the database, described well enough to choose between several.
 
-	**The name identifies it and the server's path is deliberately not reported.**
+	**The name identifies it, and the listing does not report the server's path.**
 	A caller over HTTP is somewhere else: they cannot open the file, and there is no endpoint
 	that takes a path - restore deliberately has none, so the one thing a reader might
 	do with it is the one thing they cannot. What it does say is where this instance keeps its
 	data, to somebody who by definition is not on that machine.
+
+	A failure to read or write the backup folder does name it, because putting the folder right
+	is the one thing that failure asks of whoever runs the installation, and only somebody who
+	administers the installation reaches these routes.
 
 	``subroutine db backup`` still prints the path, and should: it runs beside the file.
 	"""
