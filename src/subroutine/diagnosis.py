@@ -441,8 +441,27 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 	except subroutine.errors.SubroutineError as failure:
 		return [Finding(area="backups", detail=str(failure), ok=False)]
 
+	# **A copy a stopped take left is named, never counted** (`#4282`, decision `#4302`). It is not
+	# in the catalogue, so without this nothing would say it is there, taking room and holding
+	# nothing anyone can trust.
+	stopped = subroutine.db.backup.unfinished(settings)
+	unfinished = (
+		[
+			Finding(
+				area="backups",
+				detail=(
+					f"unfinished in {where}, stopped before it was proved and not counted as a "
+					f"backup: {', '.join(path.name for path in stopped)}"
+				),
+				ok=False,
+			)
+		]
+		if stopped
+		else []
+	)
+
 	if not found:
-		return [Finding(area="backups", detail=f"{where} holds none yet", unknown=True)]
+		return [Finding(area="backups", detail=f"{where} holds none yet", unknown=True), *unfinished]
 
 	newest = found[0]
 	age = (subroutine.db.types.utcnow() - newest.taken_at).days
@@ -469,7 +488,8 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 				f"{len(found)} in {where}, newest {newest.name} "
 				f"({newest.size_bytes:,} bytes, {when}{behind})"
 			),
-		)
+		),
+		*unfinished,
 	]
 
 

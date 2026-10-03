@@ -432,6 +432,38 @@ RESTORE_SAFETY_LIFETIME = datetime.timedelta(days=7)
 #: disk is byte-for-byte what was taken.
 RECORD_SUFFIX = ".counts.json"
 
+#: What marks a copy as still on its way, beside it, until it has been proved (`#4282`, decision
+#: `#4302`). **A file of its own rather than a temporary name for the copy**: a rename is what
+#: the backup volume does not honour (`#505`), and a marker is only ever created and removed.
+PARTIAL_SUFFIX = ".partial"
+
+
+def _marker_beside (path: pathlib.Path) -> pathlib.Path:
+	"""Return where the marker saying a copy is unfinished lives."""
+
+	return path.with_name(path.name + PARTIAL_SUFFIX)
+
+
+def unfinished (settings: subroutine.config.Settings) -> list[pathlib.Path]:
+	"""Return the copies in the backup folder still marked unfinished, by the name each was given.
+
+	A take stopped by a signal nothing can catch - a kill, the out-of-memory killer, a power cut -
+	leaves its copy and its marker behind. Neither :func:`catalogue` nor pruning counts such a
+	copy, so this is where it is found, to be named rather than silently kept.
+	"""
+
+	where = directory(settings, create=False)
+
+	try:
+		return sorted(
+			path.with_name(path.name.removesuffix(PARTIAL_SUFFIX))
+			for path in where.iterdir()
+			if path.name.endswith(PARTIAL_SUFFIX)
+		)
+
+	except OSError:
+		return []
+
 
 def _record_beside (path: pathlib.Path) -> pathlib.Path:
 	"""Return where one backup's record of what it held lives."""
@@ -539,6 +571,12 @@ def _described (path: pathlib.Path) -> Backup | None:
 	# every surface that lists what is there. Two declarations of one set, agreeing until
 	# somebody added to one of them.
 	if path.suffix not in ENGINE_OF_SUFFIX or not path.is_file():
+		return None
+
+	# **A copy still marked unfinished is not a backup** (`#4282`). A take stopped part way left a
+	# short file under a backup's name: listed as a routine backup, counted by ``--keep`` - which
+	# deleted a good one to keep it - and reported by ``doctor`` as the newest.
+	if _marker_beside(path).exists():
 		return None
 
 	parts = path.stem.split("-")
@@ -1474,7 +1512,25 @@ def _delivered (
 
 	The staged copy is not removed here. :func:`take` owns it in a ``finally``, so it goes
 	whether this succeeds or not.
+
+	**Marked unfinished until it is proved** (`#4282`, decision `#4302`). Removing a failed copy
+	covers what can be caught, and Ctrl-C can be; a kill or the out-of-memory killer cannot, and
+	left a short file that read as a backup. So a marker goes down beside the copy before a byte
+	of it, and comes away only once the copy is proved. Whatever stops this in between, the copy
+	is never counted as a backup. If the marker cannot be removed afterwards, a good copy stays
+	marked: kept, never pruned, and named by ``doctor`` - the safe direction.
 	"""
+
+	marker = _marker_beside(target)
+
+	try:
+		_created_private(marker).close()
+
+	except FileExistsError as error:
+		raise _written_there_first(target) from error
+
+	except OSError as error:
+		raise _not_written(target, error) from error
 
 	try:
 		_copy_into(staged, target)
@@ -1482,24 +1538,22 @@ def _delivered (
 	except FileExistsError as error:
 		# **Somebody else's file, so it is left alone.** The name was free a moment ago, so another
 		# take reached it first; removing it, as a failed copy is removed below, would delete a
-		# backup this take did not write.
-		raise subroutine.errors.ServiceUnavailable(
-			f"The backup could not be written to {target}: something else was written there first.",
-			code="backup_failed",
-		) from error
+		# backup this take did not write. The marker is this take's own.
+		_unlinked(marker)
 
-	except OSError as error:
+		raise _written_there_first(target) from error
+
+	except BaseException as error:
 		# **A copy that stopped part way leaves a short file behind**, which is the exact thing
 		# this function exists to prevent — and the verification below never runs on this path,
-		# so the removal cannot be left to it.
-		with contextlib.suppress(OSError):
-			target.unlink(missing_ok=True)
+		# so the removal cannot be left to it. Ctrl-C included (`#4282`), which is not an
+		# ``OSError``, so it is removed and then allowed on its way.
+		_unlinked(target, marker)
 
-		raise subroutine.errors.ServiceUnavailable(
-			f"The backup could not be written to {target}: {error}. If that is a network "
-			f"volume, check that it is mounted and writable.",
-			code="backup_failed",
-		) from error
+		if isinstance(error, OSError):
+			raise _not_written(target, error) from error
+
+		raise
 
 	# A backup is the database, so it gets the database's permissions. ``_copy_into`` created it
 	# owner-only, so a copy that fails the check below was never readable by anyone else either,
@@ -1537,11 +1591,40 @@ def _delivered (
 
 		_refuse_a_corrupt_copy(target)
 
-	except Exception:
-		with contextlib.suppress(OSError):
-			target.unlink(missing_ok=True)
+	except BaseException:
+		_unlinked(target, marker)
 
 		raise
+
+	# Proved, so no longer unfinished.
+	_unlinked(marker)
+
+
+def _written_there_first (target: pathlib.Path) -> subroutine.errors.SubroutineError:
+	"""Return the refusal for a backup name another take reached first."""
+
+	return subroutine.errors.ServiceUnavailable(
+		f"The backup could not be written to {target}: something else was written there first.",
+		code="backup_failed",
+	)
+
+
+def _not_written (target: pathlib.Path, error: OSError) -> subroutine.errors.SubroutineError:
+	"""Return the refusal for a backup that could not be written where it was to go."""
+
+	return subroutine.errors.ServiceUnavailable(
+		f"The backup could not be written to {target}: {error}. If that is a network "
+		f"volume, check that it is mounted and writable.",
+		code="backup_failed",
+	)
+
+
+def _unlinked (*paths: pathlib.Path) -> None:
+	"""Remove each file this take wrote, as far as the filesystem allows."""
+
+	for path in paths:
+		with contextlib.suppress(OSError):
+			path.unlink(missing_ok=True)
 
 
 def _copy_into (source: pathlib.Path, target: pathlib.Path) -> None:

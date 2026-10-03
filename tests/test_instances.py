@@ -39,6 +39,7 @@ import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.models.system
 import subroutine.db.session
+import subroutine.diagnosis
 import subroutine.errors
 import test_api_tasks
 
@@ -1830,6 +1831,72 @@ def test_a_backup_folder_that_cannot_be_searched_is_refused_by_name (
 
 	assert refused.value.code == "backup_failed"
 	assert str(locked) in refused.value.detail
+
+
+def test_a_delivery_interrupted_part_way_leaves_nothing_that_reads_as_a_backup (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4282` (M11 of the cold review of 2026-10-03): Ctrl-C half way through the copy.
+
+	Delivery removed a failed copy only on ``OSError``, so an interrupt left a short file under a
+	backup's name, listed as a routine backup. A good take leaves no marker behind.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+	good = subroutine.db.backup.take(engine, _settings())
+
+	def interrupted (source: pathlib.Path, target: pathlib.Path) -> None:
+		"""Write half the copy, then stop as Ctrl-C stops it."""
+
+		target.write_bytes(source.read_bytes()[:512])
+
+		raise KeyboardInterrupt
+
+	monkeypatch.setattr(subroutine.db.backup, "_copy_into", interrupted)
+
+	with pytest.raises(KeyboardInterrupt):
+		subroutine.db.backup.take(engine, _settings())
+
+	assert [one.path for one in subroutine.db.backup.catalogue(_settings())] == [good.path]
+	assert sorted(one.name for one in elsewhere.iterdir()) == [
+		good.path.name,
+		good.path.name + subroutine.db.backup.RECORD_SUFFIX,
+	]
+
+
+def test_a_copy_a_killed_take_left_is_never_listed_pruned_or_called_the_newest (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4282`: what a kill leaves - a short copy, and the marker written before it - is named.
+
+	Measured on the code before the marker: the short copy was listed above two good ones,
+	``prune --keep 2`` deleted the oldest good one to keep it, and ``doctor`` called it the newest.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+	older = subroutine.db.backup.take(engine, _settings())
+	newer = subroutine.db.backup.take(engine, _settings())
+	newer.path.write_bytes(newer.path.read_bytes()[:512])
+	newer.path.with_name(newer.path.name + subroutine.db.backup.PARTIAL_SUFFIX).write_bytes(b"")
+
+	assert [one.path for one in subroutine.db.backup.catalogue(_settings())] == [older.path]
+	assert subroutine.db.backup.prune(_settings(), keep=1) == []
+	assert older.path.exists() and newer.path.exists()
+	assert subroutine.db.backup.unfinished(_settings()) == [newer.path]
+
+	found = subroutine.diagnosis._the_backups(_settings())
+
+	assert older.path.name in found[0].detail and found[0].ok, found
+	assert [one.ok for one in found[1:]] == [False], found
+	assert newer.path.name in found[1].detail and "unfinished" in found[1].detail, found
 
 
 def test_a_delivery_never_writes_over_or_removes_a_file_already_at_its_name (

@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A backup stopped on its way to the backup folder is never taken for a real one.** A copy
+  interrupted part way - Ctrl-C, `systemctl stop`, the out-of-memory killer - left a short file
+  under a backup's name: listed as a routine backup, counted by `--keep`, which could delete a
+  good backup to keep it, and named by `doctor` as the newest. A copy is now marked unfinished
+  beside it until it has been proved, a marked copy is never listed or pruned, and `doctor`
+  names it.
 - **Taking a backup into a folder the server may not search is refused by name**, as listing that
   folder already was, rather than failing as an unexpected error - a 500 over HTTP and a crash
   report in the terminal.
