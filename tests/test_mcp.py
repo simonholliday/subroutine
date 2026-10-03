@@ -11150,6 +11150,40 @@ def test_the_agents_project_listing_drops_its_summaries_where_none_would_fit (
 	assert "summaries cut so the list fits one answer" in listed, listed[-300:]
 
 
+@pytest.mark.parametrize("described", [0, 3])
+def test_the_agents_project_listing_past_its_bound_says_so_rather_than_failing (
+	described: int, bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4274`, M7 of the cold review of 2026-10-03: a crash, and a note that was not true.
+
+	With no project described the search for room had nothing to take a maximum of, and the agent
+	was answered *max() iterable argument is empty*. With a few described and the tree alone past
+	the bound, every summary went and the answer still said it had been cut so the list fits.
+	**Every project is listed, and the note says how it is.**
+	"""
+
+	for number in range(24):
+		_called(
+			bound,
+			"subroutine_call_api",
+			method="POST",
+			path="/v1/projects",
+			body={
+				"key": f"p{number:02d}",
+				"title": f"Project {number}",
+				**({"description": "What this project is for."} if number < described else {}),
+			},
+		)
+
+	monkeypatch.setattr(subroutine.mcp.tools, "PROJECTS_LISTED_WHOLE", 200)
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert all(f"p{number:02d}" in listed for number in range(24)), listed
+	assert "fits" not in listed and "longer than one answer is kept to" in listed, listed[-300:]
+	assert ("summaries left out" in listed) == bool(described), listed[-300:]
+
+
 def test_the_agents_listing_leaves_events_out_and_says_how_many (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

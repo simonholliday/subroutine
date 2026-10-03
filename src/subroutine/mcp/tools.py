@@ -5331,8 +5331,17 @@ def _projected (
 		# whatever the titles; below the shortest summary worth a line, the summaries go.
 		note = f"(All {len(rows)} projects, with their summaries cut so the list fits one answer.)"
 		low = _SHORTEST_SUMMARY
+
+		# **Nothing to cut where nothing is described** (`#4274`, M7 of the cold review of 2026-10-03):
+		# with no default, a workspace of a few hundred projects and no descriptions answered the
+		# agent with Python's own words, *max() iterable argument is empty*.
 		high = max(
-			len(subroutine.domain.text.one_line(row.description)) for row in rows if row.description
+			(
+				len(subroutine.domain.text.one_line(row.description))
+				for row in rows
+				if row.description
+			),
+			default=0,
 		)
 		room = 0
 
@@ -5345,7 +5354,19 @@ def _projected (
 			else:
 				high = middle - 1
 
-		return f"{listed(room)}\n{note}"
+		cut = listed(room)
+
+		# **And never *fits* where it does not** (`#4274`). With every summary gone the tree alone can
+		# still run past the bound, and the note said it had been cut to fit. No project is dropped to
+		# make it (`#3905`), so it says how long it is and why.
+		if len(cut) + 1 + len(note) > PROJECTS_LISTED_WHOLE:
+			left_out = ", with their summaries left out" if any(row.description for row in rows) else ""
+			note = (
+				f"(All {len(rows)} projects{left_out}. That is longer than one answer is kept to, and no "
+				"project is left out to shorten it.)"
+			)
+
+		return f"{cut}\n{note}"
 
 	title = _text(arguments, "title")
 

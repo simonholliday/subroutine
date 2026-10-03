@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The agent's project listing answers in a workspace where no project is described.** Past the
+  length one answer is kept to, it answered with an error, *max() iterable argument is empty*;
+  and where even the tree without its summaries was too long, it said the summaries had been cut
+  so the list fits. It now lists every project and says the list is longer than one answer is
+  kept to.
 - **An agent's credential narrowed to some projects writes from a checkout marked for somewhere
   else.** In a checkout whose `.subroutine` names another workspace or instance, every write such
   a credential made - `add` and `document create`, and `subroutine_add` and `subroutine_document`
