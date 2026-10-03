@@ -5445,6 +5445,11 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	there was read for again behind it, the answer was thrown away, and Back showed it still
 	listed. Here rather than as a test of its own, because it is the same ticket's question and
 	this file is held to its count.
+
+	**And an item, which had no ticket** (`SR#4322`, of the cold review of 2026-10-03): one opened and
+	slow to answer, landing after the reader had opened another, drew itself under its own address.
+	**And closing an item arrived at directly** went to ``/?view=list`` rather than back to the
+	project's list, since ``close`` read ``everywhere`` from the page's first render.
 	"""
 
 	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
@@ -5813,6 +5818,49 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	assert page.locator(row).count() == 0, (
 		"the item finished from its page is still listed on the list it was opened from: the "
 		"listing was read again and its answer dropped, because the address named the item's project"
+	)
+
+	page.close()
+
+	# **An open overtaken by another** (`SR#4322`): #101 is held until #42 is open, then answers.
+	slow: list[typing.Any] = []
+
+	def slowing (route: typing.Any) -> None:
+		"""Keep the read of #101 back until the test lets it through."""
+
+		slow.append(route)
+
+	page = opened("/projects?view=list", rows=served)
+	page.wait_for_selector(".listing a.row", timeout=10_000)
+	page.route(lambda url: url.split("?")[0].endswith("/v1/tasks/101"), slowing)
+	moved("/projects/subroutine/ui/101")
+	_until(page, lambda: bool(slow))
+
+	assert slow, "#101 was never asked for, so this proves nothing"
+
+	moved("/projects/subroutine/ui/42")
+	page.wait_for_selector(".detail", timeout=10_000)
+	slow.pop().fulfill(
+		status=200,
+		content_type="application/json",
+		body=json.dumps(dict(CARD, ref=101, title="Opened first and answered last")),
+	)
+
+	assert not lands(
+		lambda: "Opened first and answered last" in page.inner_text("body")
+		or page.url.split("?")[0].endswith("/101")
+	), f"an item answering after another was opened was drawn at {page.url}"
+
+	page.close()
+
+	# **And All items from an item arrived at directly** (`SR#4322`) goes back to its project's list.
+	page = opened("/projects/42?view=list")
+	page.wait_for_selector(".detail a.back", timeout=10_000)
+	page.click(".detail a.back")
+	_until(page, lambda: "/projects?" in page.url)
+
+	assert "/projects?" in page.url and "view=list" in page.url, (
+		f"All items from an item arrived at directly went to {page.url}"
 	)
 
 	page.close()

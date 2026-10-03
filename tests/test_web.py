@@ -9142,6 +9142,13 @@ def test_one_event_left_out_is_offered_as_it (tmp_path: pathlib.Path) -> None:
 	assert "1 event not listed." in one and "Show it" in one, one
 	assert "3 events not listed." in three and "Show them" in three, three
 
+	# **And a floor** (`SR#4322`): one or more is them.
+	floor = _rendered(
+		tmp_path, {"EventsLeftOut": {"count": 1, "more": True, "showTo": link}}
+	)["EventsLeftOut"]
+
+	assert "1 or more events not listed." in floor and "Show them" in floor, floor
+
 
 def test_a_page_narrowed_to_work_nobody_has_says_so (tmp_path: pathlib.Path) -> None:
 	"""`SR#2182`, and it is `SR#1020`'s rule applied to the newest narrowing.
@@ -14193,6 +14200,36 @@ def test_a_list_or_a_board_leaves_events_out_and_says_how_many (
 		for call in driven["asked"]
 		if call["path"].startswith("/v1/documents?")
 	), "a document request carried events, which a document never is"
+
+
+def test_a_full_page_of_events_is_counted_as_a_floor (tmp_path: pathlib.Path) -> None:
+	"""`SR#4322`: the count read one page and printed it as exact, ignoring ``has_more``."""
+
+	driven = _driven(
+		tmp_path, pathname="/projects", search="?view=list",
+		answers={
+			"events=only": {
+				**TWO_EVENTS,
+				"page": {**typing.cast(dict[str, typing.Any], TWO_EVENTS["page"]), "has_more": True},
+			},
+			"/v1/tasks": LISTED_WITH_AN_EVENT,
+		},
+	)
+
+	assert "1 or more events not listed." in driven["said"], driven["said"]
+
+
+def test_a_search_counts_no_events_it_did_not_list (tmp_path: pathlib.Path) -> None:
+	"""`SR#4322`: a search lists the events it names, so one not on its first page was not left out."""
+
+	driven = _driven(
+		tmp_path, pathname="/projects", search="?view=list&q=payday",
+		answers={"events=only": TWO_EVENTS, "/v1/tasks": LISTED_WITH_AN_EVENT},
+	)
+	_listing, counting = _tasks_asked(driven)
+
+	assert not counting, counting
+	assert "not listed" not in driven["said"], driven["said"]
 
 
 def test_a_list_that_asks_for_events_counts_none (tmp_path: pathlib.Path) -> None:

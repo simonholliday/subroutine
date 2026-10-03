@@ -205,6 +205,8 @@ export function App () {
 	const [unread, setUnread] = useState([]);
 	/* **How many events the page left out** (`#3704`), held beside `unread` for its reason. */
 	const [eventsLeft, setEventsLeft] = useState(0);
+	/* **And whether that is only as many as one page holds** (`#4322`): a floor, not a count. */
+	const [eventsBeyond, setEventsBeyond] = useState(false);
 	/* What each of a board's columns held back — `#1790`. Null unless the answer was grouped. */
 	const [cut, setCut] = useState(null);
 	/*
@@ -637,15 +639,28 @@ export function App () {
 		*/
 		const chose = shown.current.selection;
 
+		/*
+			**The events it left out are counted beside the rows, and set with them** (`#4322`, of the
+			cold review of 2026-10-03). Asked after the rows had landed, the previous place's count stood
+			beside the new rows for a round trip, and stayed there where the new read was refused or
+			overtaken. On the first page alone, as before - *Show more* appends rows and leaves the count
+			to the read that asked it. A count that could not be read says nothing, rather than something
+			that may be wrong.
+		*/
+		const counting = after ? null : eventsLeftOutRequest(slug, key, chose);
+
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
 		const wanted = listingRequests(slug, key, after, chose, columns ?? columnSize.current);
+		const pending = Promise.allSettled(wanted.map(sent));
+		/* After the rows are asked for, so the first thing a page asks is still its listing. */
+		const counted = counting === null ? null : sent(counting).catch(() => null);
 		let answers;
 
 		try {
 			/* **Settled rather than raced** (`#3592`): a collection declining the other's ref is
 			   forgiven by `forgiven`, which is pure and checked, where `Promise.all` threw on it. */
-			answers = forgiven(await Promise.allSettled(wanted.map(sent)));
+			answers = forgiven(await pending);
 		} catch (failure) {
 			/* **A refusal is asked the same question first** (`#4018`), as `readAgenda` asks it. */
 			if (!current()) return;
@@ -679,6 +694,10 @@ export function App () {
 		/* **Whichever shape arrived** (`#1790`) — `unpacked` is pure and driven, so the rule
 		   for reading a grouped answer is not a branch buried in this callback. */
 		const { rows: fetched, cut, more: left, unread: unreadable } = unpacked(answers, wanted);
+
+		if (!current()) return;
+
+		const only = counted === null ? null : await counted;
 
 		if (!current()) return;
 
@@ -735,29 +754,15 @@ export function App () {
 		/*
 			**And the events it left out, counted** (`#3704`, decision `#3807`): a second, bounded request
 			with `events=only`, as the terminal counts them, **and only those not on the page**, since the
-			instance brings events back where the request names them. On the first page alone - *Show
-			more* appends rows and leaves the count to the read that asked it - and asked the listing's
-			own question first, so a count landing after the reader moved on draws nothing.
+			instance brings events back where the request names them. **A full page of them is a floor**
+			(`#4322`): its `has_more` is read, so the count reads *or more* rather than as exact.
 		*/
 		if (after) return;
 
-		const counting = eventsLeftOutRequest(slug, key, chose);
-		let leftOut = 0;
+		const here = new Set(fetched.map((row) => row.id));
 
-		if (counting !== null) {
-			try {
-				const only = await sent(counting);
-				const here = new Set(fetched.map((row) => row.id));
-
-				leftOut = (only.items || []).filter((row) => !here.has(row.id)).length;
-			} catch (_) {
-				/* A count that could not be read says nothing, rather than something that may be wrong. */
-			}
-		}
-
-		if (!current()) return;
-
-		setEventsLeft(leftOut);
+		setEventsLeft(only ? (only.items || []).filter((row) => !here.has(row.id)).length : 0);
+		setEventsBeyond(Boolean(only && only.page && only.page.has_more));
 	}, []);
 
 	const words = useCallback(async (slug) => {
@@ -1131,6 +1136,9 @@ export function App () {
 		return null;
 	}, []);
 
+	/* **Which open is the latest** (`#4322`), as `listingAsked` says which listing is. */
+	const showAsked = useRef(0);
+
 	const show = useCallback(async (
 		row, { history = true, slug = workspace, quiet = false } = {},
 	) => {
@@ -1140,8 +1148,18 @@ export function App () {
 			`#916` tries this first and falls back to searching for the text, so *there is no
 			#916 here* would be a refusal contradicted a moment later by the results.
 		*/
+		showAsked.current += 1;
+
+		const ticket = showAsked.current;
+
 		try {
 			const found = await fetched(row.ref, row.kind, slug);
+
+			/* **Only the latest open is drawn** (`#4322`, of the cold review of 2026-10-03), as only the
+			   latest listing is: a slow item landing after another was opened, or after the reader had
+			   closed it, drew itself under its own address. A later act owns the page, so the caller of
+			   one it overtook has nothing left to do. */
+			if (ticket !== showAsked.current) return true;
 
 			/* **With the workspace it was read from**, so a background re-read asks the same
 			   place (`#657`). `slug` defaults to the current workspace and is overridden when a
@@ -1169,6 +1187,8 @@ export function App () {
 
 			return true;
 		} catch (failure) {
+			if (ticket !== showAsked.current) return true;
+
 			/*
 				**A ref that is not there is a note, not the end of the page.**
 
@@ -1193,6 +1213,8 @@ export function App () {
 	}, [fetched, go, learnAbout, nowOpen, workspace]);
 
 	const close = useCallback(({ history = true } = {}) => {
+		/* An open still on its way is overtaken by closing, as by another open (`#4322`). */
+		showAsked.current += 1;
 		nowOpen(null);
 
 		/*
@@ -1203,7 +1225,10 @@ export function App () {
 			can see, and it was found by reading this while wiring `#651`'s view through it.
 		*/
 		if (history) go(listingAddress({ agenda: everywhere, workspace, project }));
-	}, [agenda, go, nowOpen, project, workspace]);
+	/* **`everywhere`, which it reads** (`#4322`): left out, an item arrived at directly was closed
+	   with the value from the first render, which named the agenda, so `/projects?view=list` went
+	   back to `/?view=list`. */
+	}, [everywhere, go, nowOpen, project, workspace]);
 
 	const refresh = useCallback(async () => {
 		/*
@@ -3859,7 +3884,7 @@ export function App () {
 			     not read and for its reason: a fact about the answer. Never on the agenda, which reads
 			     another endpoint and has its own account of what happens today. */ null}
 			${area === null && !open && (showing.view || DEFAULT_VIEW) !== AGENDA_VIEW
-				&& html`<${EventsLeftOut} count=${eventsLeft} onShow=${showEvents}
+				&& html`<${EventsLeftOut} count=${eventsLeft} more=${eventsBeyond} onShow=${showEvents}
 					showTo=${withShowing(behind, {
 						...showing, selection: { ...showing.selection, events: "include" },
 					})} />`}

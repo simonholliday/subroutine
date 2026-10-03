@@ -897,7 +897,9 @@ export function eventsLeftOutRequest (slug, key = null, selection = null) {
 	*/
 	const chose = selection || {};
 
-	if (chose.events) return null;
+	/* **Nor on a search** (`#4322`): the instance lists the events a search names, so an event
+	   counted here and not on the first page was on a later one rather than left out. */
+	if (chose.events || chose.q) return null;
 
 	const narrowed = key ? `&project=${encodeURIComponent(key)}` : "";
 	const rows = Object.keys(SELECTABLE)

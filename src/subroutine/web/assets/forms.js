@@ -839,7 +839,7 @@ export function Focus ({ prioritised = [], onStop = null, busy = false }) {
 }
 
 
-export function EventsLeftOut ({ count = 0, showTo = null, onShow = null }) {
+export function EventsLeftOut ({ count = 0, more = false, showTo = null, onShow = null }) {
 	/*
 		How many events a list or a board left out, and the way to see them - `#3704`, decision `#3807`.
 
@@ -850,13 +850,16 @@ export function EventsLeftOut ({ count = 0, showTo = null, onShow = null }) {
 	*/
 	if (!count) return null;
 
-	const things = count === 1 ? "event" : "events";
+	/* **A page of them full is a floor, not a count** (`#4322`): read as exact, a hundred left out
+	   said *100*, however many more there were. */
+	const one = count === 1 && !more;
+	const things = one ? "event" : "events";
 
 	return html`
 		<div class="narrowed">
-			<span>${count} ${things} not listed.</span>
+			<span>${count}${more ? " or more" : ""} ${things} not listed.</span>
 			${onShow && html`<a class="widen" href=${showTo}
-				onClick=${(event) => followed(event, onShow)}>Show ${count === 1 ? "it" : "them"}</a>`}
+				onClick=${(event) => followed(event, onShow)}>Show ${one ? "it" : "them"}</a>`}
 		</div>
 	`;
 }

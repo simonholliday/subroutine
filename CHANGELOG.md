@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **In the browser, an item that is slow to open no longer replaces one opened after it**, and
+  closing an item reached by its address goes back to its project's list rather than to the
+  agenda.
 - **Creating something too deep is told to file it somewhere shallower**, rather than to move
   what was never moved.
 - **Saving a repeating item in the browser no longer fails over its repeat.** The repeat is
