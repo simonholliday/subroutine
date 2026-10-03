@@ -1837,6 +1837,33 @@ def update (
 		instant=instant,
 	)
 
+	# **A repeat starts from open work** (`#4311`, M17 (d) of the cold review of 2026-10-03, decision
+	# `#4312`), as one created finished is refused (`#4156`): added to a finished task it made a
+	# series that never came round and still said it repeated. Finished in the same call is the
+	# same; reopened in it is not.
+	if (
+		repeating is not subroutine.domain.patch.UNSET
+		and repeating.repeat is not None
+		and repeating.series is None
+		and (
+			status.category in FINISHED_CATEGORIES
+			if status is not subroutine.domain.patch.UNSET
+			else task.completed_at is not None
+		)
+	):
+		raise subroutine.errors.ValidationError(
+			"A finished task cannot start repeating.",
+			code="invalid_field_value",
+			hint="Reopen it first, or file the next one with the repeat.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="status",
+					code="invalid_field_value",
+					message="It is finished, and a repeat starts from open work.",
+				)
+			],
+		)
+
 	before = _snapshot(session, task)
 
 	if cleaned_title is not subroutine.domain.patch.UNSET:
@@ -1874,7 +1901,9 @@ def update (
 		# **`completed_at is not None` is the test for "was it already finished", and that is
 		# not a shortcut**: it is the reading `readiness`, `scoping`, `links` and `schedule`
 		# all already apply, and this assignment and `create`'s are the only things in the program
-		# that write the column, so the invariant they maintain is the invariant this may rely on.
+		# that write the column, so the invariant they maintain is the invariant this may rely on -
+		# **provided nothing writes a finished status without them**, which :func:`begin_repeating`
+		# did, copying a finished task's status to a series with no ``completed_at`` (`#4311`).
 		#
 		# `cancelled` to `done` therefore keeps the original instant. Both are finished, the
 		# work stopped when it stopped, and a column that moved on a change of *which kind* of
@@ -3564,7 +3593,9 @@ def begin_repeating (
 		id=subroutine.db.types.new_uuid(),
 		**_series_carries(task),
 		ref=subroutine.domain.refs.allocate(session, task.workspace_id),
-		status_id=task.status_id,
+		# **The default status, whatever the task's** (`#4311`, decision `#4312`): a repeat starts from
+		# open work, and the task's own status, copied, made a finished series that never came round.
+		status_id=status_for(session, task.workspace_id, None).id,
 		due_at=task.due_at,
 		due_is_all_day=task.due_is_all_day,
 		starts_at=task.starts_at,

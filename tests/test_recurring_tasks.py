@@ -1622,6 +1622,43 @@ def test_a_whole_day_deadline_repeating_from_completion_stays_a_whole_day (
 	), local
 
 
+@pytest.mark.parametrize("finishing", [False, True], ids=["already finished", "finished with it"])
+def test_a_repeat_added_to_finished_work_is_refused_naming_its_status (
+	finishing: bool, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#4311`, M17 (d) of the cold review of 2026-10-03, decision `#4312`.
+
+	A repeat added to a finished task made a series with a finished status and no ``completed_at``:
+	nothing ever came round, and the task still said it repeated. **And the control**: reopened in
+	the same call, it repeats.
+	"""
+
+	task = test_schedule._task(session, title="Renew the passport", due="2026-08-31", now=NOW)
+
+	if not finishing:
+		subroutine.domain.tasks.complete(session, task, now=NOW)
+
+	finished: dict[str, typing.Any] = {"status_key": "done"} if finishing else {}
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session, task, now=NOW, recurrence="every year", **finished
+		)
+
+	assert refused.value.errors[0].field == "status", refused.value.errors
+	assert subroutine.domain.tasks.series_of(session, task) is None, "a series was made anyway"
+
+	if finishing:
+		return
+
+	subroutine.domain.tasks.update(
+		session, task, now=NOW, recurrence="every year", status_key="open"
+	)
+	series = subroutine.domain.tasks.series_of(session, task)
+
+	assert series is not None and series.completed_at is None
+
+
 def test_a_timed_series_moved_from_now_on_by_an_all_day_occurrence_keeps_its_time (
 	session: sqlalchemy.orm.Session,
 ) -> None:

@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat cannot be added to finished work.** It made a series that never came round while
+  the task still said it repeated. It is refused, naming the status: reopen the task first, or
+  file the next one with the repeat.
 - **A repeating item keeps its times across a change of the clocks.** Where its start and its
   deadline fell either side of one, every later start was an hour out for good, and an all-day
   start landed at 11pm the day before. And a series repeating from when it was done no longer
