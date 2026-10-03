@@ -53,6 +53,46 @@ def _apply_sqlite_pragmas (connection: typing.Any, _record: typing.Any) -> None:
 		raise
 
 
+def _apply_postgresql_settings (connection: typing.Any, _record: typing.Any) -> None:
+	"""Configure a freshly opened PostgreSQL connection never to JIT-compile a statement (`#4271`).
+
+	**PostgreSQL decides whether to compile a statement from the planner's estimate of it, and for
+	this program's queries the estimate is wrong by orders of magnitude.** Readiness is correlated
+	``EXISTS`` over links and over the project and task trees, which the planner prices past
+	``jit_optimize_above_cost`` - and then it spent 1.8 seconds compiling 151 functions for a
+	statement that ran in 50 ms. Measured on a copy shaped like the served instance, 3,600 tasks,
+	5,000 links and 27 projects: a page of eight took 1.86 s and the same page of ready work
+	7.62 s, against 0.12 s and 0.26 s with this off. The served instance answered every ready
+	listing after the command line's five seconds had run out.
+
+	**Off for every statement, rather than one more query steered under the threshold.** `#1800`
+	did that for the page's blocked marks, and the predicate has since grown back over it: a
+	threshold the planner's guess can cross again is not a fix. Nothing this program asks is the
+	long analytical query JIT is for.
+
+	``SET`` on the connection rather than ``-c jit=off`` among its startup options, because a
+	pooler such as PgBouncer refuses a startup option it was not told to ignore, and an operator
+	behind one would lose the database to a performance setting. Outside a transaction, so it
+	lasts for the connection's life: the pool hands a connection back with a rollback, which
+	would take a ``SET`` made inside one with it.
+	"""
+
+	autocommit = connection.autocommit
+	connection.autocommit = True
+
+	try:
+		cursor = connection.cursor()
+
+		try:
+			cursor.execute("SET jit = off")
+
+		finally:
+			cursor.close()
+
+	finally:
+		connection.autocommit = autocommit
+
+
 #: The two backends this is built and tested on (docs/design.md §10.3). Every test runs against both,
 #: and the disagreements between them — NULL ordering, ``LIKE`` case sensitivity, ref
 #: allocation under concurrency — are the reason the list is short and closed.
@@ -80,6 +120,9 @@ def create_engine (
 
 	if engine.dialect.name == "sqlite":
 		sqlalchemy.event.listen(engine, "connect", _apply_sqlite_pragmas)
+
+	if engine.dialect.name == "postgresql":
+		sqlalchemy.event.listen(engine, "connect", _apply_postgresql_settings)
 
 	return engine
 

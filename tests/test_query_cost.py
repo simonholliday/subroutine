@@ -1951,6 +1951,39 @@ def test_a_quadratic_ordering_is_caught (
 	)
 
 
+def test_postgresql_never_compiles_a_statement_this_program_asks (
+	engine: sqlalchemy.engine.Engine,
+) -> None:
+	"""`SR#4271`: every connection the program opens has JIT off, and keeps it off.
+
+	A page of tasks on the served instance took two seconds and a page of ready work eight, of
+	which the statements' own work was tens of milliseconds. The rest was PostgreSQL compiling
+	them, because the planner's estimate had crossed its JIT thresholds - which this file's
+	fixture never reached, so every measurement here passed throughout. **So the guard is the
+	setting rather than a timing**: a timing sees the threshold only at the size it was seeded.
+	"""
+
+	if engine.dialect.name != "postgresql":
+		pytest.skip("JIT compiling is PostgreSQL's; SQLite has nothing to switch off.")
+
+	with engine.connect() as connection:
+		assert connection.exec_driver_sql("SHOW jit").scalar() == "off"
+
+	fresh = subroutine.db.session.create_engine(engine.url.render_as_string(hide_password=False))
+
+	try:
+		# The pool hands a connection back with a rollback, so the setting has to outlive one.
+		with fresh.connect() as connection:
+			connection.exec_driver_sql("SELECT 1")
+			connection.rollback()
+
+		with fresh.connect() as connection:
+			assert connection.exec_driver_sql("SHOW jit").scalar() == "off"
+
+	finally:
+		fresh.dispose()
+
+
 def test_nothing_has_its_own_ceiling_that_is_not_measured_here () -> None:
 	"""`#405`'s rule: an entry has to be able to go stale, or the register is a wish list.
 

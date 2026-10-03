@@ -20,6 +20,13 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Listing tasks on PostgreSQL no longer spends seconds preparing a query that takes
+  milliseconds.** PostgreSQL compiled the checks every task listing makes for what is ready
+  before running them, having misjudged how much work they were: a page of eight took about
+  two seconds on a workspace of a few thousand tasks, and a page of ready work about eight -
+  past the command line's five-second wait, so `subroutine list --ready` failed every time.
+  Subroutine now turns that compiling off on its own connections, and the same pages take a
+  tenth and a quarter of a second.
 - **The agent's project listing answers in a workspace where no project is described.** Past the
   length one answer is kept to, it answered with an error, *max() iterable argument is empty*;
   and where even the tree without its summaries was too long, it said the summaries had been cut
