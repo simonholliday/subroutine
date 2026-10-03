@@ -23,8 +23,6 @@ import typing
 import sqlalchemy
 from alembic import op
 
-import subroutine.domain.events
-
 
 revision: str = '6c708db1582c'
 down_revision: str | None = '340ff3f92fa6'
@@ -44,6 +42,38 @@ def upgrade () -> None:
     )
 
 
+def _restored (changes: typing.Any, found: typing.Callable[[str], str | None]) -> typing.Any:
+    """Return ``changes`` with each kept text's reference replaced by the text itself.
+
+    **Copied rather than imported** (``#4297``): Alembic imports every revision on every upgrade,
+    so one importing the domain would break the day the domain renamed what it used. A migration
+    reads the schema of its own moment and declares what it needs, as ``547fe53b263c`` says.
+    """
+
+    if not isinstance(changes, dict):
+        return changes
+
+    whole = dict(changes)
+
+    for field in ('description', 'body'):
+        sides = whole.get(field)
+
+        if not isinstance(sides, dict):
+            continue
+
+        replaced = dict(sides)
+
+        for side in ('from', 'to'):
+            held = replaced.get(side)
+
+            if isinstance(held, dict) and isinstance(held.get('sha256'), str):
+                replaced[side] = found(held['sha256'])
+
+        whole[field] = replaced
+
+    return whole
+
+
 def downgrade () -> None:
     """Write every kept text back into the events that name it, then take the table away."""
 
@@ -54,10 +84,11 @@ def downgrade () -> None:
         sqlalchemy.column('sha256', sqlalchemy.String()),
         sqlalchemy.column('text', sqlalchemy.Text()),
     )
-    kept = {
-        (row.workspace_id, row.sha256): row.text
-        for row in connection.execute(sqlalchemy.select(texts))
-    }
+    # Grouped by workspace once (``#4297``), rather than filtered again for every event.
+    kept: dict[typing.Any, dict[str, str]] = {}
+
+    for row in connection.execute(sqlalchemy.select(texts)):
+        kept.setdefault(row.workspace_id, {})[row.sha256] = row.text
 
     for name in ('event', 'event_archive'):
         events = sqlalchemy.table(
@@ -73,8 +104,7 @@ def downgrade () -> None:
         ).all()
 
         for row in naming:
-            mine = {digest: text for (space, digest), text in kept.items() if space == row.workspace_id}
-            whole = subroutine.domain.events.restored(row.changes, mine.get)
+            whole = _restored(row.changes, kept.get(row.workspace_id, {}).get)
 
             if whole != row.changes:
                 connection.execute(

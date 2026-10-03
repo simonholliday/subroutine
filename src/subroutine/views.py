@@ -4287,6 +4287,9 @@ def journal_entry (
 	rather than an omission.
 	"""
 
+	# **Never a reference where a text belongs** (`#4297`).
+	subroutine.domain.events.refuse_a_kept_reference(row.changes)
+
 	about = None
 
 	if described is not None:
@@ -4493,6 +4496,9 @@ def event (
 	renderer that quietly queried per row would be `#39`'s N+1 reintroduced in the one place
 	that pages fifty rows at a time.
 	"""
+
+	# **Never a reference where a text belongs** (`#4297`).
+	subroutine.domain.events.refuse_a_kept_reference(row.changes)
 
 	about = None
 

@@ -17,6 +17,8 @@ import subroutine.db.models.activity
 import subroutine.db.models.work
 import subroutine.domain.events
 import subroutine.domain.tasks
+import subroutine.errors
+import subroutine.views
 import test_api_tasks
 
 #: Long enough to be kept once, and three of them, so a return to the first is a revert.
@@ -170,8 +172,52 @@ def test_one_text_kept_twice_in_one_transaction_is_one_row (session: sqlalchemy.
 	assert session.scalar(sqlalchemy.select(sqlalchemy.func.count()).select_from(TEXTS)) == 1
 
 
+def test_an_event_shown_without_its_texts_is_refused_rather_than_published (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4297`: a renderer handed rows nobody restored would have published a hash.
+
+	No reader does that today. Both renderers refuse it, and render the whole text once the
+	texts are put back.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Fix the deploy script"}).json()
+	_described(world, made["ref"], FIRST)
+	world.session.flush()
+	world.session.expire_all()
+
+	rows = list(
+		world.session.scalars(
+			sqlalchemy.select(EVENT).where(
+				EVENT.entity_id == uuid.UUID(made["id"]), EVENT.action == "updated"
+			)
+		)
+	)
+
+	assert rows, "no event recorded the description"
+
+	vocabulary = subroutine.views.Vocabulary(world.session)
+	renders: tuple[typing.Callable[[], typing.Any], ...] = (
+		lambda: subroutine.views.event(rows[0]),
+		lambda: subroutine.views.journal_entry(rows[0], vocabulary=vocabulary),
+	)
+
+	for render in renders:
+		with pytest.raises(subroutine.errors.InternalError):
+			render()
+
+	described = subroutine.domain.events.descriptions(world.session, rows)
+	shown = subroutine.views.event(rows[0], described)
+
+	assert shown.changes is not None and shown.changes["description"]["to"] == FIRST
+
+
 def test_restored_puts_back_only_what_it_names () -> None:
-	"""The pure half, which the merge script and the downgrade share with the readers."""
+	"""The pure half, which the merge script shares with the readers.
+
+	The kept-texts migration's downgrade keeps a copy of its own (`SR#4297`), as a migration
+	declares what it needs.
+	"""
 
 	kept = {"from": {"sha256": "a" * 64}, "to": "short"}
 	found = subroutine.domain.events.restored(

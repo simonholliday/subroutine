@@ -523,6 +523,21 @@ def restored (
 	return kept
 
 
+def refuse_a_kept_reference (changes: typing.Any) -> None:
+	"""Refuse to render ``changes`` while it still names a text kept elsewhere - `#4297`.
+
+	**A backstop where a value reaches a reader**, rather than on load, which would cost a query
+	per row. Every renderer today asks :func:`descriptions` first, which puts the texts back; one
+	that did not would publish ``{"sha256": ...}`` where the text belongs, and nothing would say so.
+	"""
+
+	if any(_references(changes)):
+		raise subroutine.errors.InternalError(
+			"An event was about to be shown with a reference where its text belongs.",
+			hint="Read the rows through events.descriptions() or events.whole() before rendering.",
+		)
+
+
 def whole (
 	session: sqlalchemy.orm.Session, rows: typing.Sequence[subroutine.db.models.activity.Event]
 ) -> None:

@@ -5,6 +5,7 @@ Without it, a model can be changed without its migration and nothing complains u
 real installation is upgraded and the schema no longer matches the code that queries it.
 """
 
+import ast
 import datetime
 import pathlib
 import shutil
@@ -306,6 +307,58 @@ def test_an_installation_whose_path_holds_a_percent_can_migrate (
 
 	finally:
 		engine.dispose()
+
+
+#: Where the revisions are, for the guard below.
+REVISIONS = pathlib.Path(subroutine.db.migrate.__file__).resolve().parent / "migrations" / "versions"
+
+
+def _reaching_above_the_database (directory: pathlib.Path) -> list[str]:
+	"""Return each ``file: module`` a revision in ``directory`` imports beyond ``subroutine.db``."""
+
+	found = []
+
+	for path in sorted(directory.glob("*.py")):
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			names: list[str] = []
+
+			if isinstance(node, ast.Import):
+				names = [alias.name for alias in node.names]
+
+			elif isinstance(node, ast.ImportFrom) and node.module is not None:
+				names = [node.module]
+
+			for name in names:
+				if name.split(".")[0] == "subroutine" and not name.startswith("subroutine.db."):
+					found.append(f"{path.name}: {name}")
+
+	return found
+
+
+def test_a_migration_imports_nothing_above_the_database () -> None:
+	"""`SR#4297`: Alembic imports every revision on every upgrade, so each declares what it needs.
+
+	``6c708db1582c`` imported ``subroutine.domain.events`` for one function, so renaming it there
+	would have broken every upgrade from before it. ``subroutine.db`` is allowed: its types and
+	full-text helpers are what a schema is written in.
+	"""
+
+	assert sorted(REVISIONS.glob("*.py")), "the scan found no revisions, so it is reading nothing"
+	assert not _reaching_above_the_database(REVISIONS)
+
+
+def test_the_migration_import_guard_can_fire (tmp_path: pathlib.Path) -> None:
+	"""A revision importing the domain is found, through the scan's own entry point."""
+
+	(tmp_path / "a.py").write_text(
+		"import subroutine.db.types\nimport subroutine.domain.events\n", encoding="utf-8"
+	)
+	(tmp_path / "b.py").write_text("from subroutine import views\n", encoding="utf-8")
+
+	assert _reaching_above_the_database(tmp_path) == [
+		"a.py: subroutine.domain.events",
+		"b.py: subroutine",
+	]
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
