@@ -84,6 +84,22 @@ def test_nothing_is_said_where_the_file_and_the_server_agree (
 	assert SAID not in said, said
 
 
+@pytest.mark.parametrize("written", ['"true"', '"false"'])
+def test_a_value_written_as_a_string_is_read_as_every_process_reads_it (
+	monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], written: str
+) -> None:
+	"""`SR#4314`: compared as written, ``osc_enabled = "true"`` warned of a disagreement nobody had.
+
+	The server and every other process both read the string as the boolean it spells.
+	"""
+
+	_configured(f"osc_enabled = {written}\n")
+
+	said = _served(monkeypatch, capsys, host="127.0.0.1")
+
+	assert SAID not in said, said
+
+
 def test_the_withheld_sentence_speaks_for_the_server () -> None:
 	"""Decision `#4098`: a terminal on the same machine may send, so the server speaks for itself."""
 

@@ -6205,15 +6205,39 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 
 		found = where.client.instance_workspaces()
 
-		if json_output:
-			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
-
-			return
-
 		# **Marked where nobody who can act may administer it** (`#4154`, decided on `#3950`):
 		# nobody inside can add, regrade or remove a member there, or delete it, and nothing else
 		# says so. Asked of the server, which counts it as authentication decides who can act.
-		orphaned = {one.slug for one in where.client.unadministered_workspaces()}
+		#
+		# **And a refusal is said rather than ending the list** (`#4314`, of the cold review of
+		# 2026-10-03): a server older than the question has no route for it, so the listing went
+		# no further. It lists without the mark and says the check was not made, as deactivating
+		# somebody does.
+		try:
+			orphaned = {one.slug for one in where.client.unadministered_workspaces()}
+			unasked = None
+
+		except subroutine.errors.SubroutineError as refused:
+			orphaned = set()
+			unasked = refused.detail
+
+		# **The mark in each row, and null where it was not checked** (`#4314`): the rows alone left
+		# it out of the one form a script reads.
+		if json_output:
+			program.say(
+				json.dumps(
+					[
+						{
+							**one.model_dump(mode="json"),
+							"unadministered": None if unasked else one.slug in orphaned,
+						}
+						for one in found
+					],
+					indent=2,
+				)
+			)
+
+			return
 
 		for one in found:
 			people = "1 person" if one.members == 1 else f"{one.members} people"
@@ -6240,6 +6264,12 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 			program.say(
 				f"{len(orphaned)} of these nobody can administer. '{ADMINISTER_A_WORKSPACE}' makes "
 				"somebody its administrator, you included."
+			)
+
+		if unasked:
+			program.say("")
+			program.say(
+				f"Whether any of these has nobody to administer it was not checked: {unasked}"
 			)
 
 
@@ -6310,21 +6340,27 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		# silently stops a shared agent is how somebody learns to stop deactivating leavers, which
 		# costs more than the thing it was protecting.
 		if (stopping or stranding or unchecked or orphaned or unasked) and not yes:
+			# **"And" only after a line** (`#4314`, of the cold review of 2026-10-03): with no agents
+			# to name, the warning opened *And nobody will be able to...*.
+			nobody = "And nobody" if stopping else "Nobody"
+
 			if stopping:
 				program.say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
 
 			if stranding:
 				program.say(
-					f"And nobody will be able to see {len(stranding)} private project(s): "
+					f"{nobody} will be able to see {len(stranding)} private project(s): "
 					f"{', '.join(stranding)}"
 				)
+				nobody = "And nobody"
 
 			if unchecked:
 				program.say(f"Whether this strands a private project was not checked: {unchecked}")
+				nobody = "And nobody"
 
 			if orphaned:
 				program.say(
-					f"And nobody will be able to administer {len(orphaned)} workspace(s): "
+					f"{nobody} will be able to administer {len(orphaned)} workspace(s): "
 					f"{', '.join(orphaned)}"
 				)
 

@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`subroutine mcp` given two different workspaces tells the agent's client why**, rather than
+  stopping before it could answer, with the reason on standard error where a client does not
+  show it.
 - **An email address too long once lowercased is refused by name.** Some capital letters become
   two when lowered, so an address that fitted was stored over-long, or answered with a server
   error on PostgreSQL.

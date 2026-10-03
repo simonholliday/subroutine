@@ -771,11 +771,20 @@ def mcp (
 	# invocation is a command line where it would.
 	import subroutine.mcp.relay
 
+	# **Answered at the handshake, as an unreadable configuration is** (`#4314`, of the cold review
+	# of 2026-10-03): a command line naming two workspaces or two connections stopped here with
+	# the sentence on standard error, which a plugin's client never shows.
+	contradicted: subroutine.errors.SubroutineError | None = None
+
 	# **Through the helper the other commands with a workspace of their own share** (`#3942`,
 	# decision `#3831`): a ``-w`` before ``mcp`` was dropped without a word, one after it was
 	# *No such option*, and given both, the option after it won. ``use`` and a checkout's marker
 	# are not read here, as ever.
-	named = _named_on_the_command_line(workspace, "mcp")
+	try:
+		named = subroutine.cli.personal.workspace_named(workspace, _selected, command="mcp")
+
+	except subroutine.errors.SubroutineError as error:
+		named, contradicted = "", error
 
 	# **And the connection by the same rule** (`#4014`, M-12 of the cold review of 2026-09-30): a
 	# ``-c`` before ``mcp`` was dropped without a word, so an agent's writes went to the default
@@ -785,14 +794,16 @@ def mcp (
 		chosen = subroutine.cli.personal.connection_named(connection, _selected)
 
 	except subroutine.errors.SubroutineError as error:
-		_fail(error)
+		chosen, contradicted = "", contradicted or error
 
 	# **A configuration that cannot be read is answered at the handshake** (`#4000`, NEW-1 of the
 	# verification of the cold review of 2026-09-30): stopping here, as every other command does,
 	# left an agent's tools absent with the one sentence on standard error, which a client does
 	# not show.
 	settings = _settings_or_why_not()
-	refused = settings if isinstance(settings, subroutine.errors.SubroutineError) else None
+	refused = contradicted or (
+		settings if isinstance(settings, subroutine.errors.SubroutineError) else None
+	)
 
 	subroutine.mcp.relay.run(
 		sys.stdin,
@@ -1045,12 +1056,20 @@ def _warn_about_osc_elsewhere (settings: subroutine.config.Settings) -> None:
 
 	stated = subroutine.config.read_config_file()
 	fields = subroutine.config.Settings.model_fields
-	alone = settings.model_copy(
-		update={
-			name: stated.get(name, fields[name].default)
-			for name in ("host", "public_url", "osc_enabled")
-		}
-	)
+	picked = {
+		name: stated.get(name, fields[name].default) for name in ("host", "public_url", "osc_enabled")
+	}
+
+	# **Read as every other process reads them** (`#4314`, of the cold review of 2026-10-03):
+	# copied in unvalidated, ``osc_enabled = "true"`` stayed a string and ``"false"`` read as
+	# true, so this warned of a disagreement nobody had. A value nothing can read is refused by
+	# whatever reads it, which says so itself.
+	try:
+		alone = subroutine.config.Settings.model_validate({**settings.model_dump(), **picked})
+
+	except pydantic.ValidationError:
+		return
+
 	here = subroutine.config.sends_osc(settings)
 
 	if subroutine.config.sends_osc(alone) == here:

@@ -115,20 +115,31 @@ def test_mcp_serves_the_workspace_w_names_before_it_or_after_it (
 	"""
 
 	served: list[str | None] = []
+	turned_away: list[str] = []
 
-	def serving (*_arguments: typing.Any, workspace: str | None, **_options: typing.Any) -> None:
-		"""Record the workspace the relay was started for, and serve nothing."""
+	def serving (
+		*_arguments: typing.Any,
+		workspace: str | None,
+		refused: subroutine.errors.SubroutineError | None = None,
+		**_options: typing.Any,
+	) -> None:
+		"""Record the workspace the relay was started for, and what it was to refuse."""
 
 		served.append(workspace)
+
+		if refused is not None:
+			turned_away.append(refused.detail)
 
 	monkeypatch.setattr(subroutine.mcp.relay, "run", serving)
 
 	two("-w", "beta", "mcp")
 	two("mcp", "-w", "beta")
-	refused = two("-w", "beta", "mcp", "--workspace", "alpha", expect=1).output
 
-	assert served == ["beta", "beta"], served
-	assert "two different workspaces" in refused, refused
+	# **Refused at the handshake rather than before it** (`SR#4314`), where the client reads it.
+	two("-w", "beta", "mcp", "--workspace", "alpha")
+
+	assert served == ["beta", "beta", None], served
+	assert ["two different workspaces" in one for one in turned_away] == [True], turned_away
 
 
 def test_agent_create_pins_to_the_w_before_it (two: Run) -> None:

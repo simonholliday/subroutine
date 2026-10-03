@@ -1121,7 +1121,9 @@ def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after
 
 	warned = run("user", "deactivate", "thomas", input="y\n").output
 
-	assert "And nobody will be able to administer 2 workspace(s): zion, hammer" in warned, warned
+	# **No "And" when nothing came before it** (`SR#4314`).
+	assert "Nobody will be able to administer 2 workspace(s): zion, hammer" in warned, warned
+	assert "And nobody" not in warned, warned
 
 	for slug in ("hammer", "zion"):
 		assert (
@@ -1135,6 +1137,15 @@ def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after
 		line for line in listed.splitlines() if line.strip().startswith(("zion ", "hammer "))
 	], listed
 	assert "2 of these nobody can administer." in listed, listed
+
+	# **And in the rows a script reads** (`SR#4314`).
+	rows = json.loads(run("instance", "workspaces", "--json").output)
+
+	assert {row["slug"]: row["unadministered"] for row in rows} == {
+		"acme": False,
+		"zion": True,
+		"hammer": True,
+	}, rows
 
 	run("user", "add", operator, "--role", "admin", "-w", "zion")
 	repaired = run("instance", "workspaces").output
@@ -1157,8 +1168,61 @@ def test_deactivating_with_yes_still_names_what_it_left (
 
 	answered = run("user", "deactivate", "thomas", "--yes").output
 
-	assert "And nobody will be able to administer" not in answered, "--yes asked anyway"
+	assert "will be able to administer" not in answered, "--yes asked anyway"
 	assert "  zion has nobody who can administer it" in answered, answered
+
+
+def test_a_line_after_the_agents_says_and (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4314`: *And nobody* follows a line, and only a line."""
+
+	run("init", "--workspace", "Acme", "--username", "morpheus")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("agent", "create", "deploy-bot", "--workspace", "acme")
+	run("user", "transfer", "deploy-bot", "--to", "thomas")
+	run("workspace", "create", "zion", "Zion")
+	run("user", "add", "thomas", "--workspace", "zion", "--role", "owner")
+	run("user", "remove", "morpheus", "--workspace", "zion")
+
+	warned = run("user", "deactivate", "thomas", input="n\n").output
+	lines = [line for line in warned.splitlines() if "deploy-bot" in line or "administer" in line]
+
+	assert lines[:2] == [
+		"This also stops 1 agent(s): deploy-bot",
+		"And nobody will be able to administer 1 workspace(s): zion",
+	], warned
+
+
+def test_instance_workspaces_lists_against_a_server_that_cannot_mark_them (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4314`: a server older than the question ended the list on a 404.
+
+	The list goes on without the mark and says the check was not made, and a script's rows say
+	null rather than claiming every workspace is administered.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "zion", "Zion")
+
+	def missing (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Answer as a server without the route does."""
+
+		raise subroutine.errors.NotFound("There is nothing at /v1/instance/unadministered-workspaces.")
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "unadministered_workspaces", missing)
+
+	listed = run("instance", "workspaces").output
+
+	assert "zion" in listed and "acme" in listed, listed
+	assert "Whether any of these has nobody to administer it was not checked: There is nothing" in (
+		listed
+	), listed
+
+	rows = json.loads(run("instance", "workspaces", "--json").output)
+
+	assert [row["unadministered"] for row in rows] == [None, None], rows
 
 
 def test_adding_somebody_where_agents_fill_a_page_keeps_your_own_list (

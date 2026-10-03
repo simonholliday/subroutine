@@ -1082,6 +1082,13 @@ def test_mcp_serves_the_connection_c_names_before_it_or_after_it (
 	assert [one["id"] for one in answers] == [1], answers
 	assert "no connection called 'nope'" in answers[0].get("error", {}).get("message", ""), answers
 
+	# **Two different ones are answered at the handshake too** (`SR#4314`): exiting before it put
+	# the sentence where a plugin's client never shows it.
+	answers = answered(run("-c", "work", "mcp", "--connection", "home", input=INITIALIZE))
+
+	assert [one["id"] for one in answers] == [1], answers
+	assert "two different connections" in answers[0].get("error", {}).get("message", ""), answers
+
 	served: list[str | None] = []
 
 	def serving (*_arguments: typing.Any, connection: str | None, **_options: typing.Any) -> None:
@@ -1095,10 +1102,8 @@ def test_mcp_serves_the_connection_c_names_before_it_or_after_it (
 	run("mcp", "--connection", "work")
 	run("-c", "Work", "mcp", "--connection", "work")
 	run("mcp")
-	refused = run("-c", "work", "mcp", "--connection", "home", expect=1).output
 
 	assert served == ["work", "work", "work", None], served
-	assert "two different connections" in refused, refused
 
 
 def test_a_local_agent_session_closes_its_database_when_it_ends (
