@@ -5458,6 +5458,12 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	in, took the newest ticket and drew its rows - or its agenda - there. No such read is made now.
 	**And closing an item arrived at directly** went to ``/?view=list`` rather than back to the
 	project's list, since ``close`` read ``everywhere`` from the page's first render.
+
+	**And a write answered after the reader left its item** (`SR#4434`, R2-L38 of the cold review of
+	2026-10-04): Complete or a save, answered once the reader had gone, drew the item again under its
+	address. **And Back, Forward or a reload onto an item** drew the listing beneath it in the
+	default arrangement, so *All items* went to the agenda rather than the list; and a save on the
+	item's page left the listing as it was until the poll, so Back showed the old title.
 	"""
 
 	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
@@ -5908,12 +5914,12 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	writes: list[typing.Any] = []
 
 	def held_back (route: typing.Any) -> None:
-		"""Keep an add back until the test lets it through; let every other request by."""
+		"""Keep a write back until the test lets it through; let every read by."""
 
-		if route.request.method == "POST":
-			writes.append(route)
-		else:
+		if route.request.method == "GET":
 			route.fallback()
+		else:
+			writes.append(route)
 
 	def asked_of (where: str, endpoint: str) -> bool:
 		"""Whether the page has read ``endpoint`` for ``where`` since ``reads`` was last cleared."""
@@ -5954,6 +5960,89 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 
 	assert "/projects?" in page.url and "view=list" in page.url, (
 		f"All items from an item arrived at directly went to {page.url}"
+	)
+
+	page.close()
+
+	# **And a write answered after the reader left its item** (`SR#4434`) does not draw it again,
+	# whether it was Complete or a save.
+	def drawn_again (where: typing.Any) -> bool:
+		"""Whether #42, left while a write to it was on its way, was drawn or took the address."""
+
+		return bool(where.locator(".detail").count() > 0 or where.url.split("?")[0].endswith("/42"))
+
+	for gesture in ("Complete", "Save"):
+		served["items"] = [CARD, *CROWD]
+		writes.clear()
+		page = opened("/projects?view=list", rows=served)
+		page.wait_for_selector(row, timeout=10_000)
+		page.click(row)
+		page.wait_for_selector(".detail .doing button.finish", timeout=10_000)
+		page.route(
+			lambda url: url.split("?")[0].endswith(("/v1/tasks/42", "/v1/tasks/42/complete")),
+			held_back,
+		)
+
+		if gesture == "Complete":
+			page.click(".detail .doing button.finish")
+		else:
+			_renames(page)
+
+		_until(page, lambda: bool(writes))
+
+		assert writes, f"{gesture} was never sent, so this proves nothing"
+
+		page.click(".top h1 a")
+		page.wait_for_timeout(300)
+		writes.pop().fallback()
+
+		assert not lands(functools.partial(drawn_again, page)), (
+			f"#42, left while its {gesture} was on its way, was drawn again at {page.url}"
+		)
+
+		page.close()
+
+	# **And Back, Forward or a reload onto an item keeps what it was opened over** (`SR#4434`), so
+	# All items goes back to the list rather than to the default agenda.
+	for returning in ("Back and Forward", "a reload"):
+		served["items"] = [CARD, *CROWD]
+		page = opened("/projects?view=list", rows=served)
+		page.wait_for_selector(row, timeout=10_000)
+		page.click(row)
+		page.wait_for_selector(".detail a.back", timeout=10_000)
+
+		if returning == "a reload":
+			page.reload()
+		else:
+			page.go_back()
+			page.wait_for_selector(row, timeout=10_000)
+			page.go_forward()
+
+		page.wait_for_selector(".detail a.back", timeout=10_000)
+		page.click(".detail a.back")
+		page.wait_for_url(re.compile(r".*\?view=.*"), timeout=10_000)
+
+		assert "view=list" in page.url, (
+			f"All items from an item reached by {returning} went to {page.url}"
+		)
+
+		page.close()
+
+	# **And the listing read again after a save on the item's page** (`SR#4434`), so Back shows it.
+	served["items"] = [CARD, *CROWD]
+	page = opened("/projects?view=list", rows=served)
+	page.wait_for_selector(row, timeout=10_000)
+	page.click(row)
+	page.wait_for_selector(".detail button.edit", timeout=10_000)
+	served["items"] = [dict(CARD, title="Renamed by accident"), *CROWD]
+	_renames(page)
+	_until(page, lambda: "#42 saved." in page.inner_text("body"))
+	page.go_back()
+	page.wait_for_selector(row, timeout=10_000)
+	_until(page, lambda: "Renamed by accident" in page.inner_text(row), 1.0)
+
+	assert "Renamed by accident" in page.inner_text(row), (
+		"Back showed the listing as it was before a save made on the item's page"
 	)
 
 	page.close()

@@ -605,6 +605,27 @@ export function showingOf (search) {
 	};
 }
 
+export function arrangedOver (asked, search, state) {
+	/*
+		**What an item's address was opened over** (`#4434`, R2-L38 of the cold review of 2026-10-04).
+		An item's address takes no arrangement (`#766`), so `go` keeps the listing's in the history
+		entry it writes for one, and this reads it back: Back, Forward or a reload onto an item drew
+		the listing beneath it in the default arrangement, and *All items* went back to that.
+
+		**The address decides wherever it says anything**, so only an item's address with no query,
+		and only an entry this app wrote; anything else is `null`, for `showingOf` to answer. Read
+		back through the address's own rules, so an entry kept from an older version cannot arrange
+		the page in a way an address could not.
+	*/
+	const kept = asked && asked.ref !== null && !search && state ? state.showing : null;
+
+	if (!kept || typeof kept !== "object") return null;
+
+	const read = showingOf(withShowing("", kept));
+
+	return read.refused.length === 0 ? read : null;
+}
+
 export function withItsAxis (view, selection) {
 	/*
 		A board's selection with its axis filled in where it names none - `#1798`, and the one

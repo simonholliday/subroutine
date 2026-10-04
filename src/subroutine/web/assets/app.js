@@ -22,7 +22,7 @@ import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, CANNOT_BE_SAVED, DEFAULT_VIEW, EVERYTHING, JOURNAL,
 	MAX_REF, ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SAVED_AS_TERMS, SELECTABLE, VIEWS,
 	addressOf, agendaRequest, answers, appliedAt, areaOf, asSavedView, asShowing, chips,
-	chosenWorkspace,
+	arrangedOver, chosenWorkspace,
 	encodedPath, frame, journalAddress, journalPageOf,
 	journalPlace, listingAddress, mentionHref, narrowingTo, pageTitle,
 	parseAddress, permits, placeAlone, placeShown, placeTrail, projectLabel, refAsked, reloads,
@@ -446,6 +446,11 @@ export function App () {
 		if (next === null) showAsked.current += 1;
 	}, []);
 
+	/* **Whether an item is still the one open**, asked of the live copy (`#4434`): a write answered
+	   after the reader left it must not draw it again. */
+	const stillOpen = useCallback((row) => held.current !== null
+		&& held.current.item.ref === row.ref && held.current.item.kind === row.kind, []);
+
 	/*
 		**The path the page was last drawn for, so that a new page draws its forms fresh** (`#3567`,
 		Simon: *a new page should always load without the "more" content visible*).
@@ -502,7 +507,14 @@ export function App () {
 
 		if (window.location.pathname + window.location.search === wanted) return;
 
-		window.history[replace ? "replaceState" : "pushState"]({}, "", wanted);
+		/* **An item's address keeps what it was opened over in its history entry** (`#4434`, R2-L38 of
+		   the cold review of 2026-10-04), since the address takes no arrangement (`#766`):
+		   `arrangedOver` reads it back on Back, Forward or a reload. The live copy, because a caller's
+		   `showing` can predate the arrangement just read from the address it arrived at. */
+		const place = parseAddress(path);
+		const kept = place !== null && place.ref !== null ? { showing: shown.current } : {};
+
+		window.history[replace ? "replaceState" : "pushState"](kept, "", wanted);
 		turned();
 	}, [showing, turned]);
 
@@ -1651,7 +1663,10 @@ export function App () {
 		try {
 			const identity = await sent(identityRequest());
 			const asked = parseAddress(window.location.pathname);
-			const arrangement = showingOf(window.location.search);
+			/* **Or what an item's address was opened over** (`#4434`), so a reload draws the page that
+			   Back and Forward do. */
+			const arrangement = arrangedOver(asked, window.location.search, window.history.state)
+				|| showingOf(window.location.search);
 
 			nowShowing({ view: arrangement.view, selection: arrangement.selection });
 			/* **A journal names its workspace too** (`#2731`), and `parseAddress` answers null for
@@ -1848,8 +1863,11 @@ export function App () {
 
 			/* The arrangement is in the address too (`#651`), so stepping back into a board
 			   restores the board rather than leaving the list under an address saying otherwise
-			   — which is the disagreement `close` used to create for the agenda. */
-			const back = showingOf(window.location.search);
+			   — which is the disagreement `close` used to create for the agenda. **And an item's
+			   address keeps it in its history entry** (`#4434`): stepping onto one drew the listing
+			   beneath in the default arrangement, and *All items* went back to that. */
+			const back = arrangedOver(asked, window.location.search, window.history.state)
+				|| showingOf(window.location.search);
 
 			/*
 				**Asked before `nowShowing` overwrites the answer** — `#767`. `shown.current` is
@@ -2222,6 +2240,14 @@ export function App () {
 	const mayWriteThere = allowedThere.has("task:write");
 	const mayCommentThere = allowedThere.has("comment:write");
 
+	/* **Refresh what is showing** (`#652`). Completing from the agenda used to reload the
+	   listing underneath it, so the row stayed on screen until the next poll — a write that
+	   reports success and visibly does nothing. **After a save on the item's page too**
+	   (`#4434`), which read only the item, so Back showed the listing as it was before. */
+	const relist = useCallback(() => (agenda !== null
+		? readAgenda(everywhere ? null : workspace, project)
+		: load(workspace, project)), [agenda, everywhere, load, project, readAgenda, workspace]);
+
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
 		   describing the state before the action.
@@ -2230,18 +2256,16 @@ export function App () {
 		   workspace, so a write to an item outside it was followed by a read of whatever wore
 		   that number *inside* it — which is what rewrote the address and put the reader in
 		   front of the wrong item. The write and this are the same defect twice, not a cause
-		   and a consequence: fixing one alone leaves the page still walking away. */
-		if (open && open.item.ref === row.ref && open.item.kind === row.kind) {
-			await show(row, { slug: openIn });
-		}
+		   and a consequence: fixing one alone leaves the page still walking away.
 
-		/* **Refresh what is showing** (`#652`). Completing from the agenda used to reload the
-		   listing underneath it, so the row stayed on screen until the next poll — a write that
-		   reports success and visibly does nothing. */
-		await (agenda !== null
-			? readAgenda(everywhere ? null : workspace, project)
-			: load(workspace, project));
-	}, [agenda, everywhere, load, me, open, openIn, project, readAgenda, show, workspace]);
+		   **Only while it is still the item open, and without writing the address** (`#4434`,
+		   R2-L38 of the cold review of 2026-10-04). This asked the item open when the write was
+		   sent, so a reader who left while it was on its way was pulled back to it, under its
+		   address. `refresh` reads the live copy, from where it was read. */
+		if (stillOpen(row)) await refresh();
+
+		await relist();
+	}, [refresh, relist, stillOpen]);
 
 	const wrote = useCallback(async (row, said, run, { hinted = false } = {}) => {
 		/*
@@ -2472,8 +2496,16 @@ export function App () {
 				: updateRequest(values, base, openIn, appliesTo, opened));
 
 			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
-			setEditing(false);
-			await show(saved, { slug: openIn, history: false });
+
+			/* **Drawn again only while it is still the item open** (`#4434`, R2-L38 of the cold review
+			   of 2026-10-04): a reader who left while the save was on its way was pulled back to it.
+			   **And the listing is read again**, as after every other write, so Back shows the save. */
+			if (stillOpen(open.item)) {
+				setEditing(false);
+				await show(saved, { slug: openIn, history: false });
+			}
+
+			await relist();
 		} catch (failure) {
 			/* **The current item travels on the 409**, attached by `concurrency.reporting()`
 			   precisely so a client can say what changed rather than only that something did. */
@@ -2490,7 +2522,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [open, openIn, show]);
+	}, [open, openIn, relist, show, stillOpen]);
 
 	/*
 		**The question goes in front of the save, and only for a repeating item** (decision

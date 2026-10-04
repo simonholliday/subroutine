@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Leaving an item while a change to it is on its way stays left.** Completing or saving an
+  item and going elsewhere before it answered brought the item back. Back, Forward or a reload
+  onto an item keeps the arrangement it was opened from, so *All items* returns to the board or
+  the list rather than the agenda, and the list behind an item shows a save made on its page
+  straight away rather than at the next check for changes.
 - **Two backups taken in the same second both succeed, under names a second apart.** One of
   the pair failed.
 - **A PostgreSQL address setting a server option backs up and restores.** One carrying a
