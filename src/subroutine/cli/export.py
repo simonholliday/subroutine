@@ -23,6 +23,7 @@ import subroutine
 import subroutine.addressing
 import subroutine.cli.personal
 import subroutine.clients.base
+import subroutine.domain.hierarchy
 import subroutine.domain.projects
 import subroutine.errors
 import subroutine.exporting
@@ -66,6 +67,10 @@ class Written:
 
 	#: How many files the readable copy in ``markdown/`` holds.
 	pages: int = 0
+
+	#: Kinds this instance does not have, and what it said (`#4416`): left out and named, where a
+	#: newer program asks an instance new enough to export for one it does not know.
+	unavailable: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def register (app: typer.Typer, program: subroutine.cli.personal.Program) -> None:
@@ -147,6 +152,12 @@ def _exported (program: subroutine.cli.personal.Program, *, directory: pathlib.P
 			except OSError as error:
 				program.fail(_not_written(directory if folder is None else folder, error))
 
+			# **Half a character, which no instance stores** (`#4416`, R2-L11 of the cold review of
+			# 2026-10-04). It cannot be written as UTF-8 and it is not an ``OSError``, so a title holding
+			# one ended in a crash report - in the file of lines, and in a page's name and text after it.
+			except UnicodeEncodeError:
+				program.fail(_half_a_character(reached.name, folder))
+
 			for said in described(workspace, written):
 				program.say(said)
 
@@ -165,6 +176,20 @@ def _not_written (folder: pathlib.Path, error: OSError) -> subroutine.errors.Sub
 		f"The export could not be written to {where}: {error.strerror or error}.",
 		hint=(LEFT.format(folder=folder) + " " if _unfinished(folder) else "")
 		+ "Name a folder this account can write to, on a disk with room.",
+	)
+
+
+def _half_a_character (
+	connection: str, folder: pathlib.Path | None
+) -> subroutine.errors.SubroutineError:
+	"""Return the refusal for text from the server holding half a character - `#4416`."""
+
+	return subroutine.errors.ServiceUnavailable(
+		f"{connection} sent text holding half of a character, which no instance stores, so the export "
+		"stopped rather than write it.",
+		hint=(LEFT.format(folder=folder) + " " if folder is not None and _unfinished(folder) else "")
+		+ "Check that this connection's address is the instance you meant, and that it is reached "
+		"over https.",
 	)
 
 
@@ -233,10 +258,16 @@ def _resolved (path: pathlib.Path) -> pathlib.Path:
 def _not_one_an_instance_makes (
 	connection: str, what: str, named: str
 ) -> subroutine.errors.SubroutineError:
-	"""Return the refusal for a name from the server that an export will not write under."""
+	"""Return the refusal for a name from the server that an export will not write under.
+
+	**A long one is shortened** (`#4416`): a path of fifteen hundred keys is refused too, and
+	quoting all of it would bury the sentence.
+	"""
+
+	shown = named if len(named) <= 80 else named[:77] + "..."
 
 	return subroutine.errors.ServiceUnavailable(
-		f"{connection} sent {what} no instance makes, {named!r}, so the export stopped rather "
+		f"{connection} sent {what} no instance makes, {shown!r}, so the export stopped rather "
 		"than write where it points.",
 		hint="Check that this connection's address is the instance you meant, and that it is "
 		"reached over https.",
@@ -301,6 +332,7 @@ def _filled (
 
 	counts: dict[str, int] = {}
 	refused: dict[str, str] = {}
+	unavailable: dict[str, str] = {}
 
 	# **Kept as they are written, for the readable copy, rather than read back afterwards**
 	# (`#4054`): on a network share a file written and then read in one process can hang, and a
@@ -331,7 +363,17 @@ def _filled (
 		except subroutine.errors.NotFound as error:
 			target.unlink(missing_ok=True)
 
-			raise _older_than_export(client, error) from error
+			# **A kind an instance new enough to export does not have is left out and named**
+			# (`#4416`, R2-L11 of the cold review of 2026-10-04): once a newer program asks for a kind,
+			# an older instance that exports answers that nothing is there, and that stopped the whole
+			# export. Where its version cannot be ranked, the answer stops it as before.
+			if not _exports(client):
+				raise _older_than_export(client, error) from error
+
+			unavailable[kind] = error.detail
+
+			if kind in held:
+				held[kind].clear()
 
 	pages = _markdown(folder / "markdown", held, connection=connection)
 	me = client.me()
@@ -351,6 +393,7 @@ def _filled (
 		"workspace": {"id": str(workspace.id), "slug": workspace.slug, "title": workspace.title},
 		"files": {f"{kind}.jsonl": count for kind, count in counts.items()},
 		"refused": {f"{kind}.jsonl": reason for kind, reason in refused.items()},
+		"unavailable": {f"{kind}.jsonl": reason for kind, reason in unavailable.items()},
 		"markdown": {
 			"files": pages,
 			"is": (
@@ -368,7 +411,9 @@ def _filled (
 		json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 	)
 
-	return Written(folder=folder, counts=counts, refused=refused, pages=pages)
+	return Written(
+		folder=folder, counts=counts, refused=refused, pages=pages, unavailable=unavailable
+	)
 
 
 def _lines (
@@ -403,6 +448,20 @@ READ_AS_PAGES = ("tasks", "documents", "comments")
 
 #: The release ``/v1/export/*`` first ships in. An instance older than it has no such route.
 EXPORT_SINCE = (0, 10, 0)
+
+
+def _exports (client: subroutine.clients.base.Client) -> bool:
+	"""Say whether the instance's own version says it serves export - `#4416`."""
+
+	try:
+		running = client.me().instance_version
+
+	except subroutine.errors.SubroutineError:
+		return False
+
+	ranked = None if running is None else subroutine.installations.ordered(running)
+
+	return ranked is not None and ranked >= EXPORT_SINCE
 
 
 def _older_than_export (
@@ -580,7 +639,13 @@ def _project_folder (
 
 	keys = (path or "").split(subroutine.domain.projects.PATH_SEPARATOR)
 
-	if not all(subroutine.domain.projects.KEY_PATTERN.fullmatch(key) for key in keys):
+	# **And no deeper than a tree can go** (`#4416`, R2-L11 of the cold review of 2026-10-04): a
+	# path of fifteen hundred keys passed the check on each, and making its folders recursed until
+	# Python gave up. A depth of *n* is *n + 1* keys.
+	if (
+		not all(subroutine.domain.projects.KEY_PATTERN.fullmatch(key) for key in keys)
+		or len(keys) > subroutine.domain.hierarchy.MAX_DEPTH + 1
+	):
 		raise _not_one_an_instance_makes(connection, "a project path", path)
 
 	return _inside(folder, folder.joinpath(*keys), root=root)
@@ -598,7 +663,9 @@ def filename (ref: int, title: str) -> str:
 	# **And no more bytes than a filesystem takes** (`#4283`). The eighty characters stay, so a
 	# title written a byte a character is cut where it always was; a cut inside a character's
 	# bytes drops that character rather than leaving half of it.
-	room = NAME_BYTES - len(f"{ref} .md".encode())
+	# **Never below nothing** (`#4416`): a ref of a hundred and fifty digits left no room, and a cut
+	# to a negative length kept the end of the title where it should have kept none of it.
+	room = max(0, NAME_BYTES - len(f"{ref} .md".encode()))
 	safe = safe.encode()[:room].decode(errors="ignore").rstrip(" .")
 
 	return f"{ref} {safe}.md" if safe else f"{ref}.md"
@@ -650,6 +717,9 @@ def described (workspace: subroutine.views.WorkspaceRef, written: Written) -> li
 
 	for kind, reason in written.refused.items():
 		lines.append(f"  No {NOUNS[kind][1]}: {reason}")
+
+	for kind in written.unavailable:
+		lines.append(f"  No {NOUNS[kind][1]}: this instance does not export them.")
 
 	if written.pages:
 		lines.append("  A readable copy is in markdown/, a page for each item with its comments.")

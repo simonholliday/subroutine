@@ -354,6 +354,138 @@ def test_each_place_an_export_writes_is_resolved_once (
 	assert len(resolved) <= 4, resolved
 
 
+#: Half a character: the first of a pair with no second.
+HALF = "\ud800"
+
+
+class _Hostile:
+	"""A client that answers as another does, except that every item's title holds ``title``."""
+
+	def __init__ (self, inner: subroutine.clients.base.Client, title: str) -> None:
+		"""Wrap ``inner``, sending ``title`` as every item's."""
+
+		self.inner = inner
+		self.title = title
+
+	def export (self, kind: str, *, workspace: str | None = None) -> typing.Iterator[typing.Any]:
+		"""Rewrite each item's title, as a hostile server would."""
+
+		for item in self.inner.export(kind, workspace=workspace):
+			if kind == "tasks":
+				item = item.model_copy(update={"title": self.title})
+
+			yield item
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Answer everything else as the wrapped client does."""
+
+		return getattr(self.inner, name)
+
+
+def test_half_a_character_from_the_server_is_refused_rather_than_crashing (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4416`, R2-L11 of the cold review of 2026-10-04: a title holding one, and a crash report."""
+
+	run("init", "--workspace", "Acme")
+	run("add", "Fix the deploy script")
+	real = subroutine.cli.export.write
+
+	def hostile (
+		client: subroutine.clients.base.Client, folder: pathlib.Path, **arguments: typing.Any
+	) -> subroutine.cli.export.Written:
+		"""Write as the command does, from a server sending half a character in a title."""
+
+		return real(typing.cast(typing.Any, _Hostile(client, f"Plan {HALF} it")), folder, **arguments)
+
+	monkeypatch.setattr(subroutine.cli.export, "write", hostile)
+	result = run("export", str(tmp_path / "leaving"), expect=1)
+	said = " ".join(result.output.split())
+
+	assert not isinstance(result.exception, UnicodeError), ascii(result.exception)
+	assert "Something went wrong" not in said and "half of a character" in said, ascii(said)
+
+
+def test_a_project_path_deeper_than_any_tree_stops_the_export (
+	pair: Pair, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4416`: fifteen hundred keys passed the check on each, and making the folders recursed."""
+
+	pair.local.capture(text="Fix the deploy script")
+	workspace = pair.local.identity().workspaces[0]
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+		subroutine.cli.export.write(
+			typing.cast(typing.Any, _Climbing(pair.local, "/".join(["a"] * 1500))),
+			tmp_path / workspace.slug,
+			workspace=workspace,
+			connection="work",
+		)
+
+	assert "work sent a project path no instance makes" in refused.value.detail
+	assert len(refused.value.detail) < 300, refused.value.detail
+
+
+def test_a_page_named_for_a_huge_ref_keeps_none_of_its_title () -> None:
+	"""`SR#4416`: a ref of a hundred and fifty digits left negative room, and kept the title's end."""
+
+	assert subroutine.cli.export.filename(10**150, "Fix the deploy script") == f"{10**150}.md"
+
+
+class _Lacking:
+	"""A client for an instance that exports, and does not have one kind a newer program asks for."""
+
+	def __init__ (self, inner: subroutine.clients.base.Client, kind: str) -> None:
+		"""Wrap ``inner``, lacking ``kind``."""
+
+		self.inner = inner
+		self.kind = kind
+
+	def export (self, kind: str, *, workspace: str | None = None) -> typing.Iterator[typing.Any]:
+		"""Answer that nothing is there for one kind, as such an instance does."""
+
+		if kind == self.kind:
+			raise subroutine.errors.NotFound(f"There is nothing at /v1/export/{kind}.")
+
+		return self.inner.export(kind, workspace=workspace)
+
+	def me (self) -> subroutine.views.Me:
+		"""Say the instance runs the release export first shipped in."""
+
+		return self.inner.me().model_copy(update={"instance_version": "0.10.0"})
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Answer everything else as the wrapped client does."""
+
+		return getattr(self.inner, name)
+
+
+def test_a_kind_the_instance_does_not_have_is_named_rather_than_stopping (
+	pair: Pair, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4416`: once a newer program asks for a kind, an instance without it stopped the export."""
+
+	pair.local.capture(text="Fix the deploy script")
+	workspace = pair.local.identity().workspaces[0]
+	written = subroutine.cli.export.write(
+		typing.cast(typing.Any, _Lacking(pair.local, "saved_views")),
+		tmp_path / workspace.slug,
+		workspace=workspace,
+		connection="work",
+	)
+	manifest = json.loads((written.folder / "manifest.json").read_text(encoding="utf-8"))
+
+	assert manifest["unavailable"] == {
+		"saved_views.jsonl": "There is nothing at /v1/export/saved_views."
+	}
+	assert "saved_views.jsonl" not in manifest["files"] and written.counts.get("tasks", 0) >= 1
+	assert any("No saved views: this instance does not export them." in line for line in (
+		subroutine.cli.export.described(workspace, written)
+	))
+
+
 def test_an_export_never_writes_over_what_is_there (
 	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
 ) -> None:
