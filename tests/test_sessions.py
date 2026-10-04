@@ -20,6 +20,7 @@ import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.sessions
 import subroutine.errors
 import subroutine.views
@@ -355,6 +356,35 @@ def test_signing_out_everywhere_spends_unused_links_too (
 
 	with pytest.raises(subroutine.domain.authentication.AuthenticationError):
 		subroutine.domain.sessions.redeem(session, unspent)
+
+
+def test_a_local_agent_cannot_sign_somebody_else_out_everywhere (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4430`, R2-L33 of the cold review of 2026-10-04: any local caller was exempt.
+
+	With ``local_user`` naming an agent, the terminal acted as it, and signed a superuser out
+	everywhere - which the same agent presenting a credential is refused. **Only a local person is
+	exempt now**, as issuing a credential already was, and a local person still signs anybody out.
+	"""
+
+	boss = _make_user(session, is_superuser=True)
+	_principal, cookie = _signed_in(session, boss)
+	agent = subroutine.domain.authentication.Principal(
+		user=_make_user(session, is_service_account=True)
+	)
+
+	assert agent.is_local
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=agent)
+
+	# Still signed in.
+	subroutine.domain.sessions.authenticate(session, cookie)
+
+	person = subroutine.domain.authentication.Principal(user=_make_user(session))
+
+	assert subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=person) == 1
 
 
 def test_one_kind_of_credential_never_parses_as_another () -> None:

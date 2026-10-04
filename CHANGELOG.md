@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An agent acting as the terminal's account cannot sign anybody else out everywhere.** Named
+  in `local_user`, it could sign a superuser out, which the same agent presenting a credential
+  is refused. A person at the terminal still can.
 - **The conventions an agent reads give a filter that does list every document of a kind,**
   whatever its status: the one they gave listed open documents only, so a superseded design was
   left out. And the agents' project list says its summaries were left out, rather than cut,

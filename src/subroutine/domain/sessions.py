@@ -442,9 +442,17 @@ def _refuse_administering_somebody_else (
 	needs nothing — you may always sign yourself out.
 
 	``None`` is §12.1a, a person at a terminal holding the database file, and is not narrowed.
+	**Nor is a local person, and only a person** (`#4430`, R2-L33 of the cold review of 2026-10-04):
+	with ``local_user`` naming an agent, the terminal acting as it signed a superuser out everywhere,
+	which the same agent presenting a credential is refused - as issuing a credential already
+	decided for a local agent.
 	"""
 
-	if actor is None or actor.is_local or actor.user.id == user.id:
+	if (
+		actor is None
+		or (actor.is_local and not actor.user.is_service_account)
+		or actor.user.id == user.id
+	):
 		return
 
 	# Imported here rather than at the top: `domain.authorization` imports
