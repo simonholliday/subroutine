@@ -8185,6 +8185,7 @@ def test_changes_refuses_a_resume_number_it_cannot_honour (
 	assert run("changes", "--since", "1").exit_code == 0
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="the superuser writes whatever a mode says")
 def test_init_says_what_to_do_when_it_cannot_write_its_directories (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

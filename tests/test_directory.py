@@ -202,7 +202,9 @@ def test_a_marker_belonging_to_another_account_is_passed_over_and_said (
 
 	assert found is not None and found.project == "web" and said == [], (found, said)
 
-	monkeypatch.setattr(os, "getuid", lambda: mine + 1)
+	# **Another account's by its owner, not by who reads it** (`SR#4436`, R2-L41 of the cold review of
+	# 2026-10-04): as root, a marker root wrote is root's whoever ``getuid`` says reads it, and is read.
+	_owned_by(monkeypatch, link=mine + 1, target=mine + 1)
 
 	assert subroutine.directory.find(deep, said=said.append) is None
 	assert said == [subroutine.directory.SKIPPED.format(path=marker.resolve())], said
@@ -286,7 +288,7 @@ def test_the_relay_says_which_marker_it_passed_over (
 
 	marker = _write(tmp_path, 'project = "web"\n')
 	mine = os.getuid()
-	monkeypatch.setattr(os, "getuid", lambda: mine + 1)
+	_owned_by(monkeypatch, link=mine + 1, target=mine + 1)
 	said: list[str] = []
 
 	assert subroutine.directory.find(tmp_path, said=said.append) is None

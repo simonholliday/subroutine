@@ -61,6 +61,7 @@ import subroutine.installations
 import subroutine.mcp.relay
 import subroutine.releases
 import subroutine.views
+import test_directory
 
 #: The zone every instance in this file is created in, named once because a test that asks
 #: what day it is has to ask *this* clock rather than the machine's (`#233`). Deliberately
@@ -941,8 +942,9 @@ def test_a_marker_belonging_to_another_account_is_said_and_not_filed_by (
 	monkeypatch.chdir(checkout)
 	run("use", "--here", "--project", "web")
 
+	# By the marker's owner rather than by who reads it (`SR#4436`), so it means the same as root.
 	mine = os.getuid()
-	monkeypatch.setattr(os, "getuid", lambda: mine + 1)
+	test_directory._owned_by(monkeypatch, link=mine + 1, target=mine + 1)
 
 	added = run("add", "Collect the package from reception")
 

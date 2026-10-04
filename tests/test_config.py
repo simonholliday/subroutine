@@ -206,6 +206,7 @@ def test_sqlite_probe_succeeds_on_local_disk (tmp_path: pathlib.Path) -> None:
 	assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="the superuser writes whatever a mode says")
 def test_sqlite_probe_reports_a_usable_error (tmp_path: pathlib.Path) -> None:
 	"""A failing probe explains the problem in terms a user can act on."""
 
