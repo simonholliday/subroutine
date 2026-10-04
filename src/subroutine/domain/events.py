@@ -1025,11 +1025,16 @@ def refuse_an_expired_cursor (
 	if through is None:
 		return
 
+	# **The hint names the number** (`#4298`, of the cold review of 2026-10-03, decision `#4305`).
+	# It said to ask again without 'since', which on HTTP starts from the oldest event held, while
+	# the agent tool sends no 'since' to mean the newest: one sentence, two different restarts.
+	# ``since`` is inclusive, so the first event the feed still holds after the archive is N+1, and
+	# it means the same on HTTP, the agent tool and the terminal.
 	raise subroutine.errors.CursorExpired(
 		f"Events up to seq {through} have been moved to the archive, so what happened since "
 		f"{since} cannot be reported in full.",
-		hint="Ask again without 'since' to start from the oldest event the feed still holds. "
-		"The journal and each item's history still read the ones that moved.",
+		hint=f"Re-read what you rely on, then carry on from seq {through + 1}; the journal and each "
+		"item's history still read what moved.",
 	)
 
 
@@ -1059,7 +1064,8 @@ def refuse_a_period_behind_the_floor (
 	clauses rather than passed in, so neither caller can come to disagree about it.
 
 	**A code of its own**, ``period_archived`` (decision `#4305`): its remedy is the journal, where
-	``cursor_expired``'s is a resync, so a client can tell them apart by the code alone.
+	``cursor_expired``'s is to carry on after the last event moved, so a client can tell them apart
+	by the code alone.
 	"""
 
 	live = typing.cast(sqlalchemy.Table, subroutine.db.models.activity.Event.__table__)

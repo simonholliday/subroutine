@@ -142,7 +142,8 @@ upgrade involves.
   history, *revised N times*, the `touched_at` and `touched_by` filters and an export all still
   read. A served instance moves them once a day while it is in use, and `subroutine db archive`
   does it on demand. A client resuming the change feed from before them is answered
-  `410 cursor_expired` and starts again from the newest, and the browser does so by itself. A
+  `410 cursor_expired`, which names where to carry on, and the browser starts again from the
+  newest by itself. A
   read of the feed for a period reaching back past them is answered with the new error code
   `410 period_archived`, which names the journal.
   Unset, which is the default, every event stays in the feed as before.

@@ -201,10 +201,11 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"cursor_expired",
 			410,
 			"Cursor expired",
-			"A change-feed cursor names a point older than the events this instance still "
-			"holds, so the gap between there and now cannot be reported. "
-			"The client resyncs from the beginning rather than being handed a page that "
-			"silently omits everything pruned in between.",
+			"A change-feed cursor names a point older than the events the feed still holds: some "
+			"after it have moved to the archive, so the gap between there and now cannot be reported "
+			"in full. The refusal names the last event that moved; the client re-reads what it "
+			"relies on and carries on after it, rather than being handed a page that silently omits "
+			"what moved. The journal and each item's history still read the events that moved.",
 		),
 		_define(
 			"period_archived",
@@ -214,8 +215,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"some that match it have moved to the archive, so the period cannot be reported in "
 			"full. The client reads the period from the journal, which reads the archive too, "
 			"rather than being handed a page that silently omits what moved. Distinct from "
-			"'cursor_expired', which says a cursor is too old and the client resyncs from the "
-			"beginning.",
+			"'cursor_expired', which says a cursor is too old.",
 		),
 		_define(
 			"payload_too_large",

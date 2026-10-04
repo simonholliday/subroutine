@@ -146,6 +146,9 @@ def test_a_cursor_behind_the_archive_is_expired_and_one_after_it_is_not (
 	assert refused.status_code == 410, refused.text
 	assert refused.json()["code"] == "cursor_expired"
 	assert str(archived.through) in refused.json()["detail"], "it says how far the archive reaches"
+	# **And names where to carry on** (`SR#4298`): it said to ask again without 'since', which the
+	# agent tool reads as the newest and HTTP as the oldest.
+	assert f"carry on from seq {archived.through + 1}" in refused.json()["hint"], refused.json()
 
 	# The same refusal locally, where `clients.local` asks the same function.
 	with pytest.raises(subroutine.errors.CursorExpired):
@@ -545,3 +548,26 @@ def test_the_terminal_moves_them_on_demand_and_says_when_there_is_no_floor (
 
 	assert "events older than 30 days" in run("db", "archive")
 	assert "nothing moved" in run("db", "archive"), "a second run found something to move"
+
+	# **The terminal says where to carry on** (`SR#4298`): nothing else answered, so the hint is no
+	# noise beside a partial result, and it printed the refusal's detail alone.
+	expired = runner.invoke(subroutine.cli.main.app, ["changes", "--since", "1"])
+
+	assert expired.exit_code == 1, expired.output
+	assert "carry on from seq" in expired.output, expired.output
+
+
+def test_the_published_definitions_say_where_a_client_carries_on () -> None:
+	"""`SR#4298`: ``cursor_expired`` said its events were pruned and to resync from the beginning.
+
+	They move to an archive the journal still reads, and the refusal names the last one that moved,
+	so a client carries on after it. ``period_archived`` quoted the old remedy in telling the two
+	apart (decision `#4305`, amended with Simon on 2026-10-04).
+	"""
+
+	expired = subroutine.errors.REGISTRY["cursor_expired"].description
+	archived = subroutine.errors.REGISTRY["period_archived"].description
+
+	assert "moved to the archive" in expired and "carries on after it" in expired, expired
+	assert "pruned" not in expired and "from the beginning" not in expired, expired
+	assert "from the beginning" not in archived, archived

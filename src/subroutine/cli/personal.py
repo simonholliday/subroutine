@@ -13295,6 +13295,17 @@ def _what_moved (
 		# scripted output said nothing and the plain one printed it among the rows - and a
 		# read nothing answered ends there (`#3667`).
 		_report(program, world, gathered.failures)
+
+		# **With nothing beside it, a refusal's hint is said too** (`#4298`, of the cold review of
+		# 2026-10-03). `#2954` leaves a connection's hint out beside a partial result, where it is a
+		# remedy under every listing; a feed nothing answered has no result, and a 410's hint is the
+		# number to carry on from, which the terminal never printed.
+		if not gathered.answers:
+			for hint in dict.fromkeys(
+				failure.error.hint for failure in gathered.failures if failure.error.hint
+			):
+				program.warn(hint)
+
 		_stop_if_nothing_answered(gathered)
 
 		if json_output:
