@@ -705,13 +705,16 @@ def _conventions (
 
 		return "\n".join(lines)
 
-	where = place or project
+	# **By the name a reader knows it by** (`#4426`, R2-L28 of the cold review of 2026-10-04): a
+	# credential that may not list projects sends the marker's id, and this named it - *Nothing in
+	# force is filed in 01a10691-db28-...* - where the marker's key was in hand.
+	where = place or (None if landed is None else landed.shown)
 	left = in_force - len(listed)
 
 	if listed:
 		lines += [
 			"",
-			f"{len(listed)} in force{_counted(listed, project, place, own)}. Findings and notes",
+			f"{len(listed)} in force{_counted(listed, project, place, own, where)}. Findings and notes",
 			"are not listed here: they describe rather than bind, and",
 			'`subroutine_list` with `filter={"type.eq": "finding"}`, or "note", finds those. A code',
 			"review's *Not issues* section is worth reading before re-raising something it already",
@@ -883,10 +886,12 @@ def _counted (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
+	shown: str | None = None,
 ) -> str:
 	"""Return where a narrowed reader's entries come from, said after their count - `#3673`.
 
-	Nothing where nothing narrowed, since everything in force is then listed.
+	Nothing where nothing narrowed, since everything in force is then listed. ``named`` is what was
+	sent, which is what an entry is matched against; ``shown`` is what a reader calls it (`#4426`).
 	"""
 
 	if named is None:
@@ -897,7 +902,7 @@ def _counted (
 	parts = []
 
 	if mine:
-		parts.append(f"{mine} in {place or named} and the projects inside it")
+		parts.append(f"{mine} in {place or shown or named} and the projects inside it")
 
 	if above:
 		parts.append(f"{above} in the projects above it")
@@ -4183,7 +4188,9 @@ def _cannot_find (named: str) -> str:
 
 
 def _with_the_checkout (
-	checkout: _Checkout, write: typing.Callable[[str | None], subroutine.directory.Written]
+	checkout: _Checkout,
+	write: typing.Callable[[str | None], subroutine.directory.Written],
+	named: typing.Callable[[subroutine.directory.Written], str] | None = None,
 ) -> tuple[subroutine.directory.Written, subroutine.directory.Candidate | None, str | None]:
 	"""Write with the first of the checkout's projects the instance finds, and say where it went.
 
@@ -4195,6 +4202,12 @@ def _with_the_checkout (
 	"""
 
 	written, landed, missed = subroutine.directory.filed_by_the_first(checkout.candidates, write)
+
+	# **Named by where it landed, where all the checkout had was an id** (`#4426`, R2-L28 of the cold
+	# review of 2026-10-04): a marker carrying only ids said *in 01a10691-db28-..., from .subroutine*,
+	# where a full credential says *in alpha* - and ``named`` reads the project off what was written.
+	if landed is not None and named is not None and landed.shown == landed.sent:
+		landed = landed._replace(shown=named(written) or landed.shown)
 
 	return written, landed, _where_filed(checkout, landed, missed)
 
@@ -4420,6 +4433,7 @@ def _added (
 			# be would refuse every capture that did not name a parent.
 			parent=None if arguments.get("parent") is None else _ref(arguments, field="parent"),
 		),
+		named=lambda written: written.task.project_path,
 	)
 	answer = "Added " + _line(captured.task, now=subroutine.db.types.utcnow())
 
@@ -4579,6 +4593,7 @@ def _wrote (
 				parent=arguments.get("parent"),
 				workspace=workspace,
 			),
+			named=lambda written: written.project_path,
 		)
 
 		answer = "Wrote " + _line(document, now=subroutine.db.types.utcnow())

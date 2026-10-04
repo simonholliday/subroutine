@@ -1817,6 +1817,62 @@ def test_a_narrowed_agent_tries_the_marker_by_id_then_by_key_then_the_address (
 	assert "**Narrowed to alpha**, from the address." in text, text
 
 
+def test_a_narrowed_agent_is_told_its_project_by_name_and_not_by_id (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4426`, R2-L28 of the cold review of 2026-10-04: a raw id where the key was in hand.
+
+	A credential that may not list projects sends the marker's id, and the conventions said
+	*Narrowed to 01a10691-db28-...*; and a marker carrying only ids said *in 01a10691-..., from
+	.subroutine* after a write. **Both say web.**
+	"""
+
+	web = _a_project(world, "web")
+	decided = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "Keep the header plain", "type": "decision", "project": "web"},
+	)
+
+	assert decided.status_code == 201, decided.text
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session,
+		user=world.user,
+		title="The web agent",
+		scopes=["task:read", "task:write"],
+		project_scope=[web],
+		workspace_id=world.workspace.id,
+	)
+	world.session.flush()
+	secret = issued.value.get_secret_value()
+	read = api_support.call(
+		world.application,
+		"POST",
+		subroutine.api.mcp.PATH,
+		content=json.dumps(
+			{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"method": "resources/read",
+				"params": {"uri": "subroutine://conventions"},
+			}
+		),
+		headers={
+			"content-type": "application/json",
+			"authorization": f"Bearer {secret}",
+			subroutine.directory.HEADER: f"project_id={web}; project=web",
+		},
+	)
+	text = str(read.json()["result"]["contents"][0]["text"])
+	added = _as(
+		world, secret, _adding("Fix the header"), **{subroutine.directory.HEADER: f"project_id={web}"}
+	)
+
+	assert "**Narrowed to web**" in text and web not in text, text
+	assert "in web, from .subroutine" in added and web not in added, added
+
+
 def test_a_marker_the_relay_passed_over_is_said_in_the_answer (
 	world: test_api_tasks.World,
 ) -> None:

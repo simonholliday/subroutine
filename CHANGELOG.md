@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The agent tools name a project by its key, not its id.** With a credential that may not list
+  projects, the conventions said what they were narrowed to by the project's id, and a checkout
+  whose file carries only ids said a write had gone *in* that id; both name the project now.
 - **A repeat counted from when it is done keeps its start's time beside a whole-day
   deadline.** A weekly one starting Monday at 09:00 and due Friday, finished at 11:17, started
   next on Sunday at 20:17; it starts on Monday at 09:00 again.
