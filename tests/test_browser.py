@@ -5449,6 +5449,10 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	**And an item, which had no ticket** (`SR#4322`, of the cold review of 2026-10-03): one opened and
 	slow to answer, landing after the reader had opened another, drew itself under its own address.
 
+	**And leaving an item while it loads** (`SR#4432`, R2-L36 of the cold review of 2026-10-04): by
+	the wordmark, the workspace switcher, Back or the project switcher, the item answered late and
+	was drawn over the page the reader went to. **And choosing a project from an item** closes it.
+
 	**And a read asked after the reader moved** (`SR#4402`, R2-M2 of the cold review of 2026-10-04):
 	a write answered once the reader had gone to another project refreshed the project it was written
 	in, took the newest ticket and drew its rows - or its agenda - there. No such read is made now.
@@ -5479,6 +5483,11 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 
 	chip.click()
 	page.wait_for_url(f"**{into}*", timeout=10_000)
+	_until(page, lambda: page.locator(".detail").count() == 0)
+
+	assert page.locator(".detail").count() == 0, (
+		f"the item is still drawn at {page.url}, the listing of the project chosen from it"
+	)
 
 	# **Either endpoint, because the arrangement rides along now** (`SR#1215`). The reader was
 	# on an agenda, so narrowing into a project keeps them on one — and the claim being made
@@ -5856,6 +5865,43 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	), f"an item answering after another was opened was drawn at {page.url}"
 
 	page.close()
+
+	# **And leaving while one loads** (`SR#4432`): #101 is held until the reader has gone, then answers.
+	def drawn_late (where: typing.Any) -> bool:
+		"""Whether #101, answered after the reader left it, was drawn or took the address."""
+
+		return "Left while it loaded" in where.inner_text("body") or where.url.split("?")[0].endswith("/101")
+
+	for leaving in ("the wordmark", "the workspace switcher", "Back", "the project switcher"):
+		page = opened("/projects?view=list", rows=served)
+		page.wait_for_selector(".listing a.row", timeout=10_000)
+		page.route(lambda url: url.split("?")[0].endswith("/v1/tasks/101"), slowing)
+		moved("/projects/subroutine/ui/101")
+		_until(page, lambda: bool(slow))
+
+		assert slow, f"#101 was never asked for before leaving by {leaving}, so this proves nothing"
+
+		if leaving == "the wordmark":
+			page.click(".top h1 a")
+		elif leaving == "the workspace switcher":
+			page.locator("header .where select").select_option("/personal")
+		elif leaving == "Back":
+			page.go_back()
+		else:
+			page.locator("header .where select").select_option("/projects/websites")
+
+		page.wait_for_timeout(300)
+		slow.pop().fulfill(
+			status=200,
+			content_type="application/json",
+			body=json.dumps(dict(CARD, ref=101, title="Left while it loaded")),
+		)
+
+		assert not lands(functools.partial(drawn_late, page)), (
+			f"#101, left by {leaving} while it loaded, was drawn at {page.url}"
+		)
+
+		page.close()
 
 	# **And a write answered after the reader moved** (`SR#4402`): websites' refresh is not asked for
 	# at acme's, on a list or on an agenda.

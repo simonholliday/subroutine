@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Leaving an item while it loads leaves it behind.** Going home, to another workspace or
+  project, or Back while an item was still loading drew it over the page you went to, and Back
+  then wrote its address over the one you had stepped to. And choosing a project from an open
+  item closes the item, where it stayed drawn with no list behind it.
 - **The browser no longer draws the project you just left.** A list or an agenda refreshed by
   something that started before you moved - the background check for changes, or adding an item
   - could draw the old project's rows or agenda under the new one's address, and on a quiet

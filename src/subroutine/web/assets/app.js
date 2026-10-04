@@ -431,10 +431,19 @@ export function App () {
 	*/
 	const held = useRef(null);
 
+	/* **Which open is the latest** (`#4322`), as `listingAsked` says which listing is. */
+	const showAsked = useRef(0);
+
 	const nowOpen = useCallback((next) => {
 		/* **One writer for both copies**, as above and held by the same kind of test. */
 		held.current = next;
 		setOpen(next);
+
+		/* **Closing overtakes an open still on its way, whoever closes** (`#4432`, R2-L36 of the cold
+		   review of 2026-10-04). Only `close` took a ticket, so leaving an item by the wordmark, the
+		   switchers or Back while it loaded drew it over the page the reader went to, and on Back wrote
+		   its address over the entry they had stepped to. */
+		if (next === null) showAsked.current += 1;
 	}, []);
 
 	/*
@@ -1178,9 +1187,6 @@ export function App () {
 		return null;
 	}, []);
 
-	/* **Which open is the latest** (`#4322`), as `listingAsked` says which listing is. */
-	const showAsked = useRef(0);
-
 	const show = useCallback(async (
 		row, { history = true, slug = workspace, quiet = false } = {},
 	) => {
@@ -1199,8 +1205,9 @@ export function App () {
 
 			/* **Only the latest open is drawn** (`#4322`, of the cold review of 2026-10-03), as only the
 			   latest listing is: a slow item landing after another was opened, or after the reader had
-			   closed it, drew itself under its own address. A later act owns the page, so the caller of
-			   one it overtook has nothing left to do. */
+			   closed it or left it, drew itself under its own address. Every way of leaving an item clears
+			   it through `nowOpen(null)`, which takes a ticket (`#4432`), so a later act owns the page and
+			   the caller of one it overtook has nothing left to do. */
 			if (ticket !== showAsked.current) return true;
 
 			/* **With the workspace it was read from**, so a background re-read asks the same
@@ -2913,6 +2920,11 @@ export function App () {
 		   dropdown reaches here from a settings page, and an area left drawn would sit under an
 		   address naming a project. `home` says why nothing else clears it. */
 		setArea(null);
+		/* **And the item it was chosen from** (`#4432`, NEW-E-1 of the verification of the cold review
+		   of 2026-10-04), as every other way of choosing a place closes it (`#786`): a project chosen
+		   from an open item's chip or the switcher left the item drawn, with no rows, under an address
+		   naming the project's listing. */
+		nowOpen(null);
 		setProject(wanted);
 		setEverywhere(false);
 		nowShowing(arranged);
@@ -2945,7 +2957,7 @@ export function App () {
 			   losing it because a re-fetch did not land costs the reader their place. */
 			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
 		}
-	}, [enter, go, load, me, nowShowing, readAgenda, showing, workspace]);
+	}, [enter, go, load, me, nowOpen, nowShowing, readAgenda, showing, workspace]);
 
 
 	const chooseWorkspace = useCallback(async (slug) => {
