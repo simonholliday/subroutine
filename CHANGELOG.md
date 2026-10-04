@@ -138,10 +138,12 @@ upgrade involves.
 - **A PostgreSQL restore that is stopped part way leaves nothing hidden.** Stopped before its
   backup loaded, it left the database empty and its data in a schema nothing named, and every
   command then advised `subroutine init`, which made an empty-looking instance beside it; later
-  backups carried that schema, and restoring one failed. Now every command names the schema and
-  says how to put it back or drop it, `doctor` reports one wherever it is, backups leave it out
-  and say so, and `db restore` refuses to start until it is dealt with. A restore that cannot put
-  the old schema back says where the data is.
+  backups carried that schema, and restoring one failed. Now every command that reports on the
+  database names the schema and says how to put it back or drop it, `init` and `db migrate`
+  refuse to build beside it, `doctor` reports one wherever it is, backups leave it out and say
+  so, and `db restore` refuses to start until it is dealt with, with an error code of its own,
+  `restore_unfinished`. A restore that cannot put the old schema back says where the data is,
+  and one that loaded and could not drop what it set aside says it finished, naming the schema.
 - **A backup stopped on its way to the backup folder is never taken for a real one.** A copy
   interrupted part way - Ctrl-C, `systemctl stop`, the out-of-memory killer - left a short file
   under a backup's name: listed as a routine backup, counted by `--keep`, which could delete a

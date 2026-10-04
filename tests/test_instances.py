@@ -896,7 +896,7 @@ def test_an_emptied_database_beside_set_aside_data_is_never_told_to_init (
 		with client, pytest.raises(subroutine.errors.SchemaMismatch) as told:
 			client.me()
 
-		with pytest.raises(subroutine.errors.Conflict) as refused:
+		with pytest.raises(subroutine.errors.RestoreUnfinished) as refused:
 			subroutine.db.backup.restore(engine, written.path, as_clone=False)
 
 	finally:
@@ -906,6 +906,101 @@ def test_an_emptied_database_beside_set_aside_data_is_never_told_to_init (
 	assert "init" not in (told.value.hint or ""), told.value.hint
 	assert aside in refused.value.detail and "RENAME TO public" in (refused.value.hint or "")
 	assert _set_aside_schemas(own_database) == [aside], "the refusal touched what was set aside"
+
+
+def test_nothing_builds_beside_set_aside_data_and_every_report_names_it (
+	own_database: str,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4398`, R2-L3 of the cold review of 2026-10-04, decision `#4399`: stopped before the load.
+
+	``init`` said *Ready.* and ``db migrate`` built a fresh schema beside the set-aside data, an
+	instance that looked like a working one with nothing in it; ``db current``, ``db upgrade`` and
+	``db backup`` pointed at ``init`` or ``db upgrade``. Each now names the schema, and nothing is
+	built.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+	aside = f"{subroutine.db.backup._SET_ASIDE}_0badc0de"
+
+	try:
+		if subroutine.db.backup._is_sqlite(engine):
+			return
+
+		with engine.begin() as connection:
+			connection.exec_driver_sql(f'ALTER SCHEMA public RENAME TO "{aside}"')
+			connection.exec_driver_sql("CREATE SCHEMA public")
+
+	finally:
+		engine.dispose()
+
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", own_database)
+
+	for command in (("init",), ("db", "migrate"), ("db", "upgrade", "--yes"), ("db", "backup")):
+		refused = run(*command, expect=1)
+
+		assert aside in refused.output and "init'" not in refused.output, (command, refused.output)
+
+	current = run("db", "current")
+
+	assert aside in current.output and "init'" not in current.output, current.output
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		assert subroutine.db.migrate.current_revision(engine) is None, "something was built"
+
+	finally:
+		engine.dispose()
+
+	assert _set_aside_schemas(own_database) == [aside], "what was set aside was touched"
+
+
+def test_a_restore_whose_last_drop_fails_has_finished_and_says_so (
+	own_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4398`, R2-L3 of the cold review of 2026-10-04: the final drop failing.
+
+	The answer said the database could not be reached, about a restore that had loaded, and a clone
+	kept the source's identity, since it was given its own after the drop. It finishes now, says
+	which schema is left and how to drop it, and a clone has its own identity first.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	identity = _seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		if subroutine.db.backup._is_sqlite(engine):
+			return
+
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	def held (engine: sqlalchemy.engine.Engine, aside: str) -> None:
+		"""Fail the drop, as a lock held elsewhere fails it."""
+
+		raise sqlalchemy.exc.OperationalError("DROP SCHEMA", {}, Exception("lock timeout"))
+
+	monkeypatch.setattr(subroutine.db.backup, "_drop_aside", held)
+	said: list[str] = []
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		subroutine.db.backup.restore(engine, written.path, as_clone=True, said=said.append)
+
+	finally:
+		engine.dispose()
+
+	left = _set_aside_schemas(own_database)
+
+	assert len(left) == 1 and len(said) == 1, (left, said)
+	assert "The restore finished" in said[0] and left[0] in said[0], said
+	assert _instance_id(own_database) not in (None, identity), "the clone kept the source's id"
 
 
 def test_a_schema_set_aside_beside_restored_data_is_left_out_of_backups_and_named (

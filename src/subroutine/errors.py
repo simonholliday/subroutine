@@ -186,6 +186,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"instance as not ready rather than as arguing.",
 		),
 		_define(
+			"restore_unfinished",
+			409,
+			"Restore unfinished",
+			"The database still holds the schema a restore set aside and did not get to drop: what "
+			"that restore was replacing, or what it replaced it with. Nothing builds over it or "
+			"restores over it until it has been put back or dropped, and the refusal names the schema "
+			"and the statements for both.",
+		),
+		_define(
 			"backup_failed",
 			503,
 			"Backup failed",
@@ -522,6 +531,12 @@ class CursorExpired(SubroutineError):
 	"""A change-feed cursor points further back than this instance can still report."""
 
 	CODE = "cursor_expired"
+
+
+class RestoreUnfinished(Conflict):
+	"""A restore set a schema aside and did not finish, so nothing is built or restored over it."""
+
+	CODE = "restore_unfinished"
 
 
 class PeriodArchived(SubroutineError):

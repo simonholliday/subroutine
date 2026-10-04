@@ -1363,6 +1363,17 @@ def take (
 			code="backup_failed",
 		) from error
 
+	# **Not *run db upgrade* over data a restore set aside** (`#4398`, decision `#4399`): ``public``
+	# is empty because the data is in that schema, and upgrading would build beside it.
+	if head is None and _set_aside_in(engine):
+		found = _set_aside_in(engine)
+
+		raise subroutine.errors.RestoreUnfinished(
+			f"This database's data was set aside by a restore that did not finish, in schema "
+			f"{', '.join(found)}, so there is nothing here to back up.",
+			hint=subroutine.db.migrate.set_aside_remedy(found),
+		)
+
 	if head is None:
 		raise subroutine.errors.ServiceUnavailable(
 			"This database records no schema version, so a backup of it could not be "
@@ -2009,8 +2020,12 @@ def restore (
 	*,
 	as_clone: bool,
 	force: bool = False,
+	said: typing.Callable[[str], None] | None = None,
 ) -> str:
 	"""Put a backup back, and return the schema head that was restored.
+
+	``said`` is told when the restore finished and only the schema it set aside could not be
+	dropped (`#4398`); without it, that is raised, saying the restore finished.
 
 	``as_clone`` settles the question §12.6a says must never be guessed. A **clone** gets a
 	fresh ``instance_id``, because two live instances may not claim one identity: an agent keys
@@ -2037,11 +2052,33 @@ def restore (
 	if _is_sqlite(engine):
 		_restore_sqlite(engine, source)
 
-	else:
-		_restore_postgresql(engine, source)
+		if as_clone:
+			_reidentify(url)
 
+		return head
+
+	aside = _restore_postgresql(engine, source)
+
+	# **The clone takes its identity before what was replaced is dropped** (`#4398`, R2-L3 of the
+	# cold review of 2026-10-04, decision `#4399`): the drop failing left a loaded clone carrying
+	# the source's id, and the answer said the database could not be reached.
 	if as_clone:
 		_reidentify(url)
+
+	try:
+		_drop_aside(engine, aside)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		told = (
+			f"The restore finished, and the schema it set aside, \"{aside}\", could not be dropped "
+			f"({getattr(error, 'orig', None) or error}). It holds what the restore replaced; drop it "
+			f"once you are sure: DROP SCHEMA \"{aside}\" CASCADE;"
+		)
+
+		if said is None:
+			raise subroutine.errors.RestoreUnfinished(told) from error
+
+		said(told)
 
 	return head
 
@@ -2159,7 +2196,7 @@ def check_nothing_set_aside (engine: sqlalchemy.engine.Engine) -> None:
 	found = _set_aside_in(engine)
 
 	if found:
-		raise subroutine.errors.Conflict(
+		raise subroutine.errors.RestoreUnfinished(
 			f"This database still holds schema {', '.join(found)}, set aside by a restore that did "
 			"not finish, so nothing was restored over it.",
 			hint=subroutine.db.migrate.set_aside_remedy(found),
@@ -2168,8 +2205,9 @@ def check_nothing_set_aside (engine: sqlalchemy.engine.Engine) -> None:
 
 def _restore_postgresql (
 	engine: sqlalchemy.engine.Engine, source: pathlib.Path
-) -> None:
-	"""Replace the PostgreSQL database with the backup, or leave it as it was.
+) -> str:
+	"""Replace the PostgreSQL database with the backup, or leave it as it was, and return the
+	schema it set aside, which :func:`restore` drops once a clone has its own identity.
 
 	**The schema it replaces is set aside, not dropped, until the backup has loaded** (`#4002`,
 	M-5 of the cold review of 2026-09-30, and NEW-1 of its verification). It was dropped in a
@@ -2210,6 +2248,12 @@ def _restore_postgresql (
 		_put_back_or_say(engine, aside, failure)
 
 		raise
+
+	return aside
+
+
+def _drop_aside (engine: sqlalchemy.engine.Engine, aside: str) -> None:
+	"""Drop the schema a finished restore set aside."""
 
 	with engine.begin() as connection:
 		connection.exec_driver_sql(f'DROP SCHEMA "{aside}" CASCADE')

@@ -32,6 +32,7 @@ following one lands on the section describing it.
 | `period_archived` | 410 | Period archived | A change-feed read for a period reaches back past the events the feed still holds: some that match it have moved to the archive, so the period cannot be reported in full. The client reads the period from the journal, which reads the archive too, rather than being handed a page that silently omits what moved. Distinct from 'cursor_expired', which says a cursor is too old. |
 | `rate_limited` | 429 | Too many requests | The caller is going faster than the configured limit allows. The response says when to try again. |
 | `request_timed_out` | 503 | Timed out | The database work behind this request ran longer than 'request_timeout_seconds' allows, and was given up on. Distinct from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving, and it was this request that did not finish. The detail names what was being waited for where the database said, and retrying may work. |
+| `restore_unfinished` | 409 | Restore unfinished | The database still holds the schema a restore set aside and did not get to drop: what that restore was replacing, or what it replaced it with. Nothing builds over it or restores over it until it has been put back or dropped, and the refusal names the schema and the statements for both. |
 | `schema_mismatch` | 409 | Schema mismatch | A database schema does not match the one this build expects. An older schema can be migrated forward and the refusal says so; a *newer* one cannot, because this version cannot interpret data it does not know the shape of and a partial read is worse than a clear failure. Two things answer with it: a backup being put back, and any write against a live database that has not been migrated yet - reads are still served, so an instance mid-deploy stays readable and refuses to be changed. /readyz reports the same condition as 503 service_unavailable rather than this, because a load balancer has to read the instance as not ready rather than as arguing. |
 | `service_unavailable` | 503 | Not ready | The instance is running but cannot serve requests yet - most often its database is unreachable, or its schema has not been brought up to date. Reported by the readiness check so that a deployment holds traffic back rather than serving errors. |
 | `too_deep` | 409 | Too deep | The change would put a project, a task or a document further down its tree than 'max_hierarchy_depth' allows, by making it there or by moving it, or something beneath it, there. The message says how deep it would go and what the limit is. Distinct from 'cycle_detected', which says the change would make something its own ancestor. |
@@ -153,6 +154,12 @@ The caller is going faster than the configured limit allows. The response says w
 **Timed out** - HTTP 503.
 
 The database work behind this request ran longer than 'request_timeout_seconds' allows, and was given up on. Distinct from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving, and it was this request that did not finish. The detail names what was being waited for where the database said, and retrying may work.
+
+## `restore_unfinished`
+
+**Restore unfinished** - HTTP 409.
+
+The database still holds the schema a restore set aside and did not get to drop: what that restore was replacing, or what it replaced it with. Nothing builds over it or restores over it until it has been put back or dropped, and the refusal names the schema and the statements for both.
 
 ## `schema_mismatch`
 

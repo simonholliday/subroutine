@@ -24,6 +24,7 @@ import subroutine.config
 import subroutine.db.base
 import subroutine.db.fulltext
 import subroutine.db.models
+import subroutine.errors
 
 #: Ships inside the package so that migrations are available from an installed wheel,
 #: not only from a source checkout.
@@ -181,6 +182,36 @@ def set_aside_remedy (names: typing.Sequence[str]) -> str:
 		f"SCHEMA {named} RENAME TO public; - and if it holds what you restored, drop it: DROP "
 		f"SCHEMA {named} CASCADE;"
 	)
+
+
+def refuse_building_beside_a_set_aside (database_url: str) -> None:
+	"""Refuse to build an instance in a database holding a restore's set-aside schema - `#4398`.
+
+	Decision `#4399` (R2-L3 of the cold review of 2026-10-04). A restore stopped between setting
+	``public`` aside and loading its backup left ``public`` empty, and ``init`` said *Ready.* and
+	``db migrate`` built a fresh schema: an instance that looked like a working one with nothing in
+	it, beside the data. **Only PostgreSQL has one**, and asked only there, so an absent SQLite file
+	is not created by asking.
+	"""
+
+	if sqlalchemy.engine.make_url(database_url).get_backend_name() != "postgresql":
+		return
+
+	engine = sqlalchemy.create_engine(database_url)
+
+	try:
+		with engine.connect() as connection:
+			found = set_aside_on(connection)
+
+	finally:
+		engine.dispose()
+
+	if found:
+		raise subroutine.errors.RestoreUnfinished(
+			f"This database still holds schema {', '.join(found)}, set aside by a restore that did "
+			"not finish, so nothing was built beside it.",
+			hint=set_aside_remedy(found),
+		)
 
 
 def mismatch_reason (

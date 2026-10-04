@@ -419,6 +419,13 @@ def _stop (message: str, hint: str | None = None) -> typing.NoReturn:
 	raise typer.Exit(code=1)
 
 
+def _set_aside (engine: sqlalchemy.engine.Engine) -> list[str]:
+	"""Return the schemas a stopped restore left in this database - `#4398`."""
+
+	with engine.connect() as connection:
+		return subroutine.db.migrate.set_aside_on(connection)
+
+
 def _warn (message: str) -> None:
 	"""Report something that went wrong without stopping.
 
@@ -670,7 +677,12 @@ def init (
 			_say(f"Config:     {written_to} (signing key written)")
 
 	try:
+		# **Never beside data a restore set aside** (`#4398`, decision `#4399`).
+		subroutine.db.migrate.refuse_building_beside_a_set_aside(settings.database_url)
 		subroutine.db.migrate.upgrade(settings.database_url)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
 
 	except sqlalchemy.exc.SQLAlchemyError as error:
 		_stop(
@@ -1438,7 +1450,13 @@ def database_migrate () -> None:
 		_refuse_absent_database(settings)
 
 	try:
+		# **Nor beside data a restore set aside** (`#4398`, decision `#4399`), for the reason above:
+		# building a fresh schema there is not recovery.
+		subroutine.db.migrate.refuse_building_beside_a_set_aside(settings.database_url)
 		subroutine.db.migrate.upgrade(settings.database_url)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
 
 	except sqlalchemy.exc.SQLAlchemyError as error:
 		_stop(
@@ -1533,6 +1551,17 @@ def database_current () -> None:
 	with _database(settings) as engine:
 		current = subroutine.db.migrate.current_revision(engine)
 		head = subroutine.db.migrate.head_revision()
+		aside = _set_aside(engine) if current is None else []
+
+	# **Naming what a restore set aside, never *init*** (`#4398`, decision `#4399`).
+	if current is None and aside:
+		told = subroutine.db.migrate.mismatch_reason(current, head, set_aside=aside)
+
+		if told is not None:
+			_say(told[0])
+			_say(told[1])
+
+		return
 
 	if current is None:
 		# **Which database, on this branch too** (`#1269`). The one four lines above names the
@@ -1708,6 +1737,16 @@ def upgrade (
 		return
 
 	if current is None:
+		with _database(settings) as engine:
+			aside = _set_aside(engine)
+
+		# **Not *init* over data a restore set aside** (`#4398`, decision `#4399`).
+		if aside:
+			told = subroutine.db.migrate.mismatch_reason(current, expected, set_aside=aside)
+
+			if told is not None:
+				_stop(*told)
+
 		_stop(
 			"There is no Subroutine schema in that database.",
 			"Run 'subroutine init' to set it up.",
@@ -2193,7 +2232,7 @@ def database_restore (
 
 	with _database(settings) as engine:
 		try:
-			subroutine.db.backup.restore(engine, path, as_clone=as_clone, force=force)
+			subroutine.db.backup.restore(engine, path, as_clone=as_clone, force=force, said=_warn)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
