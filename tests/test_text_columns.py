@@ -39,6 +39,7 @@ rule, and it would look like classification.
   sends. Right, and now written down, so a refusal naming the wrong one would fail.
 """
 
+import re
 import typing
 import uuid
 
@@ -648,6 +649,27 @@ def test_a_value_too_long_for_its_column_is_refused (
 	)
 
 
+#: An article that does not fit what follows it: *A assignee*, *An tag*, *That A view's name*.
+WRONG_ARTICLE = re.compile(r"\b(?:A [aeio]|An [^aeio\s]|A A |That A )")
+
+
+def test_a_refusal_puts_the_right_article_before_what_it_names () -> None:
+	"""`SR#4422`, R2-L21 (2) of the cold review of 2026-10-04: *A assignee*, *A actor*.
+
+	The template's fixed *A* met labels beginning with a vowel - the people a refusal names are
+	passed by their field, with no label - and labels that carried their own.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as unreadable:
+		subroutine.domain.text.readable("x\x01", field="assignee")
+
+	with pytest.raises(subroutine.errors.ValidationError) as missing:
+		subroutine.domain.text.require("", field="actor")
+
+	assert unreadable.value.errors[0].message.startswith("An assignee may not contain")
+	assert missing.value.detail == "An actor is required."
+
+
 @pytest.mark.parametrize("where", sorted({**DRIVEN, **PROSE}))
 def test_a_control_character_never_reaches_a_column (
 	where: str, session: sqlalchemy.orm.Session
@@ -679,7 +701,13 @@ def test_a_control_character_never_reaches_a_column (
 		driver(world, "probe\x00value")
 		world.session.flush()
 
-	except subroutine.errors.SubroutineError:
+	# **And the refusal puts the right article before what it names** (`SR#4422`): a saved view's
+	# two labels carried their own *A*, so the template read *That A view's name*.
+	except subroutine.errors.SubroutineError as refused:
+		said = " ".join([refused.detail, *(one.message for one in refused.errors)])
+
+		assert not WRONG_ARTICLE.search(said), f"{where}: {said}"
+
 		return
 
 	except sqlalchemy.exc.DBAPIError as refused:

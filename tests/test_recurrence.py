@@ -728,6 +728,54 @@ def test_a_rule_naming_a_date_that_does_not_exist_is_refused (impossible: str) -
 	assert time.monotonic() - started < 1.0, "refused, but only after doing the work anyway"
 
 
+@pytest.mark.parametrize(
+	("written", "said"),
+	[
+		("every month on the 1st and 32nd", "A day of the month is 1 to 31"),
+		("every\u0085day", "A repeat may not contain the character U+0085."),
+		("every\u2028day", "A repeat may not contain the character U+2028."),
+		("every\u2029day", "A repeat may not contain the character U+2029."),
+		("FREQ=WEEKLÝ", "A frequency is written in the letters A to Z."),
+		("FREQ=WEEKLY;BYDAY=MÖ", "A weekday is written in the letters A to Z"),
+		("FREQ=DAILY;COUNT=\uff11", "A number is written with 0 to 9."),
+		("FREQ=WEEKLY;BYDAY", "BYDAY has no value."),
+	],
+	ids=[
+		"a hint naming a refused rule",
+		"a C1 control",
+		"a line separator",
+		"a paragraph separator",
+		"a frequency",
+		"a weekday",
+		"a number",
+		"a part with no value",
+	],
+)
+def test_a_repeat_is_refused_in_words_that_fit_what_is_wrong (written: str, said: str) -> None:
+	"""`SR#4422`, R2-L21 (1), (3), (4) and (5) of the cold review of 2026-10-04.
+
+	A hint offered ``BYMONTHDAY=1,32``, which is refused; a C1 character or a line separator was
+	read as a space and stored as sent; a frequency or a weekday in other letters was told how a
+	number is written; and a part with no value got dateutil's own words. **And nothing names a
+	rule it would refuse.**
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.rule(written)
+
+	told = " ".join(one.message for one in refused.value.errors)
+
+	assert said in told, told
+	assert "FREQ=MONTHLY;BYMONTHDAY=1,32" not in (refused.value.hint or "")
+	assert "unpack" not in told
+
+
+def test_a_rule_with_a_space_beside_a_part_is_read () -> None:
+	"""`SR#4422`, R2-L21 (5): *FREQ=WEEKLY; BYDAY=MO* was answered in dateutil's words."""
+
+	assert subroutine.domain.recurrence.rule("FREQ=WEEKLY; BYDAY=MO").rule == "FREQ=WEEKLY;BYDAY=MO"
+
+
 def test_a_counted_rule_is_counted_from_its_own_start_however_long_ago () -> None:
 	"""`SR#4421`: a walk is begun late by whole cycles only where nothing is counted.
 

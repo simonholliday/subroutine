@@ -115,6 +115,18 @@ def plain (message: str) -> str:
 	return INSTRUCTIONS.sub("", message)
 
 
+def _a (name: str) -> str:
+	"""Return the article a label takes, capitalised to open a sentence - `#4422`.
+
+	**The label carries none of its own**, and this gives it the one it is said with: *An assignee*,
+	*A view's name*. The template's fixed *A* read *A assignee*, and a label carrying its own read
+	*That A view's name* (R2-L21 (2) of the cold review of 2026-10-04). *A username* and *A URL* are
+	said with *a*, so a ``u`` takes one.
+	"""
+
+	return "An" if name[:1].lower() in "aeio" else "A"
+
+
 def _refuse_a_character_nobody_can_read (
 	value: str, *, field: str, label: str | None
 ) -> None:
@@ -143,7 +155,7 @@ def _refuse_a_character_nobody_can_read (
 			subroutine.errors.FieldError(
 				field=field,
 				code="invalid_field_value",
-				message=f"A {name} may not contain the character U+{ord(found):04X}.",
+				message=f"{_a(name)} {name} may not contain the character U+{ord(found):04X}.",
 			)
 		],
 	)
@@ -252,7 +264,7 @@ def fit (
 			subroutine.errors.FieldError(
 				field=field,
 				code="payload_too_large",
-				message=f"A {name} is limited to {limit} characters.",
+				message=f"{_a(name)} {name} is limited to {limit} characters.",
 			)
 		],
 	)
@@ -282,7 +294,7 @@ def fits_folded (
 			subroutine.errors.FieldError(
 				field=field,
 				code="payload_too_large",
-				message=f"A {name} is limited to {limit} characters, written in lower case.",
+				message=f"{_a(name)} {name} is limited to {limit} characters, written in lower case.",
 			)
 		],
 	)
@@ -335,11 +347,11 @@ def require (value: str | None, *, field: str, label: str | None = None) -> str:
 	name = label or field
 
 	raise subroutine.errors.ValidationError(
-		f"A {name} is required.",
+		f"{_a(name)} {name} is required.",
 		code="missing_field",
 		errors=[
 			subroutine.errors.FieldError(
-				field=field, code="missing_field", message=f"A {name} is required."
+				field=field, code="missing_field", message=f"{_a(name)} {name} is required."
 			)
 		],
 	)

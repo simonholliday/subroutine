@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat is refused in words that fit what is wrong.** A phrase naming the 32nd of the month
+  was told to send a rule that is refused for the 32nd; a repeat holding a C1 control character
+  or a line separator was read as though it held a space and stored as sent; a frequency or a
+  weekday written in other letters was told how a number is written; and a rule with a space
+  after a `;` was answered in the words of the library that reads it - it is read now. Refusals
+  also put *an* before a word that needs one, and no longer write *A A view's name*.
 - **A repeat's new rule is asked about the occurrence already made.** A rule ending before that
   occurrence was accepted when any date between came after now, and the series ended there
   without a word; a series counted from when it is done was checked along a grid it does not

@@ -120,10 +120,10 @@ def check_title (title: str) -> str:
 	# on PostgreSQL and a stored row on SQLite. `fit` also puts the name on one line, which a
 	# label in a list wants and which `#927` H-8 made the default for exactly this reason.
 	cleaned = subroutine.domain.text.fit(
-		subroutine.domain.text.require(title, field="title", label="A view's name"),
+		subroutine.domain.text.require(title, field="title", label="view's name"),
 		field="title",
 		limit=MAX_TITLE_LENGTH,
-		label="A view's name",
+		label="view's name",
 		hint="A view's name is a label in a list, so it wants to be short.",
 	)
 	derived = normalize_key(cleaned)
@@ -643,7 +643,7 @@ def _kept (q: str | None) -> str | None:
 	# asked of it and *is it text* still has to be. A `q` is one line somebody typed into a
 	# search box; a control character in it is a 500 on PostgreSQL, stored on SQLite, and a
 	# `db copy` that names no table — which is the divergence `#1584` exists to close.
-	subroutine.domain.text.readable(q, field="q", label="A view's query")
+	subroutine.domain.text.readable(q, field="q", label="view's query")
 
 	return q.strip() or None
 

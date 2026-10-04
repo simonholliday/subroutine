@@ -56,6 +56,12 @@ PARTS: frozenset[str] = frozenset({
 	"BYDAY", "BYMONTHDAY", "BYMONTH",
 })
 
+#: **What a repeat refuses beyond what any text does** (`#4422`, R2-L21 (3) of the cold review of
+#: 2026-10-04): the C1 controls and the two line separators, which the grammar's ``\s`` reads as a
+#: space, so *every*, U+0085, *day* was read as *every day* and stored as sent. A title keeps a C1
+#: character by decision (`#3939`); a repeat is read by a pattern, which is why it does not.
+_NOT_IN_A_REPEAT = re.compile("[\u0080-\u009f\u2028\u2029]")
+
 #: How many dates to show back. **Five, following §6.7's own wording**, and the number is a
 #: judgement about confirmation rather than about pagination: enough to see a weekly rule
 #: land on the right weekday and a monthly one skip February, few enough to read at a glance.
@@ -463,6 +469,17 @@ def phrase (value: str, *, field: str = "recurrence") -> str:
 		named = {name: setting for name, _, setting in (part.partition("=") for part in several.split(";"))}
 		_refuse_an_interval(value, named["FREQ"], int(named.get("INTERVAL", "1")), field=field)
 
+		# **And only a rule that is accepted** (`#4422`, R2-L21 (1) of the cold review of 2026-10-04):
+		# *the 1st and 32nd* was told to send ``BYMONTHDAY=1,32``, which is refused for the 32nd. What
+		# stops the rule stops the phrase, so it is refused for that instead.
+		try:
+			_checked(several, field=field)
+
+		except subroutine.errors.ValidationError as stopped:
+			raise _refuse(
+				value, field=field, why=stopped.errors[0].message if stopped.errors else stopped.detail
+			) from None
+
 		hint = f"Give it as a rule instead: {several}."
 
 		raise subroutine.errors.ValidationError(
@@ -561,6 +578,23 @@ def rule (value: str, *, field: str = "recurrence") -> Recurrence:
 	# as though it held a space and stored as sent, and one after a rule part was dropped unsaid.
 	subroutine.domain.text.readable(value, field=field, label="repeat")
 
+	unseen = _NOT_IN_A_REPEAT.search(value)
+
+	if unseen is not None:
+		raise subroutine.errors.ValidationError(
+			"That repeat contains a control character or a line separator, which is not text anybody "
+			"can read.",
+			code="invalid_field_value",
+			hint="Remove it and send the value again.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"A repeat may not contain the character U+{ord(unseen.group()):04X}.",
+				)
+			],
+		)
+
 	written = value.strip()
 
 	if not written:
@@ -586,14 +620,24 @@ def _checked (value: str, *, field: str) -> str:
 	if written.upper().startswith("RRULE:"):
 		written = written[len("RRULE:"):]
 
+	# **A space beside a ``;`` is read rather than handed on** (`#4422`, R2-L21 (5) of the cold
+	# review of 2026-10-04): dateutil answered *FREQ=WEEKLY; BYDAY=MO* in its own words, *not
+	# enough values to unpack (expected 2, got 1)*, about a rule anybody can read.
+	written = ";".join(piece.strip() for piece in written.split(";") if piece.strip())
+
 	found: dict[str, str] = {}
 
 	for piece in written.split(";"):
-		if not piece:
-			continue
-
-		name, _, setting = piece.partition("=")
+		name, equals, setting = piece.partition("=")
 		name = name.strip().upper()
+
+		if not equals:
+			raise _refuse(
+				value,
+				field=field,
+				why=f"{name} has no value. Each part is written NAME=value, and the parts are "
+				"separated by ;.",
+			)
 
 		if name not in PARTS:
 			raise _refuse(
@@ -606,11 +650,18 @@ def _checked (value: str, *, field: str) -> str:
 		# **Written as a rule is written** (`#4320`): Python reads a fullwidth or an Arabic-Indic
 		# digit as a digit, so a part written in them was stored as sent, described as though it
 		# were the ASCII number, and reached a calendar's feed as sent.
+		# **Said of what the part holds** (`#4422`, R2-L21 (4)): *A number is written with 0 to 9*
+		# was the answer for a frequency and a weekday too.
 		if not setting.isascii():
+			written_as = {
+				"FREQ": "A frequency is written in the letters A to Z.",
+				"BYDAY": "A weekday is written in the letters A to Z, after any number.",
+				"WKST": "A weekday is written in the letters A to Z.",
+				"UNTIL": "A date is written with 0 to 9, and a time after a T.",
+			}.get(name, "A number is written with 0 to 9.")
+
 			raise _refuse(
-				value,
-				field=field,
-				why=f"{name} holds a character no rule is written in. A number is written with 0 to 9.",
+				value, field=field, why=f"{name} holds a character no rule is written in. {written_as}"
 			)
 
 		# **A part is named once** (`#3997`). dateutil reads the last of two, and the stored rule kept
