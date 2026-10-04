@@ -2,9 +2,9 @@
 
 Every error response carries a `code`. These are part of the public contract and
 covered by semantic versioning: branch on them freely. Adding a code is a minor
-version; renaming or removing one is a major version. Before 1.0, a minor version may
-also move a failure to a new code that describes it better, and the changelog names each
-one that moved; from 1.0, that is a major version too.
+version; renaming or removing one is a major version. Before Subroutine 1.0, a minor
+version may also move a failure to a new code that describes it better, and the changelog
+names each one that moved; from Subroutine 1.0, that is a major version too.
 
 The `type` URI of a problem document links to this page's entry for that code, so
 following one lands on the section describing it.

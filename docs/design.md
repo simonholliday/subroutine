@@ -2580,6 +2580,9 @@ A registry lives in `docs/errors.md` and is served at `/v1/meta`. It is **genera
 `subroutine/errors.py`**, and a test asserts the file on disk matches — a published
 contract that can drift from the enforced one is worse than none.
 
+*Changed since this was frozen: before Subroutine 1.0 a minor version may also move a failure to
+a new code, and the changelog names each one that moved; see `docs/errors.md`.*
+
 Each exception class fixes an HTTP status and the `code` selects which failure within it,
 so a class cannot be constructed with a code registered against a different status. Two
 consequences worth stating, because both are places a permission system leaks:
@@ -3732,9 +3735,10 @@ subroutine doctor                   diagnose configuration and connectivity   (n
 ```
 
 *Changed since this was frozen: `doc create` and `doc edit` read a body from standard input only
-when given `--body -`, as every other command here that takes prose does. Text piped in without it
-is refused when nothing else is asked, before anything is written, and ignored with a warning when
-a field is named. The block above is the design as it stood.*
+when given `--body -`, as every other command here that takes prose does. On `doc create`, text
+piped in without it is ignored, with a warning, only beside `--body "..."`, and refused otherwise
+before anything is written; on `doc edit` it is ignored, with a warning, when a field is named,
+and refused when nothing else is asked. The block above is the design as it stood.*
 
 The first six are the whole surface a personal user needs, and are deliberately listed
 first: `add`, `today`, `list`, `show`, `done`, `plan`. Everything below them is the full form, and
@@ -4012,6 +4016,8 @@ unset by default, so every event stays in the change feed.*
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest (§5.4). Bounds path length and the cost of a move |
 | `default_timezone` | system | |
 | `local_user` | unset | Which account local mode acts as, when the database holds more than one (§12.1a) |
+
+*Changed since this was frozen: `max_hierarchy_depth` bounds a project, task or document tree.*
 
 Secrets are read from a file or the environment, never committed. The service refuses
 to start with a default or empty `secret_key` outside development mode.
