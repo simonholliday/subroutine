@@ -140,13 +140,13 @@ be a program that has never seen it before and will not remember it next time.
 
 ## It runs on itself
 
-Subroutine has tracked its own development since its third day: **1,342 of the 1,381 commits
+Subroutine has tracked its own development since its third day: **1,449 of the 1,489 commits
 since then** cite the item they implement, and the commit hash is written back onto that item,
 so *what closed this* and *what did that commit do* are both answerable.
 
-It is not the only thing in there. At the time of writing (30th September 2026) the workspace it
-is tracked in holds **437 open items across 17 projects** and **669 written-up documents** -
-242 findings, 167 decisions, 97 notes, 96 designs, 41 specifications and 26 dead ends -
+It is not the only thing in there. At the time of writing (4th October 2026) the workspace it
+is tracked in holds **405 open items across 17 projects** and **773 written-up documents** -
+296 findings, 212 decisions, 100 notes, 98 designs, 41 specifications and 26 dead ends -
 covering this tracker, four audio applications, two MIDI libraries, a networking framework, two
 websites and some infrastructure.
 
