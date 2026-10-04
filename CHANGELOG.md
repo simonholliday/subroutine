@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A calendar feed stops answering when its owner leaves the workspace**, and when the person
+  an agent answers to is deactivated. A feed's address went on serving everything its owner
+  could see, private projects included, after they were taken out. Added back, they find it
+  answering again, with what they can see then.
 - **A `.subroutine` file is read only when it belongs to you or to root**, as git reads a
   repository. One anywhere above the working directory was read, so a `/tmp/.subroutine` chose
   the project for anything run under `/tmp`, among the projects its reader could see. One

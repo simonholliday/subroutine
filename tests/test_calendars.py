@@ -257,6 +257,71 @@ def test_a_feed_stops_working_when_its_owner_does (
 		subroutine.domain.calendars.resolve(session, secret, now=NOW)
 
 
+def test_a_feed_stops_working_when_its_owner_leaves_the_workspace (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4380`, decision `#4381`: membership is reach, for a feed as for every other door.
+
+	A member taken out of the workspace kept a URL serving every task they could see, private
+	projects shared with them and every public one, to anybody holding it. **And the control**:
+	added back, even as somebody with less, the feed answers again, as deactivation treats one.
+	"""
+
+	workspace, _owner = _world(session)
+	keanu = subroutine.domain.users.create(session, username=f"keanu-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(session, workspace, keanu, role_key="member")
+	session.flush()
+	_row, minted = _feed(session, workspace, keanu)
+	secret = minted.value.get_secret_value()
+
+	assert subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+	subroutine.domain.workspaces.remove_member(session, workspace, keanu)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+	subroutine.domain.workspaces.add_member(session, workspace, keanu, role_key="contributor")
+	session.flush()
+
+	assert subroutine.domain.calendars.resolve(session, secret, now=NOW), "added back, it answers"
+
+
+def test_an_agents_feed_stops_working_when_its_person_is_deactivated (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4380`, decision `#4381`: an agent acts only while every account it answers to can.
+
+	The agent's own account stayed active, so the owner check passed; the chain behind it was
+	never walked, and the feed outlived the deactivation of the person it answered to.
+	"""
+
+	workspace, _owner = _world(session)
+	person = subroutine.domain.users.create(session, username=f"neo-{uuid.uuid4().hex[:8]}")
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+
+	for user in (person, agent):
+		subroutine.domain.workspaces.add_member(session, workspace, user, role_key="member")
+
+	session.flush()
+	_row, minted = _feed(session, workspace, agent)
+	secret = minted.value.get_secret_value()
+
+	assert subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+	person.is_active = False
+	session.flush()
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+
 def test_a_feed_stops_working_when_its_workspace_is_deleted (
 	session: sqlalchemy.orm.Session,
 ) -> None:

@@ -23,6 +23,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.instances
@@ -344,6 +345,22 @@ def resolve (
 	workspace = session.get(subroutine.db.models.identity.Workspace, feed.workspace_id)
 
 	if workspace is None or workspace.deleted_at is not None:
+		raise _unknown()
+
+	# **And the owner's place in it, as every other door asks** (`#4380`, decision `#4381`, R2-H1 of
+	# the cold review of 2026-10-04): membership is reach (`#1418`), and an agent acts only while
+	# every account it answers to can (`#473`). A member taken out of the workspace kept a URL
+	# serving everything they could see, and an agent's feed outlived its person's deactivation.
+	# Suspended rather than revoked, as deactivation already treats a feed: added back, it answers
+	# again, with what its owner can then see.
+	member = subroutine.db.models.identity.WorkspaceMember
+	belongs = session.scalar(
+		sqlalchemy.select(member.id).where(
+			member.workspace_id == feed.workspace_id, member.user_id == owner.id
+		)
+	)
+
+	if belongs is None or not subroutine.domain.accountability.can_act(session, owner):
 		raise _unknown()
 
 	if record_poll:
