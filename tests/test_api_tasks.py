@@ -27,6 +27,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
+import subroutine.domain.events
 import subroutine.domain.instances
 import subroutine.domain.ordering
 import subroutine.domain.projects
@@ -708,7 +709,7 @@ def test_a_cursor_from_one_collection_is_refused_by_another (world: World) -> No
 
 
 def test_a_cursor_from_one_workspace_is_refused_in_another (
-	session: sqlalchemy.orm.Session,
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""`SR#4284`, M16 of the cold review of 2026-10-03, decision `#4301`.
 
@@ -719,6 +720,11 @@ def test_a_cursor_from_one_workspace_is_refused_in_another (
 	more than a page here; the rest share the export's one code path. **And the control**: each
 	cursor still walks the workspace it came from.
 	"""
+
+	# **The export pages events through the change feed, which holds back its last second**
+	# (`SR#4368`, §5.11): without this the events export holds a second page only once two events
+	# are a second old, which a fast enough runner never waits for.
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
 
 	world = _world(session)
 	second = subroutine.domain.workspaces.create(
