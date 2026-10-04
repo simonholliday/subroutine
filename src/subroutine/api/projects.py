@@ -150,7 +150,12 @@ def create (
 	session: subroutine.api.dependencies.SessionDep,
 	settings: subroutine.api.dependencies.SettingsDep,
 ) -> subroutine.views.Project:
-	"""Create a project, optionally inside another."""
+	"""Create a project, optionally inside another.
+
+	**A key is unique among the projects beside it, including ones the caller cannot see.** A key
+	already taken there is refused by name even when the project holding it is private, so privacy
+	keeps a key off every list but cannot make it a secret from somebody who guesses it.
+	"""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=body.workspace_id)
 	parent = None if body.parent is None else resolve(session, actor, workspace, body.parent)

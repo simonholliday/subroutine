@@ -381,6 +381,11 @@ Only the person who saved a view can change it. A workspace's
 administrator may also forget a shared one somebody else saved, such as
 one whose author has left.
 
+Names are one per workspace, private views included, so a name
+somebody else's private view already has is refused for yours too.
+Keeping a view private keeps its name off every list, but cannot make
+the name a secret from somebody who guesses it.
+
 WHAT A TERMINAL DOES WITH THE ARRANGEMENT
 
 A view is saved as one of {offered}, and can ask for
@@ -495,6 +500,10 @@ On a server other people use, whoever can see a project sees what is
 in it - in their lists, their searches and their calendars. Something
 only you should see goes in a private project or a workspace of your
 own, and '+key' on a captured line files it there as you write it.
+
+A private project hides what is in it, but not its key: two projects
+side by side cannot share one, so making one with a key that a project
+you cannot see already has is refused, and says so.
 
 An agent reaches an instance a different way - through a plugin rather
 than through this program, and if the work is on somebody else's

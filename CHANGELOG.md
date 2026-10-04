@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **What privacy cannot hide about a name is written down.** A project's key is one among the
+  projects beside it and a saved view's name one per workspace, so making either with a name
+  already taken is refused, naming it, even when what holds it is private and out of sight.
+  Privacy keeps such a name off every list but cannot make it a secret, and the API's own
+  descriptions, `subroutine explain views`, `explain connecting` and the connecting guide now
+  say so.
 - **Opening a sign-in link asks before it signs a browser in.** A browser signed in as nobody
   now gets the page a browser signed in as somebody else already got: it names the account the
   link is for, and only its button spends the link. So a link handed to somebody no longer puts

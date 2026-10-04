@@ -137,7 +137,9 @@ configuration file you have to write by hand.
 **What you file there is seen by whoever can see its project** - in their lists, their searches
 and their calendars. Privacy belongs to a place rather than to an item, so something only you
 should see goes in a private project or in a workspace of your own, and `+key` on a captured
-line files it there as you write it.
+line files it there as you write it. **A private project hides what is in it, not its key**: two
+projects side by side cannot share one, so a key already taken beside a new project is refused
+even when the project holding it is one you cannot see.
 
 ## Where your token is kept, and what removes it
 

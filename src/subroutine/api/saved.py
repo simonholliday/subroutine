@@ -175,7 +175,12 @@ def create_view (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = WORKSPACE,
 ) -> subroutine.views.SavedView:
-	"""Save a query and an arrangement under a name, so nobody has to retype it."""
+	"""Save a query and an arrangement under a name, so nobody has to retype it.
+
+	**A name is one per workspace, other people's private views included.** A name another view
+	already has is refused by name, so keeping a view private keeps its name off every list but
+	cannot make it a secret from somebody who guesses it.
+	"""
 
 	workspace = _chosen(session, actor, workspace_id)
 
