@@ -9,9 +9,11 @@ carries the attributes that make it a CSRF defence rather than a liability.
 import datetime
 import email.utils
 import typing
+import urllib.parse
 import uuid
 
 import fastapi
+import httpx
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
@@ -63,12 +65,53 @@ def _link (
 	return secret
 
 
+def _confirmed (
+	application: fastapi.FastAPI,
+	secret: str,
+	*,
+	sent: dict[str, str] | None = None,
+	cookies: dict[str, str] | None = None,
+	follow_redirects: bool = False,
+) -> httpx.Response:
+	"""Post a link back as the page it opened does, from this instance's own origin unless told."""
+
+	return api_support.call(
+		application,
+		"POST",
+		subroutine.api.sessions.SIGN_IN,
+		content=urllib.parse.urlencode({subroutine.api.sessions.LINK_PARAMETER: secret}),
+		headers={
+			"content-type": subroutine.api.sessions.FORM_ENCODING,
+			**({"origin": api_support.BASE_URL} if sent is None else sent),
+		},
+		cookies=cookies,
+		follow_redirects=follow_redirects,
+	)
+
+
+def _spend (
+	application: fastapi.FastAPI, secret: str, *, follow_redirects: bool = False
+) -> httpx.Response:
+	"""Open a link as a browser signed in as nobody, press its page's button, and return that.
+
+	**Two requests since `SR#4393`**: opening a link asks first, and the page's form posts it
+	back to be spent, from this instance's own origin as a browser sends it under
+	``strict-origin``.
+	"""
+
+	asked = api_support.call(
+		application, "GET", f"/signin?link={secret}", follow_redirects=False
+	)
+
+	assert asked.status_code == 200, asked.text
+
+	return _confirmed(application, secret, follow_redirects=follow_redirects)
+
+
 def _cookie (application: fastapi.FastAPI, secret: str) -> str:
 	"""Sign in and return the session cookie the browser was handed."""
 
-	answer = api_support.call(
-		application, "GET", f"/signin?link={secret}", follow_redirects=False
-	)
+	answer = _spend(application, secret)
 
 	assert answer.status_code == 303, answer.text
 
@@ -84,12 +127,7 @@ def test_a_link_is_exchanged_for_a_cookie_and_a_redirect (
 	a person cannot tell a spent secret from a live one by looking at it.
 	"""
 
-	answer = api_support.call(
-		setup.application,
-		"GET",
-		f"/signin?link={_link(session, setup.user)}",
-		follow_redirects=False,
-	)
+	answer = _spend(setup.application, _link(session, setup.user))
 
 	assert answer.status_code == 303
 	assert answer.headers["location"] == subroutine.api.sessions.LANDING
@@ -225,12 +263,7 @@ def test_the_cookie_is_httponly_and_samesite_lax (
 	development instance would make signing in impossible with nothing to say why.
 	"""
 
-	answer = api_support.call(
-		setup.application,
-		"GET",
-		f"/signin?link={_link(session, setup.user)}",
-		follow_redirects=False,
-	)
+	answer = _spend(setup.application, _link(session, setup.user))
 
 	written = answer.headers["set-cookie"].lower()
 
@@ -259,9 +292,7 @@ def test_the_cookie_is_marked_secure_where_the_instance_is_served_over_https (
 		api_support.factory_for(session), public_url="https://work.example.com"
 	)
 
-	answer = api_support.call(
-		application, "GET", f"/signin?link={_link(session, user)}", follow_redirects=False
-	)
+	answer = _spend(application, _link(session, user))
 
 	assert "secure" in answer.headers["set-cookie"].lower()
 
@@ -300,9 +331,7 @@ def test_the_cookies_name_follows_the_same_condition_as_its_secure_flag (
 		api_support.factory_for(session), public_url=public_url
 	)
 
-	answer = api_support.call(
-		application, "GET", f"/signin?link={_link(session, user)}", follow_redirects=False
-	)
+	answer = _spend(application, _link(session, user))
 	written = answer.headers["set-cookie"]
 
 	assert written.startswith(f"{name}="), written
@@ -486,10 +515,14 @@ def test_a_sign_in_link_sent_as_a_bearer_token_is_refused_by_name (
 	assert "sign-in link" in answer.json()["detail"]
 
 
+@pytest.mark.parametrize("method", ["GET", "POST"])
 def test_signing_in_is_rate_limited_although_it_has_no_principal (
-	session: sqlalchemy.orm.Session,
+	session: sqlalchemy.orm.Session, method: str
 ) -> None:
 	"""**The gap `#364` predicted a login endpoint would inherit, closed and proved.**
+
+	**Both ways in are counted** since `SR#4393`: opening a link, and confirming one from the page
+	it opened, which is just as public and just as open to guessing.
 
 	§7.7's limiter lives inside the principal dependency, which is what lets it need no
 	exempt-path list — and means a route with no principal has no limiter at all unless it
@@ -523,8 +556,12 @@ def test_signing_in_is_rate_limited_although_it_has_no_principal (
 	)
 
 	seen = [
-		api_support.call(
-			application, "GET", "/signin?link=sr_lnk_abcdef01_nope", follow_redirects=False
+		(
+			api_support.call(
+				application, "GET", "/signin?link=sr_lnk_abcdef01_nope", follow_redirects=False
+			)
+			if method == "GET"
+			else _confirmed(application, "sr_lnk_abcdef01_nope")
 		).status_code
 		for _ in range(6)
 	]
@@ -539,12 +576,7 @@ def test_a_good_link_still_works_beside_a_limiter (
 	"""The floor under the test above: it must fail because of *failures*, not because
 	the route refuses everything."""
 
-	answer = api_support.call(
-		setup.application,
-		"GET",
-		f"/signin?link={_link(session, setup.user)}",
-		follow_redirects=False,
-	)
+	answer = _spend(setup.application, _link(session, setup.user))
 
 	assert answer.status_code == 303
 
@@ -685,12 +717,7 @@ def test_signing_in_lands_somewhere_that_answers (
 	to a page it serves: the assertion is about the destination working, not about its path.
 	"""
 
-	answer = api_support.call(
-		setup.application,
-		"GET",
-		f"/signin?link={_link(session, setup.user)}",
-		follow_redirects=True,
-	)
+	answer = _spend(setup.application, _link(session, setup.user), follow_redirects=True)
 
 	assert answer.status_code == 200, f"{subroutine.api.sessions.LANDING}: {answer.text}"
 
@@ -737,9 +764,7 @@ def test_a_spent_link_is_not_distinguishable_from_one_that_never_existed (
 
 	secret = _link(session, setup.user)
 
-	api_support.call(
-		setup.application, "GET", f"/signin?link={secret}", follow_redirects=False
-	)
+	_spend(setup.application, secret)
 
 	spent = api_support.call(
 		setup.application, "GET", f"/signin?link={secret}", follow_redirects=False
@@ -1133,7 +1158,11 @@ def test_a_dead_cookie_is_the_same_as_no_cookie (
 		follow_redirects=False,
 	)
 
-	assert answer.status_code == 303, answer.text
+	# **Asked as a browser signed in as nobody is** (`SR#4393`): the page names the account the
+	# link is for, and nothing about the one whose session lapsed.
+	assert answer.status_code == 200, answer.text
+	assert other.username in answer.text
+	assert setup.user.username not in answer.text, "it asked about a session that had ended"
 
 
 def test_a_link_that_does_not_work_is_refused_rather_than_offered (
@@ -1317,6 +1346,108 @@ def test_reading_a_link_does_not_spend_it (
 
 	assert opened.user_id == setup.user.id
 	assert subroutine.domain.sessions.would_sign_in(session, secret) is None
+
+
+# ---- nor signed in by opening a link at all (`SR#4393`) --------------------
+
+
+def test_a_link_asks_a_browser_signed_in_as_nobody_before_signing_it_in (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""R2-L34 of the cold review of 2026-10-04: opening a link alone signed a browser in.
+
+	So a person handed somebody else's link worked in that account, and a chat app's preview -
+	which makes the same ``GET`` - spent a link before the person it was meant for opened it.
+	"""
+
+	secret = _link(session, setup.user)
+	before = _unspent(session)
+
+	asked = api_support.call(
+		setup.application, "GET", f"/signin?link={secret}", follow_redirects=False
+	)
+
+	assert asked.status_code == 200, "it signed the browser in without asking"
+	assert subroutine.api.security.SESSION_COOKIE not in asked.cookies
+	assert f"Continue as {setup.user.username}" in asked.text, "the page named nobody"
+	assert f'action="{subroutine.api.sessions.SIGN_IN}"' in asked.text
+	assert asked.headers["Referrer-Policy"] == "strict-origin"
+	assert _unspent(session) == before, "asking spent the link"
+
+	answer = _confirmed(setup.application, secret)
+
+	assert answer.status_code == 303, answer.text
+	assert answer.headers["location"] == subroutine.api.sessions.LANDING
+
+	who = api_support.call(
+		setup.application,
+		"GET",
+		"/v1/me",
+		cookies={
+			subroutine.api.security.SESSION_COOKIE: answer.cookies[
+				subroutine.api.security.SESSION_COOKIE
+			]
+		},
+	)
+
+	assert who.json()["user"]["username"] == setup.user.username
+
+
+@pytest.mark.parametrize(
+	("sent", "said"),
+	[
+		({}, "has to say which page sent it"),
+		({"origin": "null"}, "'null'"),
+		({"origin": SIBLING}, SIBLING),
+		({"sec-fetch-site": "cross-site"}, "(cross-site)"),
+	],
+	ids=["neither header", "a page hiding itself", "another site", "named by the browser"],
+)
+def test_confirming_a_sign_in_from_a_page_elsewhere_is_refused (
+	session: sqlalchemy.orm.Session, setup: Setup, sent: dict[str, str], said: str
+) -> None:
+	"""**The control, since no session stands behind this confirmation.**
+
+	A browser signed in as nobody holds no cookie for ``SameSite`` to withhold, so a page anywhere
+	could post a link of its own here and sign a visitor into its account - the attack the page
+	exists to stop, moved one request along. A refused confirmation leaves the link usable.
+	"""
+
+	secret = _link(session, setup.user)
+	before = _unspent(session)
+
+	answer = _confirmed(setup.application, secret, sent=sent)
+
+	assert answer.status_code == 403, answer.text
+	assert said in answer.json()["detail"], answer.text
+	assert "the page the link opens" in answer.json()["hint"], answer.text
+	assert subroutine.api.security.SESSION_COOKIE not in answer.cookies
+	assert _unspent(session) == before, "a refused confirmation spent the link"
+
+
+def test_confirming_after_signing_in_as_somebody_else_asks_again (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""A browser signed in elsewhere since its page was shown is asked by the page naming both.
+
+	The button it pressed named one account, and pressing it must not leave the other's session
+	running in a browser that has moved on, which is what confirming a switch exists to prevent.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+	other = _second_person(session)
+	theirs = _link(session, other)
+	before = _unspent(session)
+
+	answer = _confirmed(
+		setup.application, theirs, cookies={subroutine.api.security.SESSION_COOKIE: held}
+	)
+
+	assert answer.status_code == 200, answer.text
+	assert setup.user.username in answer.text, "the page did not say who is signed in"
+	assert f"Continue as {other.username}" in answer.text
+	assert f'action="{subroutine.api.sessions.SWITCH}"' in answer.text
+	assert _unspent(session) == before, "it switched on a button that named one account"
 
 
 # ---- what naming an origin now also permits (`SR#804`) ---------------------

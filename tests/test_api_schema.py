@@ -21,7 +21,9 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.db.migrate
+import subroutine.domain.sessions
 import subroutine.errors
+import test_api_sessions
 import test_api_tasks
 
 
@@ -152,9 +154,9 @@ def test_every_kind_of_write_is_refused_not_only_a_create (
 
 
 def test_a_post_that_writes_nothing_is_not_refused (world: test_api_tasks.World) -> None:
-	"""The two written exceptions, and the reason they are written rather than derived.
+	"""The two exceptions that write nothing, and why they are written rather than derived.
 
-	A method rule cannot tell a `POST` that changes something from one that does not. Both
+	A method rule cannot tell a `POST` that changes something from one that does not. Two
 	entries in ``NOT_A_WRITE`` are the second kind: this one reads a phrase back and touches no
 	table, and `POST /v1/admin/backups` **copies** the database rather than changing it —
 	refusing that would take away the thing an operator reaches for first at exactly the moment
@@ -171,6 +173,23 @@ def test_a_post_that_writes_nothing_is_not_refused (world: test_api_tasks.World)
 	assert answered.status_code != 409, (
 		"reading a phrase back was refused because the schema is behind, and it reads nothing"
 	)
+
+
+def test_confirming_a_sign_in_is_not_refused_while_the_schema_is_behind (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4393` moved signing in from ``GET /signin`` to a ``POST``, which the method rule refuses.
+
+	Being able to sign in and look at an instance that is refusing writes is the courtesy reads
+	are given, and the ``GET`` always had it - so the ``POST`` that took its place is written down.
+	"""
+
+	_row, secret = subroutine.domain.sessions.mint_link(world.session, user=world.user)
+	_disagree(world)
+
+	answer = test_api_sessions._confirmed(world.application, secret)
+
+	assert answer.status_code == 303, answer.text
 
 
 def test_an_agreeing_instance_is_asked_once_and_not_again (
@@ -286,10 +305,12 @@ def test_the_one_read_that_writes_is_recorded_rather_than_implied () -> None:
 		for path, methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
 	}
 
-	signin = [methods for path, methods in mounted if path == "/signin"]
+	signin = sorted(methods for path, methods in mounted if path == "/signin")
 
-	assert signin == [("GET",)], (
+	# **A `POST` beside it since `SR#4393`**, the confirmation a browser signed in as nobody
+	# answers. The `GET` still spends a link for a browser signed in as its account already.
+	assert signin == [("GET",), ("POST",)], (
 		"the schema guard's docstring names GET /signin as the one route that writes without "
-		f"being a write by method, and this application mounts {signin}. If it has stopped "
-		"being a GET the exception is gone and the paragraph explaining it should go too."
+		f"being a write by method, and this application mounts {signin}. If the GET has gone, "
+		"the exception is gone and the paragraph explaining it should go too."
 	)

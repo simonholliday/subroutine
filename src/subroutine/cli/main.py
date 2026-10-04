@@ -917,8 +917,9 @@ def serve (
 
 	# **Before the server starts, because the filter belongs to a logger rather than to a
 	# request** (`#806`). A sign-in link travels in a query string and so lands in the access
-	# log — and since `#803` it can land there *unspent*, because a browser already signed in as
-	# somebody else is shown a confirmation and the link is left usable. An API token somebody
+	# log — and since `#803` it can land there *unspent*, because a browser not signed in as the
+	# link's account already is shown a confirmation (every signed-out one too, since `#4393`) and
+	# the link is left usable. An API token somebody
 	# wrongly put in `?token=` lands there too, having just been told to treat it as compromised.
 	#
 	# This reaches the log this process writes and no further. An operator's proxy logs the same

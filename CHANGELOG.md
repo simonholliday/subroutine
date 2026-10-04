@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Opening a sign-in link asks before it signs a browser in.** A browser signed in as nobody
+  now gets the page a browser signed in as somebody else already got: it names the account the
+  link is for, and only its button spends the link. So a link handed to somebody no longer puts
+  them in that account unseen, and a chat app's preview or a mail scanner that fetches the
+  address leaves it usable. A browser already signed in as that account is signed in again at
+  once.
 - **A lost database is not made again, empty, by the next command.** With the database file
   gone and its folder still there, every command made an empty, world-readable file and said to
   run `subroutine init`; it now says no instance has been set up here. A restore over a lost

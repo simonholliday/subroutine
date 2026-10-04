@@ -225,8 +225,8 @@ def would_sign_in (
 	"""Return who a link would sign in, without spending it — `#803`.
 
 	**Reading a link and spending one are different acts and this is the reading half.** A
-	browser already signed in as somebody else is shown a page naming both accounts before
-	anything happens, and naming the second one means looking the link up — while leaving it
+	browser is shown a page naming the account a link is for before anything happens (`#803`, and
+	`#4393` for one signed in as nobody), and naming it means looking the link up — while leaving it
 	usable, because a person who says *no* must not be left holding a link that was consumed by
 	being asked about.
 

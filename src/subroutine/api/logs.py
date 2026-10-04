@@ -21,8 +21,9 @@ Two kinds of secret arrive in a query string here, and both were measured rather
   (`#248`), and it has to be a ``GET`` because it is opened by clicking. It was tolerable while
   the secret was always *spent* by the time the line was written — and `#803` ended that, because
   a browser already signed in as somebody else is now shown a confirmation and the link is
-  deliberately left usable. A live credential, for up to half an hour, on exactly the path
-  somebody meets when a link arrives that they did not expect.
+  deliberately left usable, and `#4393` shows one to a browser signed in as nobody too, so a
+  logged link is ordinarily a live one. A live credential, for up to half an hour, on exactly the
+  path somebody meets when a link arrives that they did not expect.
 * **An API token somebody put in the wrong place.**
   :data:`subroutine.api.security.TOKEN_PARAMETERS` exists because callers do this; the request
   is refused *and the refusal tells them to treat that token as compromised*. Writing it into

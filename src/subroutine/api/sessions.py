@@ -19,6 +19,12 @@ session**: the confirmation cannot be submitted from another site, because ``Sam
 withholds the cookie from a cross-site ``POST``, and it inherits the origin check and the
 limiters that the ``GET`` had to do without.
 
+``POST /signin`` is that confirmation for a browser signed in as nobody (`#4393`, R2-L34 of the
+cold review of 2026-10-04, as decided with Simon that day). Opening a link used to sign such a
+browser straight in, so a link handed to somebody put them in its account, and a chat app's
+preview spent a link before the person it was meant for opened it. **No session stands behind
+this one**, so the origin check is the whole of its defence, asked by the route itself.
+
 **There is deliberately no route here that mails anything.** `#599` carries that, and it is
 where the danger `#364` §3 enumerates actually lives — a public endpoint that sends mail to
 an address a stranger chooses, and answers differently depending on whether the account
@@ -76,6 +82,11 @@ LANDING = "/"
 #: this browser's session and the other ends it. ``/signin`` stays the address a *link* opens,
 #: which is the thing a person is handed and the thing that has to look like a sign-in.
 SWITCH = "/v1/session"
+
+#: Where a sign-in link is opened, and where its page posts the link back when the browser is
+#: signed in as nobody (`#4393`). One address for both, so the button sends the link to the
+#: place the link itself named.
+SIGN_IN = "/signin"
 
 #: What the sign-in link's secret is called, wherever it travels — the query parameter
 #: :func:`signin` declares, the field the confirmation form posts, and the name
@@ -137,7 +148,7 @@ def issue (
 
 
 @router.get(
-	"/signin",
+	SIGN_IN,
 	summary="Exchange a sign-in link for a browser session",
 	status_code=starlette.status.HTTP_303_SEE_OTHER,
 	response_class=starlette.responses.RedirectResponse,
@@ -148,9 +159,15 @@ def signin (
 	settings: subroutine.api.dependencies.SettingsDep,
 	link: str,
 ) -> starlette.responses.Response:
-	"""Spend a sign-in link, set the browser's session cookie and send it to the app.
+	"""Ask before a link signs this browser in, unless it is signed in as that account already.
 
-	**303 rather than 200, so the link leaves the address bar.** A URL holding a credential
+	**Opening a link signs nobody in by itself.** The page this answers names the account the link
+	is for, and its button posts the link back to be spent - so a person handed somebody else's
+	link is not put in that account unseen, and a chat app's preview or a mail scanner fetching
+	the address leaves it usable. A browser already signed in as the link's account is signed in
+	again at once, since there is nothing to choose.
+
+	**303 rather than 200 wherever a link is spent, so it leaves the address bar.** A URL holding a credential
 	that stays on screen is one somebody bookmarks, screenshots or pastes into a chat - and
 	although this one is already spent by the time the redirect is followed, a person cannot
 	tell a spent secret from a live one by looking at it.
@@ -169,7 +186,7 @@ def signin (
 	**Both of those are about the path that redeems, and the confirmation page is not it.**
 	That page is a 200 carrying the link in its own URL, so it stays in the address bar and in
 	the history - a deliberate trade, since it does not spend the link. Its referrer is closed separately, by
-	:func:`_ask_before_switching` sending ``strict-origin``.
+	:func:`_ask` sending ``strict-origin``.
 	* **Access log: yes**, in full. :mod:`subroutine.api.logs` keeps it out of the one this
 	  process writes; an operator's proxy is theirs, and ``docs/hosting.md`` says so.
 
@@ -182,12 +199,28 @@ def signin (
 	"""
 
 	standing = _who_is_already_here(session, request)
+	becoming = subroutine.domain.sessions.would_sign_in(session, link)
 
-	if standing is not None:
-		becoming = subroutine.domain.sessions.would_sign_in(session, link)
+	# **A browser signed in as nobody is asked too** (`#4393`, R2-L34 of the cold review of
+	# 2026-10-04, as decided with Simon that day). Only one signed in as the link's account is not.
+	if becoming is not None and (standing is None or becoming.id != standing.user.id):
+		return _ask(None if standing is None else standing.user, becoming, link)
 
-		if becoming is not None and becoming.id != standing.user.id:
-			return _ask_before_switching(standing.user, becoming, link)
+	return _spent(request, session, settings, link)
+
+
+def _spent (
+	request: starlette.requests.Request,
+	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
+	link: str,
+) -> starlette.responses.Response:
+	"""Spend a link, hand the browser the session it buys and send it to the app.
+
+	Shared by opening a link as the account already signed in and by confirming one (`#4393`), so
+	both count a failure and word a refusal alike: an unknown link and a spent one must read the
+	same whichever way they arrive.
+	"""
 
 	limits = getattr(request.app.state, "limits", None)
 
@@ -258,8 +291,8 @@ async def _submitted_link (request: starlette.requests.Request) -> str:
 	if kind != FORM_ENCODING:
 		raise subroutine.errors.ValidationError(
 			f"This endpoint is submitted by a form, so it expects {FORM_ENCODING!r}.",
-			hint="It is posted by the page a sign-in link shows when the browser is already "
-			"signed in as somebody else. Open the link instead of calling this directly.",
+			hint="It is posted by the page a sign-in link shows before it signs a browser in. "
+			"Open the link instead of calling this directly.",
 		)
 
 	fields = urllib.parse.parse_qs((await request.body()).decode("utf-8", "replace"))
@@ -309,12 +342,17 @@ def _who_is_already_here (
 		return None
 
 
-def _ask_before_switching (
-	standing: subroutine.db.models.identity.User,
+def _ask (
+	standing: subroutine.db.models.identity.User | None,
 	becoming: subroutine.db.models.identity.User,
 	link: str,
 ) -> starlette.responses.Response:
-	"""Ask a signed-in reader whether they meant to become somebody else — `#803`.
+	"""Ask a reader whether they meant to become somebody — `#803`, and `#4393` when signed out.
+
+	**Signed in as somebody else**, the page names both accounts and posts to :data:`SWITCH`, which
+	ends the session it replaces. **Signed in as nobody**, it names the account the link is for and
+	posts to :data:`SIGN_IN`, where the origin check is all that stands between a page elsewhere
+	and a browser signed into that page's account.
 
 	**Nothing has happened when this is rendered, and that is the whole point.** The link is
 	read rather than spent, so *stay as you are* leaves it usable and a person who was sent here
@@ -358,8 +396,28 @@ def _ask_before_switching (
 	leaves it usable. Nothing here can undo a URL somebody has already been sent.
 	"""
 
-	was = html.escape(standing.username)
 	now = html.escape(becoming.username)
+
+	if standing is None:
+		action, after = SIGN_IN, ""
+		said = [
+			f"<p>The link you opened signs this browser in as <strong>{now}</strong>.</p>",
+			"<p>If that is not you, do not continue: somebody else may have sent you their link, "
+			f"and anything you write here would be recorded as <strong>{now}</strong>. Leaving "
+			"this page changes nothing and leaves the link unused.</p>",
+		]
+
+	else:
+		was = html.escape(standing.username)
+		action, after = SWITCH, f'\n\t\t<p><a href="{LANDING}">Stay signed in as {was}</a></p>'
+		said = [
+			f"<p>This browser is signed in as <strong>{was}</strong>. The link you opened signs in "
+			f"as <strong>{now}</strong> instead.</p>",
+			"<p>If you did not expect this, somebody else may have sent you the link. Staying as "
+			f"<strong>{was}</strong> changes nothing and leaves the link unused.</p>",
+		]
+
+	told = "\n\t\t".join(said)
 
 	return starlette.responses.HTMLResponse(
 		headers={"Referrer-Policy": "strict-origin"},
@@ -376,15 +434,11 @@ def _ask_before_switching (
 <div class="app">
 	<div class="empty asking">
 		<h1>Sign in as {now}?</h1>
-		<p>This browser is signed in as <strong>{was}</strong>. The link you opened signs in as
-		<strong>{now}</strong> instead.</p>
-		<p>If you did not expect this, somebody else may have sent you the link. Staying as
-		<strong>{was}</strong> changes nothing and leaves the link unused.</p>
-		<form method="post" action="{SWITCH}">
+		{told}
+		<form method="post" action="{action}">
 			<input type="hidden" name="{LINK_PARAMETER}" value="{html.escape(link)}">
 			<button type="submit">Continue as {now}</button>
-		</form>
-		<p><a href="{LANDING}">Stay signed in as {was}</a></p>
+		</form>{after}
 	</div>
 </div>
 </body>
@@ -392,6 +446,60 @@ def _ask_before_switching (
 """,
 		status_code=starlette.status.HTTP_200_OK,
 	)
+
+
+#: What a confirmation posted from anywhere but this instance's own page is told (`#4393`).
+_A_SIGN_IN_FROM_ELSEWHERE = (
+	"A sign-in link is confirmed with the button on the page the link opens, on this instance. "
+	"Open the link in this browser and press it there."
+)
+
+
+@router.post(
+	SIGN_IN,
+	summary="Spend a sign-in link for a browser signed in as nobody, once its page is answered",
+	status_code=starlette.status.HTTP_303_SEE_OTHER,
+	response_class=starlette.responses.RedirectResponse,
+	include_in_schema=False,
+)
+def confirm (
+	request: starlette.requests.Request,
+	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
+	submitted: SubmittedDep,
+) -> starlette.responses.Response:
+	"""Spend a link a browser signed in as nobody opened, once the page it showed is answered.
+
+	**Public, like the link it confirms, so the origin check is the whole of its defence.** A
+	browser holding no session has nothing for ``SameSite`` to withhold, so without it a page
+	anywhere could post a link of its own here and sign a visitor into its account. Only a form
+	on this instance's own page passes - the rule a write made with a session cookie keeps,
+	asked by this route because no principal is resolved to ask it.
+
+	**The address the request arrived at counts as this instance**, as it does for a cookie,
+	because the cookie this answers with is written for that address: a page that reached this
+	instance under a name of its own would sign a browser in at that name, and never at this
+	instance's own.
+
+	**A browser signed in as somebody else since its page was shown is asked again**, by the page
+	naming both accounts, rather than switched by a button that named one.
+	"""
+
+	subroutine.api.security.refuse_a_write_from_elsewhere(
+		request,
+		unnamed="Confirming a sign-in has to say which page sent it, and this one did not.",
+		hint=_A_SIGN_IN_FROM_ELSEWHERE,
+	)
+
+	standing = _who_is_already_here(session, request)
+
+	if standing is not None:
+		becoming = subroutine.domain.sessions.would_sign_in(session, submitted)
+
+		if becoming is not None and becoming.id != standing.user.id:
+			return _ask(standing.user, becoming, submitted)
+
+	return _spent(request, session, settings, submitted)
 
 
 @router.post(
@@ -559,7 +667,7 @@ def _address (
 	root = told or str(request.base_url)
 
 	return (
-		f"{root.rstrip('/')}/signin"
+		f"{root.rstrip('/')}{SIGN_IN}"
 		f"?{LINK_PARAMETER}={urllib.parse.quote(secret, safe='')}",
 		not told,
 	)

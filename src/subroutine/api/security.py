@@ -356,15 +356,22 @@ def from_session_cookie (
 		return None
 
 	if request.method.upper() not in SAFE_METHODS:
-		_refuse_a_write_from_elsewhere(request)
+		refuse_a_write_from_elsewhere(request)
 
 	return subroutine.domain.sessions.authenticate(
 		session, presented, record_use=record_use
 	)
 
 
-def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None:
+def refuse_a_write_from_elsewhere (
+	request: starlette.requests.Request, *, unnamed: str | None = None, hint: str | None = None
+) -> None:
 	"""Refuse a cookie-authenticated write from a page this instance does not serve.
+
+	**Public for one other caller** (`#4393`): confirming a sign-in for a browser signed in as
+	nobody, which holds no cookie for ``SameSite`` to withhold and so rests on this alone. That
+	caller says what its write is and what to do instead, through ``unnamed`` and ``hint``,
+	because a sentence about session cookies and API tokens is about nothing its reader holds.
 
 	**The address the request arrived at is trustworthy here, and this is the one place that
 	is true.** A session cookie carries no ``Domain``, so it is host-only: a browser sends it
@@ -405,7 +412,9 @@ def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None
 	answered.add(origin_of(settings.public_url))
 	answered.add(origin_of(str(request.base_url)))
 
-	refuse_an_unanswered_origin(request, allowed=answered, hint=_A_WRITE_FROM_ELSEWHERE)
+	refuse_an_unanswered_origin(
+		request, allowed=answered, hint=_A_WRITE_FROM_ELSEWHERE if hint is None else hint
+	)
 
 	if request.headers.get("origin") is not None:
 		return
@@ -415,11 +424,17 @@ def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None
 	if site == "same-origin":
 		return
 
+	if site is None:
+		raise subroutine.errors.Forbidden(
+			"A write made with a session cookie has to say which page sent it, and this one did not."
+			if unnamed is None
+			else unnamed,
+			hint=_A_WRITE_FROM_ELSEWHERE if hint is None else hint,
+		)
+
 	raise subroutine.errors.Forbidden(
-		"A write made with a session cookie has to say which page sent it, and this one did not."
-		if site is None
-		else f"A browser sent this write from a page this instance does not serve ({site}).",
-		hint=_A_WRITE_FROM_ELSEWHERE,
+		f"A browser sent this write from a page this instance does not serve ({site}).",
+		hint=_A_WRITE_FROM_ELSEWHERE if hint is None else hint,
 	)
 
 

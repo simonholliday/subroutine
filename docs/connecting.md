@@ -32,7 +32,7 @@ everything; only writing has to pick.
 
 **Nothing to install, and nothing to configure.** If somebody runs an instance and has given
 you an account on it, they can hand you a **sign-in link** - one address that signs you in and
-then works no more. Open it, and you are in.
+then works no more. Open it, check that the page names your account, and press its button.
 
 Ask them for `subroutine login link --username <you>`. What arrives looks like this:
 
@@ -82,9 +82,10 @@ the browser needs to do it.
 1. **Get a sign-in link** - `subroutine login link --username <you>`, run wherever the instance
    is. It works once and lasts half an hour.
 
-2. **Open the browser you want the app in, and paste the link into its address bar.** Copy it
-   rather than tapping it: a tapped link opens in whatever the device treats as the default
-   browser, and the link is used up by whichever browser opens it.
+2. **Open the browser you want the app in, paste the link into its address bar, and press the
+   button on the page it opens.** Copy it rather than tapping it: a tapped link opens in
+   whatever the device treats as the default browser, and the link is used up in whichever
+   browser you press that button in.
 
 3. **Check you can see your work.** The app inherits this browser's session, so this is what
    there is to get right.

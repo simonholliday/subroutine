@@ -289,6 +289,13 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"and MCP both authenticate with a bearer token, which this route exists to avoid "
 		"needing. `subroutine login link` is how a person is given one.",
 	),
+	("POST", "/signin"): (
+		"protocol",
+		"Confirming a sign-in link in a browser signed in as nobody (`#4393`). It is posted by "
+		"a form on the page the link opens, in `application/x-www-form-urlencoded`, and refused "
+		"unless that page is this instance's own - so a client method would be a method nothing "
+		"could call, for the reason `GET /signin` has none.",
+	),
 	("DELETE", "/v1/session"): (
 		"protocol",
 		"The other half of `/signin` (`#248`), and unreachable for the same reason: a caller "

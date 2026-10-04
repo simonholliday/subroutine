@@ -1790,10 +1790,11 @@ location /v1/calendars/ {
 
 Two things worth knowing rather than guessing:
 
-- **A logged link is usually already spent**, because the log line is written when the response
-  goes out and the link is consumed before that. The exception is the confirmation page - if
-  the browser was already signed in as somebody else, the link is deliberately left usable so
-  that saying *no* costs nothing, and it stays usable for the rest of its half hour.
+- **A logged link is usually still usable.** Opening one shows a page naming the account it is
+  for, and only that page's button spends it - so saying *no* costs nothing and a link preview
+  cannot use it up, and the address in the log stays a live credential for the rest of its half
+  hour unless the button is pressed. Only a browser already signed in as that account spends a
+  link just by opening it.
 - **A link is good for thirty minutes and works once.** That is the reason a lapse here is
   worth fixing rather than panicking about, and `subroutine login revoke <username>` cancels
   every unspent link and live session that person has.

@@ -401,8 +401,11 @@ def photograph (
 			page.on("pageerror", lambda error: failures.append(str(error)))
 
 			# The link works once, so only the first theme spends it; the second reuses the session.
+			# Opening the link asks first (`#4393`), so the button on the page it shows spends it.
 			if signed_in is None:
 				page.goto(link)
+				page.get_by_role("button", name=re.compile(r"^Continue as ")).click()
+				page.wait_for_url(f"{base}/")
 				page.wait_for_load_state("networkidle")
 				signed_in = context.storage_state()
 

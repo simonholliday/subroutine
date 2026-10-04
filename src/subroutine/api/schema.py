@@ -43,10 +43,15 @@ import subroutine.errors
 #: **Two entries, and the second is the one that matters.** Refusing a backup because the schema
 #: is wrong takes away the thing an operator most wants at exactly that moment — and it reads
 #: nothing it could corrupt.
+#:
+#: **A third since `#4393`, and it does write**, for ``GET /signin``'s reason: confirming a link
+#: is how a browser signed in as nobody signs in now, and being able to sign in and look at an
+#: instance that is refusing writes is the courtesy reads are given.
 NOT_A_WRITE: dict[str, str] = {
 	"POST /v1/recurrence/parse": "reads a phrase back and touches no table",
 	"POST /v1/admin/backups": "copies the database rather than changing it, and is what "
 	"somebody reaches for first when a deploy has gone wrong",
+	"POST /signin": "signs a browser in, so that an instance refusing writes can still be looked at",
 }
 
 

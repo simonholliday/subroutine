@@ -39,6 +39,10 @@ PUBLIC_ROUTES: dict[str, str] = {
 	# principal dependency, which is the cost decision `#364` predicted a login endpoint
 	# would inherit — see `test_signing_in_is_rate_limited_although_it_has_no_principal`.
 	"GET /signin": "exchanges a sign-in link for a session, so it has no credential yet",
+	# Its confirmation for a browser signed in as nobody (`SR#4393`), public for the same reason
+	# and defended by its own origin check - see `test_api_sessions`'s
+	# `test_confirming_a_sign_in_from_a_page_elsewhere_is_refused`.
+	"POST /signin": "confirms a sign-in link for a browser that has no credential yet",
 	# The browser app (`#597`). The page has to load before anybody can sign in, and what it
 	# then asks for needs the cookie like everything else. Nothing here is workspace-scoped,
 	# personal or read from the database — the same bytes for every caller, signed in or not.
