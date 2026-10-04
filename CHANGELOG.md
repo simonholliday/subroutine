@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **On the night the clocks go forward, a repeating item's dates stay in order.** Where the
+  date it repeats on fell in the skipped hour, the hour was carried into every other date, so a
+  start could land after its deadline and an event end before it started. A date whose time does
+  not exist that night now keeps its distance from the date the item repeats on.
 - **Only a project's owner, or a workspace administrator, decides who owns it and who can see
   it**: changing its owner, making it private, and moving it under a private project. A member
   shared into a private project could make themselves its owner and then remove the owner, and

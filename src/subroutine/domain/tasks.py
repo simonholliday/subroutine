@@ -799,9 +799,42 @@ def materialise (
 				now=now,
 			)
 
-		return _clock_moved(
-			held, was=anchor, now_holds=occurrence, column=column, timezone=zone, now=now
+		# **By the rule's own wall-clock moment, not the occurrence's** (`#4385`, R2-M8 of the cold
+		# review of 2026-10-04, decision `#4386`). On the night the clocks go forward, a slot in the
+		# skipped hour is read an hour later, and that hour was carried into every other date: a
+		# start of 00:45 beside a deadline of 01:30 became 02:45 against 02:30. What moves is the
+		# day the rule names and the time the series holds.
+		clock = subroutine.domain.dates.zone(zone, column)
+		basis = now if after is not None and template.recurrence_anchor == "completion" else anchor
+		wall = datetime.datetime.combine(
+			occurrence.astimezone(clock).date(), basis.astimezone(clock).time()
 		)
+		target = held.astimezone(clock).replace(tzinfo=None) + (
+			wall - anchor.astimezone(clock).replace(tzinfo=None)
+		)
+
+		# **Except where a time does not exist that night**: then every date but the one the series
+		# repeats on keeps its elapsed distance from it, so a pair stays in order and an event keeps
+		# its length. Read alone, a start in the skipped hour beside a deadline just after it came
+		# out after its own deadline, and an event starting in it ended before it started.
+		slotted = grid_date(template)
+
+		if (
+			column != grid_field(template)
+			and slotted is not None
+			and (_skipped(target, clock) or _skipped(wall, clock))
+		):
+			return occurrence + (held - slotted)
+
+		# **Naive on purpose**, for :func:`_reshaped`'s reason: ``interpret`` reads it in ``zone``.
+		return subroutine.domain.schedule.interpret(
+			target,
+			boundary=subroutine.domain.schedule.WHOLE_DAY_EDGE[column],
+			timezone=zone,
+			now=now,
+			all_day=False,
+			field=column,
+		).instant
 
 	# **A series that was never given a date takes the one its own rule computes** (`#1208`).
 	#
@@ -2685,6 +2718,16 @@ def _reshaped (
 		all_day=False,
 		field=column,
 	).instant
+
+
+def _skipped (naive: datetime.datetime, clock: datetime.tzinfo) -> bool:
+	"""Report whether a wall-clock time does not exist on a clock: it falls in an hour skipped forward.
+
+	A time that exists comes back unchanged from a round trip through UTC; one in the skipped hour
+	comes back an hour later, which is how :func:`~subroutine.domain.schedule.interpret` reads it.
+	"""
+
+	return naive.replace(tzinfo=clock).astimezone(datetime.UTC).astimezone(clock).replace(tzinfo=None) != naive
 
 
 def _clock_moved (

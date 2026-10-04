@@ -1657,6 +1657,99 @@ def test_a_series_straddling_a_clock_change_keeps_every_start_on_its_clock (
 	assert (local.date(), local.time()) == wanted, local
 
 
+@pytest.mark.parametrize(
+	("dates", "finished", "wanted"),
+	[
+		(
+			{"starts": "2026-03-27T00:45", "due": "2026-03-27T01:30"},
+			["2026-03-27T12:00", "2026-03-28T12:00"],
+			{"starts_at": "29 00:45 GMT", "due_at": "29 02:30 BST"},
+		),
+		(
+			{"starts": "2026-03-26T18:00", "due": "2026-03-27T01:30"},
+			["2026-03-27T12:00", "2026-03-28T12:00"],
+			{"starts_at": "28 18:00 GMT", "due_at": "29 02:30 BST"},
+		),
+		(
+			{"starts": "2026-03-27T00:45", "due": "2026-03-27T01:30", "recurrence_anchor": "completion"},
+			["2026-03-28T01:30"],
+			{"starts_at": "29 00:45 GMT", "due_at": "29 02:30 BST"},
+		),
+		(
+			{"starts": "2026-03-27T01:45", "due": "2026-03-27T02:30"},
+			["2026-03-27T12:00", "2026-03-28T12:00"],
+			{"starts_at": "29 00:45 GMT", "due_at": "29 02:30 BST"},
+		),
+		(
+			{"type_key": "event", "starts": "2026-03-27T01:45", "ends": "2026-03-27T02:15", "due": None},
+			["2026-03-27T12:00", "2026-03-28T12:00"],
+			{"starts_at": "29 02:45 BST", "ends_at": "29 03:15 BST"},
+		),
+		(
+			{"type_key": "event", "starts": "2026-03-27T01:15", "ends": "2026-03-27T01:45", "due": None},
+			["2026-03-27T12:00", "2026-03-28T12:00"],
+			{"starts_at": "29 02:15 BST", "ends_at": "29 02:45 BST"},
+		),
+		(
+			{"starts": "2026-10-23T00:45", "due": "2026-10-23T01:30"},
+			["2026-10-23T12:00", "2026-10-24T12:00"],
+			{"starts_at": "25 00:45 BST", "due_at": "25 01:30 BST"},
+		),
+	],
+	ids=[
+		"deadline in the gap",
+		"start the evening before",
+		"from completion",
+		"start in the gap",
+		"event starting in the gap",
+		"event wholly in the gap",
+		"the night the clocks go back",
+	],
+)
+def test_on_the_night_the_clocks_go_forward_every_date_keeps_its_distance (
+	dates: dict[str, typing.Any],
+	finished: list[str],
+	wanted: dict[str, str],
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4385`, R2-M8 of the cold review of 2026-10-04 and NEW-D-1, decision `#4386`.
+
+	A slot in the skipped hour is read an hour later, and that hour was carried into every other
+	date, so a start followed its deadline; read alone instead, a start in the gap beside a deadline
+	just after it did the same, and an event starting in it ended before it started. Every date but
+	the slot keeps its elapsed distance from the slot when a time does not exist that night, and its
+	own clock otherwise. **And the controls**: an event wholly in the gap, and the night the clocks
+	go back, keep their times.
+	"""
+
+	def at (moment: str) -> datetime.datetime:
+		"""Return a moment written in UTC."""
+
+		return datetime.datetime.fromisoformat(f"{moment}:00+00:00")
+
+	made = datetime.datetime.fromisoformat(f"{dates['starts'][:10]}T00:00:00+00:00")
+	first = _repeating(
+		session,
+		recurrence="every day",
+		timezone=LONDON,
+		now=made - datetime.timedelta(days=1),
+		**dates,
+	)
+	series = _template(session, first)
+	live = first
+
+	for moment in finished:
+		subroutine.domain.tasks.complete(session, live, now=at(moment))
+		live = _next_live(session, series)
+
+	london = zoneinfo.ZoneInfo(LONDON)
+	got = {
+		column: getattr(live, column).astimezone(london).strftime("%d %H:%M %Z") for column in wanted
+	}
+
+	assert got == wanted, got
+
+
 def test_a_whole_day_deadline_repeating_from_completion_stays_a_whole_day (
 	session: sqlalchemy.orm.Session,
 ) -> None:
