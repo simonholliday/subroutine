@@ -8070,6 +8070,30 @@ RESPELT: tuple[tuple[str, str], ...] = (
 )
 
 
+@pytest.mark.parametrize(
+	("method", "path", "why"),
+	[
+		("POST", "/v1/calendars", "answers with a credential"),
+		("POST", "/v1/calendars/abc123/reset", "answers with a credential"),
+		("POST", "/v1/tokens", "answers with a credential"),
+		("POST", "/v1/workspaces", "cannot be undone"),
+	],
+)
+def test_a_denied_route_is_refused_for_its_own_reason (
+	bound: subroutine.mcp.protocol.Server, method: str, path: str, why: str
+) -> None:
+	"""`SR#4427`, R2-L29 and R2-D5 of the cold review of 2026-10-04.
+
+	Making a calendar feed and giving one a new URL each answered with the feed's address into the
+	agent's context; and a token was refused as an act that cannot be undone, which it is not.
+	"""
+
+	answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
+
+	assert failed and "deliberately not reachable" in answered, answered
+	assert why in answered, answered
+
+
 @pytest.mark.parametrize(("method", "path"), RESPELT, ids=[p for _m, p in RESPELT])
 def test_a_denied_route_is_refused_however_it_is_spelled (
 	bound: subroutine.mcp.protocol.Server, method: str, path: str

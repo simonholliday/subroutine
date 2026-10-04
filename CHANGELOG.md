@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An agent's API tool cannot make a calendar feed or give one a new URL**, either of which
+  answered with a feed's address - a bearer URL with its owner's whole sight - into the agent's
+  context. And a route refused because it answers with a credential says so, where every refusal
+  said the act could not be undone and the command line would ask first.
 - **Half a character in a link type, a tag name, a role, an account name, a scope or a search is
   refused, naming the field**, where it was a 500 over HTTP, a codec error to an agent and a crash
   report in the terminal. Wherever else one reaches the database it is refused rather than

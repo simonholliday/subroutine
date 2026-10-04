@@ -321,6 +321,22 @@ DENIED: tuple[tuple[str, str, str], ...] = (
 	("POST", "/v1/projects/{id_or_key:path}/move", "subroutine project move"),
 	("POST", "/v1/tokens", "subroutine token create"),
 	("POST", "/v1/login-links", "subroutine login link"),
+	("POST", "/v1/calendars", "subroutine calendar create"),
+	("POST", "/v1/calendars/{id_or_prefix}/reset", "subroutine calendar reset"),
+)
+
+#: The entries in :data:`DENIED` that are refused because they answer with a credential, rather
+#: than because they cannot be undone (`#4427`, R2-D5 of the cold review of 2026-10-04). Each was
+#: refused as *consequential, it cannot be undone, and the command line asks first*, none of
+#: which is true of a token, a sign-in link or a calendar feed. ``tests/test_reach.py`` holds this
+#: to the routes whose response is one of :data:`CARRIES_A_SECRET`, in both directions.
+ANSWERS_WITH_A_CREDENTIAL = frozenset(
+	{
+		("POST", "/v1/tokens"),
+		("POST", "/v1/login-links"),
+		("POST", "/v1/calendars"),
+		("POST", "/v1/calendars/{id_or_prefix}/reset"),
+	}
 )
 
 #: The view models that carry a credential somebody could use, at the one moment it is readable.
@@ -329,7 +345,15 @@ DENIED: tuple[tuple[str, str, str], ...] = (
 #: of which ones there are. Both say so in their own docstrings — *"the secret is in the URL and
 #: nowhere else in this object"*, *"a credential at the one moment its secret exists in readable
 #: form"* — and this is that fact made reachable by a guard.
-CARRIES_A_SECRET = (subroutine.views.IssuedToken, subroutine.views.SignInLink)
+#:
+#: **And a calendar feed's URL** (`#4427`, R2-L29 of the cold review of 2026-10-04), which is a
+#: bearer address with its owner's whole sight; making one and giving one a new URL were both
+#: reachable, because this named the other two alone.
+CARRIES_A_SECRET = (
+	subroutine.views.IssuedToken,
+	subroutine.views.SignInLink,
+	subroutine.views.IssuedCalendar,
+)
 
 #: How much of a response is worth returning. **A refusal rather than a truncation**, because a
 #: truncated JSON document is unparseable and reads as an answer: the caller gets something
@@ -1858,7 +1882,7 @@ def _readings (path: str) -> set[str]:
 
 
 def _refuse_a_denied_route (method: str, path: str) -> None:
-	"""Refuse the three routes decision `#484` keeps off this surface.
+	"""Refuse the routes in :data:`DENIED`, each for its own reason.
 
 	**Named alternatives, never a dead end.** A refusal that only says "not here" strands an
 	agent mid-task; these three exist at a terminal, and saying which command is the difference
@@ -1876,10 +1900,17 @@ def _refuse_a_denied_route (method: str, path: str) -> None:
 			continue
 
 		if any(subroutine.addressing.matches(template, reading) for reading in readings):
+			# **Its own reason** (`#4427`): a token is revocable and its command never asks, so the
+			# sentence written for the routes that cannot be undone was false of every credential.
+			why = (
+				"it answers with a credential, which would pass through your context and stay in it"
+				if (verb, template) in ANSWERS_WITH_A_CREDENTIAL
+				else "it is consequential, it cannot be undone, and the command line asks before doing it"
+			)
+
 			raise ValueError(
-				f"{method} {path} is deliberately not reachable from here: it is consequential, "
-				f"it cannot be undone, and the command line asks before doing it. Run "
-				f"'{instead}' instead, or ask the person you answer to."
+				f"{method} {path} is deliberately not reachable from here: {why}. Run '{instead}' "
+				"instead, or ask the person you answer to."
 			)
 
 

@@ -1301,7 +1301,7 @@ def test_no_client_method_is_both_called_by_mcp_and_excused_from_it () -> None:
 def test_every_denied_route_is_one_that_exists () -> None:
 	"""`#485`'s deny-list may not name a route that has gone.
 
-	The three entries in :data:`subroutine.mcp.tools.DENIED` are the shape `#412` keeps finding:
+	The entries in :data:`subroutine.mcp.tools.DENIED` are the shape `#412` keeps finding:
 	written once with the argument fresh, then never re-read. An entry naming a route that no
 	longer exists still *reads* as a considered exclusion — it refuses nothing and looks like a
 	control — which is the same failure as an allow-list entry whose reason has expired.
@@ -1371,6 +1371,13 @@ def test_every_route_that_answers_with_a_credential_is_denied_to_an_agent () -> 
 
 	refused = {(verb, template) for verb, template, _instead in subroutine.mcp.tools.DENIED}
 	reachable = minting - refused
+
+	# **And refused for that reason, which is read from a set this holds to them** (`SR#4427`):
+	# every entry was refused as consequential and un-undoable, which no credential is.
+	assert minting == set(subroutine.mcp.tools.ANSWERS_WITH_A_CREDENTIAL), (
+		f"ANSWERS_WITH_A_CREDENTIAL disagrees with the routes that answer with one: "
+		f"{sorted(minting ^ set(subroutine.mcp.tools.ANSWERS_WITH_A_CREDENTIAL))}"
+	)
 
 	# A `HEAD` or a `GET` on one of these would be a different question and there are none;
 	# every one found is a mint.
