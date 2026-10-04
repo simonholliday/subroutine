@@ -2925,6 +2925,70 @@ def test_a_time_with_a_repeat_on_several_days_does_not_take_its_note (line: str)
 	assert "a repeat is read on one day, so neither was set." in said, said
 
 
+@pytest.mark.parametrize(
+	("line", "quoted"),
+	[
+		("Standup every monday and thursday at 9am in room 4", ("every monday and thursday",)),
+		("Standup every monday and thursday in room 4", ("every monday and thursday",)),
+		("Gym every monday and thursday morning at 7am", ("every monday and thursday", "at 7am")),
+	],
+	ids=["a time, then words", "words", "a word, then a time"],
+)
+def test_a_repeat_on_several_days_is_said_with_words_after_it (
+	line: str, quoted: tuple[str, ...]
+) -> None:
+	"""`SR#4423`, R2-L22 (1) and (2) of the cold review of 2026-10-04: words after it, nothing said.
+
+	A repeat on several days was reported only where nothing followed it, so *Standup every monday
+	and thursday in room 4* kept its days in the title without a word, and *morning* took the note
+	from *Gym every monday and thursday morning at 7am*. What the note says, that a repeat is read
+	on one day, is as true with words after it.
+	"""
+
+	read = _parse(line)
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.title == line and read.recurrence is None, read
+	assert read.unparsed == quoted, read.unparsed
+	assert "a repeat is read on one day, so neither was set." in said, said
+
+
+@pytest.mark.parametrize(
+	("line", "title"),
+	[
+		("every day.", ""),
+		("every day!", ""),
+		("Water the plants every day.)", "Water the plants.)"),
+		("Water the plants (every day)", "Water the plants"),
+		("Water the plants (every day).", "Water the plants."),
+	],
+)
+def test_a_repeat_at_the_end_is_read_whatever_closes_it (line: str, title: str) -> None:
+	"""`SR#4423`, R2-L22 (3): a title of a lone mark, and a repeat in brackets left unseen.
+
+	*every day.* was filed as *.*; *every day.)* was refused as a phrase this does not know; and
+	*Water the plants (every day)* kept its repeat in the title with no note at all, since a repeat
+	begins a word. **Read, with the brackets around it taken too, and a title of only marks empty.**
+	"""
+
+	read = _parse(line)
+
+	assert read.recurrence == "FREQ=DAILY", read
+	assert read.title == title, read.title
+	assert read.unparsed == (), read.unparsed
+
+
+def test_a_repeat_in_brackets_mid_sentence_is_said_as_one () -> None:
+	"""`SR#4423`: in the middle of a line it is given back, and its note names the repeat alone."""
+
+	read = _parse("Plants (every day) and more")
+	said = subroutine.domain.capture.explain(read.unparsed) or ""
+
+	assert read.recurrence is None and read.title == "Plants (every day) and more", read
+	assert read.unparsed == ("every day",), read.unparsed
+	assert "because words follow it" in said, said
+
+
 def test_a_time_after_a_second_repeat_is_not_quoted_from_inside_the_first () -> None:
 	"""`SR#4318` (2): *Gym every monday and every friday at 7am* quoted *monday* twice.
 

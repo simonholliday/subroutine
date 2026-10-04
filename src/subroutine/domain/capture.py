@@ -1179,7 +1179,13 @@ def parse (
 	]
 	reserved.extend(several)
 
-	for match in _EVERY.finditer(text):
+	# **And a bracket around one is the writer's, not the repeat's** (`#4423`, R2-L22 (3) of the cold
+	# review of 2026-10-04): *Water the plants (every day)* was not seen as a repeat at all, since a
+	# repeat begins a word, and *every day.)* was refused as a phrase this does not know. Matched on a
+	# copy with the opening bracket blanked, so every position is the line's own.
+	opened = re.sub(r"(?<![^\s])\((?=every\b)", " ", text, flags=re.IGNORECASE)
+
+	for match in _EVERY.finditer(opened):
 		if _overlaps(match.span(), several):
 			continue
 
@@ -1187,8 +1193,8 @@ def parse (
 		# of the cold review of 2026-10-03). :data:`_EVERY` takes a word as the unit, so *every day.*
 		# was asked about with its full stop, refused, and the line kept whole - with a note
 		# suggesting the very phrase typed. Read without it, the mark stays in the title, as one after
-		# a deadline does.
-		phrase = match.group(0).rstrip(".!?")
+		# a deadline does - and so does a closing bracket (`#4423`).
+		phrase = match.group(0).rstrip(".!?)")
 		span = (match.start(), match.start() + len(phrase))
 		read = _repeat_in(phrase)
 
@@ -1211,6 +1217,12 @@ def parse (
 		start = match.start()
 		ends = [token.end() for token in re.finditer(r"\S+", phrase)]
 		reach = (start, start + ends[len(words.split()) - 1])
+		tail = match.group(0)[len(phrase):]
+
+		# **Both brackets go with a repeat they hold whole** (`#4423`), so the title is not left with
+		# an empty pair; one bracket alone is the writer's and stays.
+		if reach[1] == span[1] and start > 0 and text[start - 1] == "(" and ")" in tail:
+			reach = (start - 1, span[1] + tail.index(")") + 1)
 
 		# **One repeat to a line** (`#4016`, M-17 of the cold review of 2026-09-30). A second phrase
 		# this could read was claimed as well and set nothing, so *Gym every monday every friday*
@@ -1305,7 +1317,8 @@ def parse (
 
 	for span in withdrawn:
 		claimed.remove(span)
-		unparsed.append(text[span[0]:span[1]])
+		# Quoted inside any brackets it took (`#4423`), which are no part of the repeat its note names.
+		unparsed.append(text[span[0]:span[1]].removeprefix("(").removesuffix(")"))
 
 		# **By where it was, not by what it said** (`#3942`), since the rule holds its words joined
 		# by one space and the line need not.
@@ -1344,11 +1357,11 @@ def parse (
 	unparsed.extend(text[start:end] for start, end in seconds)
 	# **A repeat on several days beside a second is said wherever it is too** (`#4340`): it is the
 	# first, and the second's note says a line takes one.
-	unparsed.extend(
-		text[start:end]
-		for start, end in several
-		if seconds or _nothing_follows(past, (start, end))
-	)
+	#
+	# **And with words after it** (`#4423`, R2-L22 (1) and (2) of the cold review of 2026-10-04): what
+	# its note says, that a repeat is read on one day, is as true there, and nothing was said at all -
+	# *Standup every monday and thursday in room 4* kept its days in the title without a word.
+	unparsed.extend(text[start:end] for start, end in several)
 
 	# **The times left as written, quoted off the settled line** (`#3998`, M-1 of the cold review of
 	# 2026-09-30): only a day nothing read is the day that stopped one, and only words the title keeps
@@ -1385,8 +1398,15 @@ def parse (
 
 	unparsed.extend(token for _start, _end, _words, token in hidden)
 
+	title = _titled(text, claimed, hidden)
+
+	# **A title left as nothing but the marks around what was read is no title** (`#4423`, R2-L22 (3)),
+	# as *every day* alone leaves none: *every day.* was filed as *.*, and *every day!* as *!*.
+	if claimed and not title.strip(_ENDS_A_LINE + ",;:()"):
+		title = ""
+
 	return Capture(
-		title=_titled(text, claimed, hidden),
+		title=title,
 		tags=tuple(tags),
 		unparsed=tuple(unparsed),
 		**fields,
@@ -2672,8 +2692,9 @@ def _repeat_in (phrase: str) -> tuple[str, str] | None:
 #: Whitespace, and the punctuation somebody ends a sentence with — the same allowance
 #: :data:`_BARE_DAY` makes with ``[.!?]*\s*$``, written as a set here because this checks a
 #: slice rather than matching a pattern. A comma is **not** in it: *every day, and bread* has
-#: prose after the repeat, which is exactly what this is looking for.
-_ENDS_A_LINE = " \t\r\n.!?"
+#: prose after the repeat, which is exactly what this is looking for. **A closing bracket is**
+#: (`#4423`): *every day.)* ends a sentence somebody opened a bracket for.
+_ENDS_A_LINE = " \t\r\n.!?)"
 
 
 def _nothing_follows (blanked: str, span: tuple[int, int]) -> bool:

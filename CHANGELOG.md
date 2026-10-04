@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Capture reads a repeat in brackets, and says when it leaves one on several days.** *Water
+  the plants (every day)* kept the repeat in its title with nothing said, and *every day.)* was
+  refused as a phrase it did not know; both repeat daily now. A repeat on several days is said
+  to be left as written wherever it is in the line, where words after it kept it quiet.
 - **A repeat is refused in words that fit what is wrong.** A phrase naming the 32nd of the month
   was told to send a rule that is refused for the 32nd; a repeat holding a C1 control character
   or a line separator was read as though it held a space and stored as sent; a frequency or a
