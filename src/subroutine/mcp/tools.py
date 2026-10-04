@@ -764,20 +764,13 @@ def _conventions (
 		)
 		lines += ["", f"**Narrowed to {where}**, from {'`' + landed.source + '` in this checkout' if landed.source == subroutine.directory.FILE_NAME else landed.source}. {elsewhere}"]
 
-	drafted, more = _drafted(
-		client,
-		workspace,
-		project,
-		place,
-		_own(client, workspace, project, place, subroutine.domain.documents.DRAFT_CATEGORY),
-	)
+	drafted = _drafted(client, workspace, project, place)
 
 	if drafted:
 		counted = (
 			"One more is still a draft and is not listed above."
-			if drafted == 1 and not more
-			else f"{'At least ' if more else ''}{drafted} more are still drafts and are not "
-			"listed above."
+			if drafted == 1
+			else f"{drafted} more are still drafts and are not listed above."
 		)
 
 		lines += [
@@ -1054,8 +1047,7 @@ def _drafted (
 	workspace: str | None,
 	named: str | None = None,
 	place: str | None = None,
-	own: frozenset[int] = frozenset(),
-) -> tuple[int, bool]:
+) -> int:
 	"""Return how many governing documents are drafts here, and whether that count is a floor.
 
 	**What this exists to prevent is somebody acting without a document that is finished**
@@ -1072,36 +1064,55 @@ def _drafted (
 	research nobody agreed or go on hiding a settled design with more confidence than before. A
 	number and a way to look is the whole of what can be said honestly.
 
-	**One request covering every governing type, rather than one each.** ``type`` takes a single
-	value, so the types are filtered here instead; four more round trips to carry a number that
-	prompts a look rather than an action is the wrong trade on a page read once a session.
-
-	**Every draft, not a page of them** (`#4275`, M8 of the cold review of 2026-10-03). The reader's
-	share is taken here, because the instance can narrow only to what is under a project and not
-	to the projects above it or to what binds the whole workspace (`#3673`) - so a page read across
-	the workspace held other people's drafts, and a workspace with a page of them told a reader in
-	another project nothing of their own. Read to the end, as :func:`_governing` reads what is in
-	force. The count is a **floor** only if even that stops short, and the caller then says *at
-	least* rather than a number it cannot stand behind.
+	**Counted on the instance, and none of them read** (`#4435`, R2-L40 of the cold review of
+	2026-10-04). Every draft in the workspace was read, body and all, for one number. The reader's
+	share (`#3673`) is counted a part at a time instead: what is marked to bind the whole workspace,
+	what is filed in the reader's project or one inside it, and what is filed in each project above
+	it - which the instance can count only as that project's tree less the trees of the projects
+	directly inside it, since naming a project names everything filed under it (`#320`). Every part
+	but the first leaves out what binds the whole workspace, so nothing is counted twice, and a
+	count is exact, so it has no page to stop short of.
 	"""
 
-	listed = client.documents(
-		workspace=workspace,
-		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
-		limit=subroutine.clients.base.EVERY_ROW,
-	)
+	def counted (project: str | None = None, *terms: tuple[str, str]) -> int:
+		"""Return how many governing drafts one part of the share holds."""
+
+		return client.count_documents(
+			workspace=workspace,
+			project=project,
+			status_category=subroutine.domain.documents.DRAFT_CATEGORY,
+			filters=[("type.in", ",".join(sorted(subroutine.domain.documents.GOVERNS))), *terms],
+		)
+
+	if named is None:
+		return counted()
 
 	# **The same share as the index above** (`#3673`), or the two halves of one answer would
-	# describe different sets — *85 in force here* beside *23 drafts somewhere in this
-	# workspace* invites the reader to subtract one from the other.
-	governing = [
-		one
-		for one in listed
-		if one.type in subroutine.domain.documents.GOVERNS
-		and _why_shown(one, named, place, own) is not None
-	]
+	# describe different sets - *85 in force here* beside *23 drafts somewhere in this workspace*
+	# invites the reader to subtract one from the other.
+	alone = ("binds.eq", subroutine.domain.documents.BINDS_ITS_PROJECT)
+	total = counted(None, ("binds.eq", subroutine.domain.documents.BINDS_THE_WORKSPACE))
 
-	return len(governing), listed.has_more
+	# Where the path could not be read, the instance narrows to the project as it was sent and
+	# nothing above it is reached, as the index above narrows through :func:`_own`.
+	if place is None:
+		return total + counted(named, alone)
+
+	projects = subroutine.clients.base.every_project(client, workspace=workspace)
+
+	for row in projects:
+		path = row.path or ""
+
+		if path == place:
+			total += counted(str(row.id), alone)
+
+		elif path and place.startswith(f"{path}/"):
+			inside = [str(one.id) for one in projects if (one.path or "").rpartition("/")[0] == path]
+			total += counted(str(row.id), alone) - (
+				counted(None, ("project.in", ",".join(inside)), alone) if inside else 0
+			)
+
+	return total
 
 
 def catalogue (

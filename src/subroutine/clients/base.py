@@ -582,6 +582,21 @@ class Client(typing.Protocol):
 		:attr:`Listing.retired_too` saying so.
 		"""
 
+	def count_documents (
+		self,
+		*,
+		workspace: str | None = None,
+		project: str | None = None,
+		status_category: str | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
+	) -> int:
+		"""Return how many documents :meth:`documents` would list for the same parameters.
+
+		**A count, not rows**, as :meth:`count_tasks` is and for the reason it gives (`#4435`, R2-L40
+		of the cold review of 2026-10-04). The conventions said how many drafts would bind a reader by
+		reading every draft in the workspace, body and all, for one number.
+		"""
+
 	def document (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Document | None:

@@ -455,6 +455,73 @@ class Client:
 				or 0
 			)
 
+	def count_documents (
+		self,
+		*,
+		workspace: str | None = None,
+		project: str | None = None,
+		status_category: str | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
+	) -> int:
+		"""Return how many documents a listing would hold, counted rather than read (`#4435`)."""
+
+		_named_readably(
+			[("project", project), ("status_category", status_category), *(filters or ())]
+		)
+
+		model = subroutine.db.models.work.Document
+		terms: list[tuple[str, str]] = list(filters or ())
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			narrowed = (
+				None
+				if project is None
+				else subroutine.domain.selection.project(session, actor, chosen, project)
+			)
+			in_category = (
+				None
+				if status_category is None
+				else subroutine.domain.documents.statuses_in_category(
+					session, chosen.id, status_category
+				)
+			)
+
+			# **The narrowing :meth:`documents` applies for these parameters**, by the same domain
+			# calls, so a count and the listing it stands for cannot disagree;
+			# ``tests/test_transport_equivalence.py`` holds both transports to the listing's length.
+			statement = (
+				subroutine.domain.scoping.readable_documents(actor, workspace_ids=[chosen.id])
+				.where(
+					sqlalchemy.true()
+					if narrowed is None
+					else subroutine.domain.scoping.within_project(narrowed)
+				)
+				.where(
+					sqlalchemy.true() if in_category is None else model.status_id.in_(in_category)
+				)
+				.where(
+					*subroutine.domain.filtering.asked(
+						terms,
+						entity="document",
+						now=subroutine.db.types.utcnow(),
+						timezone=subroutine.domain.filtering.timezone_for(session, actor, chosen),
+						session=session,
+						principal=actor,
+						workspace_ids=[chosen.id],
+						workspace=chosen,
+					)
+				)
+			)
+
+			return int(
+				session.scalar(
+					sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
+				)
+				or 0
+			)
+
 	def tasks (
 		self,
 		*,

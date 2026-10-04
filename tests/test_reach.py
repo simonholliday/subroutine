@@ -367,6 +367,13 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"count_documents": (
+		"protocol",
+		"`#4435`. It exists so the conventions can say how many drafts would bind a reader without "
+		"reading one, a question the terminal does not ask: `subroutine list` answers with the rows, "
+		"and says when there are more. **What would remove it**: a command that prints how many "
+		"documents there are, as `project rename` prints how many tasks through `count_tasks`.",
+	),
 	"item_journal": (
 		"disclosure",
 		"`#2729`. Built for the browser's page of one item's history (`#1428`). At a terminal "

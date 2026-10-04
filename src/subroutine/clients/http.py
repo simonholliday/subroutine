@@ -265,6 +265,40 @@ class Client:
 
 		return total
 
+	def count_documents (
+		self,
+		*,
+		workspace: str | None = None,
+		project: str | None = None,
+		status_category: str | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
+	) -> int:
+		"""Return how many documents a listing would hold, read as a total (`#4435`)."""
+
+		body = self._json(
+			"GET",
+			"/v1/documents",
+			params=_dated(
+				filters,
+				_given(
+					workspace_id=workspace,
+					project=project,
+					status_category=status_category,
+					include_total="true",
+					# One row, as :meth:`count_tasks` asks, and only its number, so that no body crosses
+					# the wire to carry a count.
+					limit=1,
+					fields="ref",
+				),
+			),
+		)
+		total = body.get("page", {}).get("total")
+
+		if not isinstance(total, int):
+			raise self._not_an_instance("its /v1/documents response carried no total when asked")
+
+		return total
+
 	def tasks (
 		self,
 		*,

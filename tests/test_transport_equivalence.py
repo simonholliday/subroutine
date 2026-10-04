@@ -4580,6 +4580,81 @@ def test_both_refuse_a_cursor_below_the_first_seq_the_same_way (pair: Pair) -> N
 	assert "names nothing" in str(locally.value)
 
 
+def test_both_count_documents_as_the_listing_holds_them (
+	pair: Pair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4435`. A count of documents, asked of the instance where each draft was read for one.
+
+	Both transports, and each count the length of the listing the same parameters return, so the
+	narrowing the local count repeats cannot drift from the listing's - and over HTTP no body
+	crosses the wire to carry the number.
+	"""
+
+	def made (
+		key: str, parent: subroutine.db.models.project.Project | None = None
+	) -> subroutine.db.models.project.Project:
+		"""Make one project, under another or at the top."""
+
+		return subroutine.domain.projects.create(
+			pair.session,
+			workspace_id=pair.workspace.id,
+			key=key,
+			title=key.title(),
+			owner_id=pair.user.id,
+			parent=parent,
+		)
+
+	web = made("web")
+	blog = made("blog", web)
+	shop = made("shop", web)
+
+	for project, kind, status, binds in (
+		(web, "design", "draft", None),
+		(blog, "decision", "draft", "workspace"),
+		(shop, "design", "draft", None),
+		(shop, "note", "draft", None),
+		(blog, "decision", "active", None),
+	):
+		subroutine.domain.documents.create(
+			pair.session,
+			project=project,
+			title=f"A {kind} in {project.key}",
+			type_key=kind,
+			status_key=status,
+			binds=binds,
+		)
+
+	pair.session.flush()
+
+	for expected, asked in (
+		(4, {"status_category": "draft"}),
+		(3, {"status_category": "draft", "filters": [("type.in", "decision,design")]}),
+		(4, {"project": "web", "filters": [("binds.eq", "project")]}),
+		(1, {"filters": [("project.in", "blog,shop"), ("binds.eq", "workspace")]}),
+	):
+		local, remote = pair.both()
+		listed = len(local.documents(limit=subroutine.clients.base.EVERY_ROW, **asked))
+
+		assert local.count_documents(**asked) == remote.count_documents(**asked) == listed == expected, (
+			asked
+		)
+
+	answered: list[typing.Any] = []
+	sending = pair.remote._json
+
+	def recorded (*arguments: typing.Any, **named: typing.Any) -> typing.Any:
+		"""Send as the client does, keeping what came back."""
+
+		answered.append(sending(*arguments, **named))
+
+		return answered[-1]
+
+	monkeypatch.setattr(pair.remote, "_json", recorded)
+	pair.remote.count_documents(status_category="draft")
+
+	assert [set(row) for row in answered[-1]["items"]] == [{"ref"}], answered
+
+
 def test_both_count_a_project_past_a_page (pair: Pair) -> None:
 	"""``#296``. A count is not a page, and `len(tasks(...))` reported the page size.
 

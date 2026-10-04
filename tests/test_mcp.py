@@ -7359,6 +7359,19 @@ NOT_FROM_THE_CHECKOUT = {
 		"narrows only where the project's path could not be read (`SR#3673`). Reading it again "
 		"here would be a second consultation of one fact inside one render."
 	),
+	# **And the draft count's two** (`SR#4435`), which count the share the index lists and so
+	# must be handed the project the index read, and the projects above it read off the same
+	# listing its place came from.
+	"_drafted": (
+		"a helper of `_conventions`, which reads the checkout and hands the answer down, as `_own` "
+		"is: it counts the drafts in the share the index lists (`SR#4435`), so it takes the project "
+		"the index read rather than reading it a second time."
+	),
+	"counted": (
+		"`_drafted`'s count of one part of the share (`SR#4435`), handed the project `_drafted` was "
+		"handed or one of the projects above it, read off the listing the reader's place was found "
+		"in."
+	),
 	"_listed": (
 		"A marker decides where a write goes and never what a read shows. That is `use`'s own "
 		"rule — reads span everything reachable, writes target the current context — and a "
@@ -11610,13 +11623,17 @@ def test_a_document_marked_to_bind_the_whole_workspace_is_said_so_to_an_agent (
 	assert "binds the whole workspace" not in _called(bound, "subroutine_show", ref=ref)[0]
 
 
-def _a_line_of_projects (session: sqlalchemy.orm.Session, beside: int = 0) -> str:
+def _a_line_of_projects (
+	session: sqlalchemy.orm.Session, beside: int = 0, marked: bool = False
+) -> str:
 	"""Return a workspace whose projects make a line, a branch beside it and a project elsewhere.
 
 	``web`` holds ``web/blog``, which holds ``web/blog/drafts``; ``web/shop`` sits beside the blog,
 	and ``ops`` elsewhere holds one rule marked as binding the whole workspace and one not. Each
 	holds one decision in force, so every way an entry can be listed, or left out, is here once.
-	``beside`` drafts more designs in the shop, written after everything else.
+	``beside`` drafts more designs in the shop, written after everything else. ``marked`` drafts one
+	of each other way a draft can reach a reader in the blog or not: inside the blog, marked to bind
+	the whole workspace above it, in it and elsewhere, unmarked elsewhere, and a note above it.
 	"""
 
 	setup = subroutine.domain.bootstrap.initialise(
@@ -11674,6 +11691,31 @@ def _a_line_of_projects (session: sqlalchemy.orm.Session, beside: int = 0) -> st
 			type_key="design",
 			status_key="draft",
 		)
+
+	if marked:
+		inside = session.scalars(
+			sqlalchemy.select(subroutine.db.models.project.Project).where(
+				subroutine.db.models.project.Project.workspace_id == setup.workspace.id,
+				subroutine.db.models.project.Project.key == "drafts",
+			)
+		).one()
+
+		for project, title, kind, binds in (
+			(inside, "Should drafts carry a watermark?", "design", None),
+			(web, "Every page is served over TLS", "decision", "workspace"),
+			(blog, "Comments are moderated", "spec", "workspace"),
+			(ops, "Name the machine in every log line", "decision", "workspace"),
+			(ops, "Should the backups move to Zion?", "design", None),
+			(web, "Notes from the review with Trinity", "note", None),
+		):
+			subroutine.domain.documents.create(
+				session,
+				project=project,
+				title=title,
+				type_key=kind,
+				status_key="draft",
+				binds=binds,
+			)
 
 	session.flush()
 
@@ -11735,6 +11777,53 @@ def test_a_readers_draft_is_counted_however_many_other_drafts_the_workspace_hold
 	narrow = _bound_to(session, slug, max_page_size=5)
 
 	assert "One more is still a draft and is not listed above." in narrow, narrow
+
+
+def test_the_drafts_a_reader_is_told_of_are_counted_and_none_is_read (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4435`, R2-L40 of the cold review of 2026-10-04: every draft was read for one number.
+
+	Every draft in the workspace crossed the wire with its body. Counted on the instance, the share
+	is the index's: drafts in the blog and inside it, above it, and marked to bind the whole
+	workspace wherever they are filed, each once - never one beside it, or a note. Where the
+	credential may not list projects, the blog's own tree and what binds the whole workspace.
+	"""
+
+	slug = _a_line_of_projects(session, marked=True)
+	asked: list[dict[str, typing.Any]] = []
+	listing = subroutine.clients.local.Client.documents
+
+	def recorded (client: subroutine.clients.local.Client, **arguments: typing.Any) -> typing.Any:
+		"""List as the client does, noting what was asked for."""
+
+		asked.append(arguments)
+
+		return listing(client, **arguments)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "documents", recorded)
+	_marked_as(monkeypatch, "web/blog")
+
+	narrow = _bound_to(session, slug)
+
+	assert "5 more are still drafts and are not listed above." in narrow, narrow
+
+	def forbidden (*_arguments: typing.Any, **_named: typing.Any) -> typing.NoReturn:
+		"""Refuse, as an instance does a credential that may not list projects."""
+
+		raise subroutine.errors.Forbidden("You may not list projects here.")
+
+	monkeypatch.setattr(subroutine.clients.base, "every_project", forbidden)
+
+	unlisted = _bound_to(session, slug)
+
+	assert "4 more are still drafts and are not listed above." in unlisted, unlisted
+
+	drafts = subroutine.domain.documents.DRAFT_CATEGORY
+
+	assert not [one for one in asked if one.get("status_category") == drafts], (
+		f"a draft was read to count it: {asked}"
+	)
 
 
 def test_an_empty_narrowed_conventions_index_says_what_it_left_out (
