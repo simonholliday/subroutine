@@ -2177,6 +2177,12 @@ _SET_ASIDE = subroutine.db.migrate.SET_ASIDE
 def _set_aside_in (engine: sqlalchemy.engine.Engine) -> list[str]:
 	"""Return the schemas a stopped restore left in this database, or none if it cannot say."""
 
+	# **Asked of PostgreSQL alone, before anything connects** (`#4403`, R2-M3 of the cold review
+	# of 2026-10-04): connecting to an absent SQLite file creates it, empty and world-readable, and
+	# the restore's safety copy then refused that file as damaged and asked whether to go on.
+	if engine.dialect.name != "postgresql":
+		return []
+
 	try:
 		with engine.connect() as connection:
 			return subroutine.db.migrate.set_aside_on(connection)

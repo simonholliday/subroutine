@@ -4145,6 +4145,15 @@ class Client:
 		if self._schema_checked:
 			return
 
+		# **Before the first connect, which would make the file** (`#4403`, NEW-C-1 of the
+		# verification of the cold review of 2026-10-04). With the data directory still there - the
+		# ordinary way a database file is lost, since backups live beside it - every command made an
+		# empty, world-readable file and said to run ``init``, so the *no instance yet* answer below
+		# could never be given. **Only for an engine this client built**: one given a session factory
+		# is bound to an engine its settings do not name.
+		if self._engine is not None and self.settings.has_no_instance_yet():
+			raise subroutine.errors.no_instance_yet()
+
 		current = subroutine.db.migrate.revision_on(session.connection())
 		expected = subroutine.db.migrate.head_revision()
 		mismatch = subroutine.db.migrate.mismatch_reason(

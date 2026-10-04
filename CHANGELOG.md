@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A lost database is not made again, empty, by the next command.** With the database file
+  gone and its folder still there, every command made an empty, world-readable file and said to
+  run `subroutine init`; it now says no instance has been set up here. A restore over a lost
+  database restores without asking, where it made the file itself, refused to back it up and
+  asked whether to go on.
 - **The change feed refuses a period only for events you could have seen.** A reader who
   cannot see a private project was refused for a period in which only that project's events had
   moved to the archive, a refusal they could never satisfy, telling them something hidden had

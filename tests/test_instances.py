@@ -306,6 +306,61 @@ def test_a_rescue_restore_completes_when_the_damaged_database_cannot_be_copied (
 	assert "Worth recovering" in run("list").output
 
 
+def test_a_lost_database_is_not_made_again_empty_by_the_next_command (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#4403`, NEW-C-1 of the verification of the cold review of 2026-10-04.
+
+	With the data directory still there, the next command made an empty, world-readable file and
+	said to run ``init``, so the answer for an instance nobody has set up could never be given.
+	"""
+
+	run("init", "--workspace", "Real")
+	database = _settings().sqlite_path
+
+	assert database is not None
+
+	database.unlink()
+	listed = run("list", expect=1)
+
+	assert "no Subroutine instance has been set up here yet" in listed.output, listed.output
+	assert not database.exists(), "the command made the database again"
+
+
+@pytest.mark.parametrize("before", ["nothing", "a list", "an empty file"])
+def test_a_restore_over_a_lost_database_asks_nothing (
+	before: str, run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#4403`, R2-M3 of the cold review of 2026-10-04: the restore made the file itself.
+
+	Asking for a set-aside schema connected to the absent file, creating it empty; the safety copy
+	then refused it as damaged and asked whether to go on, so a restore run by nobody at a terminal
+	exited 1 and left the empty file behind. **And the two older ways to an empty file**: a command
+	run first, and one an older version left.
+	"""
+
+	run("init", "--workspace", "Real")
+	run("add", "Worth recovering")
+	name = _backup_name(run("db", "backup").output)
+	database = _settings().sqlite_path
+
+	assert database is not None
+
+	database.unlink()
+
+	if before == "a list":
+		run("list", expect=1)
+
+	if before == "an empty file":
+		database.touch()
+
+	restored = run("db", "restore", name, "--recover")
+
+	assert "Restored" in restored.output and "Restore anyway" not in restored.output, restored.output
+	assert database.stat().st_mode & 0o077 == 0, oct(database.stat().st_mode)
+	assert "Worth recovering" in run("list").output
+
+
 def test_a_safety_copy_that_fails_is_said_out_loud (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

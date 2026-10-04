@@ -17,6 +17,7 @@ import pathlib
 import re
 import shutil
 import socket
+import sqlite3
 import sys
 import tomllib
 import traceback
@@ -2227,7 +2228,7 @@ def database_restore (
 
 	_confirm_destructive(settings, "About to replace the database of", yes=yes)
 
-	if safety_backup and not _database_is_absent(settings):
+	if safety_backup and not _nothing_to_save(settings):
 		_safety_copy(settings, yes=yes)
 
 	with _database(settings) as engine:
@@ -3843,6 +3844,33 @@ def _report_the_newest_release () -> None:
 
 	for line in subroutine.releases.describe(standing):
 		_say(line)
+
+
+def _nothing_to_save (settings: subroutine.config.Settings) -> bool:
+	"""Report whether a restore has nothing to keep a copy of: no SQLite file, or one with no tables.
+
+	**An empty file too** (`#4403`, R2-M3 of the cold review of 2026-10-04): one left by a command
+	that connected to a lost database was copied, refused as damaged, and the restore asked
+	whether to go on - exiting 1 where nobody was there to answer. Opened read-only, so asking
+	creates nothing.
+	"""
+
+	if _database_is_absent(settings):
+		return True
+
+	path = settings.sqlite_path
+
+	if path is None:
+		return False
+
+	try:
+		with contextlib.closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)) as database:
+			tables = database.execute("SELECT count(*) FROM sqlite_master").fetchone()
+
+	except sqlite3.Error:
+		return False
+
+	return tables is not None and tables[0] == 0
 
 
 def _database_is_absent (settings: subroutine.config.Settings) -> bool:
