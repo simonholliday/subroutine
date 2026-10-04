@@ -6707,6 +6707,31 @@ def test_the_conventions_advise_only_what_the_listing_takes (
 
 	assert not failed and "Rewrite the home page copy first" in listed, listed
 
+	# **And the filter it names for every one lists every one** (`SR#4437`, R2-D1 of the cold review
+	# of 2026-10-04): ``type.eq`` alone left a superseded decision out, and the text said it would not.
+	written, failed = _called(
+		bound,
+		"subroutine_document",
+		title="Keep the old home page copy",
+		body="Replaced by the rewrite.",
+		type="decision",
+		status="superseded",
+	)
+
+	assert not failed, written
+
+	every = {"type.eq": "decision", "status_category.in": subroutine.mcp.tools.EVERY_DOCUMENT_STATUS}
+	listed, failed = _called(bound, "subroutine_list", filter={"type.eq": "decision"})
+
+	assert not failed and "Keep the old home page copy" not in listed, listed
+
+	listed, failed = _called(bound, "subroutine_list", filter=every)
+
+	assert not failed, listed
+	assert "Keep the old home page copy" in listed and "Rewrite the home page copy first" in listed, (
+		listed
+	)
+
 	refused, failed = _called(bound, "subroutine_list", type="decision")
 
 	assert failed and "does not take type" in refused, refused
@@ -11198,7 +11223,8 @@ def test_the_agents_project_listing_drops_its_summaries_where_none_would_fit (
 
 	Twenty-four projects leave each summary about six hundred characters, so the branch for a
 	listing where not even the shortest summary worth a line would fit was never reached. **The
-	summaries go, every project is still listed**, and the answer says it was cut.
+	summaries go, every project is still listed**, and the answer says so: that they were left out
+	(`SR#4437`, R2-L42 of the cold review of 2026-10-04), where it said they had been cut.
 	"""
 
 	summary = "What this project is for, written out at the length somebody might."
@@ -11218,7 +11244,7 @@ def test_the_agents_project_listing_drops_its_summaries_where_none_would_fit (
 	assert not failed, listed
 	assert all(f"p{number:02d}" in listed for number in range(24)), listed
 	assert "What this" not in listed and "…" not in listed, listed
-	assert "summaries cut so the list fits one answer" in listed, listed[-300:]
+	assert "summaries left out so the list fits one answer" in listed, listed[-300:]
 
 
 @pytest.mark.parametrize("described", [0, 3])

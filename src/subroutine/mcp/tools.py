@@ -60,6 +60,13 @@ import subroutine.views
 #: are context spent on rows it will not act on.
 DEFAULT_LIMIT = 20
 
+#: Every status category a document can be in, as one value for ``status_category.in`` (`#4437`,
+#: R2-D1 of the cold review of 2026-10-04). ``subroutine_list`` lists open items only, so the
+#: conventions' *shows every one, whatever its status* was true of none of the filters it gave:
+#: a superseded design was left out. Built from the categories rather than written out, so a
+#: fifth cannot be missing from it.
+EVERY_DOCUMENT_STATUS = ",".join(subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES)
+
 #: Named once because it appears on nearly every tool and copies of a sentence drift.
 #:
 #: **It saves no budget, and it would be easy to believe it does.** The dict is shared by
@@ -689,8 +696,10 @@ def _conventions (
 				"been decided. A document written before this workspace started marking them, or",
 				"one still being drafted, will not appear.",
 				"",
-				'`subroutine_list` with `filter={"type.eq": "decision"}`, or another kind, shows every',
-				"document of it whatever its status, and `subroutine_document` records a new one.",
+				'`subroutine_list` with `filter={"type.eq": "decision", "status_category.in": '
+				f'"{EVERY_DOCUMENT_STATUS}"}}`',
+				"lists every decision whatever its status, or another kind in place of `decision`, and",
+				"`subroutine_document` records a new one.",
 			]
 		else:
 			lines += [
@@ -777,8 +786,9 @@ def _conventions (
 			"",
 			"A design whose questions are still open is correctly one and belongs there. A design",
 			"whose questions were answered and whose status was never moved is not, and is",
-			"indistinguishable from it here.",
-			'`subroutine_list` with `filter={"type.eq": "design"}` shows every one, whatever its status.',
+			"indistinguishable from it here. Every design, whatever its status, is listed by",
+			'`subroutine_list` with `filter={"type.eq": "design", "status_category.in": '
+			f'"{EVERY_DOCUMENT_STATUS}"}}`.',
 		]
 
 	return "\n".join(lines)
@@ -991,9 +1001,10 @@ def _governing (
 		# this string is served by every one.
 		section += [
 			"",
-			"That is a full page, so there may be more of these than are listed. "
-			f'`subroutine_list` with `filter={{"type.eq": "{kind.key}"}}` shows every one, whatever its '
-			"status.",
+			"That is a full page, so there may be more of these than are listed. Every one, whatever "
+			"its status, is listed by "
+			'`subroutine_list` with `filter={"type.eq": '
+			f'"{kind.key}", "status_category.in": "{EVERY_DOCUMENT_STATUS}"}}`.',
 		]
 
 	return section, found, len(everything), cut
@@ -5430,6 +5441,14 @@ def _projected (
 				high = middle - 1
 
 		cut = listed(room)
+
+		# **And *left out* where no room was left for any** (`#4437`, R2-L42 of the cold review of
+		# 2026-10-04): with every summary gone and the tree fitting, the note said they had been cut.
+		if room == 0 and any(row.description for row in rows):
+			note = (
+				f"(All {len(rows)} projects, with their summaries left out so the list fits one "
+				"answer.)"
+			)
 
 		# **And never *fits* where it does not** (`#4274`). With every summary gone the tree alone can
 		# still run past the bound, and the note said it had been cut to fit. No project is dropped to

@@ -370,6 +370,14 @@ def test_a_status_somebody_asked_for_still_wins (session: sqlalchemy.orm.Session
 	assert found is not None and found.category == "draft"
 
 
+#: The filter the conventions give for every decision, whatever its status - `SR#4437`, R2-D1 of
+#: the cold review of 2026-10-04, and measured over ``/mcp`` to list a superseded design that
+#: ``type.eq`` alone left out. Written out, because what it pins is the text an agent copies.
+EVERY_DECISION = (
+	'`filter={"type.eq": "decision", "status_category.in": "draft,current,superseded,archived"}`'
+)
+
+
 def _listing (
 	count: int, *, has_more: bool = False, first: int = 1, kind: str = "decision"
 ) -> subroutine.clients.base.Listing[typing.Any]:
@@ -589,7 +597,8 @@ def test_an_empty_conventions_resource_says_why_rather_than_nothing () -> None:
 	assert "not the same as nothing having" in text
 	assert "subroutine_list" in text, "an empty answer must name the wider question"
 	# **And names it with an argument the listing takes** (`SR#4316`): it said *with a `type`*.
-	assert '`filter={"type.eq": "decision"}`' in text, text
+	# **And one that lists every one** (`SR#4437`): ``type.eq`` alone lists open documents only.
+	assert EVERY_DECISION in text, text
 
 	# **Every governing type is asked before that is concluded**, which is `#590`'s lesson
 	# widened by `#1036`. The version that returned as soon as the decisions came back empty
@@ -737,8 +746,9 @@ def test_a_type_the_instance_had_more_of_says_it_could_not_show_everything () ->
 	text = answer["result"]["contents"][0]["text"]
 
 	assert "a full page" in text, "a page that may be short must say so"
-	# **With an argument the listing takes** (`SR#4316`): ``type=decision`` was refused.
-	assert '`filter={"type.eq": "decision"}`' in text, "and must name how to see the rest"
+	# **With an argument the listing takes** (`SR#4316`): ``type=decision`` was refused. **And one
+	# that lists every one** (`SR#4437`): ``type.eq`` alone lists open documents only.
+	assert EVERY_DECISION in text, "and must name how to see the rest"
 
 
 def test_a_type_the_instance_showed_whole_claims_nothing_about_more () -> None:
@@ -875,6 +885,7 @@ def test_a_governing_document_left_as_a_draft_is_counted_where_somebody_would_ac
 	# `#1851`'s title names — found *before* somebody acts without it, not merely counted.
 	assert "subroutine_list" in text
 	assert "whatever its status" in text
+	assert EVERY_DECISION.replace("decision", "design") in text, text
 
 
 def test_one_draft_is_described_in_the_singular () -> None:

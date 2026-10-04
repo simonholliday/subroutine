@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The conventions an agent reads give a filter that does list every document of a kind,**
+  whatever its status: the one they gave listed open documents only, so a superseded design was
+  left out. And the agents' project list says its summaries were left out, rather than cut,
+  when none of them would fit.
 - **Leaving an item while a change to it is on its way stays left.** Completing or saving an
   item and going elsewhere before it answered brought the item back. Back, Forward or a reload
   onto an item keeps the arrangement it was opened from, so *All items* returns to the board or
