@@ -1789,6 +1789,7 @@ def upgrade (
 			_fail(error)
 
 	_say(f"Backed up to {written.path} ({written.size_bytes:,} bytes).")
+	_say_if_still_marked(written)
 
 	# **Say what the rule is, because an operator cannot otherwise find out** (`#1676`, `#1712`).
 	# This used to say that nothing removed the copy and that every upgrade left one, which was
@@ -1926,6 +1927,7 @@ def database_backup (
 
 	_say(f"Backed up {_instance_label()} to {written.path}")
 	_say(f"{written.size_bytes:,} bytes, schema {written.schema_head}.")
+	_say_if_still_marked(written)
 
 	# **Says what it copied, because a hollow backup passed every check there was** (`#395`).
 	# Size and schema were both correct for four backups of an empty instance — an empty
@@ -1944,6 +1946,46 @@ def database_backup (
 			f"Left out schema {schema}, set aside by a restore that did not finish - it is not in "
 			"this backup. 'subroutine doctor' says what to do about it."
 		)
+
+
+def _say_if_still_marked (written: subroutine.db.backup.Backup) -> None:
+	"""Say that a good copy stays marked unfinished, when its marker would not come away - `#4409`.
+
+	**Kept marked is the safe direction** (decision `#4302`), so the take succeeded; but the copy is
+	then listed and pruned by nothing, and *Backed up* alone described a backup no listing shows.
+	"""
+
+	if written.still_marked is None:
+		return
+
+	_warn(
+		f"The copy is whole, but stays marked unfinished, so nothing lists or prunes it: its marker "
+		f"could not be removed ({written.still_marked}). To count it: {written.marker_removal}"
+	)
+
+
+def _say_unfinished (stopped: list[subroutine.db.backup.Unfinished]) -> None:
+	"""Name each copy marked unfinished, with the command that removes it - `#4409`.
+
+	**Listed apart, and never counted.** None is a backup anything has proved, and nothing removes
+	one by itself, so this and ``doctor`` are where an operator learns one is there.
+	"""
+
+	if not stopped:
+		return
+
+	now = subroutine.db.types.utcnow()
+
+	_say("Marked unfinished, so not counted as backups:")
+
+	for marked in stopped:
+		_say(f"  {marked.name}, which {marked.state(now)}")
+
+		if marked.may_be_running(now):
+			_say(f"    If no backup is, remove it and its marker: {marked.removal}")
+
+		else:
+			_say(f"    Remove it and its marker: {marked.removal}")
 
 
 def _taken_for_cell (backup: subroutine.db.backup.Backup) -> str:
@@ -2128,9 +2170,11 @@ def database_backups () -> None:
 
 	settings = _settings()
 	found = subroutine.db.backup.catalogue(settings)
+	stopped = subroutine.db.backup.unfinished(settings)
 
 	if not found:
 		_say(f"No backups of {_instance_label()} yet. Run 'subroutine db backup'.")
+		_say_unfinished(stopped)
 
 		return
 
@@ -2163,6 +2207,8 @@ def database_backups () -> None:
 			f"schema {backup.schema_head}{why}{kind}"
 		)
 		_say(f"    {_holdings_cell(backup)}")
+
+	_say_unfinished(stopped)
 
 
 @database_app.command("restore")
@@ -2222,8 +2268,11 @@ def database_restore (
 	# refuse a database something else is using (`#171`), a backup taken from the other engine
 	# (`#172`), and one this version cannot read. All three are knowable while the current
 	# database is still intact, and being asked to confirm a destructive act that is then
-	# refused teaches an operator to stop reading the question.
+	# refused teaches an operator to stop reading the question. A copy marked unfinished is
+	# refused as that first, before anything is read from it (`#4409`).
 	try:
+		subroutine.db.backup.check_finished(path)
+
 		with _database(settings) as engine:
 			if not force:
 				subroutine.db.backup.check_unused(engine)
@@ -3817,6 +3866,7 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 		return
 
 	_say(f"The database being replaced was saved to {kept.path}")
+	_say_if_still_marked(kept)
 
 
 def _report_the_newest_release () -> None:

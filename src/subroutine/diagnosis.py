@@ -25,6 +25,7 @@ answer (`#236`). Both are reported when they can be and silent when they cannot,
 """
 
 import dataclasses
+import datetime
 import pathlib
 import sys
 import typing
@@ -512,22 +513,11 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 
 	# **A copy a stopped take left is named, never counted** (`#4282`, decision `#4302`). It is not
 	# in the catalogue, so without this nothing would say it is there, taking room and holding
-	# nothing anyone can trust.
-	stopped = subroutine.db.backup.unfinished(settings)
-	unfinished = (
-		[
-			Finding(
-				area="backups",
-				detail=(
-					f"unfinished in {where}, stopped before it was proved and not counted as a "
-					f"backup: {', '.join(path.name for path in stopped)}"
-				),
-				ok=False,
-			)
-		]
-		if stopped
-		else []
-	)
+	# nothing anyone can trust. **One line each, with the command that removes it** (`#4409`), and a
+	# take still writing has a marker too, so a copy written to within a day is said to be possibly
+	# in progress - not counted as a fault - rather than stopped.
+	now = subroutine.db.types.utcnow()
+	unfinished = [_marked(copy, now=now) for copy in subroutine.db.backup.unfinished(settings)]
 
 	if not found:
 		return [Finding(area="backups", detail=f"{where} holds none yet", unknown=True), *unfinished]
@@ -560,6 +550,29 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 		),
 		*unfinished,
 	]
+
+
+def _marked (copy: subroutine.db.backup.Unfinished, *, now: datetime.datetime) -> Finding:
+	"""Say what one copy marked unfinished is, and how to remove it - `#4409`."""
+
+	if copy.may_be_running(now):
+		return Finding(
+			area="backups",
+			detail=(
+				f"{copy.name} is marked unfinished and {copy.state(now)}. If none is, remove it and "
+				f"its marker: {copy.removal}"
+			),
+			unknown=True,
+		)
+
+	return Finding(
+		area="backups",
+		detail=(
+			f"{copy.name} is marked unfinished and {copy.state(now)}, so it is not counted as a "
+			f"backup. Remove it and its marker: {copy.removal}"
+		),
+		ok=False,
+	)
 
 
 def _readable (failure: Exception) -> str:

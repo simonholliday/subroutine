@@ -20,6 +20,8 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Two backups taken in the same second both succeed, under names a second apart.** One of
+  the pair failed.
 - **A PostgreSQL address setting a server option backs up and restores.** One carrying a
   space in its query - `options=-c%20jit%3Doff`, how libpq sets a setting per connection - served
   every ordinary command, and every backup, upgrade and restore failed on it.
@@ -218,8 +220,8 @@ upgrade involves.
   interrupted part way - Ctrl-C, `systemctl stop`, the out-of-memory killer - left a short file
   under a backup's name: listed as a routine backup, counted by `--keep`, which could delete a
   good backup to keep it, and named by `doctor` as the newest. A copy is now marked unfinished
-  beside it until it has been proved, a marked copy is never listed or pruned, and `doctor`
-  names it.
+  beside it until it has been proved, a marked copy is never listed, pruned or restored, and
+  `doctor`, `db backups` and the listing over HTTP name it, with the command that removes it.
 - **Taking a backup into a folder the server may not search is refused by name**, as listing that
   folder already was, rather than failing as an unexpected error - a 500 over HTTP and a crash
   report in the terminal.

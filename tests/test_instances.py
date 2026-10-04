@@ -1748,6 +1748,24 @@ def test_a_backup_over_http_is_named_without_naming_the_server_s_filesystem (
 	assert taken.json()["name"], "the backup is not identified by anything at all"
 
 
+def test_a_copy_marked_unfinished_is_named_apart_over_http (
+	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path
+) -> None:
+	"""`#4409`: the listing over HTTP names a copy marked unfinished, apart from the backups.
+
+	Measured before: it rendered the catalogue alone, so a marked copy was never mentioned.
+	"""
+
+	world = test_api_tasks._world(session)
+	taken = world.call("POST", "/v1/admin/backups").json()["name"]
+	marked = next(elsewhere.rglob(taken))
+	marked.with_name(marked.name + subroutine.db.backup.PARTIAL_SUFFIX).write_bytes(b"")
+
+	listed = world.call("GET", "/v1/admin/backups").json()
+
+	assert listed["items"] == [] and listed["unfinished"] == [taken], listed
+
+
 def test_a_backup_asked_to_keep_none_is_refused_before_it_is_taken (
 	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path
 ) -> None:
@@ -2209,18 +2227,165 @@ def test_a_copy_a_killed_take_left_is_never_listed_pruned_or_called_the_newest (
 	older = subroutine.db.backup.take(engine, _settings())
 	newer = subroutine.db.backup.take(engine, _settings())
 	newer.path.write_bytes(newer.path.read_bytes()[:512])
-	newer.path.with_name(newer.path.name + subroutine.db.backup.PARTIAL_SUFFIX).write_bytes(b"")
+	marker = newer.path.with_name(newer.path.name + subroutine.db.backup.PARTIAL_SUFFIX)
+	marker.write_bytes(b"")
+
+	# Stopped two days ago, so nothing can still be writing it (`#4409`).
+	stopped = time.time() - 2 * 86400
+	os.utime(newer.path, (stopped, stopped))
+	os.utime(marker, (stopped, stopped))
 
 	assert [one.path for one in subroutine.db.backup.catalogue(_settings())] == [older.path]
 	assert subroutine.db.backup.prune(_settings(), keep=1) == []
 	assert older.path.exists() and newer.path.exists()
-	assert subroutine.db.backup.unfinished(_settings()) == [newer.path]
+	assert [one.path for one in subroutine.db.backup.unfinished(_settings())] == [newer.path]
 
 	found = subroutine.diagnosis._the_backups(_settings())
 
 	assert older.path.name in found[0].detail and found[0].ok, found
 	assert [one.ok for one in found[1:]] == [False], found
 	assert newer.path.name in found[1].detail and "unfinished" in found[1].detail, found
+
+
+def test_a_copy_marked_unfinished_is_named_with_its_removal_and_refused_at_restore (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4409`: a marked copy is named, with the command that removes it, and refused for what it is.
+
+	Measured before: a restore of one was refused as *not a Subroutine backup*, or by
+	``pg_restore``, and never as unfinished; ``db backups`` and the listing over HTTP did not
+	mention it, and ``doctor`` named it with no way to remove it - and called a take still writing
+	stopped.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+	good = subroutine.db.backup.take(engine, _settings())
+	moment = datetime.datetime(2026, 10, 4, 12, 0, tzinfo=datetime.UTC)
+	stopped = subroutine.db.backup.take(engine, _settings(), moment=moment)
+	writing = subroutine.db.backup.take(engine, _settings(), moment=moment)
+
+	for copy in (stopped, writing):
+		copy.path.with_name(copy.name + subroutine.db.backup.PARTIAL_SUFFIX).write_bytes(b"")
+
+	long_ago = time.time() - 2 * 86400
+
+	for path in (stopped.path, stopped.path.with_name(stopped.name + ".partial")):
+		os.utime(path, (long_ago, long_ago))
+
+	removal = f"rm -f {stopped.path} {stopped.path}{subroutine.db.backup.PARTIAL_SUFFIX}"
+	found = subroutine.diagnosis._the_backups(_settings())
+	said = {one.detail.split()[0]: one for one in found[1:]}
+
+	assert not said[stopped.name].ok and removal in said[stopped.name].detail, found
+	assert said[writing.name].ok and said[writing.name].unknown, found
+	assert "may still be writing it" in said[writing.name].detail, found
+
+	runner = typer.testing.CliRunner()
+	listed = runner.invoke(subroutine.cli.main.app, ["db", "backups"])
+
+	assert listed.exit_code == 0, listed.output
+	assert removal in listed.output and writing.name in listed.output, listed.output
+
+	with pytest.raises(subroutine.errors.BadRequest) as refused:
+		subroutine.db.backup.restore(engine, stopped.path, as_clone=False)
+
+	assert "marked unfinished" in refused.value.detail, refused.value.detail
+	assert refused.value.hint is not None and removal in refused.value.hint, refused.value.hint
+
+	restored = runner.invoke(
+		subroutine.cli.main.app, ["db", "restore", stopped.name, "--recover", "--yes"]
+	)
+
+	assert restored.exit_code == 1, restored.output
+	assert "marked unfinished" in restored.output, restored.output
+	assert good.path.exists() and stopped.path.exists()
+
+
+def test_two_takes_in_one_second_both_deliver_under_different_names (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4409`: a take that reaches a name second moves on to the next one, rather than failing.
+
+	Measured before: one of each pair failed, *something else was written there first*. The name
+	was chosen by whether a copy was there, and another take's marker goes down before its copy.
+	The first take here is beaten to its name between choosing and marking it; the second chooses
+	while that other take's marker stands alone.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+	moment = datetime.datetime(2026, 10, 4, 12, 0, tzinfo=datetime.UTC)
+	real = subroutine.db.backup._created_private
+	beaten: list[pathlib.Path] = []
+	tried: list[str] = []
+
+	def beaten_to_it (path: pathlib.Path) -> typing.BinaryIO:
+		"""Let another take mark this name first, between choosing it and marking it."""
+
+		if not beaten:
+			beaten.append(path)
+			real(path).close()
+
+		tried.append(path.name)
+
+		return real(path)
+
+	monkeypatch.setattr(subroutine.db.backup, "_created_private", beaten_to_it)
+	first = subroutine.db.backup.take(engine, _settings(), moment=moment)
+	tried.clear()
+	second = subroutine.db.backup.take(engine, _settings(), moment=moment)
+
+	assert beaten and beaten[0].name.endswith(subroutine.db.backup.PARTIAL_SUFFIX), beaten
+	assert len({beaten[0].name, first.name + ".partial", second.name + ".partial"}) == 3
+	assert first.taken_at < second.taken_at, (first, second)
+
+	# The second chose past the name the other take had only marked, rather than trying it first.
+	assert [name for name in tried if name.endswith(".partial")] == [second.name + ".partial"]
+	assert [one.path for one in subroutine.db.backup.catalogue(_settings())] == [
+		second.path,
+		first.path,
+	]
+
+
+def test_a_good_copy_whose_marker_stays_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#4409`: a proved copy whose marker would not come away is kept marked, and the take says so.
+
+	Measured before: *Backed up ... to X* and nothing else, while ``db backups`` did not list X.
+	"""
+
+	run("init", "--workspace", "Real")
+	real = pathlib.Path.unlink
+
+	def stuck (self: pathlib.Path, missing_ok: bool = False) -> None:
+		"""Refuse to remove a marker, as a volume that forbids it does."""
+
+		if self.name.endswith(subroutine.db.backup.PARTIAL_SUFFIX):
+			raise PermissionError(errno.EACCES, "Permission denied", str(self))
+
+		real(self, missing_ok=missing_ok)
+
+	monkeypatch.setattr(pathlib.Path, "unlink", stuck)
+	taken = run("db", "backup")
+	name = _backup_name(taken.output)
+	path = next(word for word in taken.output.split() if word.endswith(name))
+
+	assert "stays marked unfinished" in taken.output, taken.output
+	assert f"To count it: rm -f {path}.partial" in taken.output, taken.output
+
+	listed = run("db", "backups")
+
+	assert f"  {name}, which " in listed.output, listed.output
 
 
 def test_a_delivery_never_writes_over_or_removes_a_file_already_at_its_name (

@@ -67,9 +67,16 @@ class Backup(pydantic.BaseModel):
 
 
 class Backups(pydantic.BaseModel):
-	"""Every backup this instance holds, newest first."""
+	"""Every backup this instance holds, newest first, and every copy marked unfinished."""
 
 	items: list[Backup]
+
+	#: The copies in the backup folder still marked unfinished, by name (`#4409`): a take that
+	#: stopped before its copy was proved, one still writing, or a good copy whose marker would not
+	#: come away. **None is a backup**, so none is among ``items``. Nothing removes one by itself,
+	#: and doing so is for whoever runs the installation, beside the file, where ``subroutine
+	#: doctor`` gives the command.
+	unfinished: list[str] = pydantic.Field(default_factory=list)
 
 
 def _rendered (backup: subroutine.db.backup.Backup) -> Backup:
@@ -148,10 +155,13 @@ def list_backups (
 	actor: subroutine.api.security.PrincipalDep,
 	settings: subroutine.api.dependencies.SettingsDep,
 ) -> Backups:
-	"""List the backups this instance holds, newest first."""
+	"""List the backups this instance holds, newest first, and name any copy marked unfinished."""
 
 	subroutine.domain.authorization.authorize_instance(
 		actor, subroutine.permissions.INSTANCE_ADMIN
 	)
 
-	return Backups(items=[_rendered(found) for found in subroutine.db.backup.catalogue(settings)])
+	return Backups(
+		items=[_rendered(found) for found in subroutine.db.backup.catalogue(settings)],
+		unfinished=[copy.name for copy in subroutine.db.backup.unfinished(settings)],
+	)

@@ -24,6 +24,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -194,11 +195,23 @@ class Backup:
 	#: took it can be told. Only a PostgreSQL copy that was just taken knows this.
 	left_out: tuple[str, ...] = ()
 
+	#: Why this copy is still marked unfinished although it was proved: the marker beside it could
+	#: not be removed (`#4409`). ``None`` once the marker came away, which is every ordinary take.
+	#: Carried back because the copy is then whole and counted by nothing, and a success line that
+	#: said nothing of it described a backup no listing shows. Only a copy just taken knows this.
+	still_marked: str | None = None
+
 	@property
 	def name (self) -> str:
 		"""Return the filename, which is what an operator names on the command line."""
 
 		return self.path.name
+
+	@property
+	def marker_removal (self) -> str:
+		"""Return the command that removes this copy's marker, so that it is counted - `#4409`."""
+
+		return f"rm -f {shlex.quote(str(_marker_beside(self.path)))}"
 
 
 def directory (settings: subroutine.config.Settings, *, create: bool = True) -> pathlib.Path:
@@ -385,6 +398,10 @@ def _free_name (
 
 	So the instant walks forward until the name is free. The recorded ``taken_at`` moves with
 	it, because the filename is what a catalogue reads back and the two must not disagree.
+
+	**A name with a marker beside it is taken too** (`#4409`). A take puts its marker down before
+	a byte of its copy, so a name chosen by whether a copy was there was the one a take still
+	delivering held, and the second take failed on it.
 	"""
 
 	for step in range(_MAX_NAME_ATTEMPTS):
@@ -392,7 +409,7 @@ def _free_name (
 		candidate = into / filename(profile, when, head, suffix)
 
 		try:
-			taken = candidate.exists()
+			taken = candidate.exists() or _marker_beside(candidate).exists()
 
 		except OSError as error:
 			# **A folder that is there and cannot be searched** (`#4285`). ``exists`` swallows only a
@@ -466,25 +483,88 @@ def _marker_beside (path: pathlib.Path) -> pathlib.Path:
 	return path.with_name(path.name + PARTIAL_SUFFIX)
 
 
-def unfinished (settings: subroutine.config.Settings) -> list[pathlib.Path]:
-	"""Return the copies in the backup folder still marked unfinished, by the name each was given.
+@dataclasses.dataclass(frozen=True)
+class Unfinished:
+	"""A copy still marked unfinished, and when it or its marker was last written - `#4409`."""
+
+	#: The name the copy was given, whether or not any of it arrived.
+	path: pathlib.Path
+
+	#: The newest write to the copy or its marker, or ``None`` when neither could be read.
+	last_written: datetime.datetime | None
+
+	@property
+	def name (self) -> str:
+		"""Return the filename, which is what an operator looks for in the folder."""
+
+		return self.path.name
+
+	@property
+	def removal (self) -> str:
+		"""Return the command that removes the copy and its marker.
+
+		**Given, never run.** Nothing removes a marked copy by itself, by decision `#4302`'s safe
+		direction: a take still writing it and a good copy whose marker would not come away look the
+		same from here, and only whoever is beside the file can tell them apart.
+		"""
+
+		return f"rm -f {shlex.quote(str(self.path))} {shlex.quote(str(_marker_beside(self.path)))}"
+
+	def may_be_running (self, now: datetime.datetime) -> bool:
+		"""Report whether a take may still be writing this copy.
+
+		**Judged against** :data:`STALE_STAGING`, the bound past which a take's staging folder is
+		cleared because no take still running is that old, and by the newest write rather than the
+		marker's own age, for `#4410`'s reason: a copy is written into long after its marker is made.
+		"""
+
+		return self.last_written is None or now - self.last_written < STALE_STAGING
+
+	def state (self, now: datetime.datetime) -> str:
+		"""Say whether a take may still be writing this copy, to follow *marked unfinished and*."""
+
+		if self.may_be_running(now):
+			return "was written to within a day, so a backup may still be writing it"
+
+		return "has not been written to for over a day"
+
+
+def unfinished (settings: subroutine.config.Settings) -> list[Unfinished]:
+	"""Return the copies in the backup folder still marked unfinished, in the order of their names.
 
 	A take stopped by a signal nothing can catch - a kill, the out-of-memory killer, a power cut -
 	leaves its copy and its marker behind. Neither :func:`catalogue` nor pruning counts such a
-	copy, so this is where it is found, to be named rather than silently kept.
+	copy, so this is where it is found, to be named rather than silently kept - with when it was
+	last written, so a take still writing can be told from one that stopped (`#4409`).
 	"""
 
 	where = directory(settings, create=False)
 
 	try:
-		return sorted(
-			path.with_name(path.name.removesuffix(PARTIAL_SUFFIX))
-			for path in where.iterdir()
-			if path.name.endswith(PARTIAL_SUFFIX)
-		)
+		markers = sorted(path for path in where.iterdir() if path.name.endswith(PARTIAL_SUFFIX))
 
 	except OSError:
 		return []
+
+	return [_unfinished(marker) for marker in markers]
+
+
+def _unfinished (marker: pathlib.Path) -> Unfinished:
+	"""Describe the copy one marker stands beside."""
+
+	copy = marker.with_name(marker.name.removesuffix(PARTIAL_SUFFIX))
+	written: list[float] = []
+
+	for path in (marker, copy):
+		with contextlib.suppress(OSError):
+			written.append(path.stat().st_mtime)
+
+	return Unfinished(
+		path=copy,
+		last_written=(
+			datetime.datetime.fromtimestamp(max(written), datetime.UTC) if written else None
+		),
+	)
 
 
 def _record_beside (path: pathlib.Path) -> pathlib.Path:
@@ -1420,7 +1500,9 @@ def take (
 			_take_postgresql(engine, staged)
 
 		size = staged.stat().st_size
-		_delivered(staged, target, head=head, size=size)
+		taken_at, target, still_marked = _delivered_under_a_free_name(
+			staged, into, (taken_at, target), profile=active, head=head, suffix=suffix, size=size
+		)
 
 	finally:
 		shutil.rmtree(staged.parent, ignore_errors=True)
@@ -1443,6 +1525,7 @@ def take (
 		taken_for=taken_for,
 		removed=tuple(_pruned_after(settings, taken_for=taken_for, keep=keep, now=taken_at)),
 		left_out=left_out,
+		still_marked=still_marked,
 	)
 
 
@@ -1520,9 +1603,42 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 	return counted
 
 
+def _delivered_under_a_free_name (
+	staged: pathlib.Path,
+	into: pathlib.Path,
+	chosen: tuple[datetime.datetime, pathlib.Path],
+	*,
+	profile: str | None,
+	head: str,
+	suffix: str,
+	size: int,
+) -> tuple[datetime.datetime, pathlib.Path, str | None]:
+	"""Deliver a copy, moving on to the next free name whenever another take reaches one first.
+
+	**Two takes in one second want one name** (`#4409`), and each chooses it before either has put
+	anything down, so the second to reach it failed - *something else was written there first* -
+	with nothing wrong. It walks on from the next second instead, as a name already taken is walked
+	past, and as far. Returns the instant and path it went to, and why its marker stayed, if it did.
+	"""
+
+	taken_at, target = chosen
+
+	# Bounded as the walk past a taken name is, and the last attempt's refusal is the answer.
+	for _attempt in range(_MAX_NAME_ATTEMPTS - 1):
+		try:
+			return taken_at, target, _delivered(staged, target, head=head, size=size)
+
+		except _NameTaken:
+			taken_at, target = _free_name(
+				into, taken_at + datetime.timedelta(seconds=1), profile, head, suffix
+			)
+
+	return taken_at, target, _delivered(staged, target, head=head, size=size)
+
+
 def _delivered (
 	staged: pathlib.Path, target: pathlib.Path, *, head: str, size: int
-) -> None:
+) -> str | None:
 	"""Copy a finished backup to its destination and prove that what arrived is readable.
 
 	**A half-written file on a network volume is the failure worth spending code on**, because it
@@ -1553,7 +1669,8 @@ def _delivered (
 	left a short file that read as a backup. So a marker goes down beside the copy before a byte
 	of it, and comes away only once the copy is proved. Whatever stops this in between, the copy
 	is never counted as a backup. If the marker cannot be removed afterwards, a good copy stays
-	marked: kept, never pruned, and named by ``doctor`` - the safe direction.
+	marked: kept, never pruned, and named by ``doctor`` - the safe direction - and why is returned,
+	so whoever took it is told (`#4409`). ``None`` means the marker came away.
 	"""
 
 	marker = _marker_beside(target)
@@ -1631,14 +1748,25 @@ def _delivered (
 
 		raise
 
-	# Proved, so no longer unfinished.
-	_unlinked(marker)
+	# Proved, so no longer unfinished - or still marked, and said so (`#4409`). The terminal said
+	# *Backed up* of a copy that no listing would then show.
+	try:
+		marker.unlink(missing_ok=True)
+
+	except OSError as error:
+		return str(error)
+
+	return None
 
 
-def _written_there_first (target: pathlib.Path) -> subroutine.errors.SubroutineError:
+class _NameTaken(subroutine.errors.ServiceUnavailable):
+	"""A backup name another take reached first, which :func:`take` answers by moving on."""
+
+
+def _written_there_first (target: pathlib.Path) -> _NameTaken:
 	"""Return the refusal for a backup name another take reached first."""
 
-	return subroutine.errors.ServiceUnavailable(
+	return _NameTaken(
 		f"The backup could not be written to {target}: something else was written there first.",
 		code="backup_failed",
 	)
@@ -1979,6 +2107,29 @@ def prune_restore_copies (
 	return _removed(stale)
 
 
+def check_finished (path: pathlib.Path) -> None:
+	"""Refuse a copy still marked unfinished, before anything else is asked of it - `#4409`.
+
+	**Said for what it is.** A short copy a stopped take left was refused anyway, by whichever check
+	it failed first, in words about a file that does not look like a backup - never that it was
+	marked unfinished, which is what tells an operator to choose another. A good copy whose marker
+	would not come away is refused too: nothing here can tell the two apart, and removing the
+	marker is how somebody who can says so.
+	"""
+
+	marker = _marker_beside(path)
+
+	if marker.exists():
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' is marked unfinished by {marker.name} beside it, so nothing has proved "
+			f"it is a whole copy. It has not been restored.",
+			hint=(
+				f"Run 'subroutine db backups' to choose another. If no backup is being taken now, "
+				f"remove it and its marker with: {_unfinished(marker).removal}"
+			),
+		)
+
+
 def check_restorable (path: pathlib.Path) -> str:
 	"""Return a backup's schema head, refusing one this installation cannot interpret.
 
@@ -2064,9 +2215,12 @@ def restore (
 	two call sites.
 	"""
 
-	# Every check before anything is touched, and in this order: a file from the other engine
+	# Every check before anything is touched, and in this order: a copy marked unfinished is
+	# refused as that before anything is read from it (`#4409`), a file from the other engine
 	# is refused as such rather than as a file with no schema version in it (`#172`), and a
 	# database somebody else is using is refused before either (`#171`).
+	check_finished(source)
+
 	if not force:
 		check_unused(engine)
 
