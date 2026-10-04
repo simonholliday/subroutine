@@ -169,9 +169,9 @@ upgrade involves.
 - **A repeat at the end of a sentence is read.** *Water the plants every day.* set no repeat
   and said *every day.* was not a repeat it understood, suggesting *every day*; so did *every 14
   days!* and *every sunday?*. The mark that ends the sentence stays in the title.
-- **`subroutine mcp` given two different workspaces tells the agent's client why**, rather than
-  stopping before it could answer, with the reason on standard error where a client does not
-  show it.
+- **`subroutine mcp` given two different workspaces, or two different connections, tells the
+  agent's client why**, rather than stopping before it could answer, with the reason on standard
+  error where a client does not show it.
 - **An email address too long once lowercased is refused by name.** Some capital letters become
   two when lowered, so an address that fitted was stored over-long, or answered with a server
   error on PostgreSQL.
@@ -205,8 +205,8 @@ upgrade involves.
 - **A listing's cursor works only in the workspace it came from.** Passed to the same listing
   in another workspace, it carried on there from where it had stopped: a task listing answered
   with no rows and said there were no more, and nothing said anything was wrong. It is now
-  refused, as a cursor from a different listing already was, and the listing starts again. A
-  cursor issued before this upgrade is refused once in the same way.
+  refused, as a cursor from a different listing already was; ask for the first page again
+  without it. A cursor issued before this upgrade is refused once in the same way.
 - **Listing tasks on PostgreSQL no longer spends seconds preparing a query that takes
   milliseconds.** PostgreSQL compiled the checks every task listing makes for what is ready
   before running them, having misjudged how much work they were: a page of eight took about
@@ -219,7 +219,7 @@ upgrade involves.
   and where even the tree without its summaries was too long, it said the summaries had been cut
   so the list fits. It now lists every project and says the list is longer than one answer is
   kept to.
-- **An agent's credential narrowed to some projects writes from a checkout marked for somewhere
+- **An agent's credential that may not list projects writes from a checkout marked for somewhere
   else.** In a checkout whose `.subroutine` names another workspace or instance, every write such
   a credential made - `add` and `document create`, and `subroutine_add` and `subroutine_document`
   - was refused *there is no project here*, with advice to make one it could not make, and
@@ -305,8 +305,10 @@ upgrade involves.
   `binds.eq=workspace` on the listing. Every document binds its own project until it is marked.
   Marking one, setting it back, writing one marked and superseding a marked one each take
   `project:write`, from a credential that reaches every project, and a document superseding a
-  marked one is marked too. `subroutine show` and the document's page say when one binds the
-  whole workspace.
+  marked one is marked too. So does taking a marked one out of force by another door - a status
+  out of force, a type that binds nobody, moving or deleting it or a document holding it, and
+  making private, moving under a private project or deleting the project it is in.
+  `subroutine show` and the document's page say when one binds the whole workspace.
 - **A repeat on several days is left as written, and said so**: *Gym every monday and
   thursday*, *every monday, wednesday and friday*, *every other monday and thursday*, *every 2
   weeks on monday and thursday*, *every month on the 1st and 15th*, *on the 1st and 15th of every
@@ -317,9 +319,11 @@ upgrade involves.
   or the API, such a phrase is refused naming the rule that does repeat on those days, such as
   `FREQ=WEEKLY;BYDAY=MO,TH`.
 - **`document create` and `document edit` read the text from standard input only for
-  `--body -`**: `subroutine document create "Review findings" --body - < notes.md`. Text piped in
-  without it is refused when nothing else is asked, before anything is written, and ignored, with
-  a warning, when a field is named; it was read whenever a pipe was attached: a loop over lines,
+  `--body -`**: `subroutine document create "Review findings" --body - < notes.md`. On `document
+  create`, text piped in without it is ignored, with a warning, only beside `--body "..."`, and
+  refused otherwise before anything is written; on `document edit` it is ignored, with a
+  warning, when a field is named, and refused when nothing else is asked. It was read whenever a
+  pipe was attached: a loop over lines,
   or a hook reading its own input, gave the first document every line after it, and an edit
   replaced a document's text. `--body ''` now means no text.
 - **`user deactivate` names every workspace it would leave with nobody who can administer
@@ -456,7 +460,7 @@ upgrade involves.
   own token is told it is the token; a name two projects share is not listed to a credential that
   may not list projects; the compact token row says where a credential is pinned and what it
   reaches; and an agent whose person has left no longer counts as the administrator left behind.
-- **The agent's tools**: the project list keeps to its bound whatever the titles, a marked write
+- **The agent's tools**: the project list counts its titles against its bound, a marked write
   asks who the caller is once rather than twice, a checkout marked for another instance is said as
   that without quoting an id, a workspace put in the trash by its name in capitals is restored by
   it, and an administrator names a workspace by its id however it is written. Locally, a
@@ -471,8 +475,9 @@ upgrade involves.
   read every fifteen minutes or that `subroutine connections` names workspaces.
 - **Events are left out of the list, the board and the agents' listing, and counted.** A birthday
   or a payday happens to you rather than being done, so `subroutine list`, `subroutine_list` and
-  the browser's list and board leave them out and say how many: *1 event not listed. 'subroutine
-  list --events' to include them.* `--events`, naming an event type or `type_category:occasion`,
+  the browser's list and board leave them out and say how many: *1 event not listed.
+  'subroutine list --events' to include it.* `--events`, naming an event type or
+  `type_category:occasion`,
   a search, and the trash bring them back. `GET /v1/tasks` takes `events=include`, `exclude` or
   `only`, still `include` unless asked, and filters by `type_category`.
 
