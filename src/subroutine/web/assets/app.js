@@ -98,7 +98,7 @@ import {
 
 export function App () {
 	const [me, setMe] = useState(null);
-	const [workspace, setWorkspace] = useState(null);
+	const [workspace, setWorkspaceState] = useState(null);
 	const [items, setItems] = useState([]);
 	const [open, setOpen] = useState(null);
 	const [error, setError] = useState(null);
@@ -255,7 +255,7 @@ export function App () {
 	/* The project the address narrows to, or null for the whole workspace (`#647`). Held
 	   beside the workspace rather than derived on each render, because the poll and every
 	   write reload the list and all of them have to narrow the same way. */
-	const [project, setProject] = useState(null);
+	const [project, setProjectState] = useState(null);
 	/* The agenda, or null when a listing is what is showing (`#652`). Null rather than a
 	   separate `showing` flag, because "there is an agenda to render" and "the agenda is what to
 	   render" are the same fact and two would drift. */
@@ -272,7 +272,30 @@ export function App () {
 		The merged agenda is the one thing `/` means, and what makes it merged is that nobody
 		named a workspace.
 	*/
-	const [everywhere, setEverywhere] = useState(true);
+	const [everywhere, setEverywhereState] = useState(true);
+	/*
+		**Where the reader is, the moment it changes** - `#4402`, R2-M2 of the cold review of
+		2026-10-04. The three above are state, and state lands a render late, so a read asked by a poll,
+		a refresh or a write that captured them before its own await asked about the place the reader
+		had left - took the newest ticket, and drew that place's rows or agenda here, where on a quiet
+		workspace they stayed. `load` and `readAgenda` ask this first and read nothing for anywhere else.
+
+		**Written by the setters themselves**, so no way of moving can leave it behind: the review
+		counted six places that move the reader and there were eight.
+	*/
+	const placed = useRef({ slug: null, key: null, everywhere: true });
+	const setWorkspace = useCallback((slug) => {
+		placed.current = { ...placed.current, slug };
+		setWorkspaceState(slug);
+	}, []);
+	const setProject = useCallback((key) => {
+		placed.current = { ...placed.current, key: key ?? null };
+		setProjectState(key);
+	}, []);
+	const setEverywhere = useCallback((flag) => {
+		placed.current = { ...placed.current, everywhere: flag };
+		setEverywhereState(flag);
+	}, []);
 	const [unscheduled, setUnscheduled] = useState(0);
 	/* How much more somebody else is sitting on than this page drew (`#1285`). */
 	const [heldUp, setHeldUp] = useState(0);
@@ -530,6 +553,14 @@ export function App () {
 		   gives about `slug` three call sites away: `setWorkspace` and `setProject` have not
 		   landed in the render that calls this, so a read of either would ask about the place
 		   the reader just left. */
+		/* **And only about the place the reader is in** (`#4402`, R2-M2 of the cold review of
+		   2026-10-04): a poll or a write's refresh that captured the place before its own await asked
+		   about the one the reader had left, took the newest ticket and drew that agenda here. A null
+		   slug is the agenda of everywhere. */
+		const here = placed.current;
+
+		if ((here.everywhere ? null : here.slug) !== slug || here.key !== (key ?? null)) return;
+
 		agendaAsked.current += 1;
 
 		const ticket = agendaAsked.current;
@@ -604,6 +635,12 @@ export function App () {
 	const load = useCallback(async (slug, key = null, after = null, columns = null) => {
 		if (!slug) return;
 
+		/* **Only about the place the reader is in** (`#4402`, R2-M2 of the cold review of 2026-10-04),
+		   asked before a ticket is taken: the poll, `reread`, `add` and `prioritise` capture the place
+		   before their own awaits, so one asked after the reader moved took the newest ticket and drew
+		   the place they had left. */
+		if (slug !== placed.current.slug || (key ?? null) !== placed.current.key) return;
+
 		listingAsked.current += 1;
 
 		const ticket = listingAsked.current;
@@ -612,7 +649,8 @@ export function App () {
 		   with the project in the address** (`#4288`, M6 of the cold review of 2026-10-03): an open
 		   item's address is its own project, so a listing wider than that - the workspace's, a
 		   parent's - threw its own answer away while an item was open, and an item finished there was
-		   still listed after Back. The ticket already says which read is the latest. */
+		   still listed after Back. The ticket says which read in flight is the latest; one asked after
+		   the reader moved is refused before it takes one, against `placed` (`#4402`). */
 		const current = () => ticket === listingAsked.current
 			&& areaOf(window.location.pathname) === null
 			&& (shown.current.view || DEFAULT_VIEW) !== AGENDA_VIEW;
@@ -959,6 +997,10 @@ export function App () {
 	const furnishedFor = useRef(null);
 
 	const enter = useCallback((slug) => {
+		/* **The place moves even where nothing needs fetching** (`#4402`): the state may already say
+		   this workspace while the reader's last move, not yet landed, said another. */
+		if (slug) placed.current = { ...placed.current, slug };
+
 		if (!slug || (slug === workspace && furnishedFor.current === slug)) return;
 
 		furnishedFor.current = slug;
@@ -3093,7 +3135,7 @@ export function App () {
 		   names a place, and a search that wrote an address and left the buckets on screen would
 		   be the page and the bar disagreeing. */
 		if (wanted.view === AGENDA_VIEW) {
-			if (moving) await readAgenda(place.workspace, place.project);
+			if (moving) await readAgenda(place.agenda ? null : place.workspace, place.project);
 
 			return;
 		}

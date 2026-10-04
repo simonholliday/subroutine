@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The browser no longer draws the project you just left.** A list or an agenda refreshed by
+  something that started before you moved - the background check for changes, or adding an item
+  - could draw the old project's rows or agenda under the new one's address, and on a quiet
+  workspace they stayed until the next change.
 - **A workspace given to `-w` by its id takes the checkout's file naming it by name.** The two
   were compared as written, so the file was ignored and the work went to the Inbox.
 - **The agent tools name a project by its key, not its id.** With a credential that may not list

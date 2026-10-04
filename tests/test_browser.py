@@ -5448,6 +5448,10 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 
 	**And an item, which had no ticket** (`SR#4322`, of the cold review of 2026-10-03): one opened and
 	slow to answer, landing after the reader had opened another, drew itself under its own address.
+
+	**And a read asked after the reader moved** (`SR#4402`, R2-M2 of the cold review of 2026-10-04):
+	a write answered once the reader had gone to another project refreshed the project it was written
+	in, took the newest ticket and drew its rows - or its agenda - there. No such read is made now.
 	**And closing an item arrived at directly** went to ``/?view=list`` rather than back to the
 	project's list, since ``close`` read ``everywhere`` from the page's first render.
 	"""
@@ -5852,6 +5856,49 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	), f"an item answering after another was opened was drawn at {page.url}"
 
 	page.close()
+
+	# **And a write answered after the reader moved** (`SR#4402`): websites' refresh is not asked for
+	# at acme's, on a list or on an agenda.
+	writes: list[typing.Any] = []
+
+	def held_back (route: typing.Any) -> None:
+		"""Keep an add back until the test lets it through; let every other request by."""
+
+		if route.request.method == "POST":
+			writes.append(route)
+		else:
+			route.fallback()
+
+	def asked_of (where: str, endpoint: str) -> bool:
+		"""Whether the page has read ``endpoint`` for ``where`` since ``reads`` was last cleared."""
+
+		return any(where in one for one in reads if one.split("?")[0] == endpoint)
+
+	for drawn_as, endpoint in (("list", "v1/tasks"), ("agenda", "v1/agenda")):
+		writes.clear()
+		page = opened(f"/projects/websites?view={drawn_as}")
+		page.wait_for_selector(".adding input[name=text]", timeout=10_000)
+		page.route(lambda url: url.split("?")[0].endswith("/v1/tasks"), held_back)
+		page.fill(".adding input[name=text]", "Fix the gate")
+		page.press(".adding input[name=text]", "Enter")
+		_until(page, lambda: bool(writes))
+
+		assert writes, f"the add was never sent on the {drawn_as}, so this proves nothing"
+
+		page.wait_for_selector(
+			"header .where select option[value='/projects/acme']", state="attached", timeout=10_000
+		)
+		page.locator("header .where select").select_option("/projects/acme")
+		page.wait_for_url(re.compile(r".*/projects/acme.*"), timeout=10_000)
+		_until(page, functools.partial(asked_of, "acme", endpoint))
+		reads.clear()
+		writes.pop().fallback()
+
+		assert not lands(functools.partial(asked_of, "websites", endpoint)), (
+			f"websites' {drawn_as} was asked for at {page.url} after the add answered: {reads}"
+		)
+
+		page.close()
 
 	# **And All items from an item arrived at directly** (`SR#4322`) goes back to its project's list.
 	page = opened("/projects/42?view=list")
