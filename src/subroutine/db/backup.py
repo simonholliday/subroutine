@@ -2297,10 +2297,12 @@ def _restore_sqlite (
 	_copy_into(source, staged)
 	os.replace(staged, target)
 
-	# **The copy carries the source's mode, so the live database inherits it** (`SR#1563`).
-	# `copy2` preserves permissions, and `docs/hosting.md` invites keeping backups on a shared
+	# **The copy carried the source's mode, so the live database inherited it** (`SR#1563`).
+	# `copy2` preserved permissions, and `docs/hosting.md` invites keeping backups on a shared
 	# volume — so restoring a file that arrived 0644 left the database holding every task,
-	# comment and token hash readable by every account on the machine. `#175`'s own argument,
+	# comment and token hash readable by every account on the machine. `_copy_into` creates it
+	# owner-only now, and this reasserts 0600 where a filesystem ignored the mode asked for.
+	# `#175`'s own argument,
 	# undone by a restore: *"§12.1a says there is no local password prompt because anyone who
 	# can read the file can read every row with sqlite3 — which is an argument for the
 	# filesystem permission being right, not for it being ignored."*

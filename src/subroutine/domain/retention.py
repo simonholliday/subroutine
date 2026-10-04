@@ -139,9 +139,10 @@ def move (
 ) -> Archived:
 	"""Move the oldest ``limit`` live events at or below ``through``, and record how far it got.
 
-	**Recorded on the instance in the same transaction** as the rows move, so the number a cursor
-	is refused by and the rows it stands for cannot disagree. A database with no instance row has
-	nowhere to record it, and moves nothing.
+	**Recorded on the instance in the same transaction** as the rows move, so the floor it records
+	and the rows it stands for cannot disagree. It is not what refuses a cursor, which is asked of
+	the archive itself, per workspace. A database with no instance row has nowhere to record it,
+	and moves nothing.
 	"""
 
 	instance = session.scalar(sqlalchemy.select(subroutine.db.models.system.Instance))

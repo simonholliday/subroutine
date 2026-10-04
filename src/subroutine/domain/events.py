@@ -919,8 +919,9 @@ def refuse_a_bound_that_names_nothing (before: int | None) -> None:
 	Zero — the ordinary uninitialised default in most languages — is the same answer arrived at
 	by accident, and a feed's one unforgivable failure is looking empty when it is not.
 
-	**There is no expiry half.** Nothing is being resumed from here, so an old bound is not a
-	lost page; it is a caller asking about the past, which is what a bound is for.
+	**Its expiry half is** :func:`refuse_a_period_behind_the_floor`, **asked after the page.** Nothing
+	is being resumed from here, so an old bound is a caller asking about the past, which is what a
+	bound is for; it is refused only where the archive holds an event it would have matched.
 
 	Here rather than in either caller for §5.11a's reason: a feed must not answer differently
 	over two transports, and ``since=0`` is the recorded case of exactly that (`#309`).

@@ -2283,11 +2283,12 @@ def database_restore (
 		path = candidate
 
 	# Before anything is destroyed, and before the operator is asked to agree to anything:
-	# refuse a database something else is using (`#171`), a backup taken from the other engine
-	# (`#172`), and one this version cannot read. All three are knowable while the current
-	# database is still intact, and being asked to confirm a destructive act that is then
-	# refused teaches an operator to stop reading the question. A copy marked unfinished is
-	# refused as that first, before anything is read from it (`#4409`).
+	# refuse a copy marked unfinished, first and before anything is read from it (`#4409`), a
+	# database something else is using (`#171`), a backup taken from the other engine (`#172`),
+	# a database still holding what a stopped restore set aside (`#4398`), and a backup this
+	# version cannot read. All five are knowable while the current database is still intact,
+	# and being asked to confirm a destructive act that is then refused teaches an operator to
+	# stop reading the question.
 	try:
 		subroutine.db.backup.check_finished(path)
 

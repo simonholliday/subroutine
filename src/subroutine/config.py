@@ -5,10 +5,9 @@ Two precedence chains exist and are deliberately kept apart (docs/design.md §12
 * **Process configuration** — where the database is, what port to listen on, which key
   signs things. Resolved here, in the order: command-line flag, then environment
   variable, then the configuration file, then the built-in default.
-* **Behavioural settings** — how long the trash is kept, whether completing a task needs
-  evidence. Those are resolved per project, then per workspace, and only fall back to
-  the values here as an installation-wide default. This module holds the last link in
-  that chain, never the whole of it.
+* **Behavioural settings** that a workspace or a project may choose - its colour, the statuses
+  it hides, where OSC messages go - are a separate registry, ``domain/settings.py``, with its
+  own defaults. Nothing here is overridden by a workspace or a project.
 """
 
 import contextlib
@@ -997,7 +996,7 @@ class Settings(pydantic_settings.BaseSettings):
 	# rule was applied to one of the two places the value lived. §6.12's evidence gate brings
 	# it back when there is a gate.
 
-	# Bounds how deep a project or subtask tree may nest, and with it the length of a
+	# Bounds how deep a project, task or document tree may nest, and with it the length of a
 	# materialised path and the cost of a move (docs/design.md §5.4).
 	# **Bounded at 26 because `path` is `String(1024)`** (`SR#1560`'s L-1). A depth of *n* is
 	# *n + 1* segments of 37 characters plus a leading separator, so 26 is 1000 and 27 is

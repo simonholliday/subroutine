@@ -1,7 +1,8 @@
 """Events past a retention floor move to an archive, and nothing is deleted - `#251`, decision `#4233`.
 
-The change feed reads the live table, so its floor moves and a cursor at or below the highest
-``seq`` moved is answered ``410 cursor_expired``; everything that reads history reads both tables.
+The change feed reads the live table, so a cursor after which events in the reader's workspaces
+have moved is answered ``410 cursor_expired``, naming where to carry on; everything that reads
+history reads both tables.
 Each test ages the events it wants moved, rather than waiting for them to age.
 """
 
@@ -107,7 +108,7 @@ def test_events_past_the_floor_move_and_none_is_lost (world: test_api_tasks.Worl
 	instance = world.session.scalar(sqlalchemy.select(subroutine.db.models.system.Instance))
 
 	assert instance is not None
-	assert instance.events_archived_through == archived.through, "the floor a cursor is refused by"
+	assert instance.events_archived_through == archived.through, "the floor recorded with the move"
 
 	again = _archived(world)
 
