@@ -413,6 +413,60 @@ def test_a_link_to_something_invisible_is_not_reported (
 	assert nosy.call("GET", f"/v1/tasks/{public['ref']}/links").json()["items"] == []
 
 
+def test_a_link_whose_far_end_moved_out_of_sight_is_not_the_reader_s_to_remove (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4429`, R2-L32 of the cold review of 2026-10-04: only an end that resolved was checked.
+
+	One task blocked another in a public project and was then moved into a private one. A member
+	who could not see it listed no links on the other, and removing the link anyway answered 204:
+	the owner's task lost its blocker. **Not theirs to see, so not theirs to remove**: 404, and the
+	link stays. And its owner still removes a link whose far end is beneath a project in the trash.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+	world.call(
+		"POST", "/v1/projects", json={"key": "ops", "title": "Operations", "visibility": "private"}
+	)
+	launch = world.call(
+		"POST", "/v1/tasks", json={"title": "Ship the launch page", "project": "web"}
+	).json()
+	gate = world.call("POST", "/v1/tasks", json={"title": "Fix the gate", "project": "web"}).json()
+	link = world.call(
+		"POST",
+		f"/v1/tasks/{gate['ref']}/links",
+		json={"target": launch["ref"], "link_type": "blocks"},
+	).json()
+	moved = world.call("PATCH", f"/v1/tasks/{gate['ref']}", json={"project": "ops"})
+
+	assert moved.status_code == 200, moved.text
+
+	carrieanne = subroutine.domain.users.create(session, username=f"carrieanne-{uuid.uuid4().hex[:6]}")
+	subroutine.domain.workspaces.add_member(session, world.workspace, carrieanne, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=carrieanne, title="carrieanne"
+	)
+	session.flush()
+	member = world._replace(secret=issued.value.get_secret_value())
+	path = f"/v1/tasks/{launch['ref']}/links"
+
+	assert member.call("GET", path).json()["items"] == []
+
+	refused = member.call("DELETE", f"{path}/{link['id']}")
+
+	assert refused.status_code == 404, refused.text
+	assert len(world.call("GET", path).json()["items"]) == 1, "the link went anyway"
+
+	trashed = world.call("DELETE", "/v1/projects/ops")
+
+	assert trashed.status_code < 300, trashed.text
+
+	removed = world.call("DELETE", f"{path}/{link['id']}")
+
+	assert removed.status_code == 204, removed.text
+
+
 def test_a_specification_can_be_written_and_the_work_derived_from_it (
 	world: test_api_tasks.World,
 ) -> None:

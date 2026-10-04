@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A link whose other end you cannot see is not yours to remove.** A member could remove a
+  link to an item moved into a private project they were not in, and its owner's item lost
+  what blocked it. It is refused as a link that is not there, as their list of links already
+  leaves it out.
 - **An agent acting as the terminal's account cannot sign anybody else out everywhere.** Named
   in `local_user`, it could sign a superuser out, which the same agent presenting a credential
   is refused. A person at the terminal still can.

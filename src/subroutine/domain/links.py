@@ -970,7 +970,27 @@ def remove (
 		("source", link.source_type, link.source_id),
 		("target", link.target_type, link.target_id),
 	):
-		end = resolve(session, actor, workspace_id=link.workspace_id, entity_type=entity_type, identifier=identifier)
+		end = resolve(
+			session,
+			actor,
+			workspace_id=link.workspace_id,
+			entity_type=entity_type,
+			identifier=identifier,
+			beneath_trash=True,
+		)
+
+		# **An end out of the caller's sight makes a link they cannot see, so not one to remove**
+		# (`#4429`, R2-L32 of the cold review of 2026-10-04). Only an end that resolved was checked, so
+		# a member who listed no links on an item removed one whose far end had moved into a private
+		# project, and the owner's item lost its blocker; comments refuse the same with a 404. Resolved
+		# beneath the trash as well, so a link to work in a trashed project is still the owner's to remove.
+		if end is None and actor is not None and entity_type in LINKABLE:
+			raise subroutine.errors.NotFound(
+				"There is no such link"
+				+ ("" if acted_on is None else f" on {subroutine.domain.refs.format_ref(acted_on.ref)}")
+				+ ".",
+				hint="List the item's links to see the ones there are.",
+			)
 
 		if end is not None:
 			_permitted(session, actor, link.workspace_id, end)
@@ -2004,8 +2024,13 @@ def _ends (
 	workspace_id: uuid.UUID,
 	entity_type: str,
 	identifiers: typing.Collection[uuid.UUID],
+	beneath_trash: bool = False,
 ) -> list[End]:
-	"""Return the items of one type this caller may see, from one narrowed statement."""
+	"""Return the items of one type this caller may see, from one narrowed statement.
+
+	``beneath_trash`` takes in an item beneath a project or parent in the trash, which nobody sees
+	otherwise (`#4429`).
+	"""
 
 	if entity_type not in LINKABLE or not identifiers:
 		return []
@@ -2030,7 +2055,12 @@ def _ends (
 			is_complete=entity_type == "task" and row.completed_at is not None,
 		)
 		for row in session.scalars(
-			_visible(principal, workspace_id=workspace_id, entity_type=entity_type).where(
+			_visible(
+				principal,
+				workspace_id=workspace_id,
+				entity_type=entity_type,
+				beneath_trash=beneath_trash,
+			).where(
 				model.id.in_(identifiers)
 			)
 		)
@@ -2042,6 +2072,7 @@ def _visible (
 	*,
 	workspace_id: uuid.UUID,
 	entity_type: str,
+	beneath_trash: bool = False,
 ) -> typing.Any:
 	"""Return the statement selecting the items of one type this caller may see.
 
@@ -2065,12 +2096,17 @@ def _visible (
 			principal,
 			workspace_ids=[workspace_id],
 			include_deleted=True,
+			include_beneath_trash=beneath_trash,
 			include_archived=True,
 			include_templates=True,
 		)
 
 	return subroutine.domain.scoping.readable_documents(
-		principal, workspace_ids=[workspace_id], include_deleted=True, include_archived=True
+		principal,
+		workspace_ids=[workspace_id],
+		include_deleted=True,
+		include_beneath_trash=beneath_trash,
+		include_archived=True,
 	)
 
 
@@ -2081,11 +2117,12 @@ def resolve (
 	workspace_id: uuid.UUID,
 	entity_type: str,
 	identifier: uuid.UUID,
+	beneath_trash: bool = False,
 ) -> End | None:
 	"""Return one end of a link, or ``None`` when this caller cannot see it.
 
 	Narrowed through ``domain.scoping``, so an item in a private project is invisible here
-	exactly as it is everywhere else.
+	exactly as it is everywhere else. ``beneath_trash`` is :func:`_ends`'s.
 	"""
 
 	if entity_type not in LINKABLE:
@@ -2097,6 +2134,7 @@ def resolve (
 		workspace_id=workspace_id,
 		entity_type=entity_type,
 		identifiers=[identifier],
+		beneath_trash=beneath_trash,
 	)
 
 	return found[0] if found else None
