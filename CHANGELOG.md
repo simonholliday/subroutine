@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A PostgreSQL address setting a server option backs up and restores.** One carrying a
+  space in its query - `options=-c%20jit%3Doff`, how libpq sets a setting per connection - served
+  every ordinary command, and every backup, upgrade and restore failed on it.
 - **Crash reports are owner-only and carry no value a database statement was given**, which
   could include the hash a credential is looked up by. And a configuration file being rewritten
   is made owner-only before the new text goes in, not after.

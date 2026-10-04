@@ -1782,9 +1782,19 @@ def _connectable (engine: sqlalchemy.engine.Engine) -> str:
 	# and quietly returns the URL with the password still in it — which passes every reading of
 	# this function and defeats the whole point of it. ``set(password="")`` leaves a bare colon
 	# that some tools then send as an empty password.
-	return url._replace(
+	rendered = url._replace(
 		drivername=url.get_backend_name(), password=None
 	).render_as_string(hide_password=False)
+
+	# **And a space in the query written as libpq reads one** (`#4413`, NEW-C-2 of the verification of
+	# the cold review of 2026-10-04). SQLAlchemy writes a query value with ``quote_plus``, so a space
+	# is ``+`` - and libpq's URI parser decodes ``%xx`` and not ``+``, so ``options=-c%20jit%3Doff``,
+	# its own way to set a server setting, reached ``pg_dump`` as ``+jit``, and every backup, upgrade
+	# and restore failed. In that encoding every ``+`` is a space and a literal one is ``%2B``, so
+	# the query alone is rewritten and nothing else is touched.
+	address, mark, query = rendered.partition("?")
+
+	return address + mark + query.replace("+", "%20")
 
 
 def _secret_of (engine: sqlalchemy.engine.Engine) -> dict[str, str]:

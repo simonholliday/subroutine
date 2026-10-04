@@ -3086,6 +3086,37 @@ def test_a_database_password_is_never_written_onto_a_command_line () -> None:
 	assert subroutine.db.backup._secret_of(engine) == {"PGPASSWORD": "hunter2"}
 
 
+def test_a_postgresql_url_with_a_space_in_its_query_backs_up_and_restores (
+	own_database: str,
+) -> None:
+	"""`SR#4413`, NEW-C-2 of the verification of the cold review of 2026-10-04.
+
+	A ``database_url`` setting a server option per connection - ``options=-c%20jit%3Doff``, libpq's
+	own way - served every ordinary command, and every backup, upgrade and restore failed: the tools
+	were handed the space written ``+``, which libpq does not read as a space. On SQLite there is no
+	such option and nothing to hand a tool, so that leg asks nothing.
+	"""
+
+	if own_database.startswith("sqlite"):
+		return
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	spaced = f"{own_database}{'&' if '?' in own_database else '?'}options=-c%20jit%3Doff"
+	engine = subroutine.db.session.create_engine(spaced)
+
+	try:
+		assert "+jit" not in subroutine.db.backup._connectable(engine)
+
+		written = subroutine.db.backup.take(engine, _settings())
+		subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
+
+
 def test_a_url_with_no_password_adds_nothing_to_the_environment () -> None:
 	"""Which is the ordinary case here — authentication by Unix socket — and it must not change.
 
