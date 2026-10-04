@@ -317,6 +317,16 @@ The first should report connecting as `subroutine` over a socket. In the second,
 A database on **another machine**, or one that wants a password, takes the full URL form
 instead - and then `After=postgresql.service` in the unit is meaningless and can go.
 
+**Behind a connection pooler, turn JIT off on the database.** Subroutine turns PostgreSQL's JIT
+compilation off on every connection it opens, because for its queries compiling costs seconds and
+saves nothing. A pooler such as PgBouncer in transaction or statement mode serves each statement
+from whichever server connection is free, so that setting does not reach them all. Set it on the
+database instead, which its owner - the service account - may do:
+
+```console
+# sudo -u subroutine psql -d subroutine -c 'ALTER DATABASE subroutine SET jit = off'
+```
+
 ### Starting on PostgreSQL
 
 If you are setting a server up now, this is the order - and step 3 is the one that costs an

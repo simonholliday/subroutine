@@ -75,22 +75,34 @@ def _apply_postgresql_settings (connection: typing.Any, _record: typing.Any) -> 
 	behind one would lose the database to a performance setting. Outside a transaction, so it
 	lasts for the connection's life: the pool hands a connection back with a rollback, which
 	would take a ``SET`` made inside one with it.
+
+	**Behind a pooler in transaction or statement mode it does not reach every statement** (`#4412`,
+	R2-L7 of the cold review of 2026-10-04): each is served by whichever server connection is free,
+	so there JIT is turned off on the database, as ``docs/hosting.md`` says.
+
+	**And a failure closes the connection**, for :func:`_apply_sqlite_pragmas`' reason (`#228`): the
+	pool has not yet recorded it, so ``dispose()`` would never close what this leaves open.
 	"""
 
-	autocommit = connection.autocommit
-	connection.autocommit = True
-
 	try:
-		cursor = connection.cursor()
+		autocommit = connection.autocommit
+		connection.autocommit = True
 
 		try:
-			cursor.execute("SET jit = off")
+			cursor = connection.cursor()
+
+			try:
+				cursor.execute("SET jit = off")
+
+			finally:
+				cursor.close()
 
 		finally:
-			cursor.close()
+			connection.autocommit = autocommit
 
-	finally:
-		connection.autocommit = autocommit
+	except Exception:
+		connection.close()
+		raise
 
 
 #: The two backends this is built and tested on (docs/design.md §10.3). Every test runs against both,

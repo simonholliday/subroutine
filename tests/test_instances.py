@@ -2435,6 +2435,49 @@ def test_a_failed_pragma_closes_the_connection_it_was_handed (tmp_path: pathlib.
 		connection.execute("SELECT 1")
 
 
+def test_a_failed_jit_setting_closes_the_connection_it_was_handed () -> None:
+	"""`SR#4412`, R2-L7 of the cold review of 2026-10-04, for `#228`'s reason on PostgreSQL.
+
+	The pool has not yet recorded a connection its connect handler is setting up, so one the
+	``SET`` failed on was held open until the process ended. Asserted on the listener, as the
+	SQLite half is, with a connection that refuses the statement.
+	"""
+
+	class Refusing:
+		"""A cursor whose one statement fails."""
+
+		def execute (self, _statement: str) -> None:
+			"""Refuse, as a server that will not take the setting does."""
+
+			raise RuntimeError("unrecognized configuration parameter")
+
+		def close (self) -> None:
+			"""Close nothing: there is nothing to close."""
+
+	class Handed:
+		"""A connection that remembers whether it was closed."""
+
+		autocommit = False
+		closed = False
+
+		def cursor (self) -> Refusing:
+			"""Return the cursor that refuses."""
+
+			return Refusing()
+
+		def close (self) -> None:
+			"""Note that it was closed."""
+
+			self.closed = True
+
+	handed = Handed()
+
+	with pytest.raises(RuntimeError):
+		subroutine.db.session._apply_postgresql_settings(handed, None)
+
+	assert handed.closed, "a connection the setting failed on was left open"
+
+
 def test_a_setting_nobody_reads_is_said_out_loud (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:
