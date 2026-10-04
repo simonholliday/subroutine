@@ -147,8 +147,9 @@ upgrade involves.
   project for anything run under `/tmp`, among the projects its reader could see. One belonging
   to another account is passed over, and the terminal and the agent's tools say so, naming it;
   `subroutine use --here` will not write over one.
-- **The plugins' skill names the five routes `subroutine_call_api` will not reach**, where it
-  said three, and why the two that answer with a credential are among them. It says the
+- **The plugins' skill names the seven routes `subroutine_call_api` will not reach**, where it
+  said three, and why the four that answer with a credential are among them, and says what an
+  instance that archives old events answers a `since` from before them. It says the
   `.subroutine` file is read only where the `subroutine` plugin or `subroutine mcp` runs, and not
   through `subroutine-remote`.
 - **The conventions an agent reads no longer advise an argument the listing refuses.** They told

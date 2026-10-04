@@ -192,6 +192,10 @@ Keep the `seq` it prints last and pass it back as `since` next time. It is inclu
 will see that one again; ignore what you already have. `mine=true` narrows it to what your own
 credential did, which is how you pick up your own unfinished work rather than everybody's.
 
+**An instance may move old events out of the feed into an archive.** A `since` from before them
+is then refused with the `seq` to carry on after, so carry on from there; a period reaching back
+past them is refused naming the journal, which reads the archive too.
+
 **When somebody asks what happened, use the journal instead.** These are two readings of one
 store and they answer different questions:
 
@@ -756,11 +760,12 @@ renameable, so `done` may be called something else here and guessing is how you 
 `subroutine://docs/examples` is a worked request for each common act, every one of them executed
 by the project's own test suite.
 
-**Five routes are deliberately out of reach.** Creating a workspace, renaming one and moving a
+**Seven routes are deliberately out of reach.** Creating a workspace, renaming one and moving a
 project are consequential, none can be undone, and the command line counts what will change and
-asks first - which a tool call cannot do here yet. Issuing a token and making a sign-in link each
-answer with a credential, which would pass through your context and stay in it. The refusal
-names the command to run.
+asks first - which a tool call cannot do here yet. Issuing a token, making a sign-in link, and
+making a calendar feed or giving one a new address each answer with a credential, which would
+pass through your context and stay in it. Each refusal says which of the two it is, and names
+the command to run.
 
 ## Things worth knowing
 
