@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Bringing a rule that binds the whole workspace into force takes what marking it takes**, as
+  taking one out of force already did: setting it back to a status in force, making it a type
+  that binds, restoring it from the trash, and restoring, making public or moving out from under
+  a private project the project that holds it. Any contributor could put a retired rule back,
+  rewritten, into every agent's conventions.
 - **On the night the clocks go forward, a repeating item's dates stay in order.** Where the
   date it repeats on fell in the skipped hour, the hour was carried into every other date, so a
   start could land after its deadline and an event end before it started. A date whose time does

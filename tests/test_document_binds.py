@@ -274,6 +274,123 @@ def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	assert through("web").status_code == 200, f"{door} was refused for a project holding no rule"
 
 
+@pytest.mark.parametrize(
+	("door", "made", "method", "suffix", "body"),
+	[
+		("a status into force", {"status": "superseded"}, "PATCH", "", {"status": "active"}),
+		("a draft into force", {"status": "draft"}, "PATCH", "", {"status": "active"}),
+		("a type that binds everybody", {"type": "note"}, "PATCH", "", {"type": "decision"}),
+		("a restore", None, "POST", "/restore", None),
+	],
+)
+def test_bringing_a_marked_rule_into_force_takes_what_marking_it_takes (
+	door: str,
+	made: dict[str, str] | None,
+	method: str,
+	suffix: str,
+	body: dict[str, str] | None,
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4389`, R2-M6 of the cold review of 2026-10-04, decision `#4134` as amended that day.
+
+	Retiring a marked rule took the marking permission, and bringing one back did not: a contributor
+	put a superseded rule back into force with a new title, and a credential refused the delete
+	restored one from the trash. **And the controls**: an unmarked rule goes through each door, and
+	the marked one does for somebody who may mark it.
+	"""
+
+	_carrieanne, contributor = _member(world, "carrieanne", "contributor")
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	owner_narrowed = _credential(world, world.user, project_write_scope=[inbox])
+
+	# Nobody below an administrator may restore a document, so a narrowed owner stands for them there.
+	secret = owner_narrowed if suffix == "/restore" else contributor
+	sent = {} if body is None else {"json": body}
+
+	for marked in (True, False):
+		title = f"Every page loads fast ({door}, {'marked' if marked else 'plain'})"
+		rule = _written(world, title=title, **({"binds": "workspace"} if marked else {}))
+		path = f"/v1/documents/{rule['ref']}"
+		prepared = (
+			world.call("DELETE", path) if made is None else world.call("PATCH", path, json=made)
+		)
+
+		assert prepared.status_code in (200, 204), prepared.text
+
+		answer = _as(world, secret, method, path + suffix, **sent)
+
+		if not marked:
+			assert answer.status_code == 200, f"{door} was refused for a rule binding only its project"
+			continue
+
+		assert answer.status_code == 403, f"{door} went through: {answer.status_code} {answer.text}"
+		assert "the whole workspace" in answer.text, answer.text
+		assert world.call(method, path + suffix, **sent).status_code == 200, f"{door} refused the owner"
+
+
+@pytest.mark.parametrize("door", ["restored", "public", "out from under a private project"])
+def test_showing_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
+	door: str, world: test_api_tasks.World
+) -> None:
+	"""`SR#4389`: the mirror of hiding one. Restoring the rule's project, making it public, or moving
+	it out from under a private project each brought the rule into everybody's conventions.
+
+	**And the control**: a project holding no marked rule goes through each.
+	"""
+
+	vault = world.call(
+		"POST", "/v1/projects", json={"key": "vault", "title": "Vault", "visibility": "private"}
+	).json()["id"]
+	web = world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"}).json()["id"]
+	made = []
+
+	for key in ("ops", "docs"):
+		if door == "public":
+			made.append(
+				world.call(
+					"POST",
+					"/v1/projects",
+					json={"key": key, "title": key, "visibility": "private"},
+				).json()["id"]
+			)
+
+		elif door == "out from under a private project":
+			made.append(
+				world.call(
+					"POST", "/v1/projects", json={"key": key, "title": key, "parent": "vault"}
+				).json()["id"]
+			)
+
+		else:
+			made.append(
+				world.call("POST", "/v1/projects", json={"key": key, "title": key}).json()["id"]
+			)
+
+	_written(world, title="Rotate the backup disks every week", binds="workspace", project=made[0])
+	narrowed = _credential(world, world.user, project_write_scope=[vault, web, *made])
+
+	def through (key: str) -> typing.Any:
+		"""Go through the door for one project, with the narrowed credential."""
+
+		address = f"vault/{key}" if door == "out from under a private project" else key
+
+		if door == "restored":
+			assert world.call("DELETE", f"/v1/projects/{address}").status_code in (200, 204)
+
+			return _as(world, narrowed, "POST", f"/v1/projects/{address}/restore")
+
+		if door == "public":
+			return _as(world, narrowed, "PATCH", f"/v1/projects/{address}", json={"visibility": "public"})
+
+		return _as(world, narrowed, "POST", f"/v1/projects/{address}/move", json={"parent": "web"})
+
+	refused = through("ops")
+
+	assert refused.status_code == 403, f"{door} went through: {refused.text}"
+	assert "rule that binds the whole workspace" in refused.text, refused.text
+	assert through("docs").status_code == 200, f"{door} was refused for a project holding no rule"
+
+
 def test_a_successor_carries_the_mark_and_superseding_takes_what_marking_takes (
 	world: test_api_tasks.World,
 ) -> None:

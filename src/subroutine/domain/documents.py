@@ -884,6 +884,19 @@ def restore (
 	if document.deleted_at is None:
 		return document
 
+	# **Bringing a marked rule back from the trash is bringing it into force** (`#4389`, R2-M6 of the
+	# cold review of 2026-10-04, decision `#4134` as amended): a credential refused the delete put
+	# one back, rewritten, into every agent's conventions.
+	if _marked_beneath(session, document):
+		_permitted_to_mark(
+			session,
+			actor,
+			document.workspace_id,
+			act="restore a document that binds the whole workspace, or one holding it",
+			hint=_LEAVE_IT,
+			field="binds",
+		)
+
 	# **The place this document held may have been taken while it was in the trash** —
 	# `SR#2285`, and this is the door the retired unique index closed by firing at flush time.
 	# It was a *partial* index, so deleting a replacement really did free the slot; coming back
@@ -1408,11 +1421,14 @@ def _retiring (
 	moving: bool,
 	beneath: typing.Sequence[subroutine.db.models.work.Document],
 ) -> tuple[str, str] | None:
-	"""Return how an update would retire a rule binding the whole workspace, and its field - `#4286`.
+	"""Return how an update would retire a rule binding the whole workspace, or bring one into force,
+	and its field - `#4286`, `#4389`.
 
-	Decision `#4134` names the doors: a status leaving the current category, a type leaving the
-	governing types, and a move to another project - which takes a document's sections with it, so
-	a marked section moves with an unmarked parent. ``None`` where the update does none of them.
+	Decision `#4134` names the doors: a status leaving or entering the current category, a type
+	leaving or entering the governing types, and a move to another project - which takes a
+	document's sections with it, so a marked section moves with an unmarked parent. Entering force
+	widens a rule's reach from nobody to everybody, which only somebody who may mark one may do.
+	``None`` where the update does none of them.
 	"""
 
 	if moving and any(one.binds == BINDS_THE_WORKSPACE for one in (document, *beneath)):
@@ -1427,11 +1443,17 @@ def _retiring (
 		if was is not None and was.category == CURRENT_CATEGORY and status.category != CURRENT_CATEGORY:
 			return "take a document that binds the whole workspace out of force", "status"
 
+		if was is not None and was.category != CURRENT_CATEGORY and status.category == CURRENT_CATEGORY:
+			return "put a document that binds the whole workspace into force", "status"
+
 	if item_type is not subroutine.domain.patch.UNSET:
 		kind = session.get(subroutine.db.models.vocabulary.ItemType, document.type_id)
 
 		if kind is not None and kind.key in GOVERNS and item_type.key not in GOVERNS:
 			return "make a document that binds the whole workspace a type that binds nobody", "type"
+
+		if kind is not None and kind.key not in GOVERNS and item_type.key in GOVERNS:
+			return "make a document that binds the whole workspace a type that binds everybody", "type"
 
 	return None
 
@@ -1465,8 +1487,8 @@ def refuse_hiding_a_rule (
 	act: str,
 	field: str,
 ) -> None:
-	"""Refuse hiding a project that holds a rule binding the whole workspace, unless the actor may
-	mark one - `#4286`, decision `#4134`.
+	"""Refuse hiding a project that holds a rule binding the whole workspace, or showing one again,
+	unless the actor may mark one - `#4286`, `#4389`, decision `#4134`.
 
 	**Making the project that holds a rule private is retiring it by another door**: privacy
 	inherits down the tree, so a project above it made private, or a move under a private one, does

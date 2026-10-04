@@ -389,6 +389,22 @@ def move (
 			field="parent",
 		)
 
+	# **Nor out from under one, by the mirror rule** (`#4389`): a project hidden only by a private
+	# project above it is shown to everybody when it leaves for a public place.
+	if (
+		project.visibility != "private"
+		and _private_at_or_above(session, project)
+		and (parent is None or not _private_at_or_above(session, parent))
+	):
+		_refuse_hiding_a_rule(
+			session,
+			actor,
+			project,
+			act="move out from under a private project a project holding a rule that binds the whole "
+			"workspace",
+			field="parent",
+		)
+
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
 	destination = None if parent is None else parent.id
@@ -556,6 +572,17 @@ def update (
 	# project out of sight of everybody not shared into it, administrators included.
 	if visibility == "private" and project.visibility != "private":
 		_refuse_deciding_sight(session, actor, project, act="make it private", field="visibility")
+
+	# **And showing one again** (`#4389`, decision `#4134` as amended): a private project made
+	# public brings every rule it holds into everybody's conventions.
+	if visibility == "public" and project.visibility == "private":
+		_refuse_hiding_a_rule(
+			session,
+			actor,
+			project,
+			act="make public a project holding a rule that binds the whole workspace",
+			field="visibility",
+		)
 
 	if visibility == "private" and project.visibility != "private":
 		_refuse_hiding_a_rule(
@@ -893,6 +920,16 @@ def restore (
 
 	if project.deleted_at is None:
 		return project
+
+	# **Nor one holding a rule for the whole workspace** (`#4389`): its rules come back with it, into
+	# everybody's conventions, as :func:`delete` takes them away.
+	_refuse_hiding_a_rule(
+		session,
+		actor,
+		project,
+		act="restore a project holding a rule that binds the whole workspace",
+		field="project",
+	)
 
 	# An ancestor still in the trash would put this row back into a subtree nobody can see, so
 	# the caller would be told it worked and nothing would appear. Refused by name instead.
