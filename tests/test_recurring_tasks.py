@@ -13,10 +13,12 @@ import concurrent.futures
 import datetime
 import functools
 import threading
+import time
 import typing
 import uuid
 import zoneinfo
 
+import dateutil.rrule
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
@@ -1817,6 +1819,74 @@ def test_a_whole_day_series_ending_today_is_made (
 	made = _repeating(session, recurrence=rule, due=None, starts="2026-08-15")
 
 	assert made.starts_at is not None and made.starts_is_all_day
+
+
+def test_a_rule_its_start_cannot_reach_is_refused_at_once (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4421`, R2-L20 (a) of the cold review of 2026-10-04: walked to the year 9999 first.
+
+	Every seventh day from a Tuesday is never a Monday, and nothing about the rule alone says so -
+	from a Monday it is every week. It took over a second to refuse.
+
+	**Measured by where each walk begins rather than by a clock**, which a busy runner moves:
+	dateutil checks an end only against a day it found, so a walk that finds none goes from where it
+	begins to the year 9999, and one begun within two cycles of it walks two cycles at most.
+	"""
+
+	begun: list[int] = []
+	read = dateutil.rrule.rrulestr
+
+	def watched (text: str, **named: typing.Any) -> typing.Any:
+		"""Read a rule as dateutil would, noting the year it is walked from once it is walked."""
+
+		rule = read(text, **named)
+
+		def walked () -> typing.Iterator[datetime.datetime]:
+			"""Walk the rule, having noted where it begins - a rule only built is not walked."""
+
+			begun.append(named["dtstart"].year)
+
+			yield from rule
+
+		return walked()
+
+	monkeypatch.setattr(dateutil.rrule, "rrulestr", watched)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		_repeating(session, recurrence="FREQ=DAILY;INTERVAL=7;BYDAY=MO", due="2026-08-18")
+
+	assert refused.value.detail == "That repeat never comes round from the date it repeats from."
+
+	furthest = datetime.MAXYEAR - 2 * subroutine.domain.recurrence.CALENDAR_CYCLE_YEARS
+
+	assert begun and min(begun) > furthest, f"a rule naming nothing was walked from {min(begun)}"
+
+
+def test_a_series_dated_long_ago_is_made_without_walking_every_day_since (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4421`, R2-L20 (b): a daily series dated in the year 2 took nearly two seconds to make.
+
+	Every create and every new rule walked it a day at a time to today. **And the control**: what it
+	hands back next is what walking every day would, today's deadline.
+	"""
+
+	started = time.monotonic()
+	made = _repeating(session, recurrence="every day", due="0002-01-02")
+
+	assert time.monotonic() - started < 1.0, "it walked from the year 2 to today"
+
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(session, made, now=NOW)
+
+	coming = _next_live(session, series)
+
+	assert coming.due_at is not None
+	assert coming.due_at.astimezone(zoneinfo.ZoneInfo(LONDON)).date() == datetime.date(2026, 8, 15), (
+		"the next one is not today's, which a walk from the year 2 reaches"
+	)
 
 
 def test_a_rule_naming_no_date_at_all_says_so (session: sqlalchemy.orm.Session) -> None:

@@ -23,6 +23,7 @@ instants out, so the same reading applies to the API, to quick capture and to th
 
 import dataclasses
 import datetime
+import math
 import re
 import typing
 
@@ -138,7 +139,7 @@ _MONTH_WORDS = "|".join(sorted(_MONTHS, key=len, reverse=True))
 _EVERY = re.compile(
 	rf"""
 	^\s*every\s+
-	(?:(?P<other>other)\s+|(?P<count>\d+)\s+)?
+	(?:(?P<other>other)\s+|(?P<count>\d{{1,9}})\s+)?
 	(?:(?P<unit>{_UNIT_WORDS})|(?P<weekday>{_WEEKDAY_WORDS}))
 	(?P<qualifier>\s+.*)?
 	\s*$
@@ -254,12 +255,12 @@ SEVERAL_DAYS = re.compile(
 	(?<![^\s])
 	(?:
 		every\s+(?:other\s+)?{_listed(_A_WEEKDAY_WRITTEN)}
-		|every\s+(?:other\s+|\d+\s+)?weeks?\s+on\s+{_listed(_A_WEEKDAY_WRITTEN)}
+		|every\s+(?:other\s+|\d{{1,9}}\s+)?weeks?\s+on\s+{_listed(_A_WEEKDAY_WRITTEN)}
 		|every\s+{_listed(_AN_ORDINAL_WRITTEN)}\s+(?:{_A_WEEKDAY_WRITTEN})
 			(?:\s+of\s+(?:the|every)\s+month)?
-		|every\s+(?:other\s+|\d+\s+)?months?\s+on\s+{_listed(_AN_ORDINAL_WRITTEN)}
+		|every\s+(?:other\s+|\d{{1,9}}\s+)?months?\s+on\s+{_listed(_AN_ORDINAL_WRITTEN)}
 			\s+(?:{_A_WEEKDAY_WRITTEN})
-		|every\s+(?:other\s+|\d+\s+)?months?\s+on\s+{_listed(_A_DAY_OF_THE_MONTH)}
+		|every\s+(?:other\s+|\d{{1,9}}\s+)?months?\s+on\s+{_listed(_A_DAY_OF_THE_MONTH)}
 		|on\s+{_listed(_AN_ORDINAL_WRITTEN)}\s+(?:{_A_WEEKDAY_WRITTEN})\s+of\s+every\s+month
 		|on\s+{_listed(_A_DAY_OF_THE_MONTH)}\s+of\s+every\s+month
 	)
@@ -281,7 +282,11 @@ def on_several_days (written: str) -> str | None:
 
 	lowered = written.lower()
 	# **How often, where it says** (`#4318`): *every other* is two, as it is in a one-day repeat.
-	often = re.search(r"\bevery\s+(other|\d+)\s", lowered)
+	#
+	# **Nine digits at most, here and in every pattern above** (`#4421`, R2-L20 (c) of the cold review
+	# of 2026-10-04): a number of five thousand digits is more than Python will read, so it answered
+	# 500. Nine is far past the century a repeat may span, which is refused by name.
+	often = re.search(r"\bevery\s+(other|\d{1,9})\s", lowered)
 	interval = 1 if often is None else 2 if often.group(1) == "other" else int(often.group(1))
 	named = [
 		subroutine.domain.dates.WEEKDAYS[one]
@@ -1028,6 +1033,25 @@ def occurrences (
 	zone = subroutine.domain.dates.zone(timezone)
 	anchor = start.astimezone(zone).replace(tzinfo=None)
 	cursor = None if after is None else after.astimezone(zone).replace(tzinfo=None)
+	span = _falls_again_after(stored)
+
+	# **Started late by whole cycles, where nothing is counted** (`#4421`, R2-L20 (b) of the cold
+	# review of 2026-10-04): a daily series dated in the year 2 was walked a day at a time to today on
+	# every create and every new rule. Its pattern falls the same way again after ``span`` years, so
+	# a start that many years on - kept a year short of the cursor - misses nothing the cursor asks
+	# for. A ``COUNT`` is counted from the real start, so a rule with one is walked from there.
+	if span is not None and cursor is not None and "COUNT=" not in stored.upper():
+		spans = (cursor.year - anchor.year - 1) // span
+
+		if spans > 0:
+			anchor = anchor.replace(year=anchor.year + spans * span)
+
+	# **A rule that cannot come round from its start says so at once** (`#4421`, R2-L20 (a)). Every
+	# seventh day from a Tuesday is never a Monday, and dateutil checks an end only against a day it
+	# found, so it walked to the year 9999 before saying nothing. Only an interval makes a rule's
+	# coming round turn on its start; one that no start reaches is refused when it is written.
+	if span is not None and _an_interval(stored) > 1 and not _comes_round_at_all(stored, anchor, span):
+		return []
 
 	# **An ``UNTIL`` in UTC is read on the clock the start is walked on** (`#3765`). The rule is
 	# walked on local wall-clock time from a start with no zone, and dateutil refuses to compare
@@ -1106,6 +1130,70 @@ def _walked (
 
 	except (ValueError, OverflowError) as unreadable:
 		raise _refuse(stored, field="recurrence", why=f"It cannot be followed: {unreadable}.") from None
+
+
+def _an_interval (stored: str) -> int:
+	"""Return a stored rule's ``INTERVAL``, or 1 where it names none or one that cannot be read."""
+
+	for piece in stored.split(";"):
+		name, _, value = piece.partition("=")
+
+		if name.strip().upper() == "INTERVAL":
+			try:
+				return max(1, int(value.strip()))
+
+			except ValueError:
+				return 1
+
+	return 1
+
+
+def _falls_again_after (stored: str) -> int | None:
+	"""Return the years a rule takes to fall the same way again, or ``None`` if it cannot say - `#4421`.
+
+	**One calendar cycle, as many times as the interval needs to come back into step**: four
+	hundred years hold 146,097 days, 20,871 weeks and 4,800 months, so a rule every ``n`` of them
+	repeats its pattern after the cycle times ``n`` over what ``n`` and that number share.
+	"""
+
+	units = None
+
+	for piece in stored.split(";"):
+		name, _, value = piece.partition("=")
+
+		if name.strip().upper() == "FREQ":
+			units = {
+				"DAILY": 146_097,
+				"WEEKLY": 20_871,
+				"MONTHLY": 4_800,
+				"YEARLY": CALENDAR_CYCLE_YEARS,
+			}.get(value.strip().upper())
+
+	if units is None:
+		return None
+
+	interval = _an_interval(stored)
+
+	return CALENDAR_CYCLE_YEARS * interval // math.gcd(units, interval)
+
+
+def _comes_round_at_all (stored: str, anchor: datetime.datetime, span: int) -> bool:
+	"""Return whether a rule walked from ``anchor`` ever names a day, walking at most two spans - `#4421`.
+
+	**Asked from the last span before the year 9999 that falls as the anchor does**, which is how
+	:func:`_refuse_a_rule_that_never_comes_round` bounds its own walk; its end and its count are set
+	aside, since this asks whether it comes round at all, not whether it comes round again.
+	"""
+
+	spans = (datetime.MAXYEAR - span - anchor.year) // span
+	late = anchor.replace(year=anchor.year + spans * span) if spans > 0 else anchor
+	pattern = ";".join(
+		piece
+		for piece in stored.split(";")
+		if piece.strip() and piece.partition("=")[0].strip().upper() not in {"COUNT", "UNTIL"}
+	)
+
+	return next(iter(dateutil.rrule.rrulestr(f"RRULE:{pattern}", dtstart=late)), None) is not None
 
 
 def following (

@@ -728,6 +728,24 @@ def test_a_rule_naming_a_date_that_does_not_exist_is_refused (impossible: str) -
 	assert time.monotonic() - started < 1.0, "refused, but only after doing the work anyway"
 
 
+def test_a_counted_rule_is_counted_from_its_own_start_however_long_ago () -> None:
+	"""`SR#4421`: a walk is begun late by whole cycles only where nothing is counted.
+
+	Seven hundred years from 1600 end in 2299. Begun four hundred years late, as a rule with no
+	``COUNT`` may be, the count would run from 2000 and on to 2699.
+	"""
+
+	found = subroutine.domain.recurrence.occurrences(
+		"FREQ=YEARLY;COUNT=700",
+		start=datetime.datetime(1600, 6, 1, 9, 0, tzinfo=datetime.UTC),
+		timezone="UTC",
+		after=datetime.datetime(2299, 1, 1, tzinfo=datetime.UTC),
+		limit=3,
+	)
+
+	assert [one.year for one in found] == [2299]
+
+
 @pytest.mark.parametrize(
 	"possible",
 	[

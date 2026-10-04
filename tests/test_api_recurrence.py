@@ -100,8 +100,22 @@ def test_the_dates_are_computed_from_where_the_caller_says (
 	assert first.astimezone(datetime.UTC).date() == datetime.date(2026, 8, 17)
 
 
+#: A number five thousand digits long, which Python will not read and so answered 500 (`SR#4421`).
+VAST = "9" * 5000
+
+
+@pytest.mark.parametrize(
+	"phrase",
+	[
+		"every fortnight",
+		f"every {VAST} days",
+		f"every {VAST} weeks on monday",
+		f"every {VAST} weeks on monday and thursday",
+	],
+	ids=["a word it does not know", "days", "weeks on a day", "weeks on two days"],
+)
 def test_a_phrase_this_cannot_read_is_refused_exactly_as_a_create_would_refuse_it (
-	world: test_api_tasks.World,
+	phrase: str, world: test_api_tasks.World
 ) -> None:
 	"""**The same function, so the two answers cannot drift** — which is the whole reason to
 	check first at all.
@@ -111,16 +125,14 @@ def test_a_phrase_this_cannot_read_is_refused_exactly_as_a_create_would_refuse_i
 	refusals rather than by matching a string, so a reworded message keeps this honest.
 	"""
 
-	previewed = world.call(
-		"POST", "/v1/recurrence/parse", json={"text": "every fortnight"}
-	)
+	previewed = world.call("POST", "/v1/recurrence/parse", json={"text": phrase})
 
 	assert previewed.status_code == 422
 
 	created = world.call(
 		"POST",
 		"/v1/tasks",
-		json={"text": "Water the plants", "due": "2026-09-01", "recurrence": "every fortnight"},
+		json={"text": "Water the plants", "due": "2026-09-01", "recurrence": phrase},
 	)
 
 	assert created.status_code == 422

@@ -103,8 +103,10 @@ upgrade involves.
   title and all; and every save moved the series' version, so a client holding it was told
   somebody else had changed it. A repeat sent back unchanged is now no change.
 - **A repeat that can never come round is refused at once, saying so.** *The 1st of every
-  month, when it is the second Monday* was walked to the year 9999 before anything said it had
-  no dates, and then refused for dates that had passed. A repeat holding a control character, or
+  month, when it is the second Monday*, and *every seventh day on a Monday* from a Tuesday, were
+  walked to the year 9999 before anything said they had no dates, and then refused for dates
+  that had passed. A repeat written with a number too long to read is refused rather than
+  answered with an error. A repeat holding a control character, or
   a number written in digits other than 0 to 9, is refused as other text is; and *the 5th
   Monday* no longer reads back as *the 5 Monday*.
 - **A repeat at the end of a sentence is read.** *Water the plants every day.* set no repeat
