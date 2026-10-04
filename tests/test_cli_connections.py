@@ -891,6 +891,16 @@ def test_a_marker_belonging_to_another_account_is_said_and_not_filed_by (
 
 	assert "it belongs to another account" in added.output, added.output
 	assert ".subroutine" in added.output and "from .subroutine" not in added.output, added.output
+	assert "Name the project with +key instead" in added.output, "the line names a remedy"
+
+	# **Nor written over** (`SR#4397`): it wrote into the other account's file in place, said
+	# *Wrote*, and the next command skipped it again.
+	marker = checkout / subroutine.directory.FILE_NAME
+	before = marker.read_bytes()
+	rewritten = run("use", "--here", "--project", "web", expect=1)
+
+	assert "will not write over it" in rewritten.output, rewritten.output
+	assert "Wrote" not in rewritten.output and marker.read_bytes() == before, rewritten.output
 
 
 @pytest.mark.parametrize("address", ["http://[::1", "http://[zz]"])

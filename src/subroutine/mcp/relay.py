@@ -676,10 +676,15 @@ def _standing (connection: subroutine.connections.Connection) -> dict[str, str]:
 	calls the connection; the instance has never heard the name.
 	"""
 
-	marker = subroutine.directory.find()
+	# **And any it passed over, so the agent is told as the terminal is** (`#4397`, decision
+	# `#4361`): the relay is where an agent's session reads a marker, and it skipped one in silence.
+	skipped: list[str] = []
+	marker = subroutine.directory.find(said=skipped.append)
+	told = subroutine.directory.skipped_as_header(skipped)
+	headers = {} if told is None else {subroutine.directory.SKIPPED_HEADER: told}
 
 	if marker is None:
-		return {}
+		return headers
 
 	# **By its ids alone, where it names the connection another way** (`#3893`). A teammate's
 	# alias for one instance is not this machine's name for it, so the marker was never sent and
@@ -688,13 +693,13 @@ def _standing (connection: subroutine.connections.Connection) -> dict[str, str]:
 	# where the marker was written for somewhere else is `#414`.
 	if not marker.speaks_for(connection.name):
 		if marker.workspace_id is None:
-			return {}
+			return headers
 
 		marker = marker._replace(connection=None, workspace=None, project=None)
 
 	said = subroutine.directory.as_header(marker)
 
-	return {} if said is None else {subroutine.directory.HEADER: said}
+	return headers if said is None else {**headers, subroutine.directory.HEADER: said}
 
 
 def _asking_for (workspace: str | None) -> dict[str, str] | None:

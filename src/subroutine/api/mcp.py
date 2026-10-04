@@ -222,6 +222,9 @@ def call (
 		standing=subroutine.mcp.tools.Standing(
 			checkout=subroutine.directory.from_header(request.headers.get(subroutine.directory.HEADER)),
 			project=(project or "").strip() or None,
+			skipped=subroutine.directory.skipped_from_header(
+				request.headers.get(subroutine.directory.SKIPPED_HEADER)
+			),
 		),
 	)
 

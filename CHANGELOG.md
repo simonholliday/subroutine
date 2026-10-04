@@ -47,10 +47,12 @@ upgrade involves.
   an agent answers to is deactivated. A feed's address went on serving everything its owner
   could see, private projects included, after they were taken out. Added back, they find it
   answering again, with what they can see then.
-- **A `.subroutine` file is read only when it belongs to you or to root**, as git reads a
-  repository. One anywhere above the working directory was read, so a `/tmp/.subroutine` chose
-  the project for anything run under `/tmp`, among the projects its reader could see. One
-  belonging to another account is passed over, and the command says so, naming it.
+- **A `.subroutine` file is read only when it belongs to you or to root**, much as git refuses
+  a repository another account owns, and through a link only when the link is yours or root's
+  too. One anywhere above the working directory was read, so a `/tmp/.subroutine` chose the
+  project for anything run under `/tmp`, among the projects its reader could see. One belonging
+  to another account is passed over, and the terminal and the agent's tools say so, naming it;
+  `subroutine use --here` will not write over one.
 - **The plugins' skill names the five routes `subroutine_call_api` will not reach**, where it
   said three, and why the two that answer with a credential are among them. It says the
   `.subroutine` file is read only where the `subroutine` plugin or `subroutine mcp` runs, and not

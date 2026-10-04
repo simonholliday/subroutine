@@ -694,6 +694,13 @@ https://subroutine.example.com/mcp?workspace=acme&project=web
 A project named in the line itself, as `+web`, still wins, and so does a checkout's own file
 where the `subroutine` plugin reads one: that plugin sends it along with every request.
 
+**A checkout's file is read only when it is yours, or root's**, much as git refuses a repository
+another account owns, and through a link only when the link is yours or root's too. One that
+belongs to another account is skipped, and the answer says so, naming it. The folders above it
+are not checked, so a folder others can write to is no safer for this. Run as root - in a
+container over a checkout mounted from your own account, say - every such file is skipped: name
+the project in the line, or run as the account that owns the checkout.
+
 **An instance older than the release that added this refuses the whole address.** It answers
 *This endpoint does not accept 'project'*, and that ends the connection rather than one request,
 so the agent has no Subroutine tools at all. Leave `&project=` off for such an instance, and name

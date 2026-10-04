@@ -82,6 +82,38 @@ HEADER = "Subroutine-Checkout"
 #: the relay has already asked whether the marker speaks for the connection it forwards to.
 CARRIED = ("workspace_id", "workspace", "project_id", "project")
 
+#: The header a relay says it passed over a marker in (`#4397`, R2-L27 of the cold review of
+#: 2026-10-04, decision `#4361`): each line :data:`SKIPPED` said, quoted, so the agent's answer
+#: says it as the terminal does. A marker that steers where work is filed is never ignored in
+#: silence, and the relay is where an agent's session reads one.
+SKIPPED_HEADER = "Subroutine-Checkout-Skipped"
+
+#: At most this many lines, each at most this long, travel in :data:`SKIPPED_HEADER`: one per
+#: directory above the caller, which no ordinary tree comes near.
+MOST_SKIPPED = (8, 1024)
+
+
+def skipped_as_header (said: typing.Sequence[str]) -> str | None:
+	"""Return the lines :func:`find` said as :data:`SKIPPED_HEADER`'s value, or ``None`` for none."""
+
+	if not said:
+		return None
+
+	most, longest = MOST_SKIPPED
+
+	return " ".join(urllib.parse.quote(line[:longest], safe="") for line in said[:most])
+
+
+def skipped_from_header (value: str | None) -> tuple[str, ...]:
+	"""Read the lines a relay said it passed over, as :func:`skipped_as_header` wrote them."""
+
+	if not value:
+		return ()
+
+	most, longest = MOST_SKIPPED
+
+	return tuple(urllib.parse.unquote(part)[:longest] for part in value.split()[:most])
+
 
 def as_header (marker: "Marker") -> str | None:
 	"""Return a marker as :data:`HEADER`'s value, or ``None`` where it names nothing at all.
@@ -369,7 +401,13 @@ def resolve_workspace (marker: Marker, workspaces: typing.Iterable[Slugged]) -> 
 #: surface found it and has somewhere to say it.
 SKIPPED = (
 	"Skipped {path}: it belongs to another account, and a .subroutine file is read only when it "
-	"is yours or root's."
+	"is yours or root's. Name the project with +key instead, or run as the account that owns it."
+)
+
+#: What ``use --here`` says where this directory's marker is somebody else's (`#4397`).
+NOT_OURS = (
+	"{path} belongs to another account, and a .subroutine file is read only when it is yours or "
+	"root's, so this will not write over it."
 )
 
 
@@ -389,12 +427,14 @@ def find (
 	directory, which the service account cannot stat inside, and the alternative is a crash
 	report where a credential was asked for.
 
-	**Only one belonging to this account or to root** (`#4343`, decision `#4361`), as git reads a
-	repository. A ``/tmp/.subroutine`` steered anything run under ``/tmp``, choosing among the
-	projects its reader could see. One belonging to anybody else is passed over as an unreadable
-	one is, and ``said`` is told, naming it, so a marker that would have chosen where work is filed
-	is not ignored in silence where there is somewhere to say so. Never a mode check, which would
-	pass over this project's own marker on a share that makes every file writable by all.
+	**Only one belonging to this account or to root** (`#4343`, decision `#4361`), much as git
+	refuses a repository another account owns - though with no ``SUDO_UID`` and no setting to trust
+	a directory, by decision. A ``/tmp/.subroutine`` steered anything run under ``/tmp``, choosing
+	among the projects its reader could see. One belonging to anybody else is passed over as an
+	unreadable one is, and ``said`` is told, naming it, so a marker that would have chosen where
+	work is filed is not ignored in silence where there is somewhere to say so. Never a mode check,
+	which would pass over this project's own marker on a share that makes every file writable by
+	all; and the directories above are not checked either, for the same share's sake.
 	"""
 
 	# **A working directory that has been deleted holds no marker** (`#3942`): ``Path.cwd`` raises
@@ -414,32 +454,78 @@ def find (
 		except OSError:
 			continue
 
-		if readable and not _ours(found):
+		if not readable:
+			continue
+
+		ours, marker = _opened(found)
+
+		if not ours:
 			if said is not None:
 				said(SKIPPED.format(path=found))
 
 			continue
 
-		if readable:
-			return _read(found)
+		return marker
 
 	return None
 
 
-def _ours (path: pathlib.Path) -> bool:
-	"""Report whether a marker belongs to the account reading it, or to root - `#4343`."""
+def not_ours (directory: pathlib.Path) -> pathlib.Path | None:
+	"""Return this directory's marker where it belongs to another account, or ``None`` - `#4397`.
+
+	For ``use --here``, which wrote into such a file in place, its owner unchanged, said *Wrote* and
+	left the next command skipping it again.
+	"""
+
+	found = directory / FILE_NAME
+
+	try:
+		present = found.is_file()
+
+	except OSError:
+		return None
+
+	if not present:
+		return None
+
+	ours, _marker = _opened(found)
+
+	return None if ours else found
+
+
+def _opened (path: pathlib.Path) -> tuple[bool, Marker | None]:
+	"""Read a marker once, and report whether it is this account's or root's - `#4343`, `#4397`.
+
+	**Both ends of a link, from one open** (R2-L27 of the cold review of 2026-10-04). Judged by its
+	target alone, a link another account owned, pointing at one of this account's markers, was
+	read; and the file was stat-ed and then opened again by name, so it could change between the
+	two. The link's owner comes from ``lstat`` and the target's from the descriptor the file is
+	read through. ``O_NOFOLLOW`` would make this account's own linked marker absent.
+	"""
 
 	# No owner to compare where an account is not a number.
 	if sys.platform == "win32":
-		return True
+		return True, _read(path)
+
+	owners = {os.getuid(), 0}
 
 	try:
-		owner = path.stat().st_uid
+		if path.lstat().st_uid not in owners:
+			return False, None
+
+		with path.open("rb") as handle:
+			if os.fstat(handle.fileno()).st_uid not in owners:
+				return False, None
+
+			data = tomllib.load(handle)
 
 	except OSError:
-		return False
+		return False, None
 
-	return owner in {os.getuid(), 0}
+	except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+		return True, None
+
+	return True, _parsed(path, data)
 
 
 def _read (path: pathlib.Path) -> Marker | None:
@@ -458,6 +544,12 @@ def _read (path: pathlib.Path) -> Marker | None:
 	# two, and which killed ``subroutine mcp`` at its first message.
 	except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
 		return None
+
+	return _parsed(path, data)
+
+
+def _parsed (path: pathlib.Path, data: dict[str, typing.Any]) -> Marker | None:
+	"""Return the marker a parsed file holds, or ``None`` where it holds nothing useful."""
 
 	values = {
 		name: value.strip()

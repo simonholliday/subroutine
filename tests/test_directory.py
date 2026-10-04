@@ -207,26 +207,96 @@ def test_a_marker_belonging_to_another_account_is_passed_over_and_said (
 	assert subroutine.directory.find(deep, said=said.append) is None
 	assert said == [subroutine.directory.SKIPPED.format(path=marker.resolve())], said
 
-	real = pathlib.Path.stat
-
-	def as_roots (self: pathlib.Path, **keywords: typing.Any) -> os.stat_result:
-		"""Answer for the marker as though root owned it, and for every other path as usual."""
-
-		answer = real(self, **keywords)
-
-		if self.name != subroutine.directory.FILE_NAME:
-			return answer
-
-		fields = list(answer[:10])
-		fields[4] = 0
-
-		return os.stat_result(fields)
-
-	monkeypatch.setattr(pathlib.Path, "stat", as_roots)
+	_owned_by(monkeypatch, link=0, target=0)
 
 	rooted = subroutine.directory.find(deep)
 
 	assert rooted is not None and rooted.project == "web", "root's marker is read by anybody"
+
+
+def _owned_by (
+	monkeypatch: pytest.MonkeyPatch, *, link: int | None = None, target: int | None = None
+) -> None:
+	"""Report a marker as owned by these accounts: ``link`` as ``lstat`` sees it, ``target`` as
+	the descriptor it is read through does. ``None`` leaves that end as it is."""
+
+	def owned (answer: os.stat_result, uid: int | None) -> os.stat_result:
+		"""Return a stat result with its owner replaced, where one is given."""
+
+		if uid is None:
+			return answer
+
+		fields = list(answer[:10])
+		fields[4] = uid
+
+		return os.stat_result(fields)
+
+	real_lstat, real_fstat = pathlib.Path.lstat, os.fstat
+
+	def lstat (self: pathlib.Path) -> os.stat_result:
+		"""Answer for a marker as owned by ``link``, and for every other path as usual."""
+
+		answer = real_lstat(self)
+
+		return owned(answer, link) if self.name == subroutine.directory.FILE_NAME else answer
+
+	monkeypatch.setattr(pathlib.Path, "lstat", lstat)
+	monkeypatch.setattr(os, "fstat", lambda descriptor: owned(real_fstat(descriptor), target))
+
+
+def test_a_link_is_read_only_when_both_its_ends_are_ours (
+	monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4397`, R2-L27 of the cold review of 2026-10-04: a link was judged by its target alone.
+
+	A link another account owned, pointing at one of this account's markers, was read; and the file
+	was stat-ed and opened again by name. Both ends are judged now, from one open. **And the
+	control**: this account's own link to its own marker is read.
+	"""
+
+	real = tmp_path / "real"
+	real.mkdir()
+	_write(real, 'project = "web"\n')
+	work = tmp_path / "work"
+	work.mkdir()
+	(work / subroutine.directory.FILE_NAME).symlink_to(real / subroutine.directory.FILE_NAME)
+	mine = os.getuid()
+
+	found = subroutine.directory.find(work)
+
+	assert found is not None and found.project == "web", "this account's own link is read"
+
+	for link, target in ((mine + 1, None), (None, mine + 1)):
+		said: list[str] = []
+
+		with monkeypatch.context() as patched:
+			_owned_by(patched, link=link, target=target)
+
+			assert subroutine.directory.find(work, said=said.append) is None, (link, target)
+
+		assert said and "belongs to another account" in said[0], said
+
+
+def test_the_relay_says_which_marker_it_passed_over (
+	monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4397`, decision `#4361`: the relay is where an agent's session reads a marker, and it
+	skipped one in silence. The line travels beside the checkout, quoted, and comes back whole.
+	"""
+
+	marker = _write(tmp_path, 'project = "web"\n')
+	mine = os.getuid()
+	monkeypatch.setattr(os, "getuid", lambda: mine + 1)
+	said: list[str] = []
+
+	assert subroutine.directory.find(tmp_path, said=said.append) is None
+
+	carried = subroutine.directory.skipped_as_header(said)
+
+	assert carried is not None and " " not in carried, "one line, quoted, carries no space"
+	assert subroutine.directory.skipped_from_header(carried) == (
+		subroutine.directory.SKIPPED.format(path=marker.resolve()),
+	)
 
 
 def test_a_marker_holding_nothing_useful_is_absent (tmp_path: pathlib.Path) -> None:

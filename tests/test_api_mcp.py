@@ -1736,6 +1736,27 @@ def test_a_narrowed_agent_in_a_checkout_marked_for_elsewhere_files_and_says_why 
 	assert _filed_in_own(world, addressed) == "web"
 
 
+def test_a_marker_the_relay_passed_over_is_said_in_the_answer (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4397`, decision `#4361`: never ignored in silence, by the agent's tools either.
+
+	The relay sends the line it would have printed beside the checkout; a write that files by the
+	checkout says it first. **And the control**: a write naming its own project says nothing of it.
+	"""
+
+	line = subroutine.directory.SKIPPED.format(path="/tmp/.subroutine")
+	headers = {subroutine.directory.SKIPPED_HEADER: subroutine.directory.skipped_as_header([line]) or ""}
+	said = _as(world, world.secret, _adding("Fix the footer"), **headers)
+
+	assert line in said, said
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+	named = _as(world, world.secret, _adding("Fix the header +web"), **headers)
+
+	assert "belongs to another account" not in named, named
+
+
 def test_a_marked_write_asks_who_its_caller_is_once (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

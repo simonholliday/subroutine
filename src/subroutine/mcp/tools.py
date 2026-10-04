@@ -347,6 +347,10 @@ class Standing(typing.NamedTuple):
 	#: The project the address names, for a write nothing else places.
 	project: str | None = None
 
+	#: What the caller's relay said it passed over (`#4397`): a marker of another account's, which
+	#: is never read and never ignored in silence.
+	skipped: tuple[str, ...] = ()
+
 
 #: A request that said nothing about where it stands: a client with no relay of ours, such as
 #: ``subroutine-remote``, and every caller before `#1438`. Nothing reads a checkout for it
@@ -3990,6 +3994,37 @@ class _Checkout(typing.NamedTuple):
 
 
 def _checkout (
+	client: subroutine.clients.base.Client,
+	*,
+	workspace: str | None,
+	overridden: bool,
+	standing: Standing = NOWHERE,
+	reached: typing.Sequence[subroutine.directory.Slugged] | None = None,
+) -> _Checkout:
+	"""Return :func:`_placed`'s answer, saying first any marker the relay passed over - `#4397`.
+
+	**Where the checkout is consulted, and only there**: a caller naming a project is not filing by
+	a marker, so a skipped one has nothing to say to them.
+	"""
+
+	chosen = _placed(
+		client, workspace=workspace, overridden=overridden, standing=standing, reached=reached
+	)
+
+	if overridden or not standing.skipped:
+		return chosen
+
+	def told (line: str | None) -> str:
+		"""Return the skipped markers' lines, then this one."""
+
+		return " ".join([*standing.skipped, *([line] if line else [])])
+
+	return chosen._replace(
+		said=told(chosen.said), unfound=None if chosen.unfound is None else told(chosen.unfound)
+	)
+
+
+def _placed (
 	client: subroutine.clients.base.Client,
 	*,
 	workspace: str | None,

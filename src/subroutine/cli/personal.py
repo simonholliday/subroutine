@@ -5584,6 +5584,16 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 
 	key, identifier = found if found is not None else (None, None)
 
+	# **Never into another account's file** (`#4397`, decision `#4361` as amended): it wrote into
+	# one in place, its owner unchanged, said *Wrote*, and the next command skipped it again.
+	foreign = subroutine.directory.not_ours(pathlib.Path.cwd())
+
+	if foreign is not None:
+		program.stop(
+			subroutine.directory.NOT_OURS.format(path=foreign),
+			"Delete it if you may, or run this in a folder of your own below it.",
+		)
+
 	written = subroutine.directory.write(
 		pathlib.Path.cwd(),
 		# **Always, not only when there is more than one connection** (`#273`). Omitting
