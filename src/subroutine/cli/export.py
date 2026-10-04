@@ -11,6 +11,7 @@ for are as often on somebody else's instance as on their own: ``Client.export`` 
 
 import dataclasses
 import datetime
+import errno
 import json
 import pathlib
 import re
@@ -242,17 +243,37 @@ def _resolved (path: pathlib.Path) -> pathlib.Path:
 
 	A link that leads back to itself raised Python's own *Symlink loop*, which is neither a
 	refusal nor an ``OSError``, and ended in a crash report.
+
+	**And from Python 3.13 it raises nothing** (`#4476`): ``resolve`` hands such a link back as it
+	was, and the export then failed making the folder, saying the file exists. So the file system
+	is asked as well, and a loop there is refused the same way; any other answer, such as a folder
+	not made yet, is the export's to meet.
 	"""
 
 	try:
-		return path.resolve()
+		resolved = path.resolve()
 
 	except (OSError, RuntimeError) as error:
-		raise subroutine.errors.Conflict(
-			f"{path} could not be followed to where it leads: {error}.",
-			hint="If it is a link that leads back to itself, remove it, or name another folder to "
-			"export into.",
-		) from error
+		raise _cannot_follow(path, error) from error
+
+	try:
+		resolved.stat()
+
+	except OSError as error:
+		if error.errno == errno.ELOOP:
+			raise _cannot_follow(path, error) from error
+
+	return resolved
+
+
+def _cannot_follow (path: pathlib.Path, error: Exception) -> subroutine.errors.Conflict:
+	"""Return the refusal of a path that cannot be followed to where it leads - `#4415`."""
+
+	return subroutine.errors.Conflict(
+		f"{path} could not be followed to where it leads: {error}.",
+		hint="If it is a link that leads back to itself, remove it, or name another folder to "
+		"export into.",
+	)
 
 
 def _not_one_an_instance_makes (
