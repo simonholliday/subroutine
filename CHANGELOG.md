@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Crash reports are owner-only and carry no value a database statement was given**, which
+  could include the hash a credential is looked up by. And a configuration file being rewritten
+  is made owner-only before the new text goes in, not after.
 - **`db copy` into SQLite no longer writes through files others can read.** The new database
   was owner-only, but its write-ahead log and shared memory were made before it was, at the
   default mode, and every copied row went through them.

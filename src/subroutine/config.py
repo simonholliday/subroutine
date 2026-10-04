@@ -1342,13 +1342,14 @@ def _write_in_place (path: pathlib.Path, text: str) -> None:
 
 	descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 
+	# **Tightened before anything is written** (`#4408`, R2-L2 of the cold review of 2026-10-04): the
+	# mode above applies only when this call *created* the file, and an existing one was made
+	# owner-only only after the new text was in it.
+	with contextlib.suppress(OSError):
+		os.fchmod(descriptor, 0o600)
+
 	with open(descriptor, "w", encoding="utf-8") as handle:
 		handle.write(text)
-
-	# The mode above applies only when this call *created* the file. An existing one keeps
-	# whatever it had, so it is still tightened here.
-	with contextlib.suppress(OSError):
-		path.chmod(0o600)
 
 
 def keep_private (path: pathlib.Path) -> None:

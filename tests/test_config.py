@@ -1,7 +1,9 @@
 """Tests for path resolution, settings precedence and the SQLite storage probe."""
 
+import builtins
 import os
 import pathlib
+import stat
 import tomllib
 import typing
 
@@ -14,7 +16,68 @@ import typer
 
 import subroutine.cli.main
 import subroutine.config
+import subroutine.db.session
 import subroutine.domain.hierarchy
+
+
+def test_a_crash_report_is_owner_only_and_names_no_value_a_statement_was_given (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4408`, R2-L2 of the cold review of 2026-10-04: 0644 in a 0755 folder, with parameters.
+
+	Written at the umask, a report from a database error held the statement's values - a token's
+	hash, which is what a credential is looked up by - where a service's state folder shows it to
+	every account on the machine. **The folder and the report owner-only, and no value in it.**
+	"""
+
+	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+	engine = subroutine.db.session.create_engine(f"sqlite:///{tmp_path / 'probe.db'}")
+	was = os.umask(0o022)
+
+	try:
+		with engine.connect() as connection:
+			connection.execute(
+				sqlalchemy.text("SELECT * FROM nowhere WHERE hash = :hash"), {"hash": "sha256-of-a-secret"}
+			)
+
+	except sqlalchemy.exc.DBAPIError as failure:
+		written = subroutine.cli.main._crash_report(failure)
+
+	else:
+		pytest.fail("the statement was answered, so there is nothing to report")
+
+	finally:
+		os.umask(was)
+		engine.dispose()
+
+	assert written is not None
+	assert stat.S_IMODE(written.stat().st_mode) == 0o600, oct(written.stat().st_mode)
+	assert stat.S_IMODE(written.parent.stat().st_mode) == 0o700, oct(written.parent.stat().st_mode)
+	assert "sha256-of-a-secret" not in written.read_text(encoding="utf-8")
+
+
+def test_a_configuration_file_is_owner_only_before_its_new_text_is_in_it (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4408`: an existing file kept its mode while the new text was written into it."""
+
+	path = tmp_path / "config.toml"
+	path.write_text("old = true\n", encoding="utf-8")
+	path.chmod(0o644)
+	seen: list[int] = []
+
+	def watched (file: typing.Any, *arguments: typing.Any, **named: typing.Any) -> typing.Any:
+		"""Note the file's mode as it is opened to be written."""
+
+		if isinstance(file, int):
+			seen.append(stat.S_IMODE(os.fstat(file).st_mode))
+
+		return builtins.open(file, *arguments, **named)
+
+	monkeypatch.setattr(subroutine.config, "open", watched, raising=False)
+	subroutine.config._write_in_place(path, "new = true\n")
+
+	assert seen == [0o600], [oct(one) for one in seen]
 
 
 def test_xdg_paths_are_honoured (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -113,6 +113,9 @@ def create_engine (
 	_refuse_an_unsupported_backend(database_url)
 
 	try:
+		# **No bound parameter in an error's text** (`#4408`, R2-L2 of the cold review of 2026-10-04):
+		# a statement's values reached crash reports and logs with it - a token's hash, looked up by it.
+		kwargs.setdefault("hide_parameters", True)
 		engine = sqlalchemy.create_engine(database_url, echo=echo, future=True, **kwargs)
 
 	except ModuleNotFoundError as missing:

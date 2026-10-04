@@ -13,6 +13,7 @@ import dataclasses
 import datetime
 import errno
 import getpass
+import os
 import pathlib
 import re
 import shutil
@@ -228,18 +229,26 @@ def _crash_report (exception: BaseException) -> pathlib.Path | None:
 
 	try:
 		directory = subroutine.config.state_home() / CRASH_DIRECTORY
-		directory.mkdir(parents=True, exist_ok=True)
+		# **Owner-only, the folder and the report** (`#4408`, R2-L2 of the cold review of 2026-10-04):
+		# written at the umask, a report was 0644 in a 0755 folder - and one from a database error held
+		# the statement's parameters, a token's hash among them, which a service's state folder shows to
+		# every account on the machine.
+		directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+		with contextlib.suppress(OSError):
+			directory.chmod(0o700)
 
 		now = datetime.datetime.now()
 		path = directory / f"crash-{now.strftime('%Y%m%d-%H%M%S-%f')}.txt"
+		descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 
-		path.write_text(
-			f"subroutine {subroutine.__version__}\n"
-			f"{now.isoformat(timespec='seconds')}\n"
-			f"{' '.join(_masked_arguments())}\n\n"
-			+ "".join(traceback.format_exception(exception)),
-			encoding="utf-8",
-		)
+		with open(descriptor, "w", encoding="utf-8") as report:
+			report.write(
+				f"subroutine {subroutine.__version__}\n"
+				f"{now.isoformat(timespec='seconds')}\n"
+				f"{' '.join(_masked_arguments())}\n\n"
+				+ "".join(traceback.format_exception(exception))
+			)
 
 		return path
 
