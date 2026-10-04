@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Half a character in a link type, a tag name, a role, an account name, a scope or a search is
+  refused, naming the field**, where it was a 500 over HTTP, a codec error to an agent and a crash
+  report in the terminal. Wherever else one reaches the database it is refused rather than
+  reported as a fault.
 - **A link whose other end you cannot see is not yours to remove.** A member could remove a
   link to an item moved into a private project they were not in, and its owner's item lost
   what blocked it. It is refused as a link that is not there, as their list of links already

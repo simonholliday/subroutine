@@ -4250,6 +4250,16 @@ class Client:
 				"'subroutine config show'.",
 			) from None
 
+		# **Half a character a driver could not encode** (`#4428`): the codec's own error, which the
+		# branch above never sees, ended a search or a link in a crash report.
+		except UnicodeEncodeError as error:
+			refused = subroutine.db.failures.unreadable(error)
+
+			if refused is not None:
+				raise refused from None
+
+			raise
+
 	def _principal (
 		self, session: sqlalchemy.orm.Session
 	) -> subroutine.domain.authentication.Principal:

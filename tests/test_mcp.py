@@ -999,6 +999,57 @@ def _called (
 	return result["content"][0]["text"], result["isError"]
 
 
+@pytest.mark.parametrize(
+	("tool", "arguments", "said"),
+	[
+		("subroutine_search", {"q": "caf\ud800"}, "That search contains half of a character"),
+		("subroutine_search", {"q": "@\ud800"}, "half of a character"),
+		(
+			"subroutine_link",
+			{"ref": "first", "type": "\ud800", "other": "second"},
+			"That link type contains half of a character",
+		),
+		(
+			"subroutine_call_api",
+			{"method": "GET", "path": "/v1/tasks", "query": {"q": "\ud800"}},
+			"half of a character",
+		),
+		("subroutine_call_api", {"method": "GET", "path": "/v1/tags/\ud800"}, "half of a character"),
+		(
+			"subroutine_call_api",
+			{"method": "POST", "path": "/v1/tags", "body": {"name": "\ud800"}},
+			"half of a character",
+		),
+	],
+)
+def test_half_a_character_is_refused_to_an_agent_rather_than_a_codec_error (
+	tool: str, arguments: dict[str, typing.Any], said: str, bound: subroutine.mcp.protocol.Server
+) -> None:
+	"""`SR#4428`, R2-L17 of the cold review of 2026-10-04: each answered the codec's own words.
+
+	A search and a link type are refused by the check in front of each, naming it; the rest by the
+	backstop, which names the character.
+	"""
+
+	made = {
+		name: int(_called(bound, "subroutine_add", text=title)[0].split()[1].lstrip("#"))
+		for name, title in (("first", "Collect the package"), ("second", "Ring the dentist"))
+	}
+	answered, failed = _called(
+		bound,
+		tool,
+		**{
+			key: made.get(value, value) if isinstance(value, str) else value
+			for key, value in arguments.items()
+		},
+	)
+
+	# Quoted with `ascii`: a report holding half a character cannot be sent between test workers.
+	assert failed, ascii(answered)
+	assert "codec" not in answered and "surrogates not allowed" not in answered, ascii(answered)
+	assert said in answered, ascii(answered)
+
+
 def test_a_captured_line_becomes_a_task (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

@@ -153,6 +153,19 @@ def unreadable (exception: BaseException) -> subroutine.errors.ValidationError |
 	what was in it instead.
 	"""
 
+	half = _half_a_character(exception)
+
+	# **And half a character, which neither driver can encode** (`#4428`, R2-L17 of the cold review
+	# of 2026-10-04). Both raise the codec's own error, unwrapped, so it reached every surface as a
+	# 500, a codec error or a crash report wherever a name was looked up without being checked.
+	if half is not None:
+		return subroutine.errors.ValidationError(
+			f"Something sent contains half of a character (U+{half:04X}), which is not text anybody "
+			"can read.",
+			code="invalid_field_value",
+			hint="Remove it and send the value again.",
+		)
+
 	if not isinstance(exception, sqlalchemy.exc.DataError) or not _holds_a_nul(
 		getattr(exception, "params", None)
 	):
@@ -163,6 +176,26 @@ def unreadable (exception: BaseException) -> subroutine.errors.ValidationError |
 		code="invalid_field_value",
 		hint="Remove it and send the value again.",
 	)
+
+
+def _half_a_character (exception: BaseException) -> int | None:
+	"""Return the code point of the lone surrogate an encoding stopped at, or ``None``.
+
+	Raw or wrapped, since a driver raises it unwrapped and SQLAlchemy wraps what it does not
+	recognise in some paths. **Only a surrogate**: an encoding that failed on anything else is not
+	something the caller sent wrong, and stays the failure it is.
+	"""
+
+	failure = exception if isinstance(exception, UnicodeEncodeError) else getattr(
+		exception, "orig", None
+	)
+
+	if not isinstance(failure, UnicodeEncodeError) or not isinstance(failure.object, str):
+		return None
+
+	point = ord(failure.object[failure.start]) if failure.start < len(failure.object) else 0
+
+	return point if 0xD800 <= point <= 0xDFFF else None
 
 
 def _holds_a_nul (bound: typing.Any) -> bool:

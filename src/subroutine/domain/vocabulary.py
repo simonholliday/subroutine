@@ -742,8 +742,11 @@ def _tag_called (
 
 	Shared by both doors on purpose, and the *sentence* is not: creating a duplicate should be
 	pointed at ``PATCH`` and renaming onto one should be told that merging is a different act.
-	What they share is the question, which is the half that can drift.
+	What they share is the question, which is the half that can drift. **And it refuses half a
+	character as text before asking it** (`#4428`), which the database driver cannot encode.
 	"""
+
+	subroutine.domain.text.readable(normalized, field="name", label="tag name")
 
 	return session.scalars(
 		sqlalchemy.select(subroutine.db.models.vocabulary.Tag).where(

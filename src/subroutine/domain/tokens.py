@@ -27,6 +27,7 @@ import subroutine.domain.authorization
 import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.selection
+import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -322,6 +323,10 @@ def _owner_for (
 
 	if not wanted and not machine:
 		return actor.user, False
+
+	# Half a character is refused as text before either name is looked up (`#4428`).
+	subroutine.domain.text.readable(wanted, field="username")
+	subroutine.domain.text.readable(machine, field="service_account", label="service account")
 
 	existing = _live_account(session, wanted or machine)
 

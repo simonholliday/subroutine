@@ -1268,6 +1268,9 @@ def find_role (
 ) -> subroutine.db.models.identity.Role:
 	"""Return a workspace's role by key, or say which keys exist."""
 
+	# Half a character is refused as text before it is looked up (`#4428`).
+	subroutine.domain.text.readable(key, field="role")
+
 	model = subroutine.db.models.identity.Role
 
 	role = session.scalars(

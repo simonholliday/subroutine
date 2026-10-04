@@ -443,13 +443,18 @@ def issue_token (
 		# request id and nothing to act on, and on the CLI a Rich traceback. Both surfaces can
 		# send this — a `--scope` typo is the obvious way — and CLAUDE.md's rule is that
 		# anything a client can send is checked where the message can name the field.
+		# **Each quoted as Python quotes it** (`#4428`), which writes half a character as its
+		# escape, so the refusal can be sent: written as it came, it could not be encoded, and
+		# refusing a scope answered 500.
+		named = ", ".join(repr(one) for one in sorted(unknown))
+
 		raise subroutine.errors.ValidationError(
-			f"Unknown permission(s) in scopes: {', '.join(sorted(unknown))}.",
+			f"Unknown permission(s) in scopes: {named}.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="scopes",
 					code="invalid_field_value",
-					message=f"Not a permission this instance has: {', '.join(sorted(unknown))}.",
+					message=f"Not a permission this instance has: {named}.",
 					hint=f"Valid permissions are: {valid}.",
 				)
 			],

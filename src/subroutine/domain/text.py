@@ -128,9 +128,11 @@ def _a (name: str) -> str:
 
 
 def _refuse_a_character_nobody_can_read (
-	value: str, *, field: str, label: str | None
+	value: str, *, field: str, label: str | None, controls: bool = True
 ) -> None:
-	"""Raise if ``value`` carries one of :data:`CONTROL_CHARACTERS`.
+	"""Raise if ``value`` carries one of :data:`CONTROL_CHARACTERS`, or half a character.
+
+	``controls=False`` asks only about half a character, for :func:`whole` (`#4428`).
 
 	Private because it is the rule and not an entry point: :func:`fit` asks it of a value it
 	already holds, and :func:`readable` is the same question for a caller with an optional
@@ -138,7 +140,12 @@ def _refuse_a_character_nobody_can_read (
 	"""
 
 	found = next(
-		(one for one in value if one in CONTROL_CHARACTERS or ord(one) in SURROGATES), None
+		(
+			one
+			for one in value
+			if (controls and one in CONTROL_CHARACTERS) or ord(one) in SURROGATES
+		),
+		None,
 	)
 
 	if found is None:
@@ -192,6 +199,20 @@ def readable (value: str | None, *, field: str, label: str | None = None) -> str
 
 	if value is not None:
 		_refuse_a_character_nobody_can_read(value, field=field, label=label)
+
+	return value
+
+
+def whole (value: str | None, *, field: str, label: str | None = None) -> str | None:
+	"""Return ``value`` unchanged, or refuse it for holding half a character - `#4428`.
+
+	**:func:`readable` without its control characters**, for a value that may hold one: a search
+	is for what was written, a NUL included, which it searches for and says so. Half a character
+	cannot be searched for anywhere, because the database driver cannot encode it.
+	"""
+
+	if value is not None:
+		_refuse_a_character_nobody_can_read(value, field=field, label=label, controls=False)
 
 	return value
 

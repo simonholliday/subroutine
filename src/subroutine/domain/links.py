@@ -41,6 +41,7 @@ import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tasks
+import subroutine.domain.text
 import subroutine.domain.trash
 import subroutine.errors
 import subroutine.permissions
@@ -2164,6 +2165,10 @@ def _link_type (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str
 ) -> subroutine.db.models.vocabulary.LinkType:
 	"""Return a link type by key, naming the valid ones when there is no such thing."""
+
+	# **Half a character is refused as text before it is looked up** (`#4428`), which is the
+	# lookup's rule wherever a name is looked up: the database driver cannot encode one.
+	subroutine.domain.text.readable(key, field="link_type", label="link type")
 
 	model = subroutine.db.models.vocabulary.LinkType
 

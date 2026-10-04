@@ -12,6 +12,7 @@ same failures without one.
 """
 
 import dataclasses
+import json
 import logging
 import typing
 
@@ -79,6 +80,22 @@ _COERCIONS: dict[str, tuple[str, str]] = {
 }
 
 
+class Problem(starlette.responses.JSONResponse):
+	"""A problem document, written in ASCII - `#4428`.
+
+	**Escaped rather than written as UTF-8**, because a refusal can quote what was sent, and half a
+	character cannot be encoded: rendering the refusal failed, and the caller was answered 500 about
+	a request that had been refused. The JSON a caller parses is the same either way.
+	"""
+
+	def render (self, content: typing.Any) -> bytes:
+		"""Return the document as JSON, in ASCII."""
+
+		return json.dumps(
+			content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":")
+		).encode("ascii")
+
+
 def respond (
 	request: starlette.requests.Request,
 	error: subroutine.errors.SubroutineError,
@@ -106,7 +123,7 @@ def respond (
 	# function with the matched route in hand.
 	error.errors = _where_it_goes(request, error.errors)
 
-	response = starlette.responses.JSONResponse(
+	response = Problem(
 		status_code=error.status,
 		content=subroutine.errors.problem_document(
 			error,
@@ -382,6 +399,11 @@ def install (application: fastapi.FastAPI) -> None:
 	)
 	application.add_exception_handler(
 		sqlalchemy.exc.DataError, handle_a_value_the_database_would_not_take
+	)
+	# **Half a character a driver could not encode** (`#4428`), which arrives as the codec's own
+	# error rather than as a database's, so the line above never saw it.
+	application.add_exception_handler(
+		UnicodeEncodeError, handle_a_value_the_database_would_not_take
 	)
 
 	# The catch-all. Registered last for readability only — Starlette keys handlers by

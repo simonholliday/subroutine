@@ -74,6 +74,7 @@ import subroutine.db.fulltext
 import subroutine.db.models.activity
 import subroutine.domain.refs
 import subroutine.domain.tags
+import subroutine.domain.text
 import subroutine.errors
 
 #: What answers ``q`` when nothing better is available, and what every instance had until
@@ -240,7 +241,13 @@ def matching (
 	string. Before this it searched for whatever was typed, so ``q=" "`` was a real filter
 	matching every row containing a space — a filter nobody asked for, answering a question
 	nobody put.
+
+	**Half a character is refused as text** (`#4428`): the database driver cannot encode one, so a
+	search for it ended in a codec error to an agent and a crash report in the terminal. Only that:
+	a NUL is searched for, and said.
 	"""
+
+	subroutine.domain.text.whole(query, field="q", label="search")
 
 	wanted = terms(query)
 
