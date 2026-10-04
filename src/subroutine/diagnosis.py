@@ -71,15 +71,16 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 	"""
 
 	resolved = settings or subroutine.config.load_settings()
+	connections = _the_connections(resolved)
 
 	return [
 		*_the_program(),
 		*_the_directories(),
 		*_the_signing_key(resolved),
 		*_the_settings(resolved),
-		*_the_connections(resolved),
+		*connections,
 		*_the_backups(resolved),
-		*_the_set_aside(resolved),
+		*_the_set_aside(resolved, connections),
 	]
 
 
@@ -404,16 +405,34 @@ def _one_connection (
 	)
 
 
-def _the_set_aside (settings: subroutine.config.Settings) -> list[Finding]:
+def _the_set_aside (
+	settings: subroutine.config.Settings, connections: typing.Sequence[Finding] = ()
+) -> list[Finding]:
 	"""Name any schema a stopped restore left in this installation's PostgreSQL database.
 
 	**Its own check** (`#4281`, decision `#4302`), because the connections' check meets it only
 	when the database is empty: a restore stopped after its backup loaded leaves the restored data
 	in place, and what it replaced in a schema nothing would otherwise mention, kept out of every
 	backup.
+
+	**Not where the connections' check has just failed to reach the database** (`#4411`, R2-L6 of
+	the cold review of 2026-10-04): a second connection waited out the timeout a second time, and
+	said nothing the first had not. **And an address it cannot use is a finding**, not the crash
+	report a ``ValueError`` from parsing it became.
 	"""
 
 	if settings.is_sqlite or not settings.database_url:
+		return []
+
+	try:
+		local = {
+			one.name for one in subroutine.connections.roster(settings).connections if one.url is None
+		}
+
+	except subroutine.errors.SubroutineError:
+		local = set()
+
+	if any(not one.ok and one.area in local for one in connections):
 		return []
 
 	try:
@@ -421,6 +440,15 @@ def _the_set_aside (settings: subroutine.config.Settings) -> list[Finding]:
 
 	except subroutine.errors.SubroutineError:
 		return []
+
+	except Exception as unusable:
+		return [
+			Finding(
+				area="database",
+				detail=f"That database URL cannot be used: {_readable(unusable)}",
+				ok=False,
+			)
+		]
 
 	try:
 		found = subroutine.db.backup._set_aside_in(engine)

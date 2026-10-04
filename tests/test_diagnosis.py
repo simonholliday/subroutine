@@ -56,6 +56,59 @@ def _named (
 	raise AssertionError(f"nothing reported {area!r}; got {_areas(findings)}")
 
 
+def test_a_database_url_doctor_cannot_use_is_a_finding_rather_than_a_crash (
+	home: pathlib.Path,
+) -> None:
+	"""`SR#4411`, R2-L6 of the cold review of 2026-10-04: a port that is not a number.
+
+	The set-aside check caught only this program's own errors around making an engine, and the
+	address's parser raises ``ValueError``, so ``doctor`` ended in a crash report. **Said, and the
+	rest of the report given.**
+	"""
+
+	settings = subroutine.config.Settings(
+		dev_mode=True, database_url="postgresql+psycopg://u@h:abc/db"
+	)
+	found = subroutine.diagnosis.examine(settings)
+
+	assert "backups" in _areas(found), "the report stopped at the address"
+	assert any(not one.ok and "abc" in one.detail for one in found), found
+
+	# **Said in the terminal's own words where it is the check that meets it** - a machine whose local
+	# connection is switched off, so nothing has reached the database before it.
+	aside = subroutine.diagnosis._the_set_aside(settings)
+
+	assert [one.area for one in aside] == ["database"] and not aside[0].ok, aside
+	assert aside[0].detail.startswith("That database URL cannot be used: "), aside
+
+
+def test_a_database_the_connections_could_not_reach_is_not_tried_again (
+	home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4411`: unreachable, it was asked twice, and ``doctor`` waited out the timeout twice."""
+
+	asked: list[str] = []
+	made = subroutine.db.session.create_engine
+
+	def counted (url: str, *arguments: typing.Any, **named: typing.Any) -> typing.Any:
+		"""Make an engine as the program does, noting that one was made."""
+
+		asked.append(url)
+
+		return made(url, *arguments, **named)
+
+	monkeypatch.setattr(subroutine.db.session, "create_engine", counted)
+
+	found = subroutine.diagnosis.examine(
+		subroutine.config.Settings(
+			dev_mode=True, database_url="postgresql+psycopg://nobody@127.0.0.1:1/none"
+		)
+	)
+
+	assert any(not one.ok for one in found), f"nothing said the database could not be reached: {found}"
+	assert len(asked) == 1, f"the database was asked for {len(asked)} times: {asked}"
+
+
 def test_the_doctor_makes_nothing_it_looks_at (home: pathlib.Path) -> None:
 	"""`SR#3936`, L-5 of the cold review of 2026-09-28: documented to change nothing, it made two.
 

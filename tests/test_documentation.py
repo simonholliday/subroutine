@@ -3025,6 +3025,10 @@ NOT_IN_THE_DOCTOR_TRANSCRIPT = {
 		"the failure and empty cases. A roster that loads and holds connections reports one "
 		"line per connection under its own name, which is the `local` line in the transcript"
 	),
+	"database": (
+		"the failure case of looking for data a restore set aside: a database address that "
+		"cannot be used at all, which a server answering requests from it does not have"
+	),
 }
 
 
