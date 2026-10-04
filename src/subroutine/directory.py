@@ -39,7 +39,9 @@ silently redirects where work is filed would be exactly the footgun `context.py`
 standing one in comparable tooling — not having a setting, but not knowing where it came from.
 """
 
+import os
 import pathlib
+import sys
 import tomllib
 import typing
 import urllib.parse
@@ -363,7 +365,17 @@ def resolve_workspace (marker: Marker, workspaces: typing.Iterable[Slugged]) -> 
 	return None
 
 
-def find (start: pathlib.Path | None = None) -> Marker | None:
+#: **What a marker passed over for its owner is said as** (`#4343`, decision `#4361`), by whichever
+#: surface found it and has somewhere to say it.
+SKIPPED = (
+	"Skipped {path}: it belongs to another account, and a .subroutine file is read only when it "
+	"is yours or root's."
+)
+
+
+def find (
+	start: pathlib.Path | None = None, *, said: typing.Callable[[str], None] | None = None
+) -> Marker | None:
 	"""Return the nearest marker at or above ``start``, or ``None``.
 
 	**The nearest wins and the walk stops there.** A repository inside another repository is
@@ -376,6 +388,13 @@ def find (start: pathlib.Path | None = None) -> Marker | None:
 	path: an operator running one of these commands under ``sudo -u`` from their own home
 	directory, which the service account cannot stat inside, and the alternative is a crash
 	report where a credential was asked for.
+
+	**Only one belonging to this account or to root** (`#4343`, decision `#4361`), as git reads a
+	repository. A ``/tmp/.subroutine`` steered anything run under ``/tmp``, choosing among the
+	projects its reader could see. One belonging to anybody else is passed over as an unreadable
+	one is, and ``said`` is told, naming it, so a marker that would have chosen where work is filed
+	is not ignored in silence where there is somewhere to say so. Never a mode check, which would
+	pass over this project's own marker on a share that makes every file writable by all.
 	"""
 
 	# **A working directory that has been deleted holds no marker** (`#3942`): ``Path.cwd`` raises
@@ -395,10 +414,32 @@ def find (start: pathlib.Path | None = None) -> Marker | None:
 		except OSError:
 			continue
 
+		if readable and not _ours(found):
+			if said is not None:
+				said(SKIPPED.format(path=found))
+
+			continue
+
 		if readable:
 			return _read(found)
 
 	return None
+
+
+def _ours (path: pathlib.Path) -> bool:
+	"""Report whether a marker belongs to the account reading it, or to root - `#4343`."""
+
+	# No owner to compare where an account is not a number.
+	if sys.platform == "win32":
+		return True
+
+	try:
+		owner = path.stat().st_uid
+
+	except OSError:
+		return False
+
+	return owner in {os.getuid(), 0}
 
 
 def _read (path: pathlib.Path) -> Marker | None:

@@ -750,7 +750,7 @@ class Program:
 
 		try:
 			roster = subroutine.connections.roster(resolved)
-			marker = subroutine.directory.find()
+			marker = subroutine.directory.find(said=self.warn)
 			current = subroutine.context.resolve(
 				roster,
 				connection=self.selected.connection,
@@ -7656,7 +7656,7 @@ def _connections_listed (program: Program) -> None:
 			roster,
 			connection=program.selected.connection,
 			workspace=program.selected.workspace,
-			marker=subroutine.directory.find(),
+			marker=subroutine.directory.find(said=program.warn),
 		)
 
 	except subroutine.errors.SubroutineError as error:
@@ -9258,7 +9258,7 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 		if shutil.which("subroutine") is not None:
 			program.say("  A session ending here now gives back anything it is still holding.")
 
-		marker = subroutine.directory.find(root)
+		marker = subroutine.directory.find(root, said=program.warn)
 
 		if marker is None:
 			program.warn(

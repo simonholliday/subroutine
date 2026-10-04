@@ -865,6 +865,34 @@ def test_a_checkout_marked_before_workspace_ids_still_files_by_its_project_id (
 	assert "names project" not in added.output, added.output
 
 
+def test_a_marker_belonging_to_another_account_is_said_and_not_filed_by (
+	tmp_path: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4343`, decision `#4361`: the terminal says which marker it passed over, and why.
+
+	Filed where nothing named a project, the item says so as ever; the line above it is what tells
+	its writer that a ``.subroutine`` above them was somebody else's and was not read.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Website")
+
+	checkout = tmp_path / "shared"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+	run("use", "--here", "--project", "web")
+
+	mine = os.getuid()
+	monkeypatch.setattr(os, "getuid", lambda: mine + 1)
+
+	added = run("add", "Collect the package from reception")
+
+	assert "it belongs to another account" in added.output, added.output
+	assert ".subroutine" in added.output and "from .subroutine" not in added.output, added.output
+
+
 @pytest.mark.parametrize("address", ["http://[::1", "http://[zz]"])
 def test_an_address_urlsplit_cannot_split_is_refused_by_name (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path, address: str

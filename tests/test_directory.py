@@ -5,6 +5,7 @@ instance with one project it is free, and §21.5's adoption procedure *produces*
 many.
 """
 
+import os
 import pathlib
 import typing
 import uuid
@@ -179,6 +180,53 @@ def test_an_unreadable_directory_does_not_stop_the_walk (
 
 	assert found is not None
 	assert found.project == "web"
+
+
+def test_a_marker_belonging_to_another_account_is_passed_over_and_said (
+	monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4343`, decision `#4361`: a ``/tmp/.subroutine`` steered anything run under ``/tmp``.
+
+	A marker is read only when it belongs to the account reading it, or to root, as git reads a
+	repository. One belonging to anybody else is passed over, and the caller told, naming it. **And
+	the controls**: this account's own is read, and so is root's, whoever reads it.
+	"""
+
+	marker = _write(tmp_path, 'project = "web"\n')
+	deep = tmp_path / "work"
+	deep.mkdir()
+	said: list[str] = []
+	mine = os.getuid()
+
+	found = subroutine.directory.find(deep, said=said.append)
+
+	assert found is not None and found.project == "web" and said == [], (found, said)
+
+	monkeypatch.setattr(os, "getuid", lambda: mine + 1)
+
+	assert subroutine.directory.find(deep, said=said.append) is None
+	assert said == [subroutine.directory.SKIPPED.format(path=marker.resolve())], said
+
+	real = pathlib.Path.stat
+
+	def as_roots (self: pathlib.Path, **keywords: typing.Any) -> os.stat_result:
+		"""Answer for the marker as though root owned it, and for every other path as usual."""
+
+		answer = real(self, **keywords)
+
+		if self.name != subroutine.directory.FILE_NAME:
+			return answer
+
+		fields = list(answer[:10])
+		fields[4] = 0
+
+		return os.stat_result(fields)
+
+	monkeypatch.setattr(pathlib.Path, "stat", as_roots)
+
+	rooted = subroutine.directory.find(deep)
+
+	assert rooted is not None and rooted.project == "web", "root's marker is read by anybody"
 
 
 def test_a_marker_holding_nothing_useful_is_absent (tmp_path: pathlib.Path) -> None:

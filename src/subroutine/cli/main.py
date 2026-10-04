@@ -3699,7 +3699,7 @@ def _administering () -> typing.Iterator[subroutine.clients.base.Client]:
 			roster,
 			connection=_selected.connection,
 			workspace=_selected.workspace,
-			marker=subroutine.directory.find(),
+			marker=subroutine.directory.find(said=_warn),
 		)
 		connection = roster.require(current.connection)
 

@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A `.subroutine` file is read only when it belongs to you or to root**, as git reads a
+  repository. One anywhere above the working directory was read, so a `/tmp/.subroutine` chose
+  the project for anything run under `/tmp`, among the projects its reader could see. One
+  belonging to another account is passed over, and the command says so, naming it.
 - **The plugins' skill names the five routes `subroutine_call_api` will not reach**, where it
   said three, and why the two that answer with a credential are among them. It says the
   `.subroutine` file is read only where the `subroutine` plugin or `subroutine mcp` runs, and not
