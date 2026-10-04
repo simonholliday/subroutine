@@ -44,6 +44,7 @@ import rich.text
 import typer
 import typer.core
 
+import subroutine.addressing
 import subroutine.cli.output
 import subroutine.clients.base
 import subroutine.clients.local
@@ -2444,6 +2445,18 @@ def _project_named_by (
 		)
 
 	writing = _writing_workspace(world)
+	# **Read as a workspace, by its id or its short name** (`#4425`, R2-L26 of the cold review of
+	# 2026-10-04). ``-w`` given as an id was compared with the marker's short name, so a marker naming
+	# the very workspace being written to was ignored - *and this is going to 01a10691-...* - and the
+	# work went to the Inbox, for every credential.
+	same = next(
+		(
+			one.slug
+			for one in where.identity.workspaces
+			if subroutine.addressing.names_workspace(writing, slug=one.slug, identifier=one.id)
+		),
+		writing,
+	)
 
 	# **And only in the workspace it names** (`#3894`). A project is a fact about one workspace:
 	# a marker for ``team``'s ``web``, used with ``-w personal``, missed its id there and matched
@@ -2452,18 +2465,18 @@ def _project_named_by (
 	named = (
 		subroutine.directory.resolve_workspace(marker, where.identity.workspaces)
 		if marker.workspace is not None or marker.workspace_id is not None
-		else writing
+		else same
 	)
 	elsewhere = (
 		f"{FILE_NAME} here names project {shown!r} in "
-		f"{named or marker.workspace or marker.workspace_id}, and this is going to {writing}. "
+		f"{named or marker.workspace or marker.workspace_id}, and this is going to {same}. "
 		"Ignoring it."
 	)
 
 	# **Unless the marker's own project id is here** (`#4022`, L-5 (6) of the cold review of
 	# 2026-09-30), looked for below: an id cannot match a project it was not written for, and a
 	# marker written before workspace ids, naming a workspace renamed since, stopped filing by it.
-	if named != writing and marker.project_id is None:
+	if named != same and marker.project_id is None:
 		return (), elsewhere
 
 	try:
@@ -2479,7 +2492,7 @@ def _project_named_by (
 	# *there is no project here* - after saying it was being ignored. A name that resolves nowhere
 	# beside no id is `#4022`'s old marker, whose project id may still file it, so that one is sent.
 	except subroutine.errors.Forbidden:
-		if named != writing and (marker.workspace_id is not None or named is not None):
+		if named != same and (marker.workspace_id is not None or named is not None):
 			return (), elsewhere
 
 		shown = marker.project or str(marker.project_id)
@@ -2496,7 +2509,7 @@ def _project_named_by (
 			for sent in dict.fromkeys(one for one in (by_id, marker.project) if one)
 		), None
 
-	if named != writing and not any(str(row.id) == marker.project_id for row in found):
+	if named != same and not any(str(row.id) == marker.project_id for row in found):
 		return (), elsewhere
 
 	resolved = subroutine.directory.resolve(marker, found)
@@ -2515,7 +2528,7 @@ def _project_named_by (
 	if several:
 		return (), (
 			f"{FILE_NAME} here names project {shown!r}, which is more than one project in "
-			f"{writing}: {', '.join(several)}. Ignoring it."
+			f"{same}: {', '.join(several)}. Ignoring it."
 		)
 
 	return (), f"{FILE_NAME} here names project {shown!r}, which is not on {where.name}. Ignoring it."

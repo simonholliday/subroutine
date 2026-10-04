@@ -20,6 +20,8 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A workspace given to `-w` by its id takes the checkout's file naming it by name.** The two
+  were compared as written, so the file was ignored and the work went to the Inbox.
 - **The agent tools name a project by its key, not its id.** With a credential that may not list
   projects, the conventions said what they were narrowed to by the project's id, and a checkout
   whose file carries only ids said a write had gone *in* that id; both name the project now.

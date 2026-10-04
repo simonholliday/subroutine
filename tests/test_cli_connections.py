@@ -775,6 +775,63 @@ def test_use_here_records_the_connection_it_names_by_that_connection_s_ids (
 	assert marker is not None and marker.workspace_id == str(acme["id"]), (marker, acme)
 
 
+def test_a_workspace_given_by_id_takes_a_marker_naming_it_by_name (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4425`, R2-L26 of the cold review of 2026-10-04: ``-w`` as an id, the marker's by name.
+
+	The two were compared as text, so a marker naming the very workspace being written to was
+	ignored - *and this is going to 01a10691-...* - and the work went to the Inbox: for a full
+	credential with a marker of keys, and for one that may not list projects with a marker of ids.
+	"""
+
+	run("-c", "work", "-w", "acme", "project", "create", "alpha", "Alpha")
+	asked = {"Authorization": f"Bearer {two.token}"}
+	me = httpx.get(f"{two.url}/v1/me", headers=asked, timeout=5.0).json()
+	acme = next(one for one in me["workspaces"] if one["slug"] == "acme")
+	projects = httpx.get(
+		f"{two.url}/v1/projects", params={"workspace_id": acme["id"]}, headers=asked, timeout=5.0
+	).json()["items"]
+	alpha = next(one for one in projects if one["key"] == "alpha")
+	checkout = tmp_path / "marked"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+	(checkout / ".subroutine").write_text(
+		'connection = "work"\nworkspace = "acme"\nproject = "alpha"\n', encoding="utf-8"
+	)
+
+	keyed = typer.testing.CliRunner().invoke(
+		subroutine.cli.main.app, ["-c", "work", "-w", str(acme["id"]), "add", "--json", "Fix the header"]
+	)
+
+	assert keyed.exit_code == 0, (keyed.output, keyed.exception)
+	assert json.loads(keyed.stdout)["project_path"] == "alpha", keyed.output
+
+	(checkout / ".subroutine").write_text(
+		f'connection = "work"\nworkspace = "acme"\nworkspace_id = "{acme["id"]}"\n'
+		f'project = "alpha"\nproject_id = "{alpha["id"]}"\n',
+		encoding="utf-8",
+	)
+	made = run(
+		"-c", "work", "-w", "acme", "token", "create", "--title", "narrowed",
+		"--scope", "task:read", "--scope", "task:write",
+	)
+	secret = re.search(r"sr_[A-Za-z0-9_.-]+", made.output)
+
+	assert secret is not None, made.output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", secret.group(0))
+	narrowed = typer.testing.CliRunner().invoke(
+		subroutine.cli.main.app, ["-c", "work", "-w", str(acme["id"]), "add", "--json", "Fix the footer"]
+	)
+
+	assert narrowed.exit_code == 0, (narrowed.output, narrowed.exception)
+	assert json.loads(narrowed.stdout)["project_path"] == "alpha", narrowed.output
+
+
 def test_a_checkout_s_project_is_taken_only_in_the_workspace_it_names (
 	tmp_path: pathlib.Path,
 	run: typing.Callable[..., typer.testing.Result],
