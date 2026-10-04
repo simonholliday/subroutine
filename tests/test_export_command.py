@@ -7,6 +7,7 @@ kind, which a person's own instance never does.
 
 import datetime
 import json
+import os
 import pathlib
 import typing
 
@@ -194,6 +195,101 @@ def test_an_export_that_cannot_be_written_says_so_rather_than_crashing (
 	again = " ".join(run("export", str(target), expect=1).output.split())
 
 	assert "already holds something" in again and "did not finish" in again, again
+
+
+def test_a_folder_that_cannot_be_looked_in_is_refused_rather_than_crashing (
+	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4414`, R2-L8 of the cold review of 2026-10-04: the refusal itself crashed.
+
+	Asked to export beneath a folder this account may not enter, the first error was caught, and
+	the refusal then looked in the folder to say what it held and raised a second.
+	"""
+
+	if os.geteuid() == 0:
+		pytest.skip("root enters every folder, so nothing here is refused")
+
+	run("init", "--workspace", "Acme")
+	shut = tmp_path / "shut"
+	shut.mkdir()
+	shut.chmod(0o600)
+
+	try:
+		result = run("export", str(shut / "leaving"), expect=1)
+
+	finally:
+		shut.chmod(0o700)
+
+	said = " ".join(result.output.split())
+
+	assert not isinstance(result.exception, OSError), result.exception
+	assert "Something went wrong" not in said and "could not be written" in said, said
+	assert "unfinished" not in said, said
+
+
+def test_a_folder_of_somebody_s_own_is_never_called_an_unfinished_export (
+	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4414`, R2-L9: a folder holding a file of lines and no manifest was theirs to delete.
+
+	Measured on a folder holding ``sensor-log.jsonl`` and ``notes.txt``, under the name a new
+	workspace takes. **Only a folder holding nothing but what an export writes is called one.**
+	"""
+
+	run("init", "--workspace", "Acme")
+	mine = tmp_path / "mine" / "acme"
+	mine.mkdir(parents=True)
+	(mine / "sensor-log.jsonl").write_text('{"reading": 21.5}\n', encoding="utf-8")
+	(mine / "notes.txt").write_text("Somebody's notes.\n", encoding="utf-8")
+
+	said = " ".join(run("export", str(tmp_path / "mine"), expect=1).output.split())
+
+	assert "already holds something" in said, said
+	assert "did not finish" not in said and "can be deleted" not in said, said
+
+
+class _Failing:
+	"""A client that answers as another does, until it stops answering at one kind."""
+
+	def __init__ (self, inner: subroutine.clients.base.Client, kind: str) -> None:
+		"""Wrap ``inner``, failing at ``kind``."""
+
+		self.inner = inner
+		self.kind = kind
+
+	def export (self, kind: str, *, workspace: str | None = None) -> typing.Iterator[typing.Any]:
+		"""Stop at one kind, as an instance that went away part way does."""
+
+		if kind == self.kind:
+			raise subroutine.errors.ServiceUnavailable("The instance stopped answering.")
+
+		return self.inner.export(kind, workspace=workspace)
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Answer everything else as the wrapped client does."""
+
+		return getattr(self.inner, name)
+
+
+def test_an_export_refused_part_way_says_what_it_left (pair: Pair, tmp_path: pathlib.Path) -> None:
+	"""`SR#4414`, R2-L9: refused part way, the files written so far were left with nothing said."""
+
+	pair.local.capture(text="Fix the deploy script")
+	workspace = pair.local.identity().workspaces[0]
+	folder = tmp_path / workspace.slug
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+		subroutine.cli.export.write(
+			typing.cast(typing.Any, _Failing(pair.local, "comments")),
+			folder,
+			workspace=workspace,
+			connection="work",
+		)
+
+	assert (folder / "tasks.jsonl").exists(), sorted(path.name for path in folder.iterdir())
+	assert refused.value.hint is not None and "unfinished export" in refused.value.hint, (
+		refused.value.hint
+	)
 
 
 def test_an_export_never_writes_over_what_is_there (

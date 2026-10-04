@@ -156,20 +156,14 @@ def _not_written (folder: pathlib.Path, error: OSError) -> subroutine.errors.Sub
 
 	**Where the export got to is said, not only that it stopped**: a folder holding what was
 	written and no ``manifest.json`` is refused by the next export as not empty, so the reader is
-	told it is an unfinished export and theirs to delete.
+	told it is an unfinished export and theirs to delete - and only then (`#4414`).
 	"""
 
 	where = error.filename or folder
-	unfinished = folder.is_dir() and not (folder / MANIFEST).exists() and any(folder.iterdir())
 
 	return subroutine.errors.ServiceUnavailable(
 		f"The export could not be written to {where}: {error.strerror or error}.",
-		hint=(
-			f"{folder} holds what was written before it stopped, and no {MANIFEST}, so it is an "
-			"unfinished export and can be deleted. "
-			if unfinished
-			else ""
-		)
+		hint=(LEFT.format(folder=folder) + " " if _unfinished(folder) else "")
 		+ "Name a folder this account can write to, on a disk with room.",
 	)
 
@@ -242,11 +236,7 @@ def write (
 	if folder.exists() and (not folder.is_dir() or any(folder.iterdir())):
 		# **An export that stopped part way is recognised by name** (`#4283`): files of lines and
 		# no manifest are what one leaves, and the reader asking again needs telling it is theirs.
-		stopped = (
-			folder.is_dir()
-			and not (folder / MANIFEST).exists()
-			and any(folder.glob("*.jsonl"))
-		)
+		stopped = _unfinished(folder)
 
 		raise subroutine.errors.Conflict(
 			f"{folder} already holds something, and an export writes only into an empty folder.",
@@ -259,6 +249,30 @@ def write (
 		)
 
 	folder.mkdir(parents=True, exist_ok=True)
+
+	try:
+		return _filled(client, folder, workspace=workspace, connection=connection, now=now)
+
+	# **Refused part way, it says what it left** (`#4414`, R2-L9 of the cold review of 2026-10-04).
+	# Every file of lines is written before the readable copy, so a refusal there - or a credential
+	# revoked part way - left them with nothing said, and the next export called them unfinished.
+	except subroutine.errors.SubroutineError as error:
+		if _unfinished(folder):
+			error.hint = " ".join(one for one in (error.hint, LEFT.format(folder=folder)) if one)
+
+		raise
+
+
+def _filled (
+	client: subroutine.clients.base.Client,
+	folder: pathlib.Path,
+	*,
+	workspace: subroutine.views.WorkspaceRef,
+	connection: str,
+	now: datetime.datetime | None,
+) -> Written:
+	"""Write one workspace's files into the folder made for them, the manifest last."""
+
 	counts: dict[str, int] = {}
 	refused: dict[str, str] = {}
 
@@ -394,6 +408,36 @@ def _older_than_export (
 
 #: The file an export writes last, so a folder without one is an export that did not finish.
 MANIFEST = "manifest.json"
+
+#: Every name an export writes into a workspace's folder (`#4414`), so that a folder holding
+#: anything else is somebody's own and is never called an unfinished export.
+OWN_NAMES = frozenset(
+	{f"{kind}.jsonl" for kind in subroutine.views.EXPORTED} | {MANIFEST, "markdown"}
+)
+
+#: What is said of a folder an export stopped part way through.
+LEFT = (
+	"{folder} holds what was written before it stopped, and no " + MANIFEST + ", so it is an "
+	"unfinished export and can be deleted."
+)
+
+
+def _unfinished (folder: pathlib.Path) -> bool:
+	"""Say whether a folder is an export that stopped part way, and nothing else - `#4414`.
+
+	**Only where every entry is one an export writes and the manifest is not among them**: a
+	folder of somebody's own that happened to hold a ``.jsonl`` was called an unfinished export and
+	theirs to delete. **And not where the folder cannot be looked in**, which raised a second error
+	inside the refusal of the first, and ended in a crash report.
+	"""
+
+	try:
+		entries = {entry.name for entry in folder.iterdir()}
+
+	except OSError:
+		return False
+
+	return bool(entries) and MANIFEST not in entries and entries <= OWN_NAMES
 
 #: The most a page's file name may take, in bytes (`#4283`, M5 of the cold review of 2026-10-03).
 #:
