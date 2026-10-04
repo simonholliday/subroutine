@@ -806,9 +806,11 @@ export function App () {
 		*/
 		if (after) return;
 
-		const here = new Set(fetched.map((row) => row.id));
+		/* **By ref** (`#4433`): the listing asks for no `id`, so comparing ids subtracted nothing. A ref
+		   is one item in one workspace, which is all a page holds. */
+		const here = new Set(fetched.map((row) => row.ref));
 
-		setEventsLeft(only ? (only.items || []).filter((row) => !here.has(row.id)).length : 0);
+		setEventsLeft(only ? (only.items || []).filter((row) => !here.has(row.ref)).length : 0);
 		setEventsBeyond(Boolean(only && only.page && only.page.has_more));
 	}, []);
 

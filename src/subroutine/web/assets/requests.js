@@ -891,9 +891,11 @@ export function eventsLeftOutRequest (slug, key = null, selection = null) {
 		asked for them**, since nothing was left out.
 
 		**The narrowing and nothing else**, so what is counted is what this selection held back: not
-		the order or the grouping, which arrange a page, and no cursor. `fields=id` because only which
-		rows is asked, and the caller counts those not already on the page - the instance brings events
-		back where the request names them, so an event it listed was never left out.
+		the order or the grouping, which arrange a page, and no cursor. `fields=ref` because only which
+		rows is asked, and the caller counts those not already on the page by the ref the listing carries
+		- the instance brings events back where the request names them, so an event it listed was never
+		left out. **Not `id`** (`#4433`, R2-L37 of the cold review of 2026-10-04), which the listing does
+		not ask for, so every row's was undefined and nothing was subtracted.
 	*/
 	const chose = selection || {};
 
@@ -911,7 +913,7 @@ export function eventsLeftOutRequest (slug, key = null, selection = null) {
 
 	return {
 		method: "GET",
-		path: scoped(`/tasks?limit=${PAGE}&fields=id&events=only${narrowed}${rows}`, slug),
+		path: scoped(`/tasks?limit=${PAGE}&fields=ref&events=only${narrowed}${rows}`, slug),
 	};
 }
 

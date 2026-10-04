@@ -14139,20 +14139,22 @@ def test_the_finished_order_is_not_offered_as_a_choice (tmp_path: pathlib.Path) 
 	assert "-created_at" in offered and "-priority_score" in offered
 
 
-#: A list's answer holding a piece of work and an event it was given back, for `SR#3704`.
+#: A list's answer holding a piece of work and an event it was given back, for `SR#3704`. **With no
+#: ids** (`SR#4433`, R2-L37 of the cold review of 2026-10-04), as the listing's fields have none: given
+#: ids the wire never sends, this agreed with a subtraction that, on the wire, subtracted nothing.
 LISTED_WITH_AN_EVENT = {
 	"items": [
-		{"id": "t1", "ref": 7, "kind": "task", "title": "Fix the footer",
+		{"ref": 7, "kind": "task", "title": "Fix the footer",
 			"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"},
-		{"id": "e2", "ref": 8, "kind": "task", "title": "Payday", "type_category": "occasion",
+		{"ref": 8, "kind": "task", "title": "Payday", "type_category": "occasion",
 			"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"},
 	],
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
 
-#: The events a count reads: one the list left out, and the one it listed.
+#: The events a count reads, by ref as it asks for them: one the list left out, and the one it listed.
 TWO_EVENTS = {
-	"items": [{"id": "e1"}, {"id": "e2"}],
+	"items": [{"ref": 9}, {"ref": 8}],
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
 
