@@ -267,8 +267,8 @@ def _staging_directory () -> pathlib.Path:
 	return path
 
 
-#: How long something left in the staging folder waits before a take clears it away: long
-#: enough that no take still running can own it.
+#: How long something left in the staging folder waits before a take clears it away, counted from
+#: when anything in it was last written (`#4410`): long enough that no take still running can own it.
 STALE_STAGING = datetime.timedelta(days=1)
 
 
@@ -305,7 +305,7 @@ def _clear_stale (staging: pathlib.Path, *, now: float) -> None:
 
 	for entry in staging.iterdir():
 		with contextlib.suppress(OSError):
-			if now - entry.lstat().st_mtime < STALE_STAGING.total_seconds():
+			if now - _last_written(entry) < STALE_STAGING.total_seconds():
 				continue
 
 			if entry.is_dir() and not entry.is_symlink():
@@ -313,6 +313,24 @@ def _clear_stale (staging: pathlib.Path, *, now: float) -> None:
 
 			else:
 				entry.unlink()
+
+
+def _last_written (entry: pathlib.Path) -> float:
+	"""Return when anything in a staging entry was last written - `#4410`.
+
+	**The newest of the folder and what is in it** (R2-L5 of the cold review of 2026-10-04). A
+	folder's time moves when an entry is made in it, not while ``pg_dump`` or ``VACUUM INTO`` writes
+	into its file, so a take writing for more than a day had its folder cleared by the next one and
+	failed to deliver. Each take's folder holds one file, so this reads one entry more.
+	"""
+
+	newest = entry.lstat().st_mtime
+
+	if entry.is_dir() and not entry.is_symlink():
+		for inside in entry.iterdir():
+			newest = max(newest, inside.lstat().st_mtime)
+
+	return newest
 
 
 def _stamp (moment: datetime.datetime) -> str:

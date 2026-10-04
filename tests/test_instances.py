@@ -2096,7 +2096,9 @@ def test_a_take_clears_away_what_a_killed_one_left_staged (
 ) -> None:
 	"""`#4280`: a take killed part way can remove nothing, so the next one clears it after a day.
 
-	Something younger is left, since a take still running may own it.
+	Something younger is left, since a take still running may own it - **judged by its file, not its
+	folder** (`SR#4410`, R2-L5 of the cold review of 2026-10-04): a folder's time does not move while
+	a file in it is written, so a take writing for more than a day lost its folder to the next.
 	"""
 
 	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path / "volume"))
@@ -2107,11 +2109,23 @@ def test_a_take_clears_away_what_a_killed_one_left_staged (
 	recent.mkdir()
 	old = time.time() - subroutine.db.backup.STALE_STAGING.total_seconds() - 60
 	os.utime(stale, (old, old))
+	writing, stopped = staging / "a-take-writing-for-a-day", staging / "a-take-stopped-a-day-ago"
+
+	for folder in (writing, stopped):
+		folder.mkdir()
+		(folder / "copy.db").write_bytes(b"half a database")
+
+	os.utime(stopped / "copy.db", (old, old))
+
+	for folder in (writing, stopped):
+		os.utime(folder, (old, old))
 
 	subroutine.db.backup.take(engine, _settings())
 
 	assert not stale.exists()
 	assert recent.exists()
+	assert writing.exists(), "a take still writing lost its folder because the folder was old"
+	assert not stopped.exists(), "a take stopped a day ago was left"
 	assert staging.stat().st_mode & 0o077 == 0
 
 
