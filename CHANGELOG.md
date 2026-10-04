@@ -270,9 +270,9 @@ upgrade involves.
   read. A served instance moves them once a day while it is in use, and `subroutine db archive`
   does it on demand. A client resuming the change feed from before them is answered
   `410 cursor_expired`, which names where to carry on, and the browser starts again from the
-  newest by itself. A
-  read of the feed for a period reaching back past them is answered with the new error code
-  `410 period_archived`, which names the journal.
+  newest by itself. A read of the feed for a period reaching back past them, or a walk back
+  with `before` that has read every event the feed still holds, is answered with the new error
+  code `410 period_archived`, which names the journal.
   Unset, which is the default, every event stays in the feed as before.
 - **`user create` and `user add` say that what is filed in the workspace without naming a
   project goes to its Inbox, which everybody in it can see**, and the README and the hosting

@@ -462,7 +462,8 @@ def guide_text () -> str:
 		"own unfinished work out of everybody's. Without this a context window is a snapshot "
 		"that does not decay: nothing tells you a thing you read on Tuesday is now closed, so "
 		"you go on reporting it open, confidently. The feed deliberately withholds the last "
-		"second, so an event you have just written may take a moment to appear.",
+		"second, so an event you have just written may take a moment to appear. A `410` names "
+		"its remedy.",
 		"",
 		"Read `GET /v1/meta` first: it reports this installation's statuses, item types, "
 		"link types and limits, which are workspace data and are not the same everywhere.",
@@ -1114,7 +1115,10 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"inclusive, so you will see that one again and should ignore what you already have. "
 		"Add `?actor=me` for what this credential itself did. Events under a second old are "
 		"withheld on purpose, so that nothing can be committed behind a cursor you have "
-		"already advanced past.",
+		"already advanced past. An instance that moves old events to an archive answers a "
+		"`since` from before them `410 cursor_expired`, naming the `seq` to carry on after, and "
+		"a period or a walk back with `before` reaching past them `410 period_archived`: "
+		"`GET /v1/journal` reads those.",
 		"GET",
 		"/v1/changes",
 		None,

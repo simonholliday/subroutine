@@ -202,6 +202,11 @@ def test_a_period_the_feed_no_longer_holds_is_refused_naming_the_journal (
 		assert refused.status_code == 410, f"{asked} answered {refused.status_code}: {refused.text}"
 		assert refused.json()["code"] == "period_archived" and "/v1/journal" in refused.text
 
+		# **In the detail, every spelling** (`SR#4443`): a terminal reading several connections
+		# drops a connection's hint when another answered.
+		for spelling in ("GET /v1/journal", "'subroutine journal'", "subroutine_journal"):
+			assert spelling in refused.json()["detail"], refused.json()
+
 	read = world.call("GET", "/v1/journal", params={"created_at.lt": then})
 
 	assert read.status_code == 200 and read.json()["items"], read.text
@@ -216,8 +221,10 @@ def test_a_period_the_feed_no_longer_holds_is_refused_naming_the_journal (
 		session_factory=api_support.factory_for(world.session),
 	)
 
-	with local, pytest.raises(subroutine.errors.PeriodArchived):
+	with local, pytest.raises(subroutine.errors.PeriodArchived) as locally:
 		local.changes(dated=[("created_at.lt", then)])
+
+	assert "'subroutine journal'" in str(locally.value), str(locally.value)
 
 
 def test_a_walk_back_reads_every_live_event_and_ends_there (

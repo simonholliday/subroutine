@@ -1151,19 +1151,22 @@ def refuse_a_period_behind_the_floor (
 	if session.scalar(statement.limit(1)) is None:
 		return
 
+	# **The journal named in the detail** (`#4443`, R2-D8 of the cold review of 2026-10-04): a
+	# terminal reading several connections prints a connection's hint only when none answered, so
+	# a remedy in the hint alone could go unshown.
+	journal = "The journal reads them: GET /v1/journal, 'subroutine journal' or subroutine_journal."
+
 	if not dated:
 		raise subroutine.errors.PeriodArchived(
 			f"The events before seq {before} that the change feed still holds have all been read, and "
-			"earlier ones have moved to the archive.",
-			hint="The journal reads every event, the archive's too: GET /v1/journal, 'subroutine "
-			"journal' or subroutine_journal, narrowed to a period with 'created_at.lt'.",
+			f"earlier ones have moved to the archive. {journal}",
+			hint="Narrow the journal to a period with 'created_at.lt'.",
 		)
 
 	raise subroutine.errors.PeriodArchived(
 		"Events in that period have been moved to the archive, so the change feed cannot report "
-		"it in full.",
-		hint="The journal reads every event, the archive's too: GET /v1/journal, 'subroutine "
-		"journal' or subroutine_journal, with the same filter.",
+		f"it in full. {journal}",
+		hint="Ask the journal with the same filter.",
 	)
 
 
