@@ -1616,7 +1616,8 @@ def test_a_series_changed_to_a_rule_that_never_comes_round_is_refused (
 			applies_to="from_now_on",
 		)
 
-	assert refused.value.detail == "That repeat names no dates that have not already passed."
+	# It names no date at all, which is what it says since `SR#4419`, rather than that they passed.
+	assert refused.value.detail == "That repeat never comes round from the date it repeats from."
 
 	session.refresh(series)
 
@@ -1666,6 +1667,170 @@ def test_a_series_made_with_every_date_behind_it_is_refused (
 	made = _repeating(session, recurrence="FREQ=WEEKLY;UNTIL=20261231", due="2026-01-05")
 
 	assert made.due_at is not None
+
+
+def test_a_rule_ending_before_the_occurrence_already_made_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4419`, R2-L16 (a) of the cold review of 2026-10-04: a date between let it through.
+
+	A monthly series finished early has its next occurrence on 1 November. A rule ending on 15
+	October, sent on 26 September, was accepted because 1 October is after now, and finishing 1
+	November then ended the series without a word. **And the control**: ending in December stands.
+	"""
+
+	made = _repeating(
+		session,
+		recurrence="every month",
+		due="2026-10-01",
+		now=datetime.datetime(2026, 9, 20, 9, 0, tzinfo=datetime.UTC),
+	)
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(
+		session, made, now=datetime.datetime(2026, 9, 25, 9, 0, tzinfo=datetime.UTC)
+	)
+
+	live = _next_live(session, series)
+	sent = datetime.datetime(2026, 9, 26, 9, 0, tzinfo=datetime.UTC)
+
+	assert live.due_at is not None and live.due_at.date() == datetime.date(2026, 11, 1)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session, live, recurrence="FREQ=MONTHLY;UNTIL=20261015T235959Z", now=sent
+		)
+
+	assert refused.value.detail == "That repeat ends before the occurrence it has already made."
+
+	subroutine.domain.tasks.update(
+		session, live, recurrence="FREQ=MONTHLY;UNTIL=20261215T235959Z", now=sent
+	)
+
+	assert series.recurrence_rule is not None and "UNTIL=20261215" in series.recurrence_rule
+
+
+@pytest.mark.parametrize(
+	"rule", ["FREQ=WEEKLY;BYDAY=MO;UNTIL=20260817T235959Z", "FREQ=WEEKLY;BYDAY=MO;COUNT=1"]
+)
+def test_a_series_may_end_on_the_occurrence_in_hand (
+	rule: str, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#4419`, as decision `#4312` keeps it: *stop after this one*, asked at or after its slot.
+
+	A weekly series whose live occurrence is Monday 17 August, sent on Saturday 15 August a rule
+	whose last date is that Monday, is accepted - and finishing that one ends the series.
+	"""
+
+	made = _repeating(session, recurrence="every monday", due="2026-08-17")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(session, made, recurrence=rule, now=NOW)
+	subroutine.domain.tasks.complete(session, made, now=NOW)
+
+	assert series.completed_at is not None, "finishing the last one did not end the series"
+
+
+def test_a_date_and_a_rule_in_one_edit_are_asked_together (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4419`, R2-L16 (b): the rule was asked about the date the edit was replacing.
+
+	Moved to 21 December from now on with a rule ending on 10 December, a series was accepted and
+	had nothing to come. And the series row of one repeating from 30 June, given 4 January 2027 and
+	three occurrences in October, was refused, counted from June. **Each is asked on the date the
+	edit leaves.**
+	"""
+
+	made = _repeating(session, recurrence="every week", due="2026-08-17")
+	series = _template(session, made)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(
+			session,
+			made,
+			now=NOW,
+			due="2026-12-21",
+			recurrence="FREQ=WEEKLY;UNTIL=20261210T235959Z",
+			applies_to="from_now_on",
+		)
+
+	assert series.due_at is not None and series.due_at.date() == datetime.date(2026, 8, 17)
+
+	june = _repeating(session, title="Pay the rent", recurrence="every month", due="2026-06-30")
+	rent = _template(session, june)
+
+	subroutine.domain.tasks.update(
+		session,
+		rent,
+		now=datetime.datetime(2026, 10, 4, 9, 0, tzinfo=datetime.UTC),
+		due="2027-01-04",
+		recurrence="FREQ=MONTHLY;COUNT=3",
+		applies_to="this_one",
+	)
+
+	assert rent.due_at is not None and rent.due_at.date() == datetime.date(2027, 1, 4)
+
+
+def test_a_series_counted_from_completion_is_asked_from_now (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4419`, R2-L16 (c): checked along a grid it does not follow.
+
+	Every seven days from when it is done, due 10 August, sent on 15 August a seven-day rule ending
+	on 20 August: the grid's 17 August let it through, and finishing it that day ended the series,
+	since a week from then is the 22nd. **Asked from now, as its next one is counted.**
+	"""
+
+	made = _repeating(
+		session,
+		recurrence="every 7 days",
+		due="2026-08-10",
+		recurrence_anchor="completion",
+		now=datetime.datetime(2026, 8, 1, 9, 0, tzinfo=datetime.UTC),
+	)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session,
+			made,
+			now=NOW,
+			recurrence="FREQ=DAILY;INTERVAL=7;UNTIL=20260820T235959Z",
+			recurrence_anchor="completion",
+		)
+
+	assert refused.value.detail == "That repeat names no dates that have not already passed."
+
+
+@pytest.mark.parametrize(
+	"rule", ["FREQ=DAILY;COUNT=1", "FREQ=DAILY;UNTIL=20260815T235959Z", "FREQ=DAILY;UNTIL=20260815"]
+)
+def test_a_whole_day_series_ending_today_is_made (
+	rule: str, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#4419`, R2-L16 (d): its slot is the start of today, behind the clock and not past.
+
+	A whole-day series starting today and ending today was refused for naming no date still to come.
+	**Compared by the day.**
+	"""
+
+	made = _repeating(session, recurrence=rule, due=None, starts="2026-08-15")
+
+	assert made.starts_at is not None and made.starts_is_all_day
+
+
+def test_a_rule_naming_no_date_at_all_says_so (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4419`, R2-L16 (e): *no dates that have not already passed*, said of a date to come.
+
+	A whole-day deadline falls at the end of its day, so an ``UNTIL`` at noon that day ends the
+	series the day before - as the program and the feed both read it (`SR#4026`) - and the series
+	has no date at all. **Refused, saying that.**
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		_repeating(session, recurrence="FREQ=DAILY;UNTIL=20260905T120000Z", due="2026-09-05")
+
+	assert refused.value.detail == "That repeat never comes round from the date it repeats from."
 
 
 def test_clearing_the_series_own_date_is_refused_before_anything_changes (

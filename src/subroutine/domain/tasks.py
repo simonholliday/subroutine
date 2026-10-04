@@ -1290,8 +1290,15 @@ def create (
 	# discover by the item never appearing. **Asked from now** (`#4306`): a series due in January
 	# with `UNTIL` at the end of it, made in October, handed back an overdue occurrence and nothing
 	# after it.
-	if first is None or not _comes_round_from(task, repeat.rule, now=instant):
-		raise _nothing_to_come()
+	#
+	# **A rule with no date at all says so** (`#4419`, R2-L16 (e) of the cold review of 2026-10-04):
+	# an `UNTIL` before a whole-day deadline's last instant on its own day ends it the day before,
+	# which is how the feed reads it too (`#4026`), and "no dates that have not already passed" was
+	# false of a series whose one date was tomorrow, as of a rule that never lands on its days.
+	if first is None:
+		raise _never_comes_round()
+
+	_refuse_unless_it_comes_round(session, task, repeat.rule, now=instant)
 
 	# **A deferral given with the repeat is for its first occurrence** (decision `#3915`, M-11 of
 	# the cold review of 2026-09-28): the one handed back, in front of the person. Written on the
@@ -1851,6 +1858,7 @@ def update (
 				task.starts_at if beginning is subroutine.domain.patch.UNSET else beginning.instant
 			),
 			now=instant,
+			applies_to=applies_to,
 		)
 	)
 
@@ -3812,6 +3820,7 @@ def _repeat_read (
 	due_at: datetime.datetime | None,
 	starts_at: datetime.datetime | None,
 	now: datetime.datetime,
+	applies_to: str | None = None,
 ) -> _Repeating:
 	"""Read a change to how a task repeats, refusing it before anything is assigned - `#3935`.
 
@@ -3898,17 +3907,23 @@ def _repeat_read (
 	# next completion found nothing and finished the series without a word. **From now, not from the
 	# series' first date** (`#4306`, M3 of the cold review of 2026-10-03, decision `#4312`): walked
 	# from January, `UNTIL` last week passed, and so did a rule ending on the overdue occurrence.
-	if (
-		replaced
-		and repeat is not None
-		and series is not None
-		and not _comes_round_from(
+	#
+	# **On the dates the edit leaves, and from the occurrence already made** (`#4419`, R2-L16 of the
+	# cold review of 2026-10-04): a date and a rule in one edit were checked on the old date, and a
+	# rule ending before the live occurrence was accepted because a date before that came after now.
+	if replaced and repeat is not None and series is not None:
+		grid, moved = _the_series_after(task, series, due_at=due_at, starts_at=starts_at, applies_to=applies_to)
+
+		_refuse_unless_it_comes_round(
+			session,
 			series,
 			repeat.rule,
-			now=_restarted_after(session, series, now=now) if restarting else now,
+			now=now,
+			anchor=repeat.anchor,
+			grid=grid,
+			moved=moved,
+			restarting=restarting,
 		)
-	):
-		raise _nothing_to_come()
 
 	# **A new series is made from the task, so it needs a date among the ones the task will
 	# have** - asked here, as :func:`begin_repeating` would ask it of the row it makes.
@@ -3922,23 +3937,158 @@ def _repeat_read (
 	return _Repeating(series=series, repeat=repeat, stopping=False)
 
 
-def _comes_round_from (
-	series: subroutine.db.models.work.Task, rule: str, *, now: datetime.datetime
-) -> bool:
-	"""Return whether a series' rule names a date from ``now`` on - `#4306`, decision `#4312`.
+def _whole_day (series: subroutine.db.models.work.Task) -> bool:
+	"""Return whether the date a series' slots fall on is a whole day rather than a time."""
 
-	**From now rather than from the series' first date**, on create and on a change alike: walked
-	from the start, a rule whose every date had passed was caught only when it named none at all.
+	return bool(getattr(series, ALL_DAY_FLAG[grid_field(series)]))
+
+
+def _the_series_after (
+	task: subroutine.db.models.work.Task,
+	series: subroutine.db.models.work.Task,
+	*,
+	due_at: datetime.datetime | None,
+	starts_at: datetime.datetime | None,
+	applies_to: str | None,
+) -> tuple[typing.Any, datetime.timedelta]:
+	"""Return the grid date an edit leaves a series on, and how far it moves the live slot - `#4419`.
+
+	The series itself takes the date it is sent, and its live occurrence keeps its own slot, which
+	was never the series' date. An occurrence's move *from now on* moves the series and its own
+	slot by the same distance, as :func:`_carried` and :func:`_kept_on_its_grid` move them. Any
+	other edit leaves both where they are, and ``UNSET`` says so.
 	"""
 
-	return bool(
-		subroutine.domain.recurrence.occurrences(
-			rule,
-			start=_series_anchor(rule, grid=grid_date(series), filed=series.created_at),
-			timezone=subroutine.domain.schedule.series_zone(series),
-			after=now,
-			limit=1,
+	will = due_at if due_at is not None else starts_at
+
+	if task.is_template:
+		return will, datetime.timedelta(0)
+
+	held = grid_date(task)
+	own = grid_date(series)
+
+	if applies_to != FROM_NOW_ON or will is None or held is None or own is None:
+		return subroutine.domain.patch.UNSET, datetime.timedelta(0)
+
+	return own + (will - held), will - held
+
+
+def _refuse_unless_it_comes_round (
+	session: sqlalchemy.orm.Session,
+	series: subroutine.db.models.work.Task,
+	rule: str,
+	*,
+	now: datetime.datetime,
+	anchor: str | None = None,
+	grid: typing.Any = subroutine.domain.patch.UNSET,
+	moved: datetime.timedelta = datetime.timedelta(0),
+	restarting: bool = False,
+) -> None:
+	"""Refuse a rule with no occurrence still to come, made, changed or started again.
+
+	**From now** (`#4306`, decision `#4312`), on create and on a change alike: walked from the
+	series' first date, a rule whose every date had passed was caught only when it named none.
+
+	**And at or after the occurrence already made, when that is still to come** (`#4419`, R2-L16
+	of the cold review of 2026-10-04, as `#4312` settles it): a rule ending before it was accepted
+	on a date between, and the series ended at that occurrence without a word. Ending *on* it is
+	how a series is stopped after the one in hand, and is accepted.
+
+	**From now for a series counted from completion**, as :func:`materialise` counts one, rather
+	than along a grid it does not follow; **by the day for a whole-day series**, whose slot today
+	is not behind it; and **strictly after the last slot** for a stopped series started again with
+	nothing open (`#4404`), where the next is minted after that one. A rule naming no date at all
+	says so, rather than that its dates have passed.
+
+	``grid`` is the series' date as the edit leaves it, and ``moved`` how far the edit moves the
+	live occurrence's slot - :func:`_the_series_after`.
+	"""
+
+	zone = subroutine.domain.schedule.series_zone(series)
+	whole_day = _whole_day(series)
+
+	def names (start: datetime.datetime, *, after: datetime.datetime | None) -> bool:
+		"""Return whether the rule, walked from ``start``, names a date after ``after``."""
+
+		return bool(
+			subroutine.domain.recurrence.occurrences(
+				rule, start=start, timezone=zone, after=after, limit=1
+			)
 		)
+
+	if (anchor or series.recurrence_anchor) == "completion":
+		if not names(now, after=now):
+			raise _nothing_to_come()
+
+		return
+
+	start = _series_anchor(
+		rule, grid=grid_date(series) if grid is subroutine.domain.patch.UNSET else grid,
+		filed=series.created_at,
+	)
+	live = subroutine.domain.occurrences.live_occurrence(session, series)
+
+	if restarting and live is None:
+		if not names(start, after=_restarted_after(session, series, now=now)):
+			raise _nothing_to_come()
+
+		return
+
+	# **One second short of the point**, because dateutil keeps no microsecond (`#1291`) and a
+	# whole-day deadline's slot is the last one of its day.
+	def at_or_after (point: datetime.datetime) -> datetime.datetime:
+		"""Return the cursor that walks to ``point`` inclusive, by the day for a whole-day series."""
+
+		if whole_day:
+			local = point.astimezone(subroutine.domain.dates.zone(zone))
+			point = local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+		return point - datetime.timedelta(seconds=1)
+
+	if not names(start, after=None):
+		raise _never_comes_round()
+
+	if not names(start, after=at_or_after(now)):
+		raise _nothing_to_come()
+
+	slot = None if live is None or live.occurrence_at is None else live.occurrence_at + moved
+
+	if slot is not None and slot > now and not names(start, after=at_or_after(slot)):
+		raise _ends_before_the_one_made()
+
+
+def _never_comes_round () -> subroutine.errors.ValidationError:
+	"""Return the refusal for a rule naming no date at all from the one it repeats from - `#4419`."""
+
+	return subroutine.errors.ValidationError(
+		"That repeat never comes round from the date it repeats from.",
+		code="invalid_field_value",
+		hint="Check the UNTIL, COUNT and days on the rule against that date. An UNTIL with a time "
+		"ends a whole-day series the day before, unless the time is the end of that day.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="recurrence",
+				code="invalid_field_value",
+				message="A repeat has to have at least one occurrence still to come.",
+			)
+		],
+	)
+
+
+def _ends_before_the_one_made () -> subroutine.errors.ValidationError:
+	"""Return the refusal for a rule ending before the occurrence it has already made - `#4419`."""
+
+	return subroutine.errors.ValidationError(
+		"That repeat ends before the occurrence it has already made.",
+		code="invalid_field_value",
+		hint="End it on or after that one, or skip that one first and then change the repeat.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="recurrence",
+				code="invalid_field_value",
+				message="A repeat has to reach the next occurrence, which is already on the list.",
+			)
+		],
 	)
 
 

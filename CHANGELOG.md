@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat's new rule is asked about the occurrence already made.** A rule ending before that
+  occurrence was accepted when any date between came after now, and the series ended there
+  without a word; a series counted from when it is done was checked along a grid it does not
+  follow; and a date sent with a new rule was checked on the date it replaced. Each is refused
+  now, and a rule naming no date at all says so rather than that its dates have passed.
 - **Clearing a repeat's deadline from now on asks whether the series is left a date.** An
   occurrence given a start of its own, then cleared of its deadline for every one from now on,
   left the series with neither, and every completion after it was refused. It is refused instead.
