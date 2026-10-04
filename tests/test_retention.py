@@ -484,6 +484,30 @@ def test_the_floor_never_goes_back_whatever_a_run_read (world: test_api_tasks.Wo
 	assert archived.moved == 1 and archived.through == 10**9, archived
 
 
+def test_a_floor_a_merge_raised_still_lets_old_events_move (world: test_api_tasks.World) -> None:
+	"""`SR#4417`, R2-L12 of the cold review of 2026-10-04: nothing moved until the floor was reached.
+
+	A merge leaves the floor above every live event, since the archive it carried lands above them.
+	A run read that as everything having gone, and moved nothing, while ``move`` asked directly
+	moved every event past the retention.
+	"""
+
+	for title in ("Fix the deploy script", "Find the white rabbit", "Take the red pill"):
+		_filed(world, title)
+
+	_aged(world.session)
+	_filed(world, "Ring the dentist")
+
+	system = typing.cast(sqlalchemy.Table, subroutine.db.models.system.Instance.__table__)
+	world.session.connection().execute(sqlalchemy.update(system).values(events_archived_through=10**9))
+
+	archived = _archived(world)
+
+	assert archived.moved > 0, "a floor above every live event stopped the run before it began"
+	assert _count(world.session, ARCHIVE) == archived.moved
+	assert _archived(world).moved == 0, "a second run moved what had already gone"
+
+
 def test_a_retention_too_long_for_the_calendar_moves_nothing_and_says_nothing_went_wrong (
 	world: test_api_tasks.World, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:

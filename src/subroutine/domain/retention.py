@@ -175,7 +175,12 @@ def run (
 
 	moved = 0
 
-	while target is not None and (through is None or through < target):
+	# **Until a step moves nothing, whatever the floor says** (`#4417`, R2-L12 of the cold review of
+	# 2026-10-04). A merge leaves the floor above every live event of the instance merged into, since
+	# the archive it carried lands above them, and this stopped while the floor was above the target:
+	# nothing moved until those events aged past a floor they never reached. A step moving nothing is
+	# what ends it, which is the condition below.
+	while target is not None:
 		with factory() as session:
 			step = move(session, through=target)
 			session.commit()
