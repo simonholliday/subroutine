@@ -564,7 +564,8 @@ def tags_seen_by (
 	it.** A tag only private work uses is out of sight to anybody outside that work, as anything
 	else in it is (`#3922`): the listing handed its name to every member of the workspace. A tag
 	they can see is the workspace's vocabulary all the same, so renaming it reaches where they
-	cannot see, as renaming a status does.
+	cannot see, as renaming a status does. **And using its name on their own work brings it into
+	sight**, what it says it means included (`#4438`): their own item then carries it.
 
 	*What they may read* is what an export of theirs holds - the trash, archived items and a
 	repeat's template included - so an owner keeps sight of a tag only their trashed work carries.
