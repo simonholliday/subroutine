@@ -2384,51 +2384,32 @@ def _project_written_down (
 	return subroutine.directory.address(found, tree), str(found.id)
 
 
-class _Filed(typing.NamedTuple):
-	"""Where a checkout's marker files work: what a write sends, and what a reader is told - `#4007`."""
-
-	sent: str
-	shown: str
-
-	#: What to say instead where ``sent`` went unchecked and names nothing this credential can find
-	#: (`#4273`, decision `#4303`), for :func:`_with_the_marker`. ``None`` where it was checked.
-	unfound: str | None = None
-
-
-#: What a write wrapped by :func:`_with_the_marker` hands back.
-_Written = typing.TypeVar("_Written")
-
-
 def _with_the_marker (
-	program: Program, filed: _Filed | None, write: typing.Callable[[str | None], _Written]
-) -> _Written:
-	"""Write with the project a checkout's marker names, and without it where it names nothing.
+	program: Program,
+	filed: typing.Sequence[subroutine.directory.Candidate],
+	write: typing.Callable[[str | None], subroutine.directory.Written],
+) -> tuple[subroutine.directory.Written, subroutine.directory.Candidate | None]:
+	"""Write with the project a checkout's marker names, by its id, then its key, then none.
 
 	Decision `#4303`: a project an old marker names, which the credential cannot find, is ignored
 	with a note **for every credential**. One that lists projects finds out before writing; one
 	that may not list them sends the marker's project as it stands (`#4007`), so the refusal is the
-	only way to learn it names nothing, and the write is made again without it.
+	only way to learn it names nothing. **Handed back with the project it landed in** (`#4405`, R2-M7
+	of the cold review of 2026-10-04): the callers printed the marker's project over a write that had
+	gone to the Inbox, under the note saying the marker was ignored.
 	"""
 
-	try:
-		return write(None if filed is None else filed.sent)
+	written, landed, missed = subroutine.directory.filed_by_the_first(filed, write)
 
-	except subroutine.errors.NotFound as refused:
-		if (
-			filed is None
-			or filed.unfound is None
-			or not any(error.field == "project" for error in refused.errors)
-		):
-			raise
+	for note in missed:
+		program.warn(note)
 
-		program.warn(filed.unfound)
-
-		return write(None)
+	return written, landed
 
 
 def _project_named_by (
 	world: World, marker: subroutine.directory.Marker
-) -> tuple[_Filed | None, str | None]:
+) -> tuple[tuple[subroutine.directory.Candidate, ...], str | None]:
 	"""Return the current address of the project a marker names, or why there is none.
 
 	The matching itself is `subroutine.directory.resolve`, which is shared with the MCP
@@ -2457,7 +2438,7 @@ def _project_named_by (
 	if not (
 		marker.speaks_for(where.name) or world.current.marker_found_on == where.name
 	):
-		return None, (
+		return (), (
 			f"{FILE_NAME} here names project {shown!r} on {marker.connection}, and this is going "
 			f"to {where.name}. Ignoring it."
 		)
@@ -2483,7 +2464,7 @@ def _project_named_by (
 	# 2026-09-30), looked for below: an id cannot match a project it was not written for, and a
 	# marker written before workspace ids, naming a workspace renamed since, stopped filing by it.
 	if named != writing and marker.project_id is None:
-		return None, elsewhere
+		return (), elsewhere
 
 	try:
 		found = subroutine.clients.base.every_project(where.client, workspace=writing)
@@ -2499,37 +2480,45 @@ def _project_named_by (
 	# beside no id is `#4022`'s old marker, whose project id may still file it, so that one is sent.
 	except subroutine.errors.Forbidden:
 		if named != writing and (marker.workspace_id is not None or named is not None):
-			return None, elsewhere
+			return (), elsewhere
 
-		sent = str(marker.project_id) if marker.project_id is not None else (marker.project or "")
-		shown = marker.project or sent
+		shown = marker.project or str(marker.project_id)
+		unfound = (
+			f"{FILE_NAME} here names project {shown!r}, which this credential cannot find. Ignoring it."
+		)
+		by_id = None if marker.project_id is None else str(marker.project_id)
 
-		return _Filed(
-			sent=sent,
-			shown=shown,
-			unfound=(
-				f"{FILE_NAME} here names project {shown!r}, which this credential cannot find. "
-				"Ignoring it."
-			),
+		# **By its id, and then by its key** (`#4405`, R2-L25 of the cold review of 2026-10-04): an id
+		# the instance does not hold, beside a key it does, went to the Inbox saying the key could not
+		# be found - and a credential pinned to two projects was refused outright.
+		return tuple(
+			subroutine.directory.Candidate(sent=sent, shown=shown, source=FILE_NAME, unfound=unfound)
+			for sent in dict.fromkeys(one for one in (by_id, marker.project) if one)
 		), None
 
 	if named != writing and not any(str(row.id) == marker.project_id for row in found):
-		return None, elsewhere
+		return (), elsewhere
 
 	resolved = subroutine.directory.resolve(marker, found)
 
 	if resolved is not None:
-		return _Filed(sent=subroutine.directory.sendable(marker, found, resolved), shown=resolved), None
+		return (
+			subroutine.directory.Candidate(
+				sent=subroutine.directory.sendable(marker, found, resolved),
+				shown=resolved,
+				source=FILE_NAME,
+			),
+		), None
 
 	several = subroutine.directory.ambiguous(marker, found)
 
 	if several:
-		return None, (
+		return (), (
 			f"{FILE_NAME} here names project {shown!r}, which is more than one project in "
 			f"{writing}: {', '.join(several)}. Ignoring it."
 		)
 
-	return None, f"{FILE_NAME} here names project {shown!r}, which is not on {where.name}. Ignoring it."
+	return (), f"{FILE_NAME} here names project {shown!r}, which is not on {where.name}. Ignoring it."
 
 
 def _agent_because (
@@ -5630,10 +5619,10 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 
 def _default_project (
 	program: Program, world: World, text: str, *, under: int | None = None
-) -> _Filed | None:
+) -> tuple[subroutine.directory.Candidate, ...]:
 	"""Return the project a captured line should go to when it does not say (§13.7a).
 
-	``None`` whenever the answer is "wherever it went before" — no marker, no project in the
+	Nothing whenever the answer is "wherever it went before" — no marker, no project in the
 	marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
 	and must beat a file they may not know is there.
 
@@ -5643,13 +5632,13 @@ def _default_project (
 	"""
 
 	if world.marker is None or under is not None:
-		return None
+		return ()
 
 	if world.marker.project_id is None and world.marker.project is None:
-		return None
+		return ()
 
 	if subroutine.domain.capture.names_a_project(text):
-		return None
+		return ()
 
 	# **The id decides, and the key is what gets reported** (`#177`). A key can be renamed
 	# as of `#176`, so a marker naming one is stale the moment somebody does — and every
@@ -5657,7 +5646,7 @@ def _default_project (
 	# cannot change, so it is asked first.
 	named, unused = _project_named_by(world, world.marker)
 
-	if named is None:
+	if not named:
 		# **Ignored rather than refused** (`#166`). A marker is advisory context written by
 		# a machine, so a checkout marked for one instance must not stop `add` working
 		# against another. **Why it was ignored is said in its own terms**, which
@@ -5666,7 +5655,7 @@ def _default_project (
 		if unused is not None:
 			program.warn(unused)
 
-		return None
+		return ()
 
 	# **The one moment this file can explain itself.** The id resolved and the key beside
 	# it does not match what is stored, which is what a rename leaves behind — so say it
@@ -5679,22 +5668,22 @@ def _default_project (
 	# something no other surface agreed with and the one mechanism built to notice could
 	# not see it. *Resolution* stays case-insensitive, in `directory.resolve`, so those
 	# markers go on working; only the question "does this file agree with us" is exact.
-	if world.marker.project and world.marker.project != named.shown:
+	if world.marker.project and world.marker.project != named[0].shown:
 		# **Two different things to be told.** A rename changed which project the key
 		# names; a respelling changed nothing but how it is written, and saying "that
 		# project is now reprobate" about a marker reading `REPROBATE` would read as a
 		# rename that half-failed — which is exactly how this was met on a real instance.
 		respelling = (
-			subroutine.domain.projects.normalize_key(world.marker.project) == named.shown
+			subroutine.domain.projects.normalize_key(world.marker.project) == named[0].shown
 		)
 
 		program.warn(
 			f"{FILE_NAME} here says {world.marker.project!r}; the project's key is stored "
-			f"as {named.shown!r}. It still resolves, so nothing is broken - 'subroutine use "
-			f"--here --project {named.shown}' brings the file into line."
+			f"as {named[0].shown!r}. It still resolves, so nothing is broken - 'subroutine use "
+			f"--here --project {named[0].shown}' brings the file into line."
 			if respelling
 			else f"{FILE_NAME} here still says {world.marker.project!r}; that project is "
-			f"now {named.shown}. Run 'subroutine use --here --project {named.shown}' to bring it up "
+			f"now {named[0].shown}. Run 'subroutine use --here --project {named[0].shown}' to bring it up "
 			f"to date."
 		)
 
@@ -7841,10 +7830,10 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			# 2026-09-30): a decision written in a marked checkout went to the Inbox, where the agent's
 			# ``subroutine_document`` filed it in the project. A project or a parent named here wins.
 			filed = (
-				None if project.strip() or parent.strip() else _default_project(program, world, "")
+				() if project.strip() or parent.strip() else _default_project(program, world, "")
 			)
 
-			created = _with_the_marker(
+			created, marked = _with_the_marker(
 				program,
 				filed,
 				lambda sent: where.client.create_document(
@@ -7891,9 +7880,11 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				)
 			)
 
-			if filed is not None:
+			# **Where it went, not where the marker pointed** (`#4405`, R2-M7 of the cold review of
+			# 2026-10-04): this named the marker's project over a write that went to the Inbox.
+			if marked is not None:
 				program.console.print(
-					rich.text.Text(f"  in {filed.shown}, from {FILE_NAME}", style=DETAIL)
+					rich.text.Text(f"  in {marked.shown}, from {FILE_NAME}", style=DETAIL)
 				)
 
 			_suggest(
@@ -10141,7 +10132,7 @@ def register (
 			# rather than part of it — which is the argument `client.capture` already makes for
 			# taking it separately. HTTP and MCP have accepted it since they were written, and
 			# only the CLI made a person file everything as a task and correct it afterwards.
-			captured = _with_the_marker(program, filed, lambda sent: where.client.capture(
+			captured, marked = _with_the_marker(program, filed, lambda sent: where.client.capture(
 				text=text,
 				workspace=_writing_workspace(world),
 				project=sent,
@@ -10225,8 +10216,8 @@ def register (
 			# three directories up that silently redirects where work is filed is the footgun
 			# `context.py` calls the standing one in comparable tooling — not having a setting,
 			# but not knowing where it came from. One line is the whole cost of not having it.
-			if filed is not None:
-				console.print(rich.text.Text(f"  in {filed.shown}, from {FILE_NAME}", style=DETAIL))
+			if marked is not None:
+				console.print(rich.text.Text(f"  in {marked.shown}, from {FILE_NAME}", style=DETAIL))
 
 			# The sentence itself is `domain.capture.explain`'s, so this surface and the MCP
 			# adapter cannot come to word §6.13's obligation differently.

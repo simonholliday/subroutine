@@ -47,6 +47,7 @@ import typing
 import urllib.parse
 
 import subroutine.addressing
+import subroutine.errors
 
 #: What the file is called. A dotfile because it is machine-written configuration rather than
 #: something a reader of the repository needs to meet, and TOML because every other file this
@@ -351,6 +352,76 @@ def ambiguous (marker: Marker, projects: typing.Iterable[Named]) -> list[str]:
 	keyed = sorted(address(row, rows) for row in rows if row.key.upper() == wanted)
 
 	return keyed if len(keyed) > 1 else []
+
+
+class Candidate(typing.NamedTuple):
+	"""A project a write may be filed in, tried in its turn - `#4405`."""
+
+	#: What the write sends: the project's id, or its key, as this credential can name it.
+	sent: str
+
+	#: What a reader is told it landed in.
+	shown: str
+
+	#: Where it came from, as a reader is told it: :data:`FILE_NAME`, or the address.
+	source: str
+
+	#: What to say where it was sent unchecked and names nothing this credential can find - by a
+	#: credential that may not list projects (`#4007`, decision `#4303`). ``None`` where it was checked,
+	#: so a refusal is about something else and is raised.
+	unfound: str | None = None
+
+
+#: What a write handed to :func:`filed_by_the_first` hands back.
+Written = typing.TypeVar("Written")
+
+
+def filed_by_the_first (
+	candidates: typing.Sequence[Candidate], write: typing.Callable[[str | None], Written]
+) -> tuple[Written, Candidate | None, list[str]]:
+	"""Write with the first candidate the instance finds, saying which landed and which did not.
+
+	**One helper for both surfaces** (`#4405`, R2-M7, R2-L24 and R2-L25 of the cold review of
+	2026-10-04). Each had its own, and each carried a defect: the terminal printed the marker's
+	project over a write that went to the Inbox, the agent tools never reached the address's project
+	once the marker's had failed, and both took a stale id beside a key the instance knows to the
+	Inbox. **It prints nothing**: the terminal warns, and the agent tools fold it into the answer.
+
+	Tried in turn while the refusal is that the project is not found; then with no project, the
+	Inbox. A refused write writes nothing, so each retry costs a round trip and no more. What is said
+	of those that did not land leaves out another way of naming the one that did - the marker's id,
+	where its key then filed it - and says each thing once.
+	"""
+
+	missed: list[Candidate] = []
+
+	for candidate in candidates:
+		try:
+			written = write(candidate.sent)
+
+		except subroutine.errors.NotFound as refused:
+			if candidate.unfound is None or not any(error.field == "project" for error in refused.errors):
+				raise
+
+			missed.append(candidate)
+
+			continue
+
+		return written, candidate, _passed_over(missed, candidate)
+
+	return write(None), None, _passed_over(missed, None)
+
+
+def _passed_over (missed: typing.Sequence[Candidate], landed: Candidate | None) -> list[str]:
+	"""Return what to say of the candidates that named nothing, once each, as :func:`filed_by_the_first` says."""
+
+	return list(
+		dict.fromkeys(
+			one.unfound
+			for one in missed
+			if one.unfound is not None and (landed is None or one.shown != landed.shown)
+		)
+	)
 
 
 class Slugged(typing.Protocol):

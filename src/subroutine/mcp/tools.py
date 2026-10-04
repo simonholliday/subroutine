@@ -629,29 +629,30 @@ def _conventions (
 	# **Where this reader stands, as a place in the tree** (`#3673`). The checkout sends a
 	# project's id where it can (`#4007`), so its path is looked up rather than read off what was
 	# sent, and where it cannot be read the instance narrows instead, as it did before.
-	place = _place(client, workspace, chosen.project)
+	def stood (sent: str | None) -> tuple[str | None, frozenset[int]]:
+		"""Return where a project stands and what the instance narrows it to, or refuse it unfound."""
 
-	try:
-		own = _own(
-			client, workspace, chosen.project, place, subroutine.domain.documents.CURRENT_CATEGORY
-		)
+		found = _place(client, workspace, sent)
+
+		return found, _own(client, workspace, sent, found, subroutine.domain.documents.CURRENT_CATEGORY)
 
 	# **A project sent unchecked that names nothing is dropped, and said** (`#4273`, decision
-	# `#4303`), as a write drops it. Left to fail, it failed the whole resource with an error.
-	except subroutine.errors.NotFound as refused:
-		if chosen.unfound is None or not any(error.field == "project" for error in refused.errors):
-			raise
+	# `#4303`), as a write drops it, and **the next the checkout names is read** (`#4405`, R2-L24 of
+	# the cold review of 2026-10-04): a marker naming nothing left a narrowed reader un-narrowed where
+	# the address named the project it was in.
+	(place, own), landed, missed = subroutine.directory.filed_by_the_first(chosen.candidates, stood)
 
-		lines += ["", chosen.unfound]
-		chosen = _Checkout(None, chosen.unfound)
-		own = frozenset()
+	if missed:
+		lines += ["", *missed]
+
+	project = None if landed is None else landed.sent
 	listed: list[subroutine.views.Document] = []
 	in_force = 0
 	cut = False
 
 	for kind in subroutine.domain.documents.GOVERNING:
 		section, found, held, more = _governing(
-			client, workspace, kind, chosen.project, place, own
+			client, workspace, kind, project, place, own
 		)
 
 		lines += section
@@ -704,13 +705,13 @@ def _conventions (
 
 		return "\n".join(lines)
 
-	where = place or chosen.project
+	where = place or project
 	left = in_force - len(listed)
 
 	if listed:
 		lines += [
 			"",
-			f"{len(listed)} in force{_counted(listed, chosen.project, place, own)}. Findings and notes",
+			f"{len(listed)} in force{_counted(listed, project, place, own)}. Findings and notes",
 			"are not listed here: they describe rather than bind, and",
 			'`subroutine_list` with `filter={"type.eq": "finding"}`, or "note", finds those. A code',
 			"review's *Not issues* section is worth reading before re-raising something it already",
@@ -727,7 +728,7 @@ def _conventions (
 			"nothing in force elsewhere binds the whole workspace.",
 		]
 
-	if chosen.project is not None:
+	if landed is not None:
 		# **A narrowing that does not say so is the omission this resource refuses** — its own
 		# rule, written when Simon settled that the index is curated by superseding rather than
 		# truncated: *an agent held to ten rules it was never shown is worse off than one reading
@@ -749,14 +750,14 @@ def _conventions (
 			'`subroutine_list` with a `project` and `filter={"type.eq": "decision"}`, or another '
 			"kind, shows them."
 		)
-		lines += ["", f"**Narrowed to {where}**, from {chosen.source}. {elsewhere}"]
+		lines += ["", f"**Narrowed to {where}**, from {'`' + landed.source + '` in this checkout' if landed.source == subroutine.directory.FILE_NAME else landed.source}. {elsewhere}"]
 
 	drafted, more = _drafted(
 		client,
 		workspace,
-		chosen.project,
+		project,
 		place,
-		_own(client, workspace, chosen.project, place, subroutine.domain.documents.DRAFT_CATEGORY),
+		_own(client, workspace, project, place, subroutine.domain.documents.DRAFT_CATEGORY),
 	)
 
 	if drafted:
@@ -3971,26 +3972,20 @@ def _within_budget (
 
 
 class _Checkout(typing.NamedTuple):
-	"""Where the checkout this session is standing in says work belongs, and what to say."""
+	"""Where the checkout this session stands in says work belongs, in the order to try it - `#4405`."""
 
-	#: The project to file under, resolved against *this* instance. ``None`` means file
-	#: wherever the caller's own arguments say, which is the workspace's Inbox by default.
-	project: str | None
+	#: The projects to file under, resolved against *this* instance where they could be and tried in
+	#: turn: the marker's by id and by key, then the address's. None means file wherever the caller's
+	#: own arguments say, which is the workspace's Inbox by default.
+	candidates: tuple[subroutine.directory.Candidate, ...] = ()
 
-	#: The line to add to the answer, or ``None`` when there is nothing to report. Said even
-	#: when the marker was *not* used, because an agent holding a repository whose file says
-	#: one thing and an instance that says another needs to know which won.
-	said: str | None
+	#: What was passed over before anything was sent, said after where the work went. Said even when
+	#: nothing was used, because an agent holding a repository whose file says one thing and an
+	#: instance that says another needs to know which won.
+	ignored: tuple[str, ...] = ()
 
-	#: Where ``project`` came from, as a reader is told it - the checkout's file, or the address
-	#: (`#3747`). The conventions credited the file whichever had answered.
-	source: str | None = None
-
-	#: What to say instead where ``project`` was sent without being checked and turns out to name
-	#: nothing this credential can find (`#4273`, decision `#4303`): a credential that may not list
-	#: projects sends the name as it stands, and the write goes on without it, saying so. ``None``
-	#: where the project was checked, or nothing was sent.
-	unfound: str | None = None
+	#: The markers the relay passed over (`#4397`), said first.
+	skipped: tuple[str, ...] = ()
 
 
 def _checkout (
@@ -4014,14 +4009,7 @@ def _checkout (
 	if overridden or not standing.skipped:
 		return chosen
 
-	def told (line: str | None) -> str:
-		"""Return the skipped markers' lines, then this one."""
-
-		return " ".join([*standing.skipped, *([line] if line else [])])
-
-	return chosen._replace(
-		said=told(chosen.said), unfound=None if chosen.unfound is None else told(chosen.unfound)
-	)
+	return chosen._replace(skipped=tuple(standing.skipped))
 
 
 def _placed (
@@ -4055,9 +4043,11 @@ def _placed (
 	"""
 
 	if overridden:
-		return _Checkout(None, None)
+		return _Checkout()
 
 	projects: list[typing.Any] | None = None
+	unlisted = False
+	tried: list[subroutine.directory.Candidate] = []
 	ignored: list[str] = []
 
 	# **Only the marker the caller's relay sent, never one in this process's own directory**
@@ -4095,21 +4085,25 @@ def _placed (
 		# regardless, a marker committed for somebody else's instance - what the file is *for* (`#232`)
 		# - refused every write with *there is no project here*, and the conventions with an error.
 		except subroutine.errors.Forbidden:
+			unlisted = True
 			elsewhere = _elsewhere_unlisted(client, marker, workspace, reached)
 
+			# **By its id, then by its key, and then the address** (`#4405`, R2-L24 and R2-L25 of the
+			# cold review of 2026-10-04). This returned the marker's project alone, so where the instance
+			# held no such project the address was never read and the conventions were not narrowed; and
+			# a stale id went to the Inbox beside a key the instance knows.
 			if elsewhere is None:
-				sent = str(marker.project_id) if marker.project_id is not None else marker.project
+				shown = marker.project or str(marker.project_id)
+				unfound = _cannot_find(f"{subroutine.directory.FILE_NAME} here names {shown!r}")
+				by_id = None if marker.project_id is None else str(marker.project_id)
 
-				return _Checkout(
-					sent,
-					f"in {marker.project or sent}, from {subroutine.directory.FILE_NAME}",
-					f"`{subroutine.directory.FILE_NAME}` in this checkout",
-					_cannot_find(
-						f"{subroutine.directory.FILE_NAME} here names {marker.project or sent!r}"
-					),
-				)
+				tried += [
+					subroutine.directory.Candidate(sent, shown, subroutine.directory.FILE_NAME, unfound)
+					for sent in dict.fromkeys(one for one in (by_id, marker.project) if one)
+				]
 
-			ignored.append(elsewhere)
+			else:
+				ignored.append(elsewhere)
 
 		if projects is not None:
 			elsewhere = _elsewhere(client, marker, projects, reached)
@@ -4117,9 +4111,14 @@ def _placed (
 
 			if filed is not None:
 				return _Checkout(
-					subroutine.directory.sendable(marker, projects, filed),
-					f"in {filed}, from {subroutine.directory.FILE_NAME}",
-					f"`{subroutine.directory.FILE_NAME}` in this checkout",
+					(
+						subroutine.directory.Candidate(
+							subroutine.directory.sendable(marker, projects, filed),
+							filed,
+							subroutine.directory.FILE_NAME,
+						),
+					),
+					tuple(ignored),
 				)
 
 			ignored.append(
@@ -4131,20 +4130,27 @@ def _placed (
 			)
 
 	if standing.project is not None:
-		if projects is None:
+		if projects is None and not unlisted:
 			try:
 				projects = subroutine.clients.base.every_project(client, workspace=workspace)
 
-			# **Sent as the address wrote it**, for the marker's reason just above (`#4007`), and if it
-			# names nothing this credential can find, the write goes on without it, as a full credential's
-			# does (`#4273`, NEW-A-2 of the verification of the cold review of 2026-10-03).
 			except subroutine.errors.Forbidden:
-				return _Checkout(
+				unlisted = True
+
+		# **Sent as the address wrote it**, for the marker's reason just above (`#4007`), and if it
+		# names nothing this credential can find, the write goes on without it, as a full credential's
+		# does (`#4273`, NEW-A-2 of the verification of the cold review of 2026-10-03).
+		if projects is None:
+			tried.append(
+				subroutine.directory.Candidate(
 					standing.project,
-					" ".join([f"in {standing.project}, from the address", *ignored]),
+					standing.project,
 					"the address",
-					" ".join([_cannot_find(f"The address names {standing.project!r}"), *ignored]),
+					_cannot_find(f"The address names {standing.project!r}"),
 				)
+			)
+
+			return _Checkout(tuple(tried), tuple(ignored))
 
 		named = subroutine.directory.Marker(
 			path=pathlib.Path(subroutine.directory.FILE_NAME), project=standing.project
@@ -4153,7 +4159,7 @@ def _placed (
 
 		if filed is not None:
 			return _Checkout(
-				filed, " ".join([f"in {filed}, from the address", *ignored]), "the address"
+				(*tried, subroutine.directory.Candidate(filed, filed, "the address")), tuple(ignored)
 			)
 
 		ignored.append(
@@ -4163,7 +4169,7 @@ def _placed (
 			)
 		)
 
-	return _Checkout(None, " ".join(ignored) or None)
+	return _Checkout(tuple(tried), tuple(ignored))
 
 
 def _cannot_find (named: str) -> str:
@@ -4176,31 +4182,43 @@ def _cannot_find (named: str) -> str:
 	return f"{named}, a project this credential cannot find. Ignoring it."
 
 
-#: What a write wrapped by :func:`_with_the_checkout` hands back.
-_Written = typing.TypeVar("_Written")
-
-
 def _with_the_checkout (
-	checkout: _Checkout, write: typing.Callable[[str | None], _Written]
-) -> tuple[_Written, _Checkout]:
-	"""Write with the checkout's project, and without it where it was unchecked and not found.
+	checkout: _Checkout, write: typing.Callable[[str | None], subroutine.directory.Written]
+) -> tuple[subroutine.directory.Written, subroutine.directory.Candidate | None, str | None]:
+	"""Write with the first of the checkout's projects the instance finds, and say where it went.
 
 	Decision `#4303`: a project the address or an old marker names, which the credential cannot
 	find, is ignored with a note **for every credential**. A full credential lists projects and
 	never sends it; one that may not list them sends it as it stands (`#4007`), so the refusal is
-	the only way to learn it names nothing, and the write is made again without it.
+	the only way to learn it names nothing - and the next is tried, in the order the checkout
+	gives (`#4405`), as :func:`subroutine.directory.filed_by_the_first` does for the terminal.
 	"""
 
-	try:
-		return write(checkout.project), checkout
+	written, landed, missed = subroutine.directory.filed_by_the_first(checkout.candidates, write)
 
-	except subroutine.errors.NotFound as refused:
-		if checkout.unfound is None or not any(
-			error.field == "project" for error in refused.errors
-		):
-			raise
+	return written, landed, _where_filed(checkout, landed, missed)
 
-	return write(None), checkout._replace(project=None, said=checkout.unfound)
+
+def _where_filed (
+	checkout: _Checkout,
+	landed: subroutine.directory.Candidate | None,
+	missed: typing.Sequence[str],
+) -> str | None:
+	"""Return what to tell the caller about where work was filed, a sentence to a line - `#4405`.
+
+	**On lines of their own** (NEW-E-2 of the verification of the cold review of 2026-10-04): joined
+	by a space, *in beta, from the address* ran on into *.subroutine here names 'nosuch'*, as one
+	sentence. The caller indents the first, and each after it starts its own indented line.
+	"""
+
+	lines = [
+		*checkout.skipped,
+		*([] if landed is None else [f"in {landed.shown}, from {landed.source}"]),
+		*missed,
+		*checkout.ignored,
+	]
+
+	return "\n  ".join(lines) or None
 
 
 def _unplaced (named: str, several: list[str]) -> str:
@@ -4384,7 +4402,7 @@ def _added (
 		reached=reached,
 	)
 
-	captured, checkout = _with_the_checkout(
+	captured, filed, said = _with_the_checkout(
 		checkout,
 		lambda project: client.capture(
 			text=line,
@@ -4436,15 +4454,14 @@ def _added (
 	# cannot see where its work went cannot tell a person either. That argument applies just
 	# as much when the marker was *not* used — more so, because the agent is then holding a
 	# repository whose file says one thing and an instance that says another.
-	if checkout.said is not None:
-		answer = f"{answer}\n  {checkout.said}"
+	if said is not None:
+		answer = f"{answer}\n  {said}"
 
-	# **Chosen** is the caller's `+key` or a marker that resolved — not `checkout.said`, which
+	# **Chosen** is the caller's `+key` or a project the checkout filed it in — not ``said``, which
 	# is also written when a marker was found and *ignored*. Ignored means nothing chose.
 	landed = _where_it_landed(
 		captured.task,
-		chosen=subroutine.domain.capture.names_a_project(line)
-		or checkout.project is not None,
+		chosen=subroutine.domain.capture.names_a_project(line) or filed is not None,
 	)
 
 	if landed is not None:
@@ -4540,7 +4557,7 @@ def _wrote (
 			reached=reached,
 		)
 
-		document, checkout = _with_the_checkout(
+		document, filed, told = _with_the_checkout(
 			checkout,
 			lambda project: client.create_document(
 				title=_text(arguments, "title") or "",
@@ -4587,12 +4604,12 @@ def _wrote (
 		if document.binds == "workspace":
 			answer = f"{answer}\n  binds the whole workspace"
 
-		if checkout.said is not None:
-			answer = f"{answer}\n  {checkout.said}"
+		if told is not None:
+			answer = f"{answer}\n  {told}"
 
 		landed = _where_it_landed(
 			document,
-			chosen=_text(arguments, "project") is not None or checkout.project is not None,
+			chosen=_text(arguments, "project") is not None or filed is not None,
 		)
 
 		return answer if landed is None else f"{answer}\n  {landed}"

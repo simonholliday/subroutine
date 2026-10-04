@@ -1068,6 +1068,8 @@ def test_a_narrowed_credential_in_a_checkout_marked_for_elsewhere_writes_and_say
 
 	run("-c", "work", "workspace", "create", "team", "Team")
 	run("-c", "work", "-w", "team", "project", "create", "web", "Team web")
+	run("-c", "work", "-w", "acme", "project", "create", "alpha", "Alpha")
+	run("-c", "work", "-w", "acme", "project", "create", "beta", "Beta")
 	checkout = tmp_path / "marked"
 	checkout.mkdir()
 	monkeypatch.chdir(checkout)
@@ -1100,6 +1102,40 @@ def test_a_narrowed_credential_in_a_checkout_marked_for_elsewhere_writes_and_say
 
 	assert unfound.exit_code == 0, (unfound.output, unfound.exception)
 	assert "names project 'nosuch', which this credential cannot find. Ignoring it." in unfound.output
+
+	# **Where it went, not where the marker pointed** (`SR#4405`, R2-M7 of the cold review of
+	# 2026-10-04): the line under the note said *in nosuch, from .subroutine* over an Inbox filing.
+	scripted = typer.testing.CliRunner().invoke(
+		subroutine.cli.main.app, ["-c", "work", "-w", "acme", "add", "--json", "Fix the sidebar"]
+	)
+
+	assert "in nosuch" not in unfound.output, unfound.output
+	assert scripted.exit_code == 0, (scripted.output, scripted.exception)
+	assert json.loads(scripted.stdout)["project_path"] == "inbox", scripted.stdout
+	assert "which this credential cannot find" in scripted.output, scripted.output
+
+	# **And by its key, where its id is stale** (`SR#4405`, R2-L25): it went to the Inbox saying the
+	# key could not be found, and a credential pinned to two projects was refused outright.
+	(checkout / ".subroutine").write_text(
+		f'project_id = "{uuid.uuid4()}"\nproject = "alpha"\n', encoding="utf-8"
+	)
+	pinned = run(
+		"-c", "work", "-w", "acme", "token", "create", "--title", "pinned", "--scope", "task:read",
+		"--scope", "task:write", "--project", "alpha", "--project", "beta",
+	)
+	narrower = re.search(r"sr_[A-Za-z0-9_.-]+", pinned.output)
+
+	assert narrower is not None, pinned.output
+
+	for credential in (secret.group(0), narrower.group(0)):
+		monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", credential)
+		keyed = typer.testing.CliRunner().invoke(
+			subroutine.cli.main.app, ["-c", "work", "-w", "acme", "add", "--json", "Fix the menu"]
+		)
+
+		assert keyed.exit_code == 0, (keyed.output, keyed.exception)
+		assert json.loads(keyed.stdout)["project_path"] == "alpha", keyed.stdout
+		assert "cannot find" not in keyed.output, keyed.output
 
 
 def test_mcp_serves_the_connection_c_names_before_it_or_after_it (

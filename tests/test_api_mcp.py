@@ -1736,6 +1736,87 @@ def test_a_narrowed_agent_in_a_checkout_marked_for_elsewhere_files_and_says_why 
 	assert _filed_in_own(world, addressed) == "web"
 
 
+def test_a_narrowed_agent_tries_the_marker_by_id_then_by_key_then_the_address (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4405`, R2-L24 and R2-L25 of the cold review of 2026-10-04, and NEW-E-2 of its verification.
+
+	A credential that may not list projects sent the marker's project and, where the instance held
+	none, filed in the Inbox: the address's project was never read, and the conventions were not
+	narrowed to it. A stale id beside a key the instance knows went to the Inbox too - refused
+	outright for a credential pinned to two projects. **Tried in turn: the id, the key, the address**,
+	and each sentence of the answer on a line of its own.
+	"""
+
+	web = _a_project(world, "web")
+	alpha = _a_project(world, "alpha")
+	decided = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "Keep the footer plain", "type": "decision", "project": "alpha"},
+	)
+
+	assert decided.status_code == 201, decided.text
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session,
+		user=world.user,
+		title="Two projects",
+		scopes=["task:read", "task:write"],
+		project_scope=[web, alpha],
+		workspace_id=world.workspace.id,
+	)
+	world.session.flush()
+	secret = issued.value.get_secret_value()
+
+	stale = _as(
+		world,
+		secret,
+		_adding("Fix the footer"),
+		**{subroutine.directory.HEADER: f"project_id={uuid.uuid4()}; project=alpha"},
+	)
+
+	assert _filed_in_own(world, stale) == "alpha", stale
+	assert "cannot find" not in stale, stale
+
+	headers = {
+		"content-type": "application/json",
+		"authorization": f"Bearer {secret}",
+		subroutine.directory.HEADER: "project=nosuch",
+	}
+	addressed = api_support.call(
+		world.application,
+		"POST",
+		subroutine.api.mcp.PATH,
+		content=_adding("Fix the sidebar"),
+		headers=headers,
+		params={"project": "alpha"},
+	).json()["result"]["content"][0]["text"]
+	read = api_support.call(
+		world.application,
+		"POST",
+		subroutine.api.mcp.PATH,
+		content=json.dumps(
+			{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"method": "resources/read",
+				"params": {"uri": "subroutine://conventions"},
+			}
+		),
+		headers=headers,
+		params={"project": "alpha"},
+	)
+	text = str(read.json()["result"]["contents"][0]["text"])
+
+	assert _filed_in_own(world, addressed) == "alpha", addressed
+	assert (
+		"in alpha, from the address\n  .subroutine here names 'nosuch', a project this credential "
+		"cannot find. Ignoring it."
+	) in addressed, addressed
+	assert "**Narrowed to alpha**, from the address." in text, text
+
+
 def test_a_marker_the_relay_passed_over_is_said_in_the_answer (
 	world: test_api_tasks.World,
 ) -> None:
