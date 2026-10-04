@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Changing how often something repeats keeps what it is counted from.** A new rule sent
+  without saying whether the series counts from its schedule or from when the last one was done
+  - by the agent tools, which have no way to say it, or by `update --repeat` without
+  `--repeat-from` - turned a series counted from completion into one counted from the schedule.
+  Leaving it out now leaves it as it was.
 - **What privacy cannot hide about a name is written down.** A project's key is one among the
   projects beside it and a saved view's name one per workspace, so making either with a name
   already taken is refused, naming it, even when what holds it is private and out of sight.

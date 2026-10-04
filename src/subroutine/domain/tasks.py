@@ -3836,6 +3836,16 @@ def _repeat_read (
 		anchor = anchor or series.recurrence_anchor
 		trigger = trigger or series.recurrence_trigger
 
+	# **A new rule keeps what the series is measured from unless the change names it** (`#4406`,
+	# R2-M9 of the cold review of 2026-10-04). An omitted field is unchanged (docs/design.md
+	# §8.3), and a rule sent alone took `DEFAULT_ANCHOR` in `_repeat`, so a series counted from
+	# completion became one counted from the schedule wherever the rule travels by itself: the
+	# agent tools' `repeat`, which has no anchor, and `update --repeat` without `--repeat-from`.
+	# Before the shortcut below, so a rule sent back unchanged is still no change.
+	elif series is not None and isinstance(rule, str):
+		anchor = anchor or series.recurrence_anchor
+		trigger = trigger or series.recurrence_trigger
+
 	# **What the series already holds, sent back, is no change** (`#4321`, of the cold review of
 	# 2026-10-03, and NEW-D-2 of its verification), as a title sent back is not
 	# (:func:`_clean_title`'s ``was``). The browser sends the repeat with every save: one stored

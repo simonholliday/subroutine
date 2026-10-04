@@ -9751,6 +9751,31 @@ def test_a_listing_row_says_when_an_item_is_finished (
 	)
 
 
+def test_a_new_rule_from_an_agent_keeps_how_the_series_is_measured (
+	bound: subroutine.mcp.protocol.Server, local_client: subroutine.clients.local.Client
+) -> None:
+	"""`SR#4406`, R2-M9 of the cold review of 2026-10-04: this tool's ``repeat`` has no anchor.
+
+	So a rule sent through it was measured from the schedule whatever the series had been, and an
+	agent changing how often something repeats reset one counted from when it was done.
+	"""
+
+	ref = _added(bound, "Water the plants by 2026-12-01 every 3 days")
+
+	local_client.update(ref=ref, recurrence_anchor="completion")
+
+	changed, failed = _called(bound, "subroutine_update", ref=ref, repeat="every 5 days")
+
+	assert not failed, changed
+
+	held = local_client.task(ref=ref)
+
+	assert held is not None
+	assert held.recurrence_rule == "FREQ=DAILY;INTERVAL=5", "the new rule did not land"
+	assert held.recurrence_anchor == "completion", changed
+	assert held.recurrence_trigger == "completion", changed
+
+
 def test_an_agent_can_change_how_something_repeats_and_stop_it (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

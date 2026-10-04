@@ -12027,6 +12027,16 @@ def test_how_a_repeat_is_measured_is_set_and_read_back_at_the_terminal (
 	assert "from when it is done" in moved.output
 	assert "on the 30th" in moved.output, "the rule it qualifies is untouched"
 
+	# **And a new rule leaves it alone** (`SR#4406`, R2-M9 of the cold review of 2026-10-04): a rule
+	# sent without `--repeat-from` was measured from the schedule again, against `update --help`'s
+	# *everything you do not name is left alone*.
+	run("update", "2", "--repeat", "every 5 days")
+
+	again = run("show", "2")
+
+	assert "every 5 days" in again.output, "the new rule did not land, so this proves nothing"
+	assert "from when it is done" in again.output, "changing how often reset how it is measured"
+
 
 def test_saying_how_a_repeat_is_measured_without_saying_how_often_is_refused (
 	run: typing.Callable[..., typer.testing.Result],
