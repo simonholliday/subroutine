@@ -1903,6 +1903,72 @@ def test_a_rule_naming_no_date_at_all_says_so (session: sqlalchemy.orm.Session) 
 	assert refused.value.detail == "That repeat never comes round from the date it repeats from."
 
 
+def test_a_timed_start_beside_a_whole_day_deadline_keeps_its_time_from_completion (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4424`, R2-L23 of the cold review of 2026-10-04: it took the time the last was finished.
+
+	Weekly from when it is done, starting Monday 09:00 and due Friday as a whole day, finished on
+	Friday at 11:17: the next started on Sunday at 20:17, five days before its deadline where the
+	series has four. **Moved by the days its deadline moved: Monday 09:00.**
+	"""
+
+	made = _repeating(
+		session,
+		recurrence="every week",
+		recurrence_anchor="completion",
+		starts="2026-08-31T09:00",
+		due="2026-09-04",
+		now=datetime.datetime(2026, 8, 20, 9, 0, tzinfo=datetime.UTC),
+	)
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(
+		session, made, now=datetime.datetime(2026, 9, 4, 10, 17, tzinfo=datetime.UTC)
+	)
+
+	coming = _next_live(session, series)
+	london = zoneinfo.ZoneInfo(LONDON)
+
+	assert coming.due_at is not None and coming.starts_at is not None
+	assert coming.due_at.astimezone(london).date() == datetime.date(2026, 9, 11)
+	assert coming.starts_at.astimezone(london).replace(tzinfo=None) == datetime.datetime(
+		2026, 9, 7, 9, 0
+	), coming.starts_at
+
+
+def test_a_timed_start_beside_a_timed_deadline_still_keeps_its_distance (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4424`'s control: with a timed deadline the next is a week from when it was finished.
+
+	Both of its dates are times, so they move together from the completion, four days and eight
+	hours apart as the series has them - which is what counting from completion means.
+	"""
+
+	made = _repeating(
+		session,
+		recurrence="every week",
+		recurrence_anchor="completion",
+		starts="2026-08-31T09:00",
+		due="2026-09-04T17:00",
+		now=datetime.datetime(2026, 8, 20, 9, 0, tzinfo=datetime.UTC),
+	)
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(
+		session, made, now=datetime.datetime(2026, 9, 4, 10, 17, tzinfo=datetime.UTC)
+	)
+
+	coming = _next_live(session, series)
+
+	assert coming.due_at is not None and coming.starts_at is not None
+	assert coming.due_at.astimezone(zoneinfo.ZoneInfo(LONDON)).replace(tzinfo=None) == (
+		datetime.datetime(2026, 9, 11, 11, 17)
+	)
+	assert coming.due_at - coming.starts_at == datetime.timedelta(days=4, hours=8)
+
+
 def test_clearing_the_series_own_date_is_refused_before_anything_changes (
 	session: sqlalchemy.orm.Session,
 ) -> None:

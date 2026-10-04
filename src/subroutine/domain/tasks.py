@@ -799,6 +799,23 @@ def materialise (
 				now=now,
 			)
 
+		# **By the days a whole-day grid moved, where the series counts from completion** (`#4424`,
+		# R2-L23 of the cold review of 2026-10-04). Its slot is a whole day, so the completion's time of
+		# day was carried into a timed start beside it, measured against the deadline's last instant: a
+		# weekly series starting Monday 09:00, due Friday, finished at 11:17 started next on Sunday at
+		# 20:17. Moved by calendar days instead, as a whole-day move from now on moves one (`#4310`).
+		if after is not None and template.recurrence_anchor == "completion" and _whole_day(template):
+			return _days_on_its_clock(
+				held,
+				was=anchor,
+				now_holds=occurrence,
+				was_in=zone,
+				now_in=zone,
+				column=column,
+				timezone=zone,
+				now=now,
+			)
+
 		# **By the rule's own wall-clock moment, not the occurrence's** (`#4385`, R2-M8 of the cold
 		# review of 2026-10-04, decision `#4386`). On the night the clocks go forward, a slot in the
 		# skipped hour is read an hour later, and that hour was carried into every other date: a
