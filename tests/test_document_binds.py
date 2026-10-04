@@ -238,6 +238,54 @@ def test_a_marked_section_goes_nowhere_its_document_cannot (world: test_api_task
 	assert deleted.status_code == 403, deleted.text
 
 
+def test_a_section_already_in_the_trash_is_no_door_to_a_rule (world: test_api_tasks.World) -> None:
+	"""`SR#4431`, R2-L39 of the cold review of 2026-10-04: a marked section in the trash still counted.
+
+	A document whose only marked section was already in the trash was refused to a narrowed
+	credential, moved or deleted, where one with no marked section went through. **Only a live rule
+	counts**, as it does for a project holding one.
+	"""
+
+	keanu, _member_secret = _member(world, "keanu", "member")
+	web = world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"}).json()["id"]
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	narrowed = _credential(world, keanu, project_write_scope=[inbox, web])
+	owner_narrowed = _credential(world, world.user, project_write_scope=[inbox, web])
+	held = _written(world, title="The handbook")
+	section = _written(
+		world, title="Name the project on every capture", binds="workspace", parent=held["ref"]
+	)
+	path = f"/v1/documents/{held['ref']}"
+	gone = world.call("DELETE", f"/v1/documents/{section['ref']}")
+
+	assert gone.status_code < 300, gone.text
+
+	moved = _as(world, narrowed, "PATCH", path, json={"project": "web"})
+
+	assert moved.status_code == 200, moved.text
+
+	deleted = _as(world, owner_narrowed, "DELETE", path)
+
+	assert deleted.status_code < 300, deleted.text
+
+	# **Restoring still asks about every section** (`SR#4389`): one that went to the trash with its
+	# document comes back with it, into force.
+	other = _written(world, title="The runbook")
+	_written(world, title="Page whoever is on call", binds="workspace", parent=other["ref"])
+	gone = world.call("DELETE", f"/v1/documents/{other['ref']}")
+
+	assert gone.status_code < 300, gone.text
+
+	restored = _as(world, owner_narrowed, "POST", f"/v1/documents/{other['ref']}/restore")
+
+	assert restored.status_code == 403, restored.text
+
+	# **And one whose section stayed in the trash on its own brings no rule back**, and is restored.
+	restored = _as(world, owner_narrowed, "POST", f"{path}/restore")
+
+	assert restored.status_code == 200, restored.text
+
+
 @pytest.mark.parametrize("door", ["private", "under a private project", "deleted"])
 def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	door: str, world: test_api_tasks.World

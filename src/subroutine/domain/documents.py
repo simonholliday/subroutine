@@ -1431,7 +1431,13 @@ def _retiring (
 	``None`` where the update does none of them.
 	"""
 
-	if moving and any(one.binds == BINDS_THE_WORKSPACE for one in (document, *beneath)):
+	# **Only a live rule counts** (`#4431`, R2-L39 of the cold review of 2026-10-04), as for a
+	# project holding one: a section already in the trash binds nobody, and counting it refused a
+	# narrowed credential a move it could make of a document with no marked section at all.
+	if moving and (
+		document.binds == BINDS_THE_WORKSPACE
+		or any(one.binds == BINDS_THE_WORKSPACE and one.deleted_at is None for one in beneath)
+	):
 		return "move a document that binds the whole workspace, or one holding it", "project"
 
 	if document.binds != BINDS_THE_WORKSPACE:
@@ -1461,7 +1467,14 @@ def _retiring (
 def _marked_beneath (
 	session: sqlalchemy.orm.Session, document: subroutine.db.models.work.Document
 ) -> bool:
-	"""Return whether a document, or any section of it, binds the whole workspace."""
+	"""Return whether a document, or any section of it out of the trash, binds the whole workspace.
+
+	**Only a live section counts** (`#4431`, R2-L39 of the cold review of 2026-10-04), as only a
+	live rule does for a project holding one. A section put in the trash on its own stays there
+	whether its document is deleted or restored, since each moves only its own mark, so it retires
+	nothing and brings nothing back; counting it refused a narrowed credential as if it did. A
+	section that went with its document was never marked, being hidden by its parent, so it counts.
+	"""
 
 	model = subroutine.db.models.work.Document
 
@@ -1472,6 +1485,7 @@ def _marked_beneath (
 				model.workspace_id == document.workspace_id,
 				subroutine.domain.hierarchy.subtree(model, document),
 				model.binds == BINDS_THE_WORKSPACE,
+				model.deleted_at.is_(None),
 			)
 			.limit(1)
 		)
