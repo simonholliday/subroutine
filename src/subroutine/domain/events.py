@@ -1016,14 +1016,35 @@ def refuse_an_expired_cursor (
 		return
 
 	archive = subroutine.db.models.activity.ARCHIVE
-	through = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.max(archive.c.seq)).where(
-			archive.c.workspace_id.in_(workspace_ids), archive.c.seq > since
+
+	# **Whether, before how far** (`#4418`, R2-L14 of the cold review of 2026-10-04). PostgreSQL
+	# answers a ``max()`` over several workspaces by walking the archive's primary key backwards and
+	# filtering every row it passes: measured at 160 milliseconds a poll, against a million archived
+	# events, for a reader whose workspaces had all gone quiet - which is the browser's agenda,
+	# polling every few seconds. ``EXISTS`` takes the ``(workspace_id, seq)`` index and stops at the
+	# first row.
+	moved = session.scalar(
+		sqlalchemy.select(
+			sqlalchemy.exists().where(
+				archive.c.workspace_id.in_(workspace_ids), archive.c.seq > since
+			)
 		)
 	)
 
-	if through is None:
+	if not moved:
 		return
+
+	# **And how far, one workspace at a time**, which the same index answers from its end for each,
+	# where one ``max()`` over them all took the same walk again, on the poll that is refused.
+	through = max(
+		session.scalar(
+			sqlalchemy.select(sqlalchemy.func.max(archive.c.seq)).where(
+				archive.c.workspace_id == one, archive.c.seq > since
+			)
+		)
+		or 0
+		for one in workspace_ids
+	)
 
 	# **The hint names the number** (`#4298`, of the cold review of 2026-10-03, decision `#4305`).
 	# It said to ask again without 'since', which on HTTP starts from the oldest event held, while

@@ -407,6 +407,58 @@ def test_a_quiet_workspaces_cursor_is_not_refused_for_what_moved_elsewhere (
 	assert answered.status_code == 200, f"refused for another workspace's events: {answered.text}"
 
 
+def test_a_cursor_across_several_workspaces_is_refused_naming_the_furthest_moved (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4418`, R2-L14 of the cold review of 2026-10-04: the number is asked one workspace at a time.
+
+	It was one ``max()`` over every workspace the reader is in, which PostgreSQL answered by walking
+	the whole archive backwards. Asked per workspace now, so the refusal must still name the
+	furthest event moved past the cursor in any of them, and a cursor past all of them is answered.
+	"""
+
+	other = subroutine.domain.workspaces.create(
+		world.session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Elsewhere", owner=world.user
+	)
+	world.session.flush()
+
+	for workspace, title in (
+		(world.workspace.slug, "Fix the deploy script"),
+		(other.slug, "Water the plants"),
+		(world.workspace.slug, "Take the red pill"),
+		(other.slug, "Feed the cat"),
+	):
+		made = world.call("POST", "/v1/tasks", json={"title": title, "workspace_id": workspace})
+
+		assert made.status_code == 201, made.text
+
+	_aged(world.session)
+	newest = world.call(
+		"POST", "/v1/tasks", json={"title": "Ring the dentist", "workspace_id": world.workspace.slug}
+	)
+
+	assert newest.status_code == 201, newest.text
+
+	_archived(world)
+
+	ids = [world.workspace.id, other.id]
+	first = world.session.scalar(sqlalchemy.select(sqlalchemy.func.min(ARCHIVE.c.seq)))
+	furthest = world.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.max(ARCHIVE.c.seq)).where(ARCHIVE.c.workspace_id.in_(ids))
+	)
+
+	assert first is not None and furthest is not None and first < furthest
+
+	with pytest.raises(subroutine.errors.CursorExpired) as refused:
+		subroutine.domain.events.refuse_an_expired_cursor(
+			world.session, workspace_ids=ids, since=first
+		)
+
+	assert f"Events up to seq {furthest} have been moved" in refused.value.detail, refused.value.detail
+
+	subroutine.domain.events.refuse_an_expired_cursor(world.session, workspace_ids=ids, since=furthest)
+
+
 def test_a_run_between_the_check_and_the_page_cannot_hide_rows (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
