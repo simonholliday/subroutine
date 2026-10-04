@@ -237,6 +237,7 @@ def _page (
 		by=by,
 		newest=newest,
 		narrowing=narrowing,
+		shown=shown,
 	)
 	described = subroutine.domain.events.descriptions(session, shown)
 

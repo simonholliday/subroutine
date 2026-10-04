@@ -18,6 +18,7 @@ import typer.testing
 
 import api_support
 import subroutine.cli.main
+import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
@@ -214,6 +215,81 @@ def test_a_period_the_feed_no_longer_holds_is_refused_naming_the_journal (
 
 	with local, pytest.raises(subroutine.errors.PeriodArchived):
 		local.changes(dated=[("created_at.lt", then)])
+
+
+def test_a_walk_back_reads_every_live_event_and_ends_there (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4395`, R2-M1 and R2-L15 of the cold review of 2026-10-04, decision `#4305` as amended.
+
+	Read as a period, a walk back was refused at its second page once anything had been archived,
+	though every row it would answer was live, and HTTP refused where the local client answered;
+	an oldest-first ``before`` past the floor answered ``200 []``. A walk now reads every live event
+	and ends there, on both transports, and only asking past its end is refused, either way round.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+	world = test_api_tasks._world(session, instance={"max_page_size": 3})
+
+	for title in ("Fix the deploy script", "Take the red pill", "Call the Oracle"):
+		_filed(world, title)
+
+	_aged(session)
+
+	for title in ("Find the keymaker", "Book the Nebuchadnezzar", "Brief Morpheus", "Pay the operator"):
+		_filed(world, title)
+
+	_archived(world)
+	live: list[int] = list(session.scalars(sqlalchemy.select(LIVE.c.seq).order_by(LIVE.c.seq)))
+	moved: list[int] = list(session.scalars(sqlalchemy.select(ARCHIVE.c.seq)))
+
+	assert moved and len(live) > 3 and max(moved) < min(live), (moved, live)
+
+	first = world.call("GET", "/v1/changes", params={"newest": "true", "limit": "2"}).json()
+	walked = [row["seq"] for row in first["items"]]
+	more = first["page"]["has_more"]
+
+	while more:
+		page = world.call(
+			"GET", "/v1/changes", params={"newest": "true", "limit": "2", "before": str(min(walked))}
+		)
+
+		assert page.status_code == 200, page.text
+
+		walked += [row["seq"] for row in page.json()["items"]]
+		more = page.json()["page"]["has_more"]
+
+	assert sorted(walked) == live, "the walk reads every live event, then ends"
+
+	for asked in ({"newest": "true", "before": str(min(live))}, {"before": str(min(live))}):
+		past = world.call("GET", "/v1/changes", params=asked)
+
+		assert past.status_code == 410 and past.json()["code"] == "period_archived", past.text
+		assert "/v1/journal" in past.text and f"before seq {min(live)}" in past.text, past.text
+
+	oldest_first = world.call("GET", "/v1/changes", params={"before": str(min(live) + 2)})
+
+	assert [row["seq"] for row in oldest_first.json()["items"]] == live[:2], oldest_first.text
+
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, max_page_size=3),
+		session_factory=api_support.factory_for(session),
+		token=world.secret,
+	)
+	remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token=world.secret,
+		transport=api_support.SyncTransport(world.application),
+		base_url=api_support.BASE_URL,
+	)
+
+	with local, remote:
+		for limit in (5, len(live) + len(moved)):
+			here = [row.seq for row in local.changes(newest=True, limit=limit)]
+			there = [row.seq for row in remote.changes(newest=True, limit=limit)]
+
+			assert here == there == live[-limit:], (limit, here, there)
 
 
 def test_a_quiet_workspaces_cursor_is_not_refused_for_what_moved_elsewhere (

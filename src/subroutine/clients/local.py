@@ -2261,6 +2261,7 @@ class Client:
 				by=whose,
 				newest=newest,
 				narrowing=narrowing,
+				shown=rows,
 			)
 			described = subroutine.domain.events.descriptions(session, rows)
 

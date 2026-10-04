@@ -1049,6 +1049,7 @@ def refuse_a_period_behind_the_floor (
 	by: uuid.UUID | None = None,
 	newest: bool = False,
 	narrowing: typing.Sequence[typing.Any] = (),
+	shown: typing.Sequence[typing.Any],
 ) -> None:
 	"""Refuse a period whose events the feed no longer holds, naming the journal - `#4292`.
 
@@ -1058,6 +1059,13 @@ def refuse_a_period_behind_the_floor (
 	archive holds an event the request would have matched**, in the reader's workspaces, so a
 	period the feed still holds whole is answered as before; and one that straddles the floor is
 	refused outright rather than answered for its live half.
+
+	**A walk back ends where the feed's events end** (`#4395`, R2-M1 of the cold review of
+	2026-10-04, decision `#4305` as amended): with ``before`` and no ``since``, newest first or
+	not, the page that reaches the oldest live event answers what it holds, as the first newest
+	page does, and only a request with nothing left to answer - ``shown`` empty - is refused while
+	older matches are archived. Read as a period, every backward page was refused once anything
+	had been archived, and HTTP's second page refused what the local client answered.
 
 	**Asked after the page is read**, by both transports, so a run moving events in between cannot
 	leave the page short with nothing said. Whether a request is a period is read off its own
@@ -1074,9 +1082,9 @@ def refuse_a_period_behind_the_floor (
 		for clause in narrowing
 		for element in sqlalchemy.sql.visitors.iterate(clause)
 	)
-	walking_back = newest and since is None and before is not None
+	walking_back = since is None and before is not None
 
-	if not (dated or walking_back):
+	if not (dated or walking_back) or (walking_back and not dated and shown):
 		return
 
 	archive = subroutine.db.models.activity.ARCHIVE
@@ -1111,6 +1119,14 @@ def refuse_a_period_behind_the_floor (
 
 	if session.scalar(statement.limit(1)) is None:
 		return
+
+	if not dated:
+		raise subroutine.errors.PeriodArchived(
+			f"The events before seq {before} that the change feed still holds have all been read, and "
+			"earlier ones have moved to the archive.",
+			hint="The journal reads every event, the archive's too: GET /v1/journal, 'subroutine "
+			"journal' or subroutine_journal, narrowed to a period with 'created_at.lt'.",
+		)
 
 	raise subroutine.errors.PeriodArchived(
 		"Events in that period have been moved to the archive, so the change feed cannot report "

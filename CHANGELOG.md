@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Walking the change feed back reads every event it still holds, and then ends.** Once
+  anything had been archived, every page after the first was refused, though what it would
+  answer was all still there, and a client fetching several pages was refused where one reading
+  the database directly was answered. Asking past the end is refused, naming the journal, newest
+  first or not; an oldest-first walk past it answered nothing, as though nothing had happened.
 - **Bringing a rule that binds the whole workspace into force takes what marking it takes**, as
   taking one out of force already did: setting it back to a status in force, making it a type
   that binds, restoring it from the trash, and restoring, making public or moving out from under
