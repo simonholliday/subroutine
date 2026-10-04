@@ -1097,8 +1097,15 @@ def refuse_a_period_behind_the_floor (
 		adapt_on_names=True,
 		include_fn=lambda column: getattr(column, "table", None) is live,
 	)
+	# **Only what the reader may see** (`#4396`, R2-L13 of the cold review of 2026-10-04, decision
+	# `#4305` as amended): asked of every event in their workspaces, a reader narrowed to some
+	# projects was refused for a period in which only hidden events moved - a refusal they could
+	# never satisfy, which said that hidden activity had happened.
 	statement = sqlalchemy.select(archive.c.seq).where(
 		archive.c.workspace_id.in_(workspace_ids),
+		moved.traverse(
+			subroutine.domain.scoping.visible_events(principal, workspace_ids=workspace_ids)
+		),
 		*[moved.traverse(clause) for clause in narrowing],
 	)
 

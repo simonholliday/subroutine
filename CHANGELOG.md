@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The change feed refuses a period only for events you could have seen.** A reader who
+  cannot see a private project was refused for a period in which only that project's events had
+  moved to the archive, a refusal they could never satisfy, telling them something hidden had
+  happened then.
 - **Walking the change feed back reads every event it still holds, and then ends.** Once
   anything had been archived, every page after the first was refused, though what it would
   answer was all still there, and a client fetching several pages was refused where one reading

@@ -25,8 +25,10 @@ import subroutine.connections
 import subroutine.db.models.activity
 import subroutine.db.models.system
 import subroutine.db.types
+import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.retention
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 import test_api_tasks
@@ -290,6 +292,70 @@ def test_a_walk_back_reads_every_live_event_and_ends_there (
 			there = [row.seq for row in remote.changes(newest=True, limit=limit)]
 
 			assert here == there == live[-limit:], (limit, here, there)
+
+
+def test_a_period_is_refused_only_for_events_the_reader_may_see (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4396`, R2-L13 of the cold review of 2026-10-04, decision `#4305` as amended.
+
+	Asked of every event in the reader's workspaces, the refusal answered a member who cannot see a
+	private project 410 for a period in which only that project's events moved - a refusal they
+	could never satisfy, telling them something hidden had happened then. **And the control**: the
+	owner, who can see them, is still refused.
+	"""
+
+	keanu = subroutine.domain.users.create(world.session, username="keanu")
+	subroutine.domain.workspaces.add_member(world.session, world.workspace, keanu, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=keanu, title="keanu's token"
+	)
+	made = world.call(
+		"POST", "/v1/projects", json={"key": "ops", "title": "Operations", "visibility": "private"}
+	)
+
+	assert made.status_code == 201, made.text
+
+	hidden = {uuid.UUID(made.json()["id"])}
+
+	for title in ("Rotate the backup disks", "Renew the certificate"):
+		filed = world.call("POST", "/v1/tasks", json={"title": title, "project": "ops"})
+
+		assert filed.status_code == 201, filed.text
+
+		hidden.add(uuid.UUID(filed.json()["id"]))
+
+	# Everything before them is older still, and outside the period asked about.
+	for event in world.session.scalars(sqlalchemy.select(subroutine.db.models.activity.Event)):
+		event.created_at = LONG_AGO - (
+			datetime.timedelta(0) if event.entity_id in hidden else datetime.timedelta(days=10)
+		)
+
+	world.session.flush()
+	_filed(world, "Take the red pill")
+	archived = _archived(world)
+	_aged(world.session, by=datetime.timedelta(seconds=2))
+
+	assert archived.through is not None
+
+	period = {
+		"created_at.gte": (LONG_AGO - datetime.timedelta(days=1)).date().isoformat(),
+		"created_at.lt": (LONG_AGO + datetime.timedelta(days=1)).date().isoformat(),
+	}
+	secret = issued.value.get_secret_value()
+	answered = api_support.call(
+		world.application,
+		"GET",
+		"/v1/changes",
+		params=period,
+		headers={"authorization": f"Bearer {secret}"},
+	)
+
+	assert answered.status_code == 200 and answered.json()["items"] == [], answered.text
+
+	refused = world.call("GET", "/v1/changes", params=period)
+
+	assert refused.status_code == 410 and refused.json()["code"] == "period_archived", refused.text
 
 
 def test_a_quiet_workspaces_cursor_is_not_refused_for_what_moved_elsewhere (
