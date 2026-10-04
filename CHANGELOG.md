@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Clearing a repeat's deadline from now on asks whether the series is left a date.** An
+  occurrence given a start of its own, then cleared of its deadline for every one from now on,
+  left the series with neither, and every completion after it was refused. It is refused instead.
 - **A repeat started again is given its next occurrence when it has none open.** One stopped
   after its last occurrence was finished, then given a new rule, said it repeated and nothing ever
   came round. A rule with no date left to give is refused instead.

@@ -1691,6 +1691,80 @@ def test_clearing_the_series_own_date_is_refused_before_anything_changes (
 	assert series.due_at == before
 
 
+def test_clearing_a_deadline_from_now_on_asks_the_series_dates_not_the_occurrences (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4420`, R2-L18 of the cold review of 2026-10-04: the occurrence's own start let it by.
+
+	Given a start for itself alone, then cleared of its deadline from now on, an occurrence passed
+	the check on that start, and the series was left with no date: every completion after it was
+	refused, *A repeat needs a date to repeat from*. **Refused, and the series keeps its date.**
+	"""
+
+	made = _repeating(session, recurrence="every 14 days", due="2026-08-17")
+	series = _template(session, made)
+	before = series.due_at
+
+	subroutine.domain.tasks.update(
+		session, made, now=NOW, starts="2026-08-16", applies_to="this_one"
+	)
+
+	assert series.starts_at is None, "the start reached the series, so this tests nothing"
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session, made, now=NOW, due=None, applies_to="from_now_on"
+		)
+
+	assert refused.value.detail == "A repeat needs a date to repeat from."
+
+	session.refresh(series)
+
+	assert series.due_at == before
+
+
+def test_a_stopped_series_may_lose_its_date_and_is_asked_for_one_to_start_again (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4420` and `SR#4404`: a stopped series mints nothing, so it was refused for nothing.
+
+	Clearing its deadline from now on was refused for leaving it undated, where the release before
+	accepted it. **Accepted, and then the restart is what asks**: sent its rule again, an undated
+	series is refused rather than started with nothing to repeat from.
+	"""
+
+	made = _repeating(session, recurrence="every 14 days", due="2026-08-17")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(session, made, recurrence=None, now=NOW)
+
+	# **Unless the same edit starts it again**, which leaves it undated and repeating at once.
+	with pytest.raises(subroutine.errors.ValidationError) as both:
+		subroutine.domain.tasks.update(
+			session,
+			made,
+			now=NOW,
+			due=None,
+			recurrence="every 14 days",
+			applies_to="from_now_on",
+		)
+
+	assert both.value.detail == "A repeat needs a date to repeat from."
+	assert series.completed_at is not None and _held(series, "due_at") is not None
+
+	subroutine.domain.tasks.update(
+		session, made, now=NOW, due=None, applies_to="from_now_on"
+	)
+
+	assert series.due_at is None and series.starts_at is None, "the state this moves off"
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(session, made, recurrence="every 14 days", now=NOW)
+
+	assert refused.value.detail == "A repeat needs a date to repeat from."
+	assert series.completed_at is not None, "it was started again with no date"
+
+
 @pytest.mark.parametrize(
 	("starts", "due", "made", "finished", "wanted"),
 	[

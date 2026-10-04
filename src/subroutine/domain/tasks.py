@@ -3330,16 +3330,19 @@ def _refuse_a_series_left_undated (
 ) -> None:
 	"""Refuse an edit that leaves a repeating series no date to repeat from - `#4026`, `#4307`.
 
-	Asked of the dates the row **will** have, where the edit clears the one the series hangs on and
-	the row it writes is the series - the series itself, or an occurrence's edit answered
+	Asked of the dates **the series** will have, where the edit clears the one it hangs on and the
+	row it writes is the series - the series itself, or an occurrence's edit answered
 	``from_now_on``. A repeat stopped in the same edit needs no date, and a rule changed in it is the
 	one asked; a rule that names its own day needs none.
+
+	**The series' dates, not the edited occurrence's** (`#4420`, R2-L18 of the cold review of
+	2026-10-04): an occurrence given a start of its own, then cleared of its deadline from now on,
+	was let through on that start, and the series was left with neither. A date this edit does not
+	touch is the series' own; one it does is carried to the series, cleared or set.
+
+	**And not while the series is stopped**: it mints nothing, so an undated one harms nothing until
+	it is started again, which asks for a date (`#4404`). Unless this edit is what starts it.
 	"""
-
-	will = due_at if due_at is not None else starts_at
-
-	if grid_date(task) is None or will is not None:
-		return
 
 	if not (task.is_template or applies_to == FROM_NOW_ON):
 		return
@@ -3350,6 +3353,22 @@ def _refuse_a_series_left_undated (
 	ruling = task if task.is_template else series_of(session, task)
 
 	if ruling is None:
+		return
+
+	if task.is_template:
+		will = due_at if due_at is not None else starts_at
+
+	else:
+		will_due = due_at if due_at != task.due_at else ruling.due_at
+		will_start = starts_at if starts_at != task.starts_at else ruling.starts_at
+		will = will_due if will_due is not None else will_start
+
+	if grid_date(ruling) is None or will is not None:
+		return
+
+	restarting = repeating is not subroutine.domain.patch.UNSET and repeating.repeat is not None
+
+	if ruling.completed_at is not None and not restarting:
 		return
 
 	rule = (
