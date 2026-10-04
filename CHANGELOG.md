@@ -395,7 +395,7 @@ upgrade involves.
   additions an instance has is `instance_version`, beside it in `/v1/meta` and `/v1/me`.
 - **A status and an item type say what kind of item they are for**, `task`, `project` or
   `document`, and an item type says where it stands in its list, as a status already does.
-- **`subroutine export <folder>` takes away everything you can read, as files you can keep.** Each
+- **`subroutine export <folder>` takes away your work on one connection, as files to keep.** Each
   workspace becomes a folder with one file of JSON lines per kind of thing - items, documents,
   comments, links, changes, tags, statuses, saved views, accounts, the workspace's own settings,
   who belongs to it and to each project, and the rest - and a `manifest.json` saying what is in

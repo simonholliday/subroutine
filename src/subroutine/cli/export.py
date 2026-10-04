@@ -1,4 +1,4 @@
-"""``subroutine export``: take away everything you can read, as files - `#4053`, decision `#4049`.
+"""``subroutine export``: your work on one connection, as files - `#4053`, decision `#4049`.
 
 **A module of its own rather than one more command in ``cli/personal.py``'s ``register``**,
 whose length only goes down (`#943`). It is registered beside that one, with the same
@@ -82,7 +82,7 @@ def register (app: typer.Typer, program: subroutine.cli.personal.Program) -> Non
 			..., help="Where to write it. Each workspace becomes a folder inside."
 		),
 	) -> None:
-		"""Take away everything you can read, as files you can keep.
+		"""Take away your work on one connection, as files you can keep.
 
 		It reads one connection: the one a write would go to, or the one -c names, from an
 		instance running 0.10.0 or later.

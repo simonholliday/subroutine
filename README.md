@@ -314,7 +314,7 @@ specified and not built - named here because a tool that overstates itself waste
 | `subroutine doctor` - whether this machine's installation is coherent | **Built** |
 | Being told when the program, the plugin or the instance is out of date - opt-in | **Built** |
 | Copying an instance between SQLite and PostgreSQL | **Built** |
-| Taking away everything you can read, as JSON lines and readable Markdown | **Built** |
+| Taking away your work on one connection, as JSON lines and readable Markdown | **Built** |
 | Single-command deployment from a compose file | Planned |
 
 ---

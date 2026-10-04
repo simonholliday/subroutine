@@ -1729,6 +1729,10 @@ Exported metacortex to leaving/metacortex:
   manifest.json says what is in it, and what an export never holds.
 ```
 
+**The readable copy is made from everything at once**, so every item, document and comment of a
+workspace is held in memory until its pages are written: about 11 KB an item, so a workspace of
+a hundred thousand items takes about a gigabyte while it runs.
+
 **Nothing reads an export back in yet.** It is for keeping and for reading, and for whatever
 comes next. To move an instance, a backup and `subroutine db copy` are still the way.
 
