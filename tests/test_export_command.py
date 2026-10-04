@@ -292,6 +292,68 @@ def test_an_export_refused_part_way_says_what_it_left (pair: Pair, tmp_path: pat
 	)
 
 
+@pytest.mark.parametrize("leads", ["elsewhere", "back to itself"])
+def test_a_link_of_the_reader_s_is_said_to_be_one (
+	leads: str, run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4415`, R2-L10 of the cold review of 2026-10-04: blamed on the server, or a crash.
+
+	A workspace's folder that was a link to another folder was refused as *a name no instance
+	makes*, from the server; one leading back to itself raised Python's own *Symlink loop*.
+	"""
+
+	run("init", "--workspace", "Acme")
+	leaving = tmp_path / "leaving"
+	leaving.mkdir()
+
+	if leads == "elsewhere":
+		(tmp_path / "elsewhere").mkdir()
+		(leaving / "acme").symlink_to(tmp_path / "elsewhere")
+
+	else:
+		(leaving / "acme").symlink_to("acme")
+
+	result = run("export", str(leaving), expect=1)
+	said = " ".join(result.output.split())
+
+	assert "Something went wrong" not in said and "no instance makes" not in said, said
+	assert ("leads outside" if leads == "elsewhere" else "could not be followed") in said, said
+
+
+def test_each_place_an_export_writes_is_resolved_once (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4415`, the export half of R2-L40: two walks of the path for every page written.
+
+	Six items in one project were twelve resolutions for their pages, and are two now: the folder,
+	and the project's place.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	for title in ("One", "Two", "Three", "Four", "Five", "Six"):
+		run("add", f"Fix the deploy script, part {title}")
+
+	leaving = tmp_path / "leaving"
+	real = pathlib.Path.resolve
+	resolved: list[str] = []
+
+	def counted (self: pathlib.Path, strict: bool = False) -> pathlib.Path:
+		"""Count each resolution of a place in the export."""
+
+		if str(self).startswith(str(leaving)):
+			resolved.append(str(self))
+
+		return real(self, strict=strict)
+
+	monkeypatch.setattr(pathlib.Path, "resolve", counted)
+	run("export", str(leaving))
+
+	assert len(resolved) <= 4, resolved
+
+
 def test_an_export_never_writes_over_what_is_there (
 	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
 ) -> None:

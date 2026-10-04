@@ -186,22 +186,48 @@ def folder_for (
 	if not slug or subroutine.addressing.normalize_slug(slug) != slug:
 		raise _not_one_an_instance_makes(connection, "a workspace name", slug)
 
-	return _inside(directory, directory / slug, connection=connection, named=slug)
+	return _inside(directory, directory / slug)
 
 
 def _inside (
-	folder: pathlib.Path, place: pathlib.Path, *, connection: str, named: str
+	folder: pathlib.Path, place: pathlib.Path, *, root: pathlib.Path | None = None
 ) -> pathlib.Path:
 	"""Return ``place``, refusing it unless it is ``folder`` or somewhere beneath it.
 
 	The backstop behind the checks on each name: whatever a name holds, nothing an export writes
-	may land outside the folder it was asked to write into.
+	may land outside the folder it was asked to write into. ``root`` is ``folder`` already resolved,
+	for a caller asking of many places in it.
+
+	**What leads outside is a link of the reader's** (`#4415`, R2-L10 of the cold review of
+	2026-10-04): every name reaching here has passed the checks on what an instance sends, so a
+	place resolving elsewhere is a link on this machine, and was reported as a name from the server.
 	"""
 
-	if not place.resolve().is_relative_to(folder.resolve()):
-		raise _not_one_an_instance_makes(connection, "a name", named)
+	if not _resolved(place).is_relative_to(root or _resolved(folder)):
+		raise subroutine.errors.Conflict(
+			f"{place} leads outside {folder}, so the export stopped rather than write where it points.",
+			hint="It is a link, or is beneath one. Remove it, or name another folder to export into.",
+		)
 
 	return place
+
+
+def _resolved (path: pathlib.Path) -> pathlib.Path:
+	"""Return where a path leads, refusing by name one that cannot be followed - `#4415`.
+
+	A link that leads back to itself raised Python's own *Symlink loop*, which is neither a
+	refusal nor an ``OSError``, and ended in a crash report.
+	"""
+
+	try:
+		return path.resolve()
+
+	except (OSError, RuntimeError) as error:
+		raise subroutine.errors.Conflict(
+			f"{path} could not be followed to where it leads: {error}.",
+			hint="If it is a link that leads back to itself, remove it, or name another folder to "
+			"export into.",
+		) from error
 
 
 def _not_one_an_instance_makes (
@@ -510,17 +536,26 @@ def _markdown (
 	for comment in held.get("comments", []):
 		said.setdefault(comment.entity_id, []).append(comment)
 
-	placed = [
-		(
-			kind,
-			item,
-			folder / TRASH
-			if item.deleted_at is not None
-			else _project_folder(folder, item.project_path, connection=connection),
-		)
-		for kind in FRONT
-		for item in held.get(kind, [])
-	]
+	# **The folder resolved once, and each project's place once** (`#4415`, R2-L40 of the cold review
+	# of 2026-10-04): asked per item, it was two walks of the path for every page - about seven
+	# thousand for an export of three and a half thousand items, each a round trip on a network share.
+	root = _resolved(folder)
+	projects: dict[str, pathlib.Path] = {}
+
+	def place_of (item: typing.Any) -> pathlib.Path:
+		"""Return where one item's page goes."""
+
+		if item.deleted_at is not None:
+			return folder / TRASH
+
+		if item.project_path not in projects:
+			projects[item.project_path] = _project_folder(
+				folder, item.project_path, connection=connection, root=root
+			)
+
+		return projects[item.project_path]
+
+	placed = [(kind, item, place_of(item)) for kind in FRONT for item in held.get(kind, [])]
 
 	for kind, item, place in placed:
 		place.mkdir(parents=True, exist_ok=True)
@@ -531,7 +566,9 @@ def _markdown (
 	return len(placed)
 
 
-def _project_folder (folder: pathlib.Path, path: str, *, connection: str) -> pathlib.Path:
+def _project_folder (
+	folder: pathlib.Path, path: str, *, connection: str, root: pathlib.Path | None = None
+) -> pathlib.Path:
 	"""Return where one project's pages go, refusing a project path no instance makes.
 
 	A project path is project keys joined by
@@ -546,7 +583,7 @@ def _project_folder (folder: pathlib.Path, path: str, *, connection: str) -> pat
 	if not all(subroutine.domain.projects.KEY_PATTERN.fullmatch(key) for key in keys):
 		raise _not_one_an_instance_makes(connection, "a project path", path)
 
-	return _inside(folder, folder.joinpath(*keys), connection=connection, named=path)
+	return _inside(folder, folder.joinpath(*keys), root=root)
 
 
 def filename (ref: int, title: str) -> str:
