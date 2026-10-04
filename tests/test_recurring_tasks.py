@@ -88,6 +88,16 @@ def _next_live (
 	return live[0]
 
 
+def _held (row: subroutine.db.models.work.Task, column: str) -> typing.Any:
+	"""Read one column off a row through a call, so asserting on it narrows nothing.
+
+	mypy carries an ``assert row.x is not None`` past a call that clears it, and reports what
+	follows a later ``assert row.x is None`` as unreachable - ``test_schedule._instant``'s trap.
+	"""
+
+	return getattr(row, column)
+
+
 def _predicate (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
@@ -1072,6 +1082,90 @@ def test_a_stopped_series_stops_saying_it_repeats (
 	# **The backlink survives**, deliberately: *this came from that series* stays true after it
 	# ends, and it is how anybody reaches what happened before.
 	assert stopped.recurrence_template_ref is not None
+
+
+@pytest.mark.parametrize("applies_to", [None, "this_one", "from_now_on"])
+@pytest.mark.parametrize("spelling", ["every month", "FREQ=MONTHLY"])
+def test_a_stopped_series_sent_its_own_rule_starts_again (
+	spelling: str, applies_to: str | None, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#4404`, R2-M4 of the cold review of 2026-10-04: its own rule, sent back, was no change.
+
+	That shortcut keeps the browser's every save from moving a series' version, and it also ate the
+	one save that means something: a stopped series sent its own rule is somebody starting it again,
+	and it stayed stopped, on both spellings and every answer to which occurrences.
+	"""
+
+	first = _repeating(session, recurrence="every month")
+	series = _template(session, first)
+
+	subroutine.domain.tasks.update(session, first, recurrence=None, now=NOW)
+
+	assert _held(series, "completed_at") is not None, "the state this moves off"
+
+	subroutine.domain.tasks.update(
+		session, first, recurrence=spelling, now=NOW, applies_to=applies_to
+	)
+
+	assert _held(series, "completed_at") is None, "its own rule did not start it again"
+	assert _next_live(session, series) is first, "starting again minted beside the open one"
+
+
+def test_a_series_started_again_by_a_new_rule_has_something_to_come (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4404`, R2-L19 of the cold review of 2026-10-04: started again, it had nothing open.
+
+	Stopped after its last occurrence was done, a series sent a new rule said it repeated - and a
+	series mints only when an occurrence is finished, so nothing ever came round. The next one comes
+	after the last slot it had, not on it again.
+	"""
+
+	first = _repeating(session, recurrence="every month")
+	series = _template(session, first)
+
+	subroutine.domain.tasks.update(session, first, recurrence=None, now=NOW)
+	subroutine.domain.tasks.complete(session, first, now=NOW)
+
+	subroutine.domain.tasks.update(session, first, recurrence="every week", now=NOW)
+
+	assert series.completed_at is None
+	assert series.recurrence_rule == "FREQ=WEEKLY"
+
+	coming = _next_live(session, series)
+
+	assert coming is not first
+	assert first.due_at is not None and coming.due_at is not None
+	assert coming.due_at.date() == first.due_at.date() + datetime.timedelta(days=7), (
+		"it was not counted from the last slot the series had"
+	)
+
+
+def test_a_series_its_own_rule_ended_is_not_started_again_with_nothing_to_come (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4404`: a series ended by its own ``UNTIL``, every occurrence done, sent its rule later.
+
+	Starting a stopped series again by its own rule, alone, reopened this one: it said it repeated
+	and its rule had no date left to give. It is asked what a new rule is asked, and refused.
+	"""
+
+	rule = "FREQ=DAILY;UNTIL=20260901T235959Z"
+	first = _repeating(session, recurrence=rule)
+	series = _template(session, first)
+
+	subroutine.domain.tasks.complete(session, first, now=NOW)
+	subroutine.domain.tasks.complete(session, _next_live(session, series), now=NOW)
+
+	assert series.completed_at is not None, "the rule ran out, so the series closed"
+
+	later = datetime.datetime(2026, 9, 10, 9, 0, tzinfo=datetime.UTC)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(session, first, recurrence=rule, now=later)
+
+	assert refused.value.detail == "That repeat names no dates that have not already passed."
+	assert series.completed_at is not None, "it was started again anyway"
 
 
 def test_an_exhausted_series_stops_saying_it_repeats_too (

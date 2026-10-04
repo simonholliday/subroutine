@@ -3851,8 +3851,12 @@ def _repeat_read (
 	# (:func:`_clean_title`'s ``was``). The browser sends the repeat with every save: one stored
 	# before the stricter checks failed the whole save, title and all, and every save moved the
 	# series' version with nothing changed, so a client holding it was answered 409.
+	#
+	# **Unless the series is stopped** (`#4404`, R2-M4 of the cold review of 2026-10-04): its own
+	# rule sent to a stopped series is somebody starting it again, and the shortcut kept it stopped.
 	if (
 		series is not None
+		and series.completed_at is None
 		and isinstance(rule, str)
 		and rule.strip() in {series.recurrence_rule, series.recurrence_text}
 		and anchor in {None, series.recurrence_anchor}
@@ -3863,7 +3867,11 @@ def _repeat_read (
 	if rule is None:
 		return _Repeating(series=series, repeat=None, stopping=True)
 
-	replaced = series is not None and rule != series.recurrence_rule
+	# **Starting a stopped series again is asked it too** (`#4404`): its own rule sent to a series
+	# ended by its own `UNTIL` would reopen it with nothing to come, and a stopped series with no
+	# date to repeat from is refused by the same check, which asks the series for one.
+	restarting = series is not None and series.completed_at is not None
+	replaced = series is not None and (rule != series.recurrence_rule or restarting)
 	repeat = _repeat(rule, anchor=anchor, trigger=trigger)
 
 	# **A new rule for a running series is asked what a new series is asked** (`#3997`): whether it
@@ -3875,7 +3883,11 @@ def _repeat_read (
 		replaced
 		and repeat is not None
 		and series is not None
-		and not _comes_round_from(series, repeat.rule, now=now)
+		and not _comes_round_from(
+			series,
+			repeat.rule,
+			now=_restarted_after(session, series, now=now) if restarting else now,
+		)
 	):
 		raise _nothing_to_come()
 
@@ -3909,6 +3921,33 @@ def _comes_round_from (
 			limit=1,
 		)
 	)
+
+
+def _restarted_after (
+	session: sqlalchemy.orm.Session,
+	series: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime,
+) -> datetime.datetime:
+	"""Return what a stopped series' next occurrence is counted after, if it starts again - `#4404`.
+
+	**After the last slot it minted, or now if that has passed**, as finishing that occurrence would
+	have counted - so a series stopped with its last occurrence done does not mint that day again.
+	One whose occurrence is still open mints nothing on starting again, so it is counted from now.
+	"""
+
+	if subroutine.domain.occurrences.live_occurrence(session, series) is not None:
+		return now
+
+	task = subroutine.db.models.work.Task
+	last = session.scalars(
+		sqlalchemy.select(task.occurrence_at)
+		.where(task.recurrence_template_id == series.id, task.occurrence_at.is_not(None))
+		.order_by(task.occurrence_at.desc())
+		.limit(1)
+	).first()
+
+	return now if last is None else max(last, now)
 
 
 def _nothing_to_come () -> subroutine.errors.ValidationError:
@@ -3974,7 +4013,15 @@ def _repeat_changed (
 	# **Re-opened if it had been stopped**, because setting a rule on a stopped series is
 	# somebody restarting it, and a finished template mints nothing.
 	if series.completed_at is not None:
+		after = _restarted_after(session, series, now=now)
+
 		update(session, series, status_key=status_for(session, series.workspace_id, None).key, now=now, actor=actor)
+
+		# **And given something to come** (`#4404`, R2-L19 of the cold review of 2026-10-04). A
+		# series mints only when an occurrence is finished, so one stopped after its last was done
+		# said it repeated and nothing ever came round. :func:`_repeat_read` has asked that it does.
+		if subroutine.domain.occurrences.live_occurrence(session, series) is None:
+			materialise(session, series, now=now, after=after, actor=actor)
 
 	session.flush()
 
