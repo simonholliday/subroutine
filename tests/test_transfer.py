@@ -6,7 +6,9 @@ behave identically on each — and structurally cannot see a defect in code whos
 to carry data *between* them.
 """
 
+import os
 import pathlib
+import stat
 import types
 import typing
 import uuid
@@ -189,6 +191,49 @@ def test_an_instance_moves_back_from_postgresql_to_sqlite (
 	assert copied.rows == sum(before.values())
 	assert _counts(sqlite_url) == before
 	_assert_prioritised_arrives(postgres_database, sqlite_url)
+
+
+def test_a_copy_into_sqlite_writes_through_nothing_others_can_read (
+	tmp_path: pathlib.Path, postgres_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4407`, R2-L1 of the cold review of 2026-10-04: a world-readable write-ahead log.
+
+	The new file was opened before it was made owner-only, so its log and shared memory took the
+	umask's mode and every row copied went through them, beside an owner-only copy. **All three
+	owner-only, read while the rows are going in.**
+	"""
+
+	_filled(postgres_database)
+	target = tmp_path / "copy.db"
+	seen: list[dict[str, int]] = []
+	copying = subroutine.db.transfer._copy_table
+
+	def watched (*arguments: typing.Any, **named: typing.Any) -> typing.Any:
+		"""Copy one table, then note the mode of each of the target's files."""
+
+		copied = copying(*arguments, **named)
+
+		seen.append({
+			suffix: stat.S_IMODE(os.stat(f"{target}{suffix}").st_mode)
+			for suffix in ("", "-wal", "-shm")
+			if os.path.exists(f"{target}{suffix}")
+		})
+
+		return copied
+
+	monkeypatch.setattr(subroutine.db.transfer, "_copy_table", watched)
+	was = os.umask(0o022)
+
+	try:
+		subroutine.db.transfer.copy_into(postgres_database, f"sqlite:///{target}")
+
+	finally:
+		os.umask(was)
+
+	assert any("-wal" in one for one in seen), f"nothing was copied through a log: {seen}"
+	assert all(mode & 0o077 == 0 for one in seen for mode in one.values()), (
+		f"a file of the copy could be read by others while rows were going in: {seen}"
+	)
 
 
 def test_the_copy_can_be_written_to_afterwards (

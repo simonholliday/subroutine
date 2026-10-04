@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`db copy` into SQLite no longer writes through files others can read.** The new database
+  was owner-only, but its write-ahead log and shared memory were made before it was, at the
+  default mode, and every copied row went through them.
 - **Leaving an item while it loads leaves it behind.** Going home, to another workspace or
   project, or Back while an item was still loading drew it over the page you went to, and Back
   then wrote its address over the one you had stepped to. And choosing a project from an open

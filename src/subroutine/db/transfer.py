@@ -83,6 +83,12 @@ def copy_into (source_url: str, target_url: str) -> Copied:
 		try:
 			_prepare(target_url, target)
 
+			# **Let go once the file is owner-only** (`#4407`, R2-L1 of the cold review of 2026-10-04).
+			# `_prepare` read the new SQLite file before `migrate.upgrade` made it 0600, so its log and
+			# shared memory were made then, at the umask - and every row copied went through a -wal
+			# anybody could read. Closed here, they are made again from the owner-only file.
+			target.dispose()
+
 			counts = _move(source, target)
 
 			_verify(source, target, counts)
