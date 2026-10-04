@@ -1593,6 +1593,16 @@ picking one out should ask for the archive by its suffix. Anything copying backu
 should take both: without it the counts show as not recorded, and a copy the program took for
 itself is kept as though you had asked for it.
 
+**While a copy is being written, `<name>.partial` sits beside it**, and is removed once the copy
+has been read back and proved. A copy with that marker is not a backup: it is never listed,
+pruned or restored, and `doctor`, `db backups` and the listing over HTTP name it, the first two
+with the command that removes it and its marker. A sync script should skip any `subroutine-*`
+with a `.partial` beside it, and both files of a stopped backup can be deleted. A copy is built
+first in `.staging` under the data directory, readable by its owner alone, and the next backup
+clears anything left there for more than a day. On PostgreSQL, `db restore` refuses while a
+`subroutine_before_restore_*` schema left by a restore that stopped is still in the database;
+`doctor` names it, with the statements that put it back or drop it.
+
 **Match on `subroutine-*` in a retention script, never on one suffix.** A glob written against
 `*.sql` matches nothing on SQLite, nothing on a current PostgreSQL instance, and *only* the
 backups an earlier version wrote - which is the worst of the three, because it looks like it

@@ -40,9 +40,10 @@ class Backup(pydantic.BaseModel):
 	do with it is the one thing they cannot. What it does say is where this instance keeps its
 	data, to somebody who by definition is not on that machine.
 
-	A failure to read or write the backup folder does name it, because putting the folder right
-	is the one thing that failure asks of whoever runs the installation, and only somebody who
-	administers the installation reaches these routes.
+	A failure names the folder it could not use - the backup folder, or the staging folder in the
+	data directory - because putting that folder right is the one thing such a failure asks of
+	whoever runs the installation, and only somebody who administers the installation reaches
+	these routes.
 
 	``subroutine db backup`` still prints the path, and should: it runs beside the file.
 	"""
