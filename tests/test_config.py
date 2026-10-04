@@ -34,10 +34,15 @@ def test_a_crash_report_is_owner_only_and_names_no_value_a_statement_was_given (
 	engine = subroutine.db.session.create_engine(f"sqlite:///{tmp_path / 'probe.db'}")
 	was = os.umask(0o022)
 
+	# **Named here, not written in the statement** (`SR#4469`): from Python 3.13 a traceback quotes
+	# the whole of a statement that spans lines, so a literal inside it reached the report as this
+	# test's own source, and the test failed on 3.13 and 3.14 alone.
+	secret = "sha256-of-a-secret"
+
 	try:
 		with engine.connect() as connection:
 			connection.execute(
-				sqlalchemy.text("SELECT * FROM nowhere WHERE hash = :hash"), {"hash": "sha256-of-a-secret"}
+				sqlalchemy.text("SELECT * FROM nowhere WHERE hash = :hash"), {"hash": secret}
 			)
 
 	except sqlalchemy.exc.DBAPIError as failure:
@@ -53,7 +58,7 @@ def test_a_crash_report_is_owner_only_and_names_no_value_a_statement_was_given (
 	assert written is not None
 	assert stat.S_IMODE(written.stat().st_mode) == 0o600, oct(written.stat().st_mode)
 	assert stat.S_IMODE(written.parent.stat().st_mode) == 0o700, oct(written.parent.stat().st_mode)
-	assert "sha256-of-a-secret" not in written.read_text(encoding="utf-8")
+	assert secret not in written.read_text(encoding="utf-8")
 
 
 def test_a_configuration_file_is_owner_only_before_its_new_text_is_in_it (
