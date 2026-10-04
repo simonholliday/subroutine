@@ -981,8 +981,10 @@ def refuse_unusable_cursor (*, since: int | None) -> None:
 				subroutine.errors.FieldError(
 					field="since",
 					code="invalid_field_value",
-					message="Send the seq of the last event you processed, or omit 'since' "
-					"to start from the oldest event still held.",
+					# **Said for every transport** (`#4442`): leaving it out starts from the oldest event
+					# over HTTP and from the newest in the terminal and the agent tool.
+					message="Send the seq of the last event you processed, or leave 'since' out to "
+					"read without a cursor.",
 				)
 			],
 		)

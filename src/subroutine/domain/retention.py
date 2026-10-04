@@ -85,12 +85,53 @@ def due (
 	if newest is None:
 		return None
 
-	young = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.min(live.seq)).where(live.created_at >= floor)
-	)
+	young = _oldest_young(session, floor)
 	below = newest if young is None else min(young, newest)
 
 	return session.scalar(sqlalchemy.select(sqlalchemy.func.max(live.seq)).where(live.seq < below))
+
+
+def _oldest_young (session: sqlalchemy.orm.Session, floor: datetime.datetime) -> int | None:
+	"""Return the ``seq`` of the oldest live event not yet past the floor, or ``None``."""
+
+	live = subroutine.db.models.activity.Event
+
+	return session.scalar(
+		sqlalchemy.select(sqlalchemy.func.min(live.seq)).where(live.created_at >= floor)
+	)
+
+
+def held_back (session: sqlalchemy.orm.Session, *, days: int, now: datetime.datetime) -> int:
+	"""Return how many events past the floor stay because a younger one is numbered before them.
+
+	`#4442`, R2-D10 of the cold review of 2026-10-04. A run moves only a run of old events
+	(`#4296`), so an old event numbered after a young one - one a merge brought in, or one dated
+	back - waits until the young one has aged too. Counted so that a run moving nothing can say
+	why, where it said nothing was that old. Never the newest event, which always stays.
+	"""
+
+	live = subroutine.db.models.activity.Event
+
+	try:
+		floor = now - datetime.timedelta(days=days)
+
+	except OverflowError:
+		return 0
+
+	young = _oldest_young(session, floor)
+	newest = session.scalar(sqlalchemy.select(sqlalchemy.func.max(live.seq)))
+
+	if young is None or newest is None:
+		return 0
+
+	return int(
+		session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count())
+			.select_from(live)
+			.where(live.created_at < floor, live.seq > young, live.seq < newest)
+		)
+		or 0
+	)
 
 
 def move (

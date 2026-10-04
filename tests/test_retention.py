@@ -775,6 +775,62 @@ def test_the_terminal_moves_them_on_demand_and_says_when_there_is_no_floor (
 	assert "carry on from seq" in expired.output, expired.output
 
 
+def test_db_archive_says_what_waits_and_how_a_client_carries_on (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4442`, R2-D7 and R2-D10 of the cold review of 2026-10-04: three sentences out of date.
+
+	The help said a client resuming from before the moved events is told to start again; a run that
+	moved nothing because old events wait behind a newer one said nothing was that old; and the
+	refusal of an unusable cursor said leaving it out starts from the oldest event, which is true
+	only over HTTP.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	runner = typer.testing.CliRunner()
+
+	def run (*arguments: str) -> str:
+		"""Run one command, which must succeed, and return what it printed, on one line."""
+
+		result = runner.invoke(subroutine.cli.main.app, list(arguments))
+
+		assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+
+		return " ".join(result.output.split())
+
+	assert "is told the last event that moved, and carries on after it" in run("db", "archive", "--help")
+
+	run("init", "--workspace", "Metacortex")
+
+	for title in ("Fix the deploy script", "Take the red pill", "Ring the dentist"):
+		run("add", title)
+
+	database = tmp_path / "xdg_data_home" / "subroutine" / "subroutine.db"
+	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
+
+	try:
+		with engine.begin() as connection:
+			numbers: list[int] = sorted(connection.scalars(sqlalchemy.select(LIVE.c.seq)))
+			connection.execute(
+				sqlalchemy.update(LIVE).where(LIVE.c.seq == numbers[-2]).values(created_at=LONG_AGO)
+			)
+
+	finally:
+		engine.dispose()
+
+	monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", str(DAYS))
+	said = run("db", "archive")
+
+	assert "1 event older than 30 days" in said and "is held behind newer ones" in said, said
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.events.refuse_unusable_cursor(since=0)
+
+	assert "leave 'since' out to read without a cursor" in refused.value.errors[0].message
+
+
 def test_the_published_definitions_say_where_a_client_carries_on () -> None:
 	"""`SR#4298`: ``cursor_expired`` said its events were pruned and to resync from the beginning.
 

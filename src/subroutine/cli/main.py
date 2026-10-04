@@ -2109,9 +2109,10 @@ def database_archive () -> None:
 	"""Move events older than events_retention_days out of the change feed, into the archive.
 
 	Nothing is deleted. The journal, each item's history and an export still read the events
-	that move; a client resuming the change feed from before them is told to start again. The
-	newest event always stays. A served instance does this itself once a day while it is in use,
-	so this is for one that is not served, or for a timer.
+	that move; a client resuming the change feed from before them is told the last event that
+	moved, and carries on after it. Only a run of old events moves, so an old one numbered after a
+	newer one waits for it, and the newest event always stays. A served instance does this itself
+	once a day while it is in use, so this is for one that is not served, or for a timer.
 	"""
 
 	settings = _settings()
@@ -2132,11 +2133,19 @@ def database_archive () -> None:
 
 	with _database(settings) as engine:
 		try:
-			archived = subroutine.domain.retention.run(
-				subroutine.db.session.create_session_factory(engine),
-				days=days,
-				now=subroutine.db.types.utcnow(),
-			)
+			now = subroutine.db.types.utcnow()
+			factory = subroutine.db.session.create_session_factory(engine)
+			archived = subroutine.domain.retention.run(factory, days=days, now=now)
+
+			# **Why nothing moved, where old events wait behind newer ones** (`#4442`, R2-D10 of the cold
+			# review of 2026-10-04): it said nothing was older than the floor, about an instance holding
+			# old events that only wait their turn.
+			with factory() as session:
+				held = (
+					0
+					if archived.moved
+					else subroutine.domain.retention.held_back(session, days=days, now=now)
+				)
 
 		except sqlalchemy.exc.SQLAlchemyError as failure:
 			_fail(
@@ -2144,6 +2153,15 @@ def database_archive () -> None:
 					f"The events could not be moved: {getattr(failure, 'orig', None) or failure}"
 				)
 			)
+
+	if not archived.moved and held:
+		_say(
+			f"{_counted(held, 'event')} older than {_counted(days, 'day')} in {_instance_label()} "
+			f"{'is' if held == 1 else 'are'} held behind newer ones, and move when those are old "
+			"enough too. Nothing moved."
+		)
+
+		return
 
 	if not archived.moved:
 		_say(
