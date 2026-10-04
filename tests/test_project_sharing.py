@@ -327,6 +327,49 @@ def test_the_owner_cannot_be_removed_from_their_own_project (
 	assert _can_see(session, owner, project)
 
 
+def test_only_its_owner_or_an_administrator_decides_who_owns_a_project_and_who_sees_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4382` and `SR#4383`, decision `#4384`: three doors, and the owner or an administrator.
+
+	A member shared into a private project made themselves its owner and then removed the owner;
+	a member moved somebody else's private and public projects under a private one of their own,
+	and could make a shared public project private. The owner - the workspace owner and a
+	superuser, in the review - lost each of them. **And the controls**: the owner, and somebody
+	holding ``workspace:admin``, may do all three.
+	"""
+
+	workspace = test_authorization._seeded_workspace(session)
+	alice = test_authorization._member(session, workspace, "member")
+	keanu = test_authorization._member(session, workspace, "member")
+	trinity = test_authorization._member(session, workspace, "admin")
+	hr = _owned(session, workspace, alice)
+	web = _owned(session, workspace, alice, visibility="public")
+	mine = _owned(session, workspace, keanu)
+
+	subroutine.domain.projects.share(session, hr, keanu.user, actor=alice)
+
+	with pytest.raises(subroutine.errors.Forbidden, match="Only the owner"):
+		subroutine.domain.projects.update(session, hr, owner_id=keanu.user.id, actor=keanu)
+
+	for moved in (hr, web):
+		with pytest.raises(subroutine.errors.Forbidden, match="Only the owner"):
+			subroutine.domain.projects.move(session, moved, parent=mine, actor=keanu)
+
+	with pytest.raises(subroutine.errors.Forbidden, match="Only the owner"):
+		subroutine.domain.projects.update(session, web, visibility="private", actor=keanu)
+
+	assert hr.owner_id == alice.user.id and _can_see(session, alice, hr)
+	assert _can_see(session, alice, web) and _can_see(session, trinity, web)
+
+	subroutine.domain.projects.update(session, web, visibility="private", actor=trinity)
+	subroutine.domain.projects.update(session, web, visibility="public", actor=alice)
+	subroutine.domain.projects.move(session, web, parent=hr, actor=alice)
+	subroutine.domain.projects.update(session, hr, owner_id=keanu.user.id, actor=alice)
+
+	assert hr.owner_id == keanu.user.id, "its owner handed it over"
+
+
 def test_the_last_person_who_can_see_a_project_cannot_be_removed (
 	session: sqlalchemy.orm.Session,
 ) -> None:

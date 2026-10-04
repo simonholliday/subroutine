@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Only a project's owner, or a workspace administrator, decides who owns it and who can see
+  it**: changing its owner, making it private, and moving it under a private project. A member
+  shared into a private project could make themselves its owner and then remove the owner, and
+  any member could move somebody else's project under a private one of their own, where its
+  owner could no longer see it and no administrator's listing showed it.
 - **A calendar feed stops answering when its owner leaves the workspace**, and when the person
   an agent answers to is deactivated. A feed's address went on serving everything its owner
   could see, private projects included, after they were taken out. Added back, they find it

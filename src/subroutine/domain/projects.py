@@ -369,6 +369,15 @@ def move (
 			],
 		)
 
+	# **Nor under a private project, unless by its owner or an administrator** (`#4383`, decision
+	# `#4384`): privacy inherits down the tree, so this takes it out of sight as making it private
+	# does. A member moved somebody else's projects under a private one of their own, and the owner
+	# lost them with no administrator's listing to show it.
+	if parent is not None and _private_at_or_above(session, parent):
+		_refuse_deciding_sight(
+			session, actor, project, act="move it under a private project", field="parent"
+		)
+
 	# **Nor under a private project, where it holds a rule for the whole workspace** (`#4286`), for
 	# the reason :func:`update` gives: privacy inherits, so this hides the rule as making it would.
 	if parent is not None and _private_at_or_above(session, parent):
@@ -543,6 +552,11 @@ def update (
 
 	# **Nor a project holding a rule for the whole workspace** (`#4286`, decision `#4134`), unless
 	# by somebody who may mark one: it takes the rule out of sight of everybody not shared into it.
+	# **Only its owner or an administrator hides it** (`#4383`, decision `#4384`): it takes the
+	# project out of sight of everybody not shared into it, administrators included.
+	if visibility == "private" and project.visibility != "private":
+		_refuse_deciding_sight(session, actor, project, act="make it private", field="visibility")
+
 	if visibility == "private" and project.visibility != "private":
 		_refuse_hiding_a_rule(
 			session,
@@ -558,6 +572,12 @@ def update (
 		subroutine.domain.users.member(
 			session, project.workspace_id, str(owner_id), field="owner_id"
 		)
+
+	# **And only by its owner or an administrator** (`#4382`, R2-M5 of the cold review of 2026-10-04,
+	# decision `#4384`): `project:write` was enough, so a member shared into a private project made
+	# themselves its owner and then removed the owner, the one share :func:`unshare` protects.
+	if owner_id is not subroutine.domain.patch.UNSET and str(owner_id) != str(project.owner_id):
+		_refuse_deciding_sight(session, actor, project, act="change who owns it", field="owner_id")
 
 	# Resolved here rather than in the assignment pass, because a key that names no status
 	# must refuse before anything has been assigned — the rule this function's docstring
@@ -1070,6 +1090,44 @@ def _refuse_hiding_a_rule (
 	from subroutine.domain import documents as rules
 
 	rules.refuse_hiding_a_rule(session, actor, project, act=act, field=field)
+
+
+def _refuse_deciding_sight (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+	*,
+	act: str,
+	field: str,
+) -> None:
+	"""Refuse deciding who owns a project or whether it is hidden, unless by its owner or by
+	somebody holding ``workspace:admin`` - `#4382`, `#4383`, decision `#4384`.
+
+	**Privacy inherits down the tree**, so making a project private and moving it under a private one
+	both take it out of sight of people who can see it now, administrators included, and its owner
+	holds the one share nobody else may remove. ``None`` is an internal caller.
+	"""
+
+	if actor is None or actor.user.id == project.owner_id:
+		return
+
+	if subroutine.domain.authorization.may(
+		session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=project.workspace_id
+	):
+		return
+
+	raise subroutine.errors.Forbidden(
+		f"Only the owner of '{project.key}', or somebody who administers this workspace, may {act}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="forbidden",
+				message="Who owns a project, and who can see it, are its owner's to decide, or an "
+				"administrator's.",
+			)
+		],
+		hint="Ask its owner, or somebody who administers this workspace.",
+	)
 
 
 def _private_at_or_above (
