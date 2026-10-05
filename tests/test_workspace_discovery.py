@@ -140,7 +140,7 @@ def test_a_pinned_credential_cannot_ask_what_is_on_the_installation (
 	where its sibling states it.
 
 	**Its sibling refused this from the day both were written**, which is what makes it a
-	defect rather than a decision: ``api/workspaces._for_an_administrator`` carries the
+	defect rather than a decision: ``api/workspaces._for_an_administrator`` carried the
 	sentence, and the two were added in the same change for the same item. Both go through
 	:func:`subroutine.domain.authorization.reaches_the_whole_installation` now.
 

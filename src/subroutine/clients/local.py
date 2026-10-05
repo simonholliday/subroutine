@@ -37,7 +37,6 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.db.failures
 import subroutine.db.migrate
-import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.saved
@@ -80,7 +79,6 @@ import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.tokens
-import subroutine.domain.trash
 import subroutine.domain.users
 import subroutine.domain.verifications
 import subroutine.domain.versions
@@ -756,7 +754,7 @@ class Client:
 				# this caller cannot see is absent rather than forbidden — and the children
 				# of something invisible are not disclosed by an empty list either.
 				#
-				# **Deleted parents included, for `_subject`'s reason** (`#700`). An item in
+				# **Deleted parents included, as every lookup includes them** (`#700`). An item in
 				# the trash is still an item, and the HTTP side answers this with an empty
 				# list where this refused outright — so ``subroutine show`` on something
 				# deleted failed here after it had already been found. Being unreadable is
@@ -996,11 +994,13 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			row = self._row(session, actor, chosen.id, ref)
 
-			if row is None:
-				self._refuse_if_out_of_sight(session, actor, chosen.id, ref)
+			# **The route's lookup** (`#4543`): nothing for a ref naming no task here, and the
+			# refusal saying where it is for one beneath the trash.
+			try:
+				row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 
+			except subroutine.errors.NotFound:
 				return None
 
 			return subroutine.views.task(
@@ -1011,24 +1011,6 @@ class Client:
 				),
 				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
-
-	def _vocabulary_row (
-		self, session: typing.Any, actor: typing.Any, model: typing.Any, which: str, what: str
-	) -> typing.Any:
-		"""Return one vocabulary row this credential can reach, or refuse by name.
-
-		**A 404 rather than a 403 for a row in another workspace**, which is the same choice
-		§7.3a makes about a private project: saying "forbidden" would confirm the id names
-		something.
-		"""
-
-		found = session.get(model, uuid.UUID(which))
-		reachable = {row.id for row in subroutine.domain.workspaces.readable(session, actor)}
-
-		if found is None or found.workspace_id not in reachable:
-			raise subroutine.errors.NotFound(f"There is no {what} with that id.")
-
-		return found
 
 	def saved_views (
 		self, *, workspace: str | None = None
@@ -1215,9 +1197,7 @@ class Client:
 		changes = _asked(key=key, label=label, is_default=is_default, position=position)
 
 		with self._writing() as (session, actor):
-			row = self._vocabulary_row(
-				session, actor, subroutine.db.models.vocabulary.Status, which, "status"
-			)
+			row = subroutine.domain.selection.status(session, actor, which)
 
 			return subroutine.views.status(
 				subroutine.domain.vocabulary.update_status(session, row, actor=actor, **changes)
@@ -1229,9 +1209,7 @@ class Client:
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_status(
 				session,
-				self._vocabulary_row(
-					session, actor, subroutine.db.models.vocabulary.Status, which, "status"
-				),
+				subroutine.domain.selection.status(session, actor, which),
 				actor=actor,
 			)
 
@@ -1293,9 +1271,7 @@ class Client:
 		)
 
 		with self._writing() as (session, actor):
-			row = self._vocabulary_row(
-				session, actor, subroutine.db.models.vocabulary.LinkType, which, "link type"
-			)
+			row = subroutine.domain.selection.link_type(session, actor, which)
 
 			return subroutine.views.link_type(
 				subroutine.domain.vocabulary.update_link_type(
@@ -1309,9 +1285,7 @@ class Client:
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_link_type(
 				session,
-				self._vocabulary_row(
-					session, actor, subroutine.db.models.vocabulary.LinkType, which, "link type"
-				),
+				subroutine.domain.selection.link_type(session, actor, which),
 				actor=actor,
 			)
 
@@ -1409,7 +1383,7 @@ class Client:
 		changes = _asked(name=name, description=description)
 
 		with self._writing() as (session, actor):
-			row = self._tag_row(session, actor, which)
+			row = subroutine.domain.selection.tag(session, actor, which)
 
 			return subroutine.views.tag_entry(
 				subroutine.domain.vocabulary.update_tag(session, row, actor=actor, **changes)
@@ -1421,7 +1395,7 @@ class Client:
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_tag(
 				session,
-				self._tag_row(session, actor, which),
+				subroutine.domain.selection.tag(session, actor, which),
 				actor=actor,
 			)
 
@@ -1651,26 +1625,15 @@ class Client:
 	) -> subroutine.views.Document | None:
 		"""Return one document by ref, or ``None`` if there is no such document here."""
 
-		model = subroutine.db.models.work.Document
-
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
-			# Deleted documents resolve, exactly as `api/documents._resolve` has always let
-			# them and as `_row` does for a task: a reference to something in the trash is
-			# more useful than a dangling one, and `restore` cannot reach what it cannot find.
-			row = session.scalars(
-				subroutine.domain.scoping.readable_documents(
-					actor,
-					workspace_ids=[chosen.id],
-					include_archived=True,
-					include_deleted=True,
-				).where(model.ref == ref)
-			).one_or_none()
+			# **The route's lookup** (`#4543`), as for a task: deleted documents resolve, since a
+			# reference to something in the trash is more useful than a dangling one.
+			try:
+				row = subroutine.domain.selection.document(session, actor, chosen, str(ref))
 
-			if row is None:
-				self._refuse_if_out_of_sight(session, actor, chosen.id, ref)
-
+			except subroutine.errors.NotFound:
 				return None
 
 			return subroutine.views.document(
@@ -1716,14 +1679,7 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			row = session.get(
-				subroutine.db.models.work.Document,
-				self._subject(session, actor, chosen.id, "document", ref),
-			)
-
-			# `_subject` refuses a ref that names nothing, so this cannot be None — and
-			# asserting it is cheaper than a second refusal that could word it differently.
-			assert row is not None
+			row = subroutine.domain.selection.document(session, actor, chosen, str(ref))
 
 			# **Nor a None** (`#4021`, L-7 (3) of the cold review of 2026-09-30), which the API reads as
 			# leaving the project alone and this moved to the Inbox, as `update` did for a task (`#3936`).
@@ -1752,7 +1708,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.links.end(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			return subroutine.views.links(
 				session,
@@ -1778,7 +1736,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.links.end(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			return subroutine.views.beneath(
 				session,
@@ -1800,7 +1760,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.links.end(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			return subroutine.views.governing(
 				session,
@@ -1820,7 +1782,8 @@ class Client:
 		"""Return what has been checked against one task, newest first."""
 
 		with self._opened() as (session, actor):
-			task = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			task = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 			found = list(
 				session.scalars(subroutine.domain.verifications.against(task))
 			)
@@ -1852,7 +1815,8 @@ class Client:
 		"""Record what was checked against one task."""
 
 		with self._writing() as (session, actor):
-			task = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			task = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 			written = subroutine.domain.verifications.record(
 				session,
 				task,
@@ -1881,7 +1845,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.links.end(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			return subroutine.views.proposals(
 				session,
@@ -1902,7 +1868,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.links.end(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			return [
 				subroutine.views.Backlink(
@@ -1935,8 +1903,8 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			near = self._end(session, actor, chosen, entity_type, ref)
-			far = self._end(session, actor, chosen, target_type, target)
+			near = subroutine.domain.links.end(session, actor, chosen, entity_type, str(ref))
+			far = subroutine.domain.links.end(session, actor, chosen, target_type, str(target))
 
 			created = subroutine.domain.links.create(
 				session,
@@ -1976,56 +1944,10 @@ class Client:
 			# `acted_on` since `#816`; this transport never did, and the equivalence suite
 			# could not see it because both sides agree about the outcome and the disagreement
 			# was in the event.
-			near = self._end(session, actor, chosen, entity_type, ref)
-
-			model = subroutine.db.models.work.Link
-			found = session.scalars(
-				sqlalchemy.select(model).where(
-					model.id == uuid.UUID(link_id),
-					model.workspace_id == chosen.id,
-					model.deleted_at.is_(None),
-					# **Both ends, because a link is withdrawn from either side.** Narrowed to
-					# the item named rather than to any link with that id, so a caller cannot
-					# withdraw a link between two things it never mentioned.
-					sqlalchemy.or_(
-						sqlalchemy.and_(
-							model.source_type == entity_type, model.source_id == near.id
-						),
-						sqlalchemy.and_(
-							model.target_type == entity_type, model.target_id == near.id
-						),
-					),
-				)
-			).first()
-
-			if found is None:
-				raise subroutine.errors.NotFound(
-					"There is no such link on that item.",
-					hint="Run 'subroutine show <ref>' to see what it is joined to.",
-				)
+			near = subroutine.domain.links.end(session, actor, chosen, entity_type, str(ref))
+			found = subroutine.domain.links.get(session, chosen, near, link_id)
 
 			subroutine.domain.links.remove(session, found, acted_on=near, actor=actor)
-
-	def _end (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		workspace: typing.Any,
-		entity_type: str,
-		ref: int,
-	) -> subroutine.domain.links.End:
-		"""Describe one side of a link, resolving the ref the way the endpoint does."""
-
-		subroutine.domain.links.refuse_an_unlinkable(entity_type)
-		row = self._in_the_trash_too(session, actor, ref, workspace.slug, entity_type)
-
-		return subroutine.domain.links.End(
-			entity_type=entity_type,
-			id=row.id,
-			ref=row.ref,
-			title=row.title,
-			project_id=row.project_id,
-		)
 
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
@@ -2034,7 +1956,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.selection.subject(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			rows = session.scalars(
 				subroutine.domain.comments.listing(
@@ -2074,7 +1998,9 @@ class Client:
 			# Resolving the subject is the permission check for the item, exactly as it is on
 			# the route; which events on it this reader may see is `events.history`'s, the same
 			# function the route calls (`#2769`).
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.selection.subject(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			statement = subroutine.domain.events.history(
 				actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
@@ -2110,7 +2036,9 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.selection.subject(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 			rows = session.scalars(
 				subroutine.domain.events.history(
 					actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
@@ -2976,7 +2904,11 @@ class Client:
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			# **Asked for, so read** (`#4543`): the route finds it as a project asked for, which needs
+			# ``project:read``, where naming one on the way to filing does not (`#3909`).
+			found = subroutine.domain.selection.addressed(
+				session, actor, chosen, project, field="project"
+			)
 			rows = subroutine.domain.projects.members(session, found, actor=actor)
 			answerable = subroutine.domain.accountability.answerable_for_many(
 				session, [account.id for _row, account in rows]
@@ -3383,8 +3315,8 @@ class Client:
 					{}
 					if parent is None
 					else {
-						"parent": self._in_the_trash_too(
-							session, actor, parent, workspace, "task"
+						"parent": subroutine.domain.selection.task(
+							session, actor, chosen, str(parent)
 						)
 					},
 				),
@@ -3463,7 +3395,8 @@ class Client:
 		"""
 
 		with self._opened() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 			series = subroutine.domain.tasks.series_of(session, row) or row
 
 			if series.recurrence_rule is None:
@@ -3522,7 +3455,8 @@ class Client:
 		"""Let one occurrence of a repeat go by, and bring the next one."""
 
 		with self._writing() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 
 			subroutine.domain.tasks.skip(
 				session, row, now=subroutine.db.types.utcnow(), actor=actor
@@ -3550,7 +3484,9 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.selection.subject(
+				session, actor, chosen, entity_type, str(ref)
+			).id
 
 			written = subroutine.domain.comments.create(
 				session,
@@ -3581,28 +3517,13 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			subject = subroutine.domain.selection.subject(
+				session, actor, chosen, entity_type, str(ref)
+			)
 
-			model = subroutine.db.models.activity.Comment
-			found = session.scalars(
-				sqlalchemy.select(model).where(
-					model.id == uuid.UUID(comment_id),
-					model.workspace_id == chosen.id,
-					model.deleted_at.is_(None),
-					# **Narrowed to the item named, like `unlink`.** A comment id alone would
-					# let a caller withdraw one from something it never mentioned — and the
-					# ids are handed out by a listing, so "the one I just read" is the only
-					# provenance a caller has for them.
-					model.entity_type == entity_type,
-					model.entity_id == subject,
-				)
-			).first()
-
-			if found is None:
-				raise subroutine.errors.NotFound(
-					"There is no such comment on that item.",
-					hint=f"Run 'subroutine show {ref}' to see what is recorded against it.",
-				)
+			# **Found as the route finds one** (`#4543`), narrowed to the item named, and finding it
+			# asks ``comment:read`` before deleting it asks anything (D7 of `#4506`).
+			found = subroutine.domain.comments.get(session, comment_id, actor=actor, on=subject)
 
 			subroutine.domain.comments.delete(session, found, actor=actor)
 
@@ -3632,14 +3553,19 @@ class Client:
 		"""Put an item under another one, or at the top level."""
 
 		with self._writing() as (session, actor):
-			row = self._in_the_trash_too(session, actor, ref, workspace, entity_type)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row: typing.Any = subroutine.domain.selection.item(
+				session, actor, chosen, entity_type, str(ref)
+			)
 			# Resolved the same way as the item being moved, so an unknown parent is refused
 			# here exactly as the endpoint refuses it and one in a project the caller cannot
 			# see is absent rather than forbidden (§7.3a).
-			under = (
+			under: typing.Any = (
 				None
 				if parent is None
-				else self._in_the_trash_too(session, actor, parent, workspace, entity_type)
+				else subroutine.domain.selection.item(
+					session, actor, chosen, entity_type, str(parent)
+				)
 			)
 
 			if entity_type == "document":
@@ -3684,7 +3610,10 @@ class Client:
 		"""Move one item into or out of the trash. One body, because they differ in one word."""
 
 		with self._writing() as (session, actor):
-			row = self._in_the_trash_too(session, actor, ref, workspace, entity_type)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row: typing.Any = subroutine.domain.selection.item(
+				session, actor, chosen, entity_type, str(ref)
+			)
 
 			if entity_type == "document":
 				service = (
@@ -3721,7 +3650,8 @@ class Client:
 		"""Take a lease on a task, or renew one this credential holds (`#350`)."""
 
 		with self._writing() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 			held = subroutine.domain.claims.claim(
 				session, row, minutes=minutes, settings=self.settings, actor=actor
 			)
@@ -3741,7 +3671,8 @@ class Client:
 		"""Give a task back, so somebody else can take it (`#350`)."""
 
 		with self._writing() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 			freed = subroutine.domain.claims.release(session, row, actor=actor)
 
 			return subroutine.views.task(
@@ -3766,7 +3697,8 @@ class Client:
 		"""
 
 		with self._writing() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 
 			finished = subroutine.domain.tasks.complete(
 				session, row, now=subroutine.db.types.utcnow(), actor=actor
@@ -3858,7 +3790,8 @@ class Client:
 		}
 
 		with self._writing() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 
 			# **Resolved here, because the service takes a row and the caller has a key.**
 			# The endpoint does the same with `selection.project`. This is the second time
@@ -3932,7 +3865,8 @@ class Client:
 			changes["snooze"] = snooze
 
 		with self._writing() as (session, actor):
-			row = self._require(session, actor, ref, workspace)
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.selection.task(session, actor, chosen, str(ref))
 
 			subroutine.domain.tasks.update(
 				session,
@@ -4239,267 +4173,6 @@ class Client:
 			token_source=self._token_source,
 			read_only=self.connection.read_only,
 		)
-
-	def _require (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		ref: int,
-		workspace: str | None,
-	) -> subroutine.db.models.work.Task:
-		"""Return the task this ref names here, or refuse the way the API does.
-
-		**"The way the API does" is a claim, and it was false for a day** (`#488`). The API
-		learned to say *"#480 is a document, not a task"* and this did not, so the same request
-		got a different answer depending on whether the connection was local — and the local one
-		is what a standalone SQLite install uses, which is the zero-configuration machine an
-		agent meets first. A docstring asserting a correspondence is not one.
-		"""
-
-		chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-		row = self._row(session, actor, chosen.id, ref)
-
-		if row is None:
-			instead = subroutine.domain.scoping.the_other_kind(
-				session, actor, workspace_id=chosen.id, ref=ref, asked_for="task"
-			)
-
-			if instead is not None:
-				raise subroutine.errors.NotFound(
-					f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a "
-					f"task - {instead.title}",
-					hint="Revise it with 'subroutine document edit "
-					f"{instead.ref}', or read it with 'subroutine show {instead.ref}'.",
-				)
-
-			raise subroutine.errors.NotFound(
-				f"There is no task {subroutine.domain.refs.format_ref(ref)} in "
-				f"{chosen.slug}.",
-				hint="Run 'subroutine list' to see what there is.",
-			)
-
-		return row
-
-	def _in_the_trash_too (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		ref: int,
-		workspace: str | None,
-		entity_type: str,
-	) -> typing.Any:
-		"""Return the task or document this ref names, **including one already in the trash**.
-
-		**What separates this from `_row` is the kind and the workspace, not the trash.** This
-		takes either kind and resolves a workspace by name; `_row` is tasks only and takes an id
-		already resolved. The sentence here used to say `_row` "deliberately excludes deleted
-		tasks", which was true when it was written and stopped being true at `#140` — so the
-		stated reason for this function existing had been false for longer than the function had
-		been right. Found while fixing `#921` two screens down, by reading it.
-
-		The HTTP side has always resolved through a statement that includes the trash — "a
-		reference to something in the trash is more useful than a dangling one" — so that half
-		is the two transports agreeing rather than a local liberty.
-
-		**And recurrence templates, since `#3936`**, as in `_row` and `_subject`. They stopped here
-		once, so that a series could not quietly become a parent to move work under - but only here,
-		so the endpoint, which resolves all three, moved a series, deleted it, linked it and filed
-		work under it, and one database answered two ways. **The refusal is the domain's now**, in
-		``tasks.move``, ``tasks.delete``, ``tasks.create`` and ``links.create``, each naming the
-		occurrence to act on or, for a delete, how a repeat is stopped. So this answers what the ref
-		names, and ``undiscard`` and ``unlink`` reach a series an older endpoint left in the trash or
-		at the end of a link, as the endpoint does.
-
-		**So a refusal here is about a ref naming nothing** this caller can see, which is the one
-		thing it says. Before, it could be a series this lookup declined, and *"There is no task
-		#6"* about a row ``show 6`` had just read was a false statement (`#1322`).
-		"""
-
-		chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-		documents = entity_type == "document"
-		model: typing.Any = (
-			subroutine.db.models.work.Document if documents else subroutine.db.models.work.Task
-		)
-		statement = (
-			subroutine.domain.scoping.readable_documents(
-				actor, workspace_ids=[chosen.id], include_deleted=True, include_archived=True
-			)
-			if documents
-			else subroutine.domain.scoping.readable_tasks(
-				actor,
-				workspace_ids=[chosen.id],
-				include_deleted=True,
-				include_archived=True,
-				include_templates=True,
-			)
-		)
-		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
-
-		if row is None:
-			self._refuse_if_out_of_sight(session, actor, chosen.id, ref)
-
-			raise subroutine.errors.NotFound(
-				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} in {chosen.slug}.",
-				hint="Run 'subroutine list' to see what there is.",
-			)
-
-		return row
-
-	def _subject (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		workspace_id: typing.Any,
-		entity_type: str,
-		ref: int,
-	) -> uuid.UUID:
-		"""Turn a ref into the id of the task or document it names, or refuse.
-
-		Links and comments hang off an *id*, because a project has no ref to be named by, while
-		a command line only ever carries a ref. Resolving it here rather than in the caller
-		keeps the two transports asking the same question: the HTTP client hands the ref
-		straight to a route that resolves it identically, so a ref that names nothing must fail
-		the same way on both sides.
-
-		**That sentence was a claim rather than a fact until `#700`**, and the exception was the
-		trash. ``api/tasks._resolve`` has included deleted rows since `#140` — "a reference to
-		something in the trash is more useful than a dangling one" — and this did not, so one
-		database answered two ways in the same second: over HTTP the comments came back, and
-		locally the *item* was reported not to exist. That message is what a reader saw, so
-		``subroutine show`` on something in the trash denied it existed while ``list --trash``
-		listed it and ``restore`` worked on it.
-
-		Worth seeing rather than fixing quietly: the divergence was not in what either client
-		*returns* — ``task()`` agrees on both, deleted or not — but in what one of them **asks
-		for** one layer down, on the lookup that fetches an item's comments.
-
-		**And it recurred with recurrence templates** (`#921`), which is why the exception is
-		worth reading as a shape rather than as the trash: ``_resolve`` widens on *three* axes
-		and this widened on two, so the third produced the identical symptom a release later.
-		The general rule is the one the paragraph above states — a lookup by a ref answers what
-		the ref names, and only *unreadable* is allowed to make it answer nothing.
-		"""
-
-		model: typing.Any = (
-			subroutine.db.models.work.Task
-			if entity_type == "task"
-			else subroutine.db.models.work.Document
-		)
-		statement = (
-			subroutine.domain.scoping.readable_tasks(
-				actor,
-				workspace_ids=[workspace_id],
-				include_completed=True,
-				include_archived=True,
-				include_deleted=True,
-				include_templates=True,
-			)
-			if entity_type == "task"
-			else subroutine.domain.scoping.readable_documents(
-				actor, workspace_ids=[workspace_id], include_archived=True, include_deleted=True
-			)
-		)
-
-		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
-
-		if row is None:
-			self._refuse_if_out_of_sight(session, actor, workspace_id, ref)
-
-			raise subroutine.errors.NotFound(
-				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} here.",
-				hint="Run 'subroutine list' to see what there is.",
-			)
-
-		found: uuid.UUID = row.id
-
-		return found
-
-	def _row (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		workspace_id: typing.Any,
-		ref: int,
-	) -> subroutine.db.models.work.Task | None:
-		"""Fetch one task through the scoping helper, never around it.
-
-		Completed tasks are included on purpose: running ``done 42`` twice should say the
-		thing is already done, not that there is no such task.
-
-		**And deleted ones, which was a live divergence until `#140`.** ``api/tasks._resolve``
-		has always included them — "a reference to something in the trash is more useful than a
-		dangling one" — and this did not, so ``client.task(ref=…)`` answered the same question
-		with the task over HTTP and ``None`` locally. Nothing noticed, because nothing had ever
-		looked one up after deleting it: there was no way to delete one.
-
-		Found by building ``restore`` and watching it fail to find the item it exists for.
-
-		**And recurrence templates, which was the same divergence one flag along** (`#921`).
-		Every occurrence publishes ``recurrence_template_ref``, and ``views._from_a_live_series``
-		says of it that it *"deliberately still resolves … and is how a client reaches the
-		history"* — a sentence nothing here implemented. So ``show 2 --json`` handed back
-		``recurrence_template_ref: 1`` and ``show 1`` answered *"There is no #1"*, while
-		``GET /v1/tasks/1`` answered 200 with the series.
-
-		**A listing still hides them and must** — a rule is not work (§6.7) — but a *lookup by a
-		ref we published* is the opposite question, and answering it is what ``include_templates``
-		is for. It narrows nothing: the workspace, project visibility and the credential's project
-		scope are all still applied by the helper, so this reaches exactly what the HTTP caller
-		already reaches.
-		"""
-
-		model = subroutine.db.models.work.Task
-
-		return session.scalars(
-			subroutine.domain.scoping.readable_tasks(
-				actor,
-				workspace_ids=[workspace_id],
-				include_archived=True,
-				include_deleted=True,
-				include_templates=True,
-			).where(model.ref == ref)
-		).one_or_none()
-
-	def _tag_row (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		which: str,
-	) -> subroutine.db.models.vocabulary.Tag:
-		"""Return one tag this credential may see, or refuse as though there were none (`#4094`).
-
-		The endpoint's ``_tag`` asks the same of the same predicate, so a tag only private work
-		uses is out of reach on both transports alike.
-		"""
-
-		row: subroutine.db.models.vocabulary.Tag = self._vocabulary_row(
-			session, actor, subroutine.db.models.vocabulary.Tag, which, "tag"
-		)
-
-		if not subroutine.domain.scoping.tag_is_seen(session, actor, row):
-			raise subroutine.errors.NotFound("There is no tag with that id.")
-
-		return row
-
-	def _refuse_if_out_of_sight (
-		self,
-		session: sqlalchemy.orm.Session,
-		actor: subroutine.domain.authentication.Principal,
-		workspace_id: typing.Any,
-		ref: int,
-	) -> None:
-		"""Refuse by saying where an item is when it is hidden beneath the trash (`#4091`).
-
-		**The same sentence the endpoint gives**, from the same function, so the terminal and an
-		agent's tools say where it is on either transport rather than that it does not exist.
-		"""
-
-		out_of_sight = subroutine.domain.trash.hidden(
-			session, actor, workspace_id=workspace_id, wanted=str(ref)
-		)
-
-		if out_of_sight is not None:
-			raise out_of_sight
 
 
 def opened (

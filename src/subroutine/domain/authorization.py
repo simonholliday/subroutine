@@ -436,7 +436,7 @@ def reaches_the_whole_installation (
 	and ``scopes`` defaults to the owner's whole permission set.
 
 	**A predicate rather than a refusal, because each caller refuses in its own way and each is
-	right.** Two of them: ``api/workspaces._for_an_administrator`` returns ``None`` so its
+	right.** Two of them: ``selection._outside`` returns ``None`` so its
 	caller answers as though the workspace does not exist — which is what stops a pinned
 	credential probing for
 	one by name — while ``domain/workspaces.on_instance`` raises, because the caller asked a

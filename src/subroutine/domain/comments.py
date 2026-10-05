@@ -37,6 +37,7 @@ import subroutine.domain.events
 import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.scoping
+import subroutine.domain.selection
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.domain.workspaces
@@ -352,14 +353,29 @@ def listing (
 
 def get (
 	session: sqlalchemy.orm.Session,
-	comment_id: uuid.UUID,
+	comment_id: str | uuid.UUID,
 	*,
 	actor: subroutine.domain.authentication.Principal | None = None,
+	on: typing.Any = None,
 ) -> subroutine.db.models.activity.Comment:
-	"""Return one comment the caller may read, or report that there is no such thing."""
+	"""Return one comment the caller may read, or report that there is no such thing.
+
+	**The one lookup of a comment, on every transport** (`#4543`, decision `#4532`), and
+	**finding one is a read of it** (Q11 of `#4506`): ``comment:read`` is asked whoever means to
+	edit or delete it next. The local client found one with a query of its own and asked nothing,
+	so a credential holding ``comment:write`` without ``comment:read`` deleted a comment through a
+	local connection that every other transport refused it (D7).
+
+	``on`` is the task, project or document the caller named, for a transport that names the item
+	as well as the comment: a comment elsewhere, or one already withdrawn, is not on it. A route
+	addressing a comment by its id alone passes nothing.
+	"""
 
 	model = subroutine.db.models.activity.Comment
-	found = session.get(model, comment_id)
+	found = session.get(
+		model,
+		subroutine.domain.selection.identifier(comment_id, field="comment_id", what="comment"),
+	)
 
 	if found is None:
 		raise subroutine.errors.NotFound("There is no such comment.")
@@ -382,7 +398,36 @@ def get (
 			workspace_id=found.workspace_id,
 		)
 
+	if on is not None and (
+		found.deleted_at is not None
+		or found.entity_type != _kind_of(on)
+		or found.entity_id != on.id
+	):
+		# **Narrowed to the item named.** A comment id alone would let a caller withdraw one from
+		# something it never mentioned, and the ids are handed out by a listing, so "the one I just
+		# read" is the only provenance a caller has for them.
+		ref = getattr(on, "ref", None)
+
+		raise subroutine.errors.NotFound(
+			"There is no such comment on that item.",
+			hint=None
+			if ref is None
+			else f"Run 'subroutine show {ref}' to see what is recorded against it.",
+		)
+
 	return found
+
+
+def _kind_of (row: typing.Any) -> str:
+	"""Say which kind of thing a comment may hang off ``row`` is: a task, a document or a project."""
+
+	if isinstance(row, subroutine.db.models.work.Task):
+		return "task"
+
+	if isinstance(row, subroutine.db.models.work.Document):
+		return "document"
+
+	return "project"
 
 
 def update (

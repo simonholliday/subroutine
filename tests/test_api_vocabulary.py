@@ -21,6 +21,9 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.settings
 import subroutine.domain.tasks
+import subroutine.domain.users
+import subroutine.domain.vocabulary
+import subroutine.domain.workspaces
 import subroutine.permissions
 import test_api_tasks
 
@@ -759,11 +762,46 @@ def test_a_vocabulary_row_in_another_workspace_is_not_found (
 	Saying "forbidden" would confirm the id names something. Driven with an id that names
 	nothing, which is the same answer a caller gets for one they cannot reach — and that
 	sameness is the property being asserted.
+
+	**And with a row in a workspace the caller is not in** (`SR#4543`), each kind of one. This drove
+	the id naming nothing alone, so the check that tells the two apart could go and nothing failed;
+	the caller here is the installation's superuser, whose roles are bypassed and whose sight is not.
 	"""
 
 	missing = world.call("PATCH", f"/v1/statuses/{uuid.uuid4()}", json={"label": "Nope"})
 
 	assert missing.status_code == 404, missing.text
+
+	owner = subroutine.domain.users.create(world.session, username=f"other-{uuid.uuid4().hex[:8]}")
+	elsewhere = subroutine.domain.workspaces.create(
+		world.session, slug=f"elsewhere-{uuid.uuid4().hex[:6]}", title="Elsewhere", owner=owner
+	)
+	tag = subroutine.domain.vocabulary.create_tag(
+		world.session, workspace_id=elsewhere.id, name="theirs"
+	)
+	world.session.flush()
+
+	vocabulary = subroutine.db.models.vocabulary
+	theirs = {
+		"statuses": world.session.scalars(
+			sqlalchemy.select(vocabulary.Status.id).where(vocabulary.Status.workspace_id == elsewhere.id)
+		).first(),
+		"link-types": world.session.scalars(
+			sqlalchemy.select(vocabulary.LinkType.id).where(
+				vocabulary.LinkType.workspace_id == elsewhere.id
+			)
+		).first(),
+		"tags": tag.id,
+	}
+	changes = {"statuses": {"label": "Mine now"}, "link-types": {"title": "Mine now"}, "tags": {"name": "mine"}}
+
+	for kind, identifier in theirs.items():
+		assert identifier is not None, f"{elsewhere.slug} was made with no {kind}"
+
+		for method, body in (("PATCH", changes[kind]), ("DELETE", None)):
+			refused = world.call(method, f"/v1/{kind}/{identifier}", json=body)
+
+			assert refused.status_code == 404, f"{method} {kind}: {refused.text}"
 
 
 def test_a_listing_is_enveloped_like_every_other (world: test_api_tasks.World) -> None:

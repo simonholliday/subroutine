@@ -35,7 +35,6 @@ import subroutine.domain.paging
 import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.vocabulary
-import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
 
@@ -182,72 +181,6 @@ def _chosen (
 	return subroutine.domain.selection.workspace(session, actor, requested=requested)
 
 
-def _status (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	which: uuid.UUID,
-) -> subroutine.db.models.vocabulary.Status:
-	"""Return one status the caller can reach, or a 404 that says nothing more."""
-
-	found = session.get(subroutine.db.models.vocabulary.Status, which)
-
-	if found is None or found.workspace_id not in _reachable(session, actor):
-		raise subroutine.errors.NotFound("There is no status with that id.")
-
-	return found
-
-
-def _link_type (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	which: uuid.UUID,
-) -> subroutine.db.models.vocabulary.LinkType:
-	"""Return one link type the caller can reach."""
-
-	found = session.get(subroutine.db.models.vocabulary.LinkType, which)
-
-	if found is None or found.workspace_id not in _reachable(session, actor):
-		raise subroutine.errors.NotFound("There is no link type with that id.")
-
-	return found
-
-
-def _tag (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	which: uuid.UUID,
-) -> subroutine.db.models.vocabulary.Tag:
-	"""Return one tag the caller can reach."""
-
-	found = session.get(subroutine.db.models.vocabulary.Tag, which)
-
-	# **Nor one only private work the caller cannot see uses** (decision `#4094`), answered as
-	# though there were none, as anything else hidden is.
-	if (
-		found is None
-		or found.workspace_id not in _reachable(session, actor)
-		or not subroutine.domain.scoping.tag_is_seen(session, actor, found)
-	):
-		raise subroutine.errors.NotFound("There is no tag with that id.")
-
-	return found
-
-
-def _reachable (
-	session: sqlalchemy.orm.Session, actor: subroutine.domain.authentication.Principal
-) -> set[uuid.UUID]:
-	"""Return the workspaces this credential can see at all.
-
-	**A 404 rather than a 403 for a row in a workspace the caller cannot reach**, which is the
-	same choice §7.3a makes about a private project: saying "forbidden" would confirm the id
-	names something.
-	"""
-
-	return {
-		workspace.id for workspace in subroutine.domain.workspaces.readable(session, actor)
-	}
-
-
 @router.get("/statuses", summary="The statuses this workspace has")
 def list_statuses (
 	actor: subroutine.api.security.PrincipalDep,
@@ -315,7 +248,7 @@ def update_status (
 
 	return subroutine.views.status(
 		subroutine.domain.vocabulary.update_status(
-			session, _status(session, actor, which), actor=actor, **changes
+			session, subroutine.domain.selection.status(session, actor, which), actor=actor, **changes
 		)
 	)
 
@@ -329,7 +262,7 @@ def delete_status (
 	"""Remove a status nothing is in, and that is not the default."""
 
 	subroutine.domain.vocabulary.delete_status(
-		session, _status(session, actor, which), actor=actor
+		session, subroutine.domain.selection.status(session, actor, which), actor=actor
 	)
 
 
@@ -388,7 +321,7 @@ def update_link_type (
 
 	return subroutine.views.link_type(
 		subroutine.domain.vocabulary.update_link_type(
-			session, _link_type(session, actor, which), actor=actor, **changes
+			session, subroutine.domain.selection.link_type(session, actor, which), actor=actor, **changes
 		)
 	)
 
@@ -402,7 +335,7 @@ def delete_link_type (
 	"""Remove a link type nothing is joined by."""
 
 	subroutine.domain.vocabulary.delete_link_type(
-		session, _link_type(session, actor, which), actor=actor
+		session, subroutine.domain.selection.link_type(session, actor, which), actor=actor
 	)
 
 
@@ -534,7 +467,7 @@ def update_tag (
 
 	return subroutine.views.tag_entry(
 		subroutine.domain.vocabulary.update_tag(
-			session, _tag(session, actor, which), actor=actor, **changes
+			session, subroutine.domain.selection.tag(session, actor, which), actor=actor, **changes
 		)
 	)
 
@@ -547,4 +480,4 @@ def delete_tag (
 ) -> None:
 	"""Take a tag off everything you can read; work hidden from you keeps it."""
 
-	subroutine.domain.vocabulary.delete_tag(session, _tag(session, actor, which), actor=actor)
+	subroutine.domain.vocabulary.delete_tag(session, subroutine.domain.selection.tag(session, actor, which), actor=actor)

@@ -13118,8 +13118,8 @@ def test_the_repeat_refusal_points_at_the_occurrence_whatever_the_caller_was_doi
 ) -> None:
 	"""`SR#1331`. The hint was ``delete``'s and five verbs raise it.
 
-	``_in_the_trash_too`` is how ``delete``, ``link``, ``discard``, ``undiscard`` and ``move``
-	resolve a ref, so a ref naming a recurrence template refused through one message for all of
+	One lookup is how ``delete``, ``link``, ``discard``, ``undiscard`` and ``move`` resolve a
+	ref - ``selection.item`` since `SR#4543` - so a ref naming a recurrence template refused through one message for all of
 	them — and it read *"Stop it with 'subroutine done 2'"*. Somebody drawing a link between
 	two items was advised to complete a series.
 

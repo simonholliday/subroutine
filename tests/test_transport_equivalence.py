@@ -5072,8 +5072,9 @@ def test_both_withdraw_a_comment_the_same_way (pair: Pair) -> None:
 
 	``DELETE /v1/comments/{id}`` addresses a comment by its own id, so unlike ``unlink`` —
 	whose ref is in the path — the route cannot refuse a caller that named the wrong item.
-	The local client narrows in SQL. Without the matching lookup over HTTP the two transports
-	would enforce different things, and a caller could delete across items on one of them.
+	The local client narrows through ``comments.get``'s ``on`` (`SR#4543`). Without the matching
+	lookup over HTTP the two transports would enforce different things, and a caller could delete
+	across items on one of them.
 	"""
 
 	local, remote = pair.both()
@@ -5100,6 +5101,26 @@ def test_both_withdraw_a_comment_the_same_way (pair: Pair) -> None:
 	for client in (local, remote):
 		with pytest.raises(subroutine.errors.NotFound):
 			client.uncomment(ref=one.ref, comment_id=str(written.id))
+
+
+def test_both_refuse_withdrawing_a_link_from_an_item_it_is_not_on (pair: Pair) -> None:
+	"""`SR#4543`: a link is withdrawn from either of its ends, and from nothing else.
+
+	The route and the local client each narrowed their query to the item named, so a caller cannot
+	withdraw a link between two things it never mentioned. ``links.get`` is the one copy now, and
+	nothing held either before it.
+	"""
+
+	near = make(pair, "Pack the bags")
+	far = make(pair, "Board the train")
+	aside = make(pair, "Something else entirely")
+	made = pair.local.link(ref=near.ref, link_type="blocks", target=far.ref)
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.NotFound):
+			client.unlink(ref=aside.ref, link_id=str(made.id))
+
+	assert [one.id for one in pair.remote.links(ref=near.ref)] == [made.id]
 
 
 def test_both_transports_report_the_same_vocabulary (session: sqlalchemy.orm.Session) -> None:
@@ -5689,6 +5710,41 @@ def test_a_null_title_is_refused_alike_on_both (pair: Pair) -> None:
 		said.append(raised.value.detail)
 
 	assert said[0] == said[1] and "title" in said[0].lower(), said
+
+
+#: Every act that names a row by its id alone, each given something that is not one (`SR#4543`).
+NOT_AN_ID: dict[str, typing.Callable[[subroutine.clients.base.Client, int], object]] = {
+	"update_status": lambda client, ref: client.update_status(which="parked", label="Parked"),
+	"delete_status": lambda client, ref: client.delete_status(which="parked"),
+	"update_link_type": lambda client, ref: client.update_link_type(which="mirrors", title="Mirrors"),
+	"delete_link_type": lambda client, ref: client.delete_link_type(which="mirrors"),
+	"update_tag": lambda client, ref: client.update_tag(which="deploy", name="release"),
+	"delete_tag": lambda client, ref: client.delete_tag(which="deploy"),
+	"uncomment": lambda client, ref: client.uncomment(ref=ref, comment_id="the first one"),
+	"unlink": lambda client, ref: client.unlink(ref=ref, link_id="the blocker"),
+}
+
+
+@pytest.mark.parametrize("act", sorted(NOT_AN_ID))
+def test_both_refuse_an_id_that_is_not_one_by_name (pair: Pair, act: str) -> None:
+	"""`SR#4543`: the local client raised a bare ``ValueError`` at whoever asked.
+
+	It called ``uuid.UUID`` on the argument, where a route takes the id typed in its path and refuses
+	one that is not an id by name, before looking. **One lookup reads it now, on both**, and names
+	the same field.
+	"""
+
+	named = []
+
+	for client in pair.both():
+		made = client.capture(text="Book the flight")
+
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			NOT_AN_ID[act](client, made.task.ref)
+
+		named.append(sorted(subroutine.errors.field_tail(one.field) for one in raised.value.errors))
+
+	assert named[0] == named[1] and named[0], named
 
 
 def test_an_explicit_none_for_a_documents_project_changes_nothing (pair: Pair) -> None:

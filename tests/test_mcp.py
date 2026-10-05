@@ -8232,7 +8232,7 @@ def test_a_ref_that_names_nothing_says_how_to_find_the_right_one (
 	assert "subroutine_list" in answered, "the refusal offers no way to find the right item"
 
 	# **The update path never reaches that refusal**, which is worth pinning rather than
-	# assuming: it is turned away by `clients/local._require` first, whose message carries the
+	# assuming: it is turned away by `selection.task` first, whose hint carries the
 	# *CLI's* vocabulary — "Run 'subroutine list'". Both are a genuine next step, and `#480`
 	# settled that pointing an agent at the command line is right rather than a fallback. What
 	# the rule requires is that neither refusal is a dead end.

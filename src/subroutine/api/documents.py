@@ -28,7 +28,6 @@ import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
-import subroutine.api.tasks
 import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.authentication
@@ -780,7 +779,7 @@ def _links_for (entity_type: str) -> typing.Any:
 		"""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
 
 		found = subroutine.views.links(
 			session,
@@ -828,7 +827,7 @@ def _links_for (entity_type: str) -> typing.Any:
 		"""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
 
 		found = subroutine.views.beneath(
 			session,
@@ -858,8 +857,8 @@ def _links_for (entity_type: str) -> typing.Any:
 		"""Join this item to another one."""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
-		far = _near(session, actor, workspace, body.target_type, str(body.target))
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
+		far = subroutine.domain.links.end(session, actor, workspace, body.target_type, str(body.target))
 
 		if body.direction not in DIRECTIONS:
 			raise subroutine.errors.ValidationError(
@@ -907,30 +906,9 @@ def _links_for (entity_type: str) -> typing.Any:
 		"""Withdraw a link."""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
 
-		model = subroutine.db.models.work.Link
-		found = session.scalars(
-			sqlalchemy.select(model).where(
-				model.id == link_id,
-				model.workspace_id == workspace.id,
-				model.deleted_at.is_(None),
-				sqlalchemy.or_(
-					sqlalchemy.and_(
-						model.source_type == entity_type, model.source_id == near.id
-					),
-					sqlalchemy.and_(
-						model.target_type == entity_type, model.target_id == near.id
-					),
-				),
-			)
-		).first()
-
-		if found is None:
-			raise subroutine.errors.NotFound(
-				f"There is no such link on {subroutine.domain.refs.format_ref(near.ref)}.",
-				hint="GET this item's /links to see the ones there are.",
-			)
+		found = subroutine.domain.links.get(session, workspace, near, link_id)
 
 		# **Whichever end the reader was standing on** (`#816`). This route finds a link by
 		# either end, so an incoming one is withdrawn from the target — and recording the
@@ -971,7 +949,7 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 		"""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
 
 		found = [
 			subroutine.views.Backlink(
@@ -1027,7 +1005,7 @@ def _governing_for (entity_type: str) -> typing.Any:
 		"""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
 		found = subroutine.views.governing(
 			session,
 			actor,
@@ -1074,7 +1052,7 @@ def _proposed_links_for (entity_type: str) -> typing.Any:
 		"""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		near = subroutine.domain.links.end(session, actor, workspace, entity_type, id_or_ref)
 		found = subroutine.views.proposals(
 			session,
 			actor,
@@ -1156,32 +1134,6 @@ def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 
 _register(task_links, "task")
 _register(document_links, "document")
-
-
-def _near (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	workspace: subroutine.db.models.identity.Workspace,
-	entity_type: str,
-	id_or_ref: str,
-) -> subroutine.domain.links.End:
-	"""Resolve one end of a link from a ref or an id, refusing an unknown entity type."""
-
-	subroutine.domain.links.refuse_an_unlinkable(entity_type)
-
-	if entity_type == "task":
-		row: typing.Any = subroutine.api.tasks._resolve(session, actor, workspace, id_or_ref)
-
-	else:
-		row = _resolve(session, actor, workspace, id_or_ref)
-
-	return subroutine.domain.links.End(
-		entity_type=entity_type,
-		id=row.id,
-		ref=row.ref,
-		title=row.title,
-		project_id=row.project_id,
-	)
 
 
 def _resolve (

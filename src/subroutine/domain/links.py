@@ -26,6 +26,7 @@ import sqlalchemy.orm
 
 import subroutine.db.mixins
 import subroutine.db.models.activity
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -40,6 +41,7 @@ import subroutine.domain.milestones
 import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.trash
@@ -73,6 +75,7 @@ def refuse_an_unlinkable (entity_type: str) -> None:
 			)
 		],
 	)
+
 
 #: One end of a chain, while a ring is being looked for — its kind and its id (`SR#2285`).
 #:
@@ -276,6 +279,67 @@ class End:
 	#: document has no state that could finish, so an end that is one is never complete rather
 	#: than being judged by a status it does not have.
 	is_complete: bool = False
+
+
+def end (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	entity_type: str,
+	id_or_ref: str,
+) -> End:
+	"""Find one end of a link by id or ref, refusing a kind no link joins - `#4543`.
+
+	The route and the local client each built this from the item they had found.
+	"""
+
+	refuse_an_unlinkable(entity_type)
+	row = subroutine.domain.selection.item(session, actor, workspace, entity_type, id_or_ref)
+
+	return End(
+		entity_type=entity_type,
+		id=row.id,
+		ref=row.ref,
+		title=row.title,
+		project_id=row.project_id,
+	)
+
+
+def get (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	near: End,
+	link_id: str | uuid.UUID,
+) -> subroutine.db.models.work.Link:
+	"""Find one live link by its id, at either end of the item named - `#4543`.
+
+	**Narrowed to the item named rather than to any link with that id**, so a caller cannot
+	withdraw a link between two things it never mentioned; the item was found as the caller may
+	see it. Both ends, because a link is withdrawn from either side. The route and the local client
+	each wrote this query. **Here rather than in** ``selection`` **with the other resolvers**, because
+	``selection`` cannot import this module: this one imports ``tasks``, which imports ``selection``.
+	"""
+
+	model = subroutine.db.models.work.Link
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.id == subroutine.domain.selection.identifier(link_id, field="link_id", what="link"),
+			model.workspace_id == workspace.id,
+			model.deleted_at.is_(None),
+			sqlalchemy.or_(
+				sqlalchemy.and_(model.source_type == near.entity_type, model.source_id == near.id),
+				sqlalchemy.and_(model.target_type == near.entity_type, model.target_id == near.id),
+			),
+		)
+	).first()
+
+	if found is None:
+		raise subroutine.errors.NotFound(
+			f"There is no such link on {subroutine.domain.refs.format_ref(near.ref)}.",
+			hint=f"Run 'subroutine show {near.ref}' to see what it is joined to.",
+		)
+
+	return found
 
 
 @dataclasses.dataclass(frozen=True)

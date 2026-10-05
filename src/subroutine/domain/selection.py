@@ -24,6 +24,7 @@ import sqlalchemy.orm
 import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -217,9 +218,9 @@ def _outside (
 	"""Return the live workspace a name means, where this caller may discover it and is outside it.
 
 	**Only for somebody decision `#1860` lets discover workspaces** - ``instance:admin``, on a
-	credential that answers for the installation, which is the pair
-	``api/workspaces._for_an_administrator`` asks. Anybody else keeps :func:`_named`'s refusal,
-	which confirms nothing (§8.7).
+	credential that answers for the installation, which is the pair the route's own copy of this
+	asked until `#4543` made it this. Anybody else keeps :func:`_named`'s refusal, which confirms
+	nothing (§8.7).
 	"""
 
 	if not subroutine.domain.authorization.reaches_the_whole_installation(principal):
@@ -655,6 +656,174 @@ def document (
 				)
 			],
 		)
+
+	return found
+
+
+#: The kinds of item a ref names, which are the kinds :func:`item` finds.
+ITEMS = ("task", "document")
+
+
+def item (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	entity_type: str,
+	id_or_ref: str,
+) -> subroutine.db.models.work.Task | subroutine.db.models.work.Document:
+	"""Find one task or document by id or ref, as ``entity_type`` says - `#4543`.
+
+	**One lookup for an item of either kind, on every transport** (decision `#4532`). The local
+	client kept four of its own beside :func:`task` and :func:`document` - by ref, beside the trash,
+	and for the id a comment hangs off - and each asked a slightly different question of the same
+	rows. One never asked whether an item was beneath the trash, so completing a task under a
+	deleted parent was *There is no task #5* through a local connection and *#5 is beneath #4,
+	which is in the trash* through every other transport (D3 of `#4506`).
+	"""
+
+	if entity_type == "task":
+		return task(session, actor, workspace, id_or_ref)
+
+	if entity_type == "document":
+		return document(session, actor, workspace, id_or_ref)
+
+	raise _not_a_kind(entity_type, ITEMS)
+
+
+def subject (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	entity_type: str,
+	address: str,
+) -> typing.Any:
+	"""Find what comments and a history hang off - a task, a project or a document - `#4543`.
+
+	**Resolving the subject is the permission check** for everything hanging off it: each kind is
+	found through the statement that already narrows it, so an item the caller cannot see is absent
+	rather than forbidden (docs/design.md §7.3a). It was ``api/subjects.resolve``'s body, and the
+	local client asked its own question for a task or a document and read a project as a document.
+	"""
+
+	if entity_type == "project":
+		return addressed(session, actor, workspace, address, field="id_or_key")
+
+	if entity_type in ITEMS:
+		return item(session, actor, workspace, entity_type, address)
+
+	raise _not_a_kind(entity_type, ("task", "project", "document"))
+
+
+def _not_a_kind (entity_type: str, kinds: tuple[str, ...]) -> subroutine.errors.ValidationError:
+	"""Refuse a kind of thing that has no such lookup, naming the kinds that do."""
+
+	return subroutine.errors.ValidationError(
+		f"{entity_type!r} is not a kind of item that can be named here.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="entity_type",
+				code="invalid_field_value",
+				message=f"Unknown entity type {entity_type!r}.",
+				hint=f"Name one of: {', '.join(kinds)}.",
+			)
+		],
+	)
+
+
+def identifier (given: str | uuid.UUID, *, field: str, what: str) -> uuid.UUID:
+	"""Read the id a caller wrote, refusing one that is not an id by name - `#4543`.
+
+	**The routes take these typed, in their path**, so a malformed one is refused there before
+	anything looks. The local client called ``uuid.UUID`` on what it was given and raised a bare
+	``ValueError`` at whoever asked.
+	"""
+
+	if isinstance(given, uuid.UUID):
+		return given
+
+	try:
+		return uuid.UUID(given.strip())
+
+	except ValueError:
+		said = f"{given!r} is not the id of a {what}."
+
+		raise subroutine.errors.ValidationError(
+			said,
+			errors=[
+				subroutine.errors.FieldError(field=field, code="invalid_field_value", message=said)
+			],
+		) from None
+
+
+def status (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	which: str | uuid.UUID,
+) -> subroutine.db.models.vocabulary.Status:
+	"""Find one status in a workspace the caller can reach, by its id - `#4543`."""
+
+	return _vocabulary(session, actor, subroutine.db.models.vocabulary.Status, which, what="status")
+
+
+def link_type (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	which: str | uuid.UUID,
+) -> subroutine.db.models.vocabulary.LinkType:
+	"""Find one link type in a workspace the caller can reach, by its id - `#4543`."""
+
+	return _vocabulary(
+		session, actor, subroutine.db.models.vocabulary.LinkType, which, what="link type"
+	)
+
+
+def tag (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	which: str | uuid.UUID,
+) -> subroutine.db.models.vocabulary.Tag:
+	"""Find one tag the caller can see, by its id - `#4543`.
+
+	**Nor one only private work the caller cannot see uses** (decision `#4094`), answered as
+	though there were none, as anything else hidden is.
+	"""
+
+	found = _vocabulary(session, actor, subroutine.db.models.vocabulary.Tag, which, what="tag")
+
+	if not subroutine.domain.scoping.tag_is_seen(session, actor, found):
+		raise subroutine.errors.NotFound("There is no tag with that id.")
+
+	return found
+
+
+_Vocabulary = typing.TypeVar(
+	"_Vocabulary",
+	subroutine.db.models.vocabulary.Status,
+	subroutine.db.models.vocabulary.LinkType,
+	subroutine.db.models.vocabulary.Tag,
+)
+
+
+def _vocabulary (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	model: type[_Vocabulary],
+	which: str | uuid.UUID,
+	*,
+	what: str,
+) -> _Vocabulary:
+	"""Find one row of a workspace's vocabulary by its id, where the caller can reach it.
+
+	**A 404 rather than a 403 for a row in a workspace the caller cannot reach**, which is the
+	same choice §7.3a makes about a private project: saying "forbidden" would confirm the id
+	names something.
+	"""
+
+	found = session.get(model, identifier(which, field="which", what=what))
+	reachable = {row.id for row in subroutine.domain.workspaces.readable(session, actor)}
+
+	if found is None or found.workspace_id not in reachable:
+		raise subroutine.errors.NotFound(f"There is no {what} with that id.")
 
 	return found
 

@@ -33,6 +33,7 @@ import subroutine.domain.capture
 import subroutine.domain.filtering
 import subroutine.domain.readiness
 import subroutine.domain.saved
+import subroutine.domain.selection
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.installations
@@ -971,8 +972,12 @@ class Client:
 		divergence ``views.py`` sits outside ``api/`` to prevent.
 
 		A round trip on a rare operation, for a refusal that reads the same either way.
+
+		**An id that is not one is refused by name first** (`#4543`), as the local client's lookup
+		refuses it, rather than reported missing from a listing it could never have been in.
 		"""
 
+		subroutine.domain.selection.identifier(comment_id, field="comment_id", what="comment")
 		recorded = self.comments(ref=ref, entity_type=entity_type, workspace=workspace)
 
 		if not any(str(one.id) == comment_id for one in recorded):

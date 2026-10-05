@@ -180,11 +180,11 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"drops an end the caller cannot see; the direct select finds link rows, which carry no "
 	"content of their own",
 	"clients/local.py": "every task, project and document it reaches goes through "
-	"scoping.readable_tasks/_projects/_documents — including `_in_the_trash_too`, which widens "
-	"to deleted rows and narrows nowhere else. The one direct select is over `Link`, which "
-	"carries no content of its own and is already bounded to a subject resolved through "
-	"scoping; it is here because this module names `Task` and `Document` on nearly every line, "
-	"so the detector cannot tell that select from the ones that are narrowed",
+	"scoping.readable_tasks/_projects/_documents, or through the domain's own lookups, which "
+	"do (SR#4543). Its direct selects are over accounts, over tags narrowed by "
+	"scoping.tags_seen_by, and counts over statements already narrowed; it is here because "
+	"this module names `Task` and `Document` on nearly every line, so the detector cannot tell "
+	"those selects from the ones that are narrowed",
 	"domain/filtering.py": "names `Task` and `Document` on most of its registry lines, so the "
 	"detector reads any select here as one over work. It selects **no work at all**: the one "
 	"direct select is `status_category`'s, over `Status` ids narrowed to one workspace and one "

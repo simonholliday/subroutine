@@ -1485,8 +1485,8 @@ def on_instance (
 
 		# **And the pin, which is the other axis** — `SR#2282`. `instance:admin` says what this
 		# credential may do; the pin says where it was issued to reach, and an instance-wide
-		# question is by construction not about one workspace. Its sibling
-		# `api/workspaces._for_an_administrator` refused this from the day both were written and
+		# question is by construction not about one workspace. Its sibling, then
+		# `api/workspaces._for_an_administrator`, refused this from the day both were written and
 		# this did not, so a token pinned to one workspace listed every workspace on the
 		# installation — `#344`'s rule that a credential may never reach further than it was
 		# issued to, broken three files from where it is written down.

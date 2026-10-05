@@ -58,27 +58,10 @@ def resolve (
 ) -> typing.Any:
 	"""Return the task, project or document an address names, or report it as absent.
 
-	Imported inside the function rather than at module scope, and that is not laziness:
-	``api.tasks``, ``api.projects`` and ``api.documents`` each mount routers that will want
-	*this* module, so importing them here at module scope is a cycle. The house style's
-	nested-import exception exists for exactly this, and the alternative — moving three
-	resolvers out of the routers that own them — would put the definition of "which tasks
-	exist" further from the endpoint that answers it.
+	**The domain's** (`#4543`): :func:`subroutine.domain.selection.subject` is what the local
+	client asks too, so the two cannot find a subject two ways.
 	"""
-
-	import subroutine.api.documents
-	import subroutine.api.projects
-	import subroutine.api.tasks
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
-	if entity_type == "task":
-		return subroutine.api.tasks._resolve(session, actor, workspace, address)
-
-	if entity_type == "project":
-		return subroutine.api.projects.resolve(session, actor, workspace, address)
-
-	if entity_type == "document":
-		return subroutine.api.documents._resolve(session, actor, workspace, address)
-
-	raise ValueError(f"{entity_type!r} has no sub-resources here.")
+	return subroutine.domain.selection.subject(session, actor, workspace, entity_type, address)

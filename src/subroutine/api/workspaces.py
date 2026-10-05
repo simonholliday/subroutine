@@ -20,7 +20,6 @@ import sqlalchemy
 import sqlalchemy.orm
 import starlette.requests
 
-import subroutine.addressing
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
@@ -31,15 +30,12 @@ import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
-import subroutine.domain.authorization
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.selection
 import subroutine.domain.settings
 import subroutine.domain.users
 import subroutine.domain.workspaces
-import subroutine.errors
-import subroutine.permissions
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -195,72 +191,14 @@ def resolve (
 	**Never the trash**, which :func:`unremove` reaches through ``workspaces.for_restore``
 	instead. A slug frees when a workspace is deleted, so it can name a deleted workspace and
 	a live one at once and this function would have to guess between them.
+
+	**The domain's lookup since `#4543`**, which the local client asks too: this searched the
+	workspaces itself, beside :func:`subroutine.domain.selection.workspace_to_administer`.
 	"""
 
-	wanted = id_or_slug.strip()
-	reachable = subroutine.domain.workspaces.readable(session, actor)
-
-	for found in reachable:
-		if _names(found, wanted):
-			return found
-
-	administered = _for_an_administrator(session, actor, wanted)
-
-	if administered is not None:
-		return administered
-
-	raise subroutine.errors.NotFound(
-		f"There is no workspace {wanted!r} that you can reach.",
-		hint="GET /v1/workspaces lists the ones you can.",
+	return subroutine.domain.selection.workspace_to_administer(
+		session, actor, requested=id_or_slug, field="id_or_slug"
 	)
-
-
-def _for_an_administrator (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	wanted: str,
-) -> subroutine.db.models.identity.Workspace | None:
-	"""Return a workspace an ``instance:admin`` caller named but is not a member of — `#1418`.
-
-	``None`` for everybody else, so the refusal above is unchanged for the caller it was
-	written for. Separated out because the widening is a *decision* rather than a clause: it
-	is the one place membership stops being the whole of who may address a workspace, and it
-	should be readable as that.
-
-	**A pinned credential is still pinned.** ``readable`` narrows to the pin, and a token
-	pinned elsewhere is not the instance's owner asking a question — it is a credential that
-	said what it was for. So this refuses one rather than reading past it, which keeps
-	`#344`'s rule that a credential may never reach further than it was issued to.
-	"""
-
-	if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
-		return None
-
-	if not subroutine.domain.authorization.may_instance(
-		actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
-	):
-		return None
-
-	# **Live only, like the search above it.** The trash is reached through
-	# ``workspaces.for_restore`` because a slug frees when a workspace is deleted and can name
-	# a deleted one and a live one at once — a rule an administrator does not get to skip.
-	#
-	# **Asked of the database, by the one reading of a written name** (`#4031`, L-11 (7) of the cold
-	# review of 2026-09-30): every workspace was loaded to compare each. An id first, where the text
-	# is one, so a short name that happens to read as an id cannot shadow the workspace it names.
-	# Shared with the local client's lookup since `#4315`, which read a name differently.
-	return subroutine.domain.workspaces.named_live(session, wanted)
-
-
-def _names (found: subroutine.db.models.identity.Workspace, wanted: str) -> bool:
-	"""Say whether a written id or short name is this workspace's, as ``selection`` reads one.
-
-	**Normalised, as every other door normalises a short name** (`#3934`). This compared the text
-	as written, so ``/v1/workspaces/PROJECTS`` read and changed the workspace through
-	``selection.workspace`` while its ``/members`` and a ``DELETE`` of it answered 404.
-	"""
-
-	return subroutine.addressing.names_workspace(wanted, slug=found.slug, identifier=found.id)
 
 
 @router.post("", status_code=201, summary="Create a workspace")

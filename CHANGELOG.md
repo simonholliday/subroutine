@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+- **A local connection finds an item, a comment, a link or a tag the way a served instance
+  does.** Completing or changing a task beneath something in the trash said there was no such
+  task, rather than where it is. Deleting a comment did not ask to read comments first, so a
+  credential that may write them and not read them could delete one, and listing who can see a
+  project did not ask to read projects. An id that is not one - of a status, a link type, a tag,
+  a comment or a link - is refused naming the field, where it was reported as a fault.
 - **A connection configured `read_only = true` is read-only to an agent's tools too.** On every
   release from 0.5.0 the terminal was refused writes on such a connection, while `subroutine mcp`
   wrote through every tool and `subroutine_call_api`, on this machine and to a served instance. The

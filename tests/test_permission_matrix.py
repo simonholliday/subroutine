@@ -1239,20 +1239,6 @@ KNOWN: dict[tuple[str, str], str] = {
 		for act in ("instance workspaces", "unreachable projects", "unadministered workspaces")
 	},
 	("delete workspace", "owner"): "#4563: the agent tools hold workspace:delete.",
-	# `#4543`: the local client's own lookups (D3 and D7 of `#4506`).
-	("complete beneath the trash", "*"): "#4543: D3, the local client answers 404 for 422.",
-	("uncomment", "scoped to reading tasks"): "#4543: D7, the local client asks comment:write first.",
-	**{
-		("project members", who): "#4543: the local client's own lookup answers 404 for 403."
-		for who in (
-			"scoped to reading tasks",
-			"scoped to reading tasks and commenting",
-			"scoped to filing tasks",
-		)
-	},
-	("uncomment", "scoped to reading tasks and commenting"): (
-		"#4543: D7, the local client finds a comment without comment:read."
-	),
 	# `#4567`: the terminal's exemptions for its local principal (S8 and D6 of `#4506`).
 	("sign somebody out", "local member"): "#4567: S8, a local principal acts on another account.",
 	("issue token for somebody", "local member"): (
