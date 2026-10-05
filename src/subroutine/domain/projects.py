@@ -134,13 +134,18 @@ def create (
 	# Bounded as well as readable since `#1601` — `text.summary` is where both rules meet,
 	# and it is what lets a listing render this with a worst case somebody chose.
 	description = subroutine.domain.text.summary(description)
-	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id)
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id
+		)
 
 	# **And of the project it goes into** (`#4013`, M-10 of the cold review of 2026-09-30), which
 	# checks the credential's reach and the projects it may write in together: asked of the
 	# workspace alone, a credential writing only in ``web`` made ``ops/sub``.
 	if parent is not None:
-		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=parent)
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.PROJECT_WRITE, parent
+		)
 
 	# **Never at the top level for a narrowed credential** (decision `#4095`): a new project cannot
 	# already be named in a scope, so it would be beyond the credential's reach the moment it was
@@ -342,12 +347,16 @@ def move (
 	rows at one address — the state the whole change exists to make impossible.
 	"""
 
-	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_WRITE, project
+	)
 
 	# **And of where it goes** (`#4013`), for :func:`create`'s reason: asked of the project moved
 	# alone, a credential writing only in ``web`` moved it under ``ops``.
 	if parent is not None:
-		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=parent)
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.PROJECT_WRITE, parent
+		)
 
 	# **And to the top level only where it would still be reached there** (decision `#4095`).
 	elif actor is not None and _beyond_reach_at_the_top(actor, project):
@@ -506,8 +515,8 @@ def update (
 	that says what will break is the CLI's, where somebody can still say no.
 	"""
 
-	_permitted(
-		session, actor, subroutine.permissions.PROJECT_WRITE, project=project
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_WRITE, project
 	)
 	subroutine.domain.versions.require(project, expected_version, noun="This project")
 
@@ -769,8 +778,8 @@ def delete (
 	excludes deleted ones, so they leave the visible world with it and come back with it.
 	"""
 
-	_permitted(
-		session, actor, subroutine.permissions.PROJECT_DELETE, project=project
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_DELETE, project
 	)
 	subroutine.domain.versions.require(project, expected_version, noun="This project")
 
@@ -913,8 +922,8 @@ def restore (
 	neither call moves a timestamp that is already where it belongs.
 	"""
 
-	_permitted(
-		session, actor, subroutine.permissions.PROJECT_DELETE, project=project
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_DELETE, project
 	)
 	subroutine.domain.versions.require(project, expected_version, noun="This project")
 
@@ -1441,7 +1450,9 @@ def share (
 	# act can see it; that is the state being repaired. Only while it is unreachable, so a private
 	# project somebody can still see stays theirs to share. The event below records who did it.
 	if not rescuable(session, actor, project):
-		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.PROJECT_WRITE, project
+		)
 
 	_refuse_somebody_outside_the_workspace(session, project, user)
 
@@ -1580,7 +1591,9 @@ def unshare (
 	it unremovable would make privacy a one-way door in the other direction.
 	"""
 
-	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_WRITE, project
+	)
 
 	membership = _membership_of(session, project, user.id)
 
@@ -1663,7 +1676,9 @@ def members (
 	question anybody about to do that is asking.
 	"""
 
-	_permitted(session, actor, subroutine.permissions.PROJECT_READ, project=project)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_READ, project
+	)
 
 	model = subroutine.db.models.project.ProjectMember
 	account = subroutine.db.models.identity.User
@@ -1739,39 +1754,6 @@ def status_for (
 				hint=f"Statuses here: {', '.join(available)}." if available else None,
 			)
 		],
-	)
-
-
-def _permitted (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal | None,
-	permission: str,
-	*,
-	project: subroutine.db.models.project.Project | None = None,
-	workspace_id: uuid.UUID | None = None,
-) -> None:
-	"""Check that an actor may do this, or raise. ``None`` is an internal caller.
-
-	See ``domain.tasks._permitted`` for why the ``None`` case is a skip and what stops it
-	being a silent hole.
-
-	Pass ``project`` whenever there is one. Checking against the workspace alone skips the
-	two rules that are about the individual project — whether it is private and out of
-	sight, and whether the token's ``project_scope`` admits it — so an existing project must
-	never be checked by workspace id. Only :func:`create`, where there is no project yet,
-	has any business doing that.
-	"""
-
-	if actor is None:
-		return
-
-	scope = workspace_id if project is None else project.workspace_id
-
-	if scope is None:
-		raise ValueError("A workspace or a project is needed to check a permission against.")
-
-	subroutine.domain.authorization.authorize(
-		session, actor, permission, workspace_id=scope, project=project
 	)
 
 

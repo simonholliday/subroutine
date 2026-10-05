@@ -28,6 +28,7 @@ exclude.
 
 import dataclasses
 import enum
+import typing
 import uuid
 
 import sqlalchemy
@@ -363,6 +364,43 @@ def authorize (
 	raise AuthorizationError(
 		failure, permission=permission, workspace_id=workspace_id, project_id=project_id
 	)
+
+
+def authorize_on (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal | None,
+	permission: str,
+	item: typing.Any,
+) -> None:
+	"""Permit an act on one item, or raise: against its project, and that project's workspace.
+
+	**One check for any item** (`#4544`, decision `#4532`): a project, or anything that names
+	one - a task, a document, a link's end. A comment is checked on what it hangs off. Six wrappers
+	each spelled this out, and a dozen calls looked the project up by hand. **Never the workspace
+	alone** for something in a project: that skips the two rules about the project itself, whether
+	it is out of sight and whether a credential's project scope and write set admit it (`#940`).
+
+	``None`` is an unauthenticated internal caller and is not checked: ``domain.bootstrap`` and the
+	tests. ``tests/test_actor_discipline.py`` fails the build if a module under ``src`` calls a
+	mutating service without an actor, which is what keeps this skip from being a hole.
+	"""
+
+	if principal is None:
+		return
+
+	project = (
+		item
+		if isinstance(item, subroutine.db.models.project.Project)
+		else session.get(subroutine.db.models.project.Project, item.project_id)
+	)
+
+	if project is None:
+		# ``project_id`` is NOT NULL with a foreign key on both backends, so reaching here means the
+		# schema is broken. The one thing not to do is check against the workspace alone, which is
+		# the permissive answer this exists to stop.
+		raise subroutine.errors.NotFound("The project this belongs to could not be read.")
+
+	authorize(session, principal, permission, workspace_id=project.workspace_id, project=project)
 
 
 def instance_permissions (

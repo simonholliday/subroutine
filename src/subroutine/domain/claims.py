@@ -31,7 +31,6 @@ import sqlalchemy.orm
 
 import subroutine.config
 import subroutine.db.models.identity
-import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
@@ -119,7 +118,9 @@ def claim (
 
 	# **Before the conflict is reported, not after.** Whether somebody else is working on this
 	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
-	_permitted(session, actor, task)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, task
+	)
 
 	# **Nor the repeat itself** (`#3942`), which a deferral and a skip refuse too (decision `#3795`):
 	# claiming the series held the row nobody works on, and left its occurrence free for anybody.
@@ -242,7 +243,9 @@ def release (
 
 	moment = now or subroutine.db.types.utcnow()
 
-	_permitted(session, actor, task)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, task
+	)
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")
 
@@ -409,20 +412,4 @@ def _who_holds_it (
 	return (
 		f"{who} claimed it{until}. Wait for the lease to run out, or ask them - "
 		f"'subroutine release <ref>' takes it back if they have finished with it."
-	)
-
-
-def _permitted (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	task: subroutine.db.models.work.Task,
-) -> None:
-	"""Refuse an actor who may not change this task."""
-
-	subroutine.domain.authorization.authorize(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=task.workspace_id,
-		project=session.get(subroutine.db.models.project.Project, task.project_id),
 	)

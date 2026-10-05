@@ -314,7 +314,9 @@ def create (
 
 	workspace_id = project.workspace_id
 
-	_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, project
+	)
 
 	if bound == BINDS_THE_WORKSPACE:
 		_permitted_to_mark(
@@ -413,12 +415,8 @@ def update (
 	live session it may still commit.
 	"""
 
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		project=session.get(subroutine.db.models.project.Project, document.project_id),
-		workspace_id=document.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, document
 	)
 	subroutine.domain.versions.require(document, expected_version, noun="This document")
 	# **Nothing but restoring changes a document in the trash** (`#3935`).
@@ -450,12 +448,8 @@ def update (
 
 		# Both ends checked in the pass that may raise, so somebody who may write here and not
 		# there cannot move a conclusion out of their own reach — nor learn it exists.
-		_permitted(
-			session,
-			actor,
-			subroutine.permissions.TASK_WRITE,
-			project=project,
-			workspace_id=project.workspace_id,
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.TASK_WRITE, project
 		)
 
 		if document.parent_id is not None:
@@ -699,14 +693,10 @@ def move (
 
 	filed_in = session.get(subroutine.db.models.project.Project, document.project_id)
 
-	_permitted(
-		session,
-		actor,
-		# `task:write`, like every other document write here — a document has no permission
-		# of its own, which `#373` records as a deliberate not-yet rather than an oversight.
-		subroutine.permissions.TASK_WRITE,
-		project=filed_in,
-		workspace_id=document.workspace_id,
+	# `task:write`, like every other document write here — a document has no permission
+	# of its own, which `#373` records as a deliberate not-yet rather than an oversight.
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, filed_in
 	)
 
 	subroutine.domain.versions.require(document, expected_version, noun="document")
@@ -811,12 +801,8 @@ def delete (
 ) -> subroutine.db.models.work.Document:
 	"""Move a document to the trash, where it stays recoverable (docs/design.md §6.9)."""
 
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_DELETE,
-		project=session.get(subroutine.db.models.project.Project, document.project_id),
-		workspace_id=document.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_DELETE, document
 	)
 	subroutine.domain.versions.require(document, expected_version, noun="This document")
 
@@ -872,12 +858,8 @@ def restore (
 	ref they were holding.
 	"""
 
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_DELETE,
-		project=session.get(subroutine.db.models.project.Project, document.project_id),
-		workspace_id=document.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_DELETE, document
 	)
 	subroutine.domain.versions.require(document, expected_version, noun="This document")
 
@@ -1324,33 +1306,6 @@ def _first_status (
 	).first()
 
 	return found if found is not None else status_for(session, workspace_id, None)
-
-
-def _permitted (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal | None,
-	permission: str,
-	*,
-	project: subroutine.db.models.project.Project | None = None,
-	workspace_id: uuid.UUID | None = None,
-) -> None:
-	"""Check that an actor may do this, or raise. ``None`` is an internal caller.
-
-	See ``domain.tasks._permitted`` for why the ``None`` case is a skip and what stops it
-	being a silent hole.
-	"""
-
-	if actor is None:
-		return
-
-	scope = workspace_id if project is None else project.workspace_id
-
-	if scope is None:
-		raise ValueError("A workspace or a project is needed to check a permission against.")
-
-	subroutine.domain.authorization.authorize(
-		session, actor, permission, workspace_id=scope, project=project
-	)
 
 
 def _binding (value: str) -> str:

@@ -27,7 +27,6 @@ import sqlalchemy.orm
 import subroutine.db.mixins
 import subroutine.db.models.activity
 import subroutine.db.models.identity
-import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.seed
@@ -459,7 +458,9 @@ def create (
 	# Both ends, because a link is a change to both. A caller who may write to the spec but
 	# not to the private project the task lives in may not join the two.
 	for end in (source, target):
-		_permitted(session, actor, workspace_id, end)
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.TASK_WRITE, end
+		)
 
 	# **The link that is already there is answered before anything is checked** (`#3798`). A
 	# ring stored before its check existed refused the re-sending of one of its own links as a
@@ -1058,7 +1059,9 @@ def remove (
 			)
 
 		if end is not None:
-			_permitted(session, actor, link.workspace_id, end)
+			subroutine.domain.authorization.authorize_on(
+				session, actor, subroutine.permissions.TASK_WRITE, end
+			)
 			withdrawn_ends[side] = end
 
 	link.deleted_at = now if now is not None else subroutine.db.types.utcnow()
@@ -2203,26 +2206,6 @@ def resolve (
 	)
 
 	return found[0] if found else None
-
-
-def _permitted (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal | None,
-	workspace_id: uuid.UUID,
-	end: End,
-) -> None:
-	"""Check that an actor may change the item at one end of a link."""
-
-	if actor is None:
-		return
-
-	subroutine.domain.authorization.authorize(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=workspace_id,
-		project=session.get(subroutine.db.models.project.Project, end.project_id),
-	)
 
 
 def _link_type (

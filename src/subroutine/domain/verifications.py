@@ -20,7 +20,6 @@ import datetime
 import sqlalchemy
 import sqlalchemy.orm
 
-import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
@@ -74,14 +73,9 @@ def record (
 	moment is not a thing to rewrite.
 	"""
 
-	if actor is not None:
-		subroutine.domain.authorization.authorize(
-			session,
-			actor,
-			subroutine.permissions.TASK_WRITE,
-			workspace_id=task.workspace_id,
-			project=session.get(subroutine.db.models.project.Project, task.project_id),
-		)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, task
+	)
 
 	# **Nothing is recorded against an item in the trash** (decision `#4096`): a check adds to its
 	# record, which the comment rule (`#535`) already closes while it is there.

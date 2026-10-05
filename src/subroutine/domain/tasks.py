@@ -146,40 +146,6 @@ def _priority (value: int | None, *, field: str) -> int | None:
 	)
 
 
-def _permitted (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal | None,
-	permission: str,
-	*,
-	project: subroutine.db.models.project.Project | None = None,
-	workspace_id: uuid.UUID | None = None,
-) -> None:
-	"""Check that an actor may do this, or raise.
-
-	**``actor=None`` is an unauthenticated internal caller and skips the check.** There are
-	exactly two: ``domain.bootstrap``, which runs before any principal exists, and the tests.
-	Everything reachable from a user — the CLI today, the API at S3-03 — must pass one, and
-	``tests/test_actor_discipline.py`` fails the build if any module under ``src`` calls a
-	mutating service without doing so.
-
-	That static check is the mechanism, not this default. A missing ``actor=`` here would
-	otherwise disable a permission check silently, which is exactly how the slice-2 review
-	found the whole layer unenforced: four documents said the check ran and nothing called it.
-	"""
-
-	if actor is None:
-		return
-
-	scope = workspace_id if project is None else project.workspace_id
-
-	if scope is None:
-		raise ValueError("A workspace or a project is needed to check a permission against.")
-
-	subroutine.domain.authorization.authorize(
-		session, actor, permission, workspace_id=scope, project=project
-	)
-
-
 def _clean_title (title: str, *, was: str | None = None) -> str:
 	"""Return a usable task title, or refuse with a reason.
 
@@ -1089,7 +1055,9 @@ def create (
 
 	workspace_id = project.workspace_id
 
-	_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, project
+	)
 
 	item_type = item_type_for(session, workspace_id, type_key)
 	status = status_for(session, workspace_id, status_key)
@@ -1582,12 +1550,8 @@ def update (
 	# should not be able to learn from the error message whether their new title was valid.
 	# The version check follows it, for the same reason — a stranger should not learn what
 	# version a task is at (docs/design.md §8.9).
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		project=session.get(subroutine.db.models.project.Project, task.project_id),
-		workspace_id=task.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, task
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
 	# **Nothing but restoring changes a task in the trash** (`#3935`) - not an edit, a completion or
@@ -1804,7 +1768,9 @@ def update (
 		# **Both ends, and the new one is checked in the pass that may raise.** A caller who
 		# may write here but not there must not be able to move work out of their reach —
 		# and must not learn from a half-applied change that the target exists.
-		_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.TASK_WRITE, project
+		)
 
 		if task.parent_task_id is not None:
 			# The invariant runs both ways: `create` refuses a subtask in a different project
@@ -2220,12 +2186,8 @@ def move (
 
 	filed_in = session.get(subroutine.db.models.project.Project, task.project_id)
 
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		project=filed_in,
-		workspace_id=task.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_WRITE, filed_in
 	)
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")
@@ -4231,12 +4193,8 @@ def delete (
 	`owner` (§7.2).
 	"""
 
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_DELETE,
-		project=session.get(subroutine.db.models.project.Project, task.project_id),
-		workspace_id=task.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_DELETE, task
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
 
@@ -4301,12 +4259,8 @@ def restore (
 	timestamp that is already where it belongs.
 	"""
 
-	_permitted(
-		session,
-		actor,
-		subroutine.permissions.TASK_DELETE,
-		project=session.get(subroutine.db.models.project.Project, task.project_id),
-		workspace_id=task.workspace_id,
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.TASK_DELETE, task
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
 

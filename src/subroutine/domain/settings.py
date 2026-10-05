@@ -615,7 +615,7 @@ def authorized (
 	be an assumption about what each caller checks, held in the module that is not the caller.
 
 	``actor`` of ``None`` is an internal caller and skips the check, exactly as every other
-	service does — see ``domain.tasks._permitted`` for what stops that being a silent hole.
+	service does — see ``authorization.authorize_on`` for what stops that being a silent hole.
 	"""
 
 	if actor is None:
@@ -973,14 +973,9 @@ def stated_for_project (
 	share. ``actor`` of ``None`` is an internal caller and skips it, as every service does.
 	"""
 
-	if actor is not None:
-		subroutine.domain.authorization.authorize(
-			session,
-			actor,
-			subroutine.permissions.PROJECT_READ,
-			workspace_id=project.workspace_id,
-			project=project,
-		)
+	subroutine.domain.authorization.authorize_on(
+		session, actor, subroutine.permissions.PROJECT_READ, project
+	)
 
 	holders = _holders(session, [project.id])[project.id]
 

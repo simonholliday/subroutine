@@ -850,8 +850,8 @@ def test_a_described_permission_reads_as_a_permission_and_a_note () -> None:
 _GATES = frozenset(
 	{
 		"authorize",
+		"authorize_on",
 		"authorize_instance",
-		"_permitted",
 		"permitted",
 		"_refusal",
 		"_instance_refusal",
