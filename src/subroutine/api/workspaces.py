@@ -237,7 +237,7 @@ def _for_an_administrator (
 		return None
 
 	if not subroutine.domain.authorization.may_instance(
-		actor, subroutine.permissions.INSTANCE_ADMIN
+		actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
 	):
 		return None
 

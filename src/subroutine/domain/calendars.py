@@ -113,6 +113,8 @@ def create (
 	is no field for it and so nothing to check.
 	"""
 
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+
 	moment = now if now is not None else subroutine.db.types.utcnow()
 	owner = actor.user
 
@@ -226,6 +228,7 @@ def issue (
 	# wrong with the request — a refusal that depended on the workspace existing would be two
 	# answers to one question.
 	refuse_when_disabled(enabled)
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
 	found = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 	scope = (
@@ -393,6 +396,7 @@ def reset (
 	"""
 
 	refuse_when_disabled(enabled)
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 	subroutine.domain.authentication.refuse_a_bounded_credential(
 		actor,
 		act="give a calendar feed a new address",
@@ -421,6 +425,7 @@ def revoke (
 	feed is an act on the owner's account, which a credential issued to read does not take.
 	"""
 
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 	subroutine.domain.authentication.refuse_a_bounded_credential(
 		actor,
 		act="revoke a calendar feed",

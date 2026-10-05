@@ -110,6 +110,9 @@ class Client:
 				base_url=base_url or typing.cast(str, connection.url),
 				timeout=connection.timeout_seconds,
 				transport=transport,
+				# **A read-only connection says so on every request** (decision `#4510`), and the
+				# instance refuses its writes - every one, whichever command or tool asked.
+				params=subroutine.clients.base.read_only_query(connection),
 				headers={
 					# Never in a query string (§7.4): a URL lands in access logs, in
 					# `Referer` headers and in browser history, and a token that has been
@@ -157,9 +160,6 @@ class Client:
 		"""Make one request against a route this credential already allows — `#485`."""
 
 		verb = subroutine.clients.base.require_a_method(method)
-
-		if verb not in subroutine.clients.base.READING_VERBS:
-			self._refuse_if_read_only()
 
 		answer = self._call(
 			verb,
@@ -518,8 +518,6 @@ class Client:
 	) -> subroutine.views.SavedView:
 		"""Save a view under a name, so nobody has to retype the narrowing."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.SavedView,
 			self._json(
@@ -553,8 +551,6 @@ class Client:
 	) -> subroutine.views.SavedView:
 		"""Change a view you saved."""
 
-		self._refuse_if_read_only()
-
 		# **Built from ``given`` rather than from ``_given``**, because the three clearable
 		# fields have ``None`` as a real value: `_given` drops a null, which is right for every
 		# other body here and is exactly wrong for *clear this one*.
@@ -587,8 +583,6 @@ class Client:
 	def forget_saved_view (self, *, key: str, workspace: str | None = None) -> None:
 		"""Remove a view you saved, for good."""
 
-		self._refuse_if_read_only()
-
 		self._json(
 			"DELETE", f"/v1/views/{_view(key)}", params=_given(workspace_id=workspace)
 		)
@@ -620,8 +614,6 @@ class Client:
 	) -> subroutine.views.Status:
 		"""Add a status to this workspace's vocabulary."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.Status,
 			self._json(
@@ -650,8 +642,6 @@ class Client:
 	) -> subroutine.views.Status:
 		"""Rename or reposition a status."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.Status,
 			self._json(
@@ -665,8 +655,6 @@ class Client:
 
 	def delete_status (self, *, which: str) -> None:
 		"""Remove a status nothing is in."""
-
-		self._refuse_if_read_only()
 
 		self._json("DELETE", f"/v1/statuses/{_segment(which)}")
 
@@ -689,8 +677,6 @@ class Client:
 		workspace: str | None = None,
 	) -> subroutine.views.LinkType:
 		"""Add a way two items can relate."""
-
-		self._refuse_if_read_only()
 
 		return self._parsed(
 			subroutine.views.LinkType,
@@ -719,8 +705,6 @@ class Client:
 	) -> subroutine.views.LinkType:
 		"""Rename a link type, reword either end of it, or say what it does."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.LinkType,
 			self._json(
@@ -734,8 +718,6 @@ class Client:
 
 	def delete_link_type (self, *, which: str) -> None:
 		"""Remove a link type nothing is joined by."""
-
-		self._refuse_if_read_only()
 
 		self._json("DELETE", f"/v1/link-types/{_segment(which)}")
 
@@ -787,8 +769,6 @@ class Client:
 	) -> subroutine.views.TagEntry:
 		"""Declare a tag before anybody uses it."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.TagEntry,
 			self._json(
@@ -804,8 +784,6 @@ class Client:
 	) -> subroutine.views.TagEntry:
 		"""Rename a tag, or write down what it means."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.TagEntry,
 			self._json("PATCH", f"/v1/tags/{_segment(which)}", json=_given(name=name, description=description)),
@@ -813,8 +791,6 @@ class Client:
 
 	def delete_tag (self, *, which: str) -> None:
 		"""Take a tag off everything you can read; work hidden from you keeps it."""
-
-		self._refuse_if_read_only()
 
 		self._json("DELETE", f"/v1/tags/{_segment(which)}")
 
@@ -917,8 +893,6 @@ class Client:
 	) -> subroutine.views.Verification:
 		"""Record what was checked against one task."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST",
 			f"/v1/tasks/{ref}/verifications",
@@ -959,8 +933,6 @@ class Client:
 	) -> subroutine.views.Link:
 		"""Join two items."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST",
 			f"/v1/{_plural(entity_type)}/{ref}/links",
@@ -974,8 +946,6 @@ class Client:
 		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None
 	) -> None:
 		"""Withdraw a link."""
-
-		self._refuse_if_read_only()
 
 		self._json(
 			"DELETE",
@@ -1002,8 +972,6 @@ class Client:
 
 		A round trip on a rare operation, for a refusal that reads the same either way.
 		"""
-
-		self._refuse_if_read_only()
 
 		recorded = self.comments(ref=ref, entity_type=entity_type, workspace=workspace)
 
@@ -1203,8 +1171,6 @@ class Client:
 	) -> subroutine.views.Project:
 		"""Create a project."""
 
-		self._refuse_if_read_only()
-
 		# **`visibility` is passed rather than left to the server's default**, unlike the
 		# nullable fields around it. `_given` drops a `None`, and a default is a decision made
 		# in two places the moment one of them changes — the whole reason both transports go
@@ -1247,8 +1213,6 @@ class Client:
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included (`#348`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.IssuedToken,
 			self._json(
@@ -1276,8 +1240,6 @@ class Client:
 	) -> subroutine.views.SignInLink:
 		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.SignInLink,
 			self._json("POST", "/v1/login-links", json=_given(username=username)),
@@ -1286,8 +1248,6 @@ class Client:
 	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
 		"""End every browser session an account holds, and report how many (`#248`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.SignedOut,
 			self._json("POST", f"/v1/users/{_segment(username)}/signout"),
@@ -1295,8 +1255,6 @@ class Client:
 
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now (`#348`)."""
-
-		self._refuse_if_read_only()
 
 		return self._parsed(
 			subroutine.views.Token, self._json("DELETE", f"/v1/tokens/{_segment(id_or_prefix)}")
@@ -1329,8 +1287,6 @@ class Client:
 	) -> subroutine.views.IssuedCalendar:
 		"""Mint a calendar feed and return its URL once (`#916`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.IssuedCalendar,
 			self._json(
@@ -1353,8 +1309,6 @@ class Client:
 	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
 		"""Give a feed a new URL, so the one somebody had stops working (`#916`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.IssuedCalendar,
 			self._json("POST", f"/v1/calendars/{_segment(id_or_prefix)}/reset"),
@@ -1362,8 +1316,6 @@ class Client:
 
 	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
 		"""Stop a calendar feed for good, now (`#916`)."""
-
-		self._refuse_if_read_only()
 
 		return self._parsed(
 			subroutine.views.Calendar,
@@ -1405,8 +1357,6 @@ class Client:
 	) -> subroutine.views.User:
 		"""Add a person, or a machine identity, to this instance."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST",
 			"/v1/users",
@@ -1441,8 +1391,6 @@ class Client:
 	) -> subroutine.views.Member:
 		"""Give somebody a role in a workspace."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST",
 			f"/v1/workspaces/{self._workspace(workspace)}/members",
@@ -1456,8 +1404,6 @@ class Client:
 	) -> subroutine.views.Member:
 		"""Change what somebody may do in a workspace they are already in."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"PATCH",
 			f"/v1/workspaces/{self._workspace(workspace)}/members/{_segment(username)}",
@@ -1469,16 +1415,12 @@ class Client:
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
 		"""Mark somebody as having left, or bring them back."""
 
-		self._refuse_if_read_only()
-
 		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"is_active": active})
 
 		return self._parsed(subroutine.views.User, answer)
 
 	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
 		"""Hand an agent to somebody else, who becomes answerable for it."""
-
-		self._refuse_if_read_only()
 
 		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"responsible": to})
 
@@ -1489,16 +1431,12 @@ class Client:
 	) -> subroutine.views.User:
 		"""Say where somebody keeps their diary — your own account only."""
 
-		self._refuse_if_read_only()
-
 		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"timezone": timezone})
 
 		return self._parsed(subroutine.views.User, answer)
 
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
-
-		self._refuse_if_read_only()
 
 		self._json(
 			"DELETE",
@@ -1548,8 +1486,6 @@ class Client:
 	) -> subroutine.views.Instance:
 		"""Change what this installation is called, or where it says it is."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"PATCH",
 			"/v1/instance",
@@ -1567,8 +1503,6 @@ class Client:
 	) -> subroutine.views.ProjectMember:
 		"""Let one more person see a private project."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST",
 			f"/v1/projects/{_address(project)}/members",
@@ -1582,8 +1516,6 @@ class Client:
 		self, project: str, *, username: str, workspace: str | None = None
 	) -> None:
 		"""Take somebody's sight of a project away again."""
-
-		self._refuse_if_read_only()
 
 		self._json(
 			"DELETE",
@@ -1635,8 +1567,6 @@ class Client:
 	) -> subroutine.views.Project:
 		"""Give a project a different short name."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"PATCH",
 			f"/v1/projects/{_address(project)}",
@@ -1665,8 +1595,6 @@ class Client:
 		that removed it would turn "clear the description" into "change nothing" and answer 200.
 		"""
 
-		self._refuse_if_read_only()
-
 		given = {
 			"title": title,
 			"description": description,
@@ -1693,8 +1621,6 @@ class Client:
 	) -> subroutine.views.Workspace:
 		"""Make another workspace, over the wire."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST",
 			"/v1/workspaces",
@@ -1707,8 +1633,6 @@ class Client:
 
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name."""
-
-		self._refuse_if_read_only()
 
 		body = self._json("PATCH", f"/v1/workspaces/{_segment(workspace)}", json={"slug": slug})
 
@@ -1727,8 +1651,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, over the wire."""
-
-		self._refuse_if_read_only()
 
 		given = {
 			"title": title,
@@ -1749,16 +1671,12 @@ class Client:
 	def delete_workspace (self, workspace: str) -> subroutine.views.Workspace:
 		"""Move a workspace to the trash, over the wire."""
 
-		self._refuse_if_read_only()
-
 		body = self._json("DELETE", f"/v1/workspaces/{_segment(workspace)}")
 
 		return self._parsed(subroutine.views.Workspace, body)
 
 	def restore_workspace (self, workspace: str) -> subroutine.views.Workspace:
 		"""Take a workspace back out of the trash, over the wire."""
-
-		self._refuse_if_read_only()
 
 		body = self._json("POST", f"/v1/workspaces/{_segment(workspace)}/restore")
 
@@ -1768,8 +1686,6 @@ class Client:
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:
 		"""Reparent a project, taking everything under it."""
-
-		self._refuse_if_read_only()
 
 		body = self._json(
 			"POST",
@@ -1798,8 +1714,6 @@ class Client:
 		binds: str | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
-
-		self._refuse_if_read_only()
 
 		answered = self._json(
 			"POST",
@@ -1850,8 +1764,6 @@ class Client:
 		thing at stake is one advisory line and the alternative is a second round trip on
 		every ``subroutine add``.
 		"""
-
-		self._refuse_if_read_only()
 
 		body = self._json(
 			"POST",
@@ -1941,8 +1853,6 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Let one occurrence of a repeat go by, and bring the next one."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"POST", f"/v1/tasks/{ref}/skip", params=_given(workspace_id=workspace)
 		)
@@ -1960,8 +1870,6 @@ class Client:
 	) -> subroutine.views.Comment:
 		"""Add one entry to an item's record of what happened."""
 
-		self._refuse_if_read_only()
-
 		answered = self._json(
 			"POST",
 			f"/v1/{_plural(entity_type)}/{ref}/comments",
@@ -1976,8 +1884,6 @@ class Client:
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Move an item to the trash."""
 
-		self._refuse_if_read_only()
-
 		body = self._json(
 			"DELETE",
 			f"/v1/{_plural(entity_type)}/{ref}",
@@ -1990,8 +1896,6 @@ class Client:
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Take an item back out of the trash."""
-
-		self._refuse_if_read_only()
 
 		body = self._json(
 			"POST",
@@ -2011,8 +1915,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Put an item under another one, or at the top level."""
-
-		self._refuse_if_read_only()
 
 		body = self._json(
 			"POST",
@@ -2045,8 +1947,6 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Take a lease on a task, or renew one this credential holds (`#350`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.Task,
 			self._json(
@@ -2061,8 +1961,6 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Give a task back, so somebody else can take it (`#350`)."""
 
-		self._refuse_if_read_only()
-
 		return self._parsed(
 			subroutine.views.Task,
 			self._json(
@@ -2074,8 +1972,6 @@ class Client:
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Task:
 		"""Mark a task finished."""
-
-		self._refuse_if_read_only()
 
 		body = self._json(
 			"POST", f"/v1/tasks/{ref}/complete", params=_given(workspace_id=workspace)
@@ -2122,8 +2018,6 @@ class Client:
 		exactly that reason; it drops nulls, which is right for a query string and wrong for
 		a PATCH body.
 		"""
-
-		self._refuse_if_read_only()
 
 		given = {
 			"title": title,
@@ -2193,8 +2087,6 @@ class Client:
 		nulls would answer "empty this" with a 200 and no change.
 		"""
 
-		self._refuse_if_read_only()
-
 		given = {
 			"title": title,
 			"body": body,
@@ -2232,8 +2124,6 @@ class Client:
 		exactly what ``UNSET`` and ``None`` mean here — so the two map onto each other without
 		anything being invented in between.
 		"""
-
-		self._refuse_if_read_only()
 
 		changes: dict[str, typing.Any] = {}
 
@@ -2514,6 +2404,21 @@ class Client:
 		answer as it came, so a parameter somebody typed is refused in the instance's words.
 		"""
 
+		# **An instance that cannot hold a read-only connection to it refuses every request**, by
+		# naming the parameter this program sent, and nobody using the connection typed it.
+		if self.connection.read_only and subroutine.clients.base.refuses_read_only(
+			failure.code, (error.field for error in failure.errors)
+		):
+			detail, hint = subroutine.clients.base.too_old_for_read_only(self.connection)
+
+			return type(failure)(
+				detail,
+				code=failure.code,
+				errors=failure.errors,
+				hint=hint,
+				extensions=failure.extensions,
+			)
+
 		running = self._instance_version
 		program = subroutine.installations.program()
 
@@ -2572,20 +2477,6 @@ class Client:
 				"Pass --workspace, or run 'subroutine use <workspace>' to set a current one."
 			),
 		)
-
-	def _refuse_if_read_only (self) -> None:
-		"""Refuse a write to a connection configured read-only, before the request leaves.
-
-		**This is the transport the setting exists for**, and it had no check at all until
-		2026-07-30 — `read_only = true` on an employer's instance accepted `subroutine add`,
-		while the local connection, where the setting is nearly pointless, enforced it. §13.7
-		calls this a client-side control precisely because the company's server cannot be asked
-		to arrange it on the agent-owner's behalf, so a client that does not enforce it is the
-		whole feature missing.
-		"""
-
-		if self.connection.read_only:
-			subroutine.clients.base.refuse_a_write(self.connection)
 
 	def _json (self, method: str, path: str, **options: typing.Any) -> dict[str, typing.Any]:
 		"""Make one request and return the object it answered with."""

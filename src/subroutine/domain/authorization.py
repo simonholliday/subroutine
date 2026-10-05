@@ -58,6 +58,7 @@ class AuthorizationFailure(enum.StrEnum):
 	PINNED_TO_A_WORKSPACE = "pinned_to_a_workspace"
 	PROJECT_INVISIBLE = "project_invisible"
 	NOT_A_SUPERUSER = "not_a_superuser"
+	READ_ONLY = "read_only"
 
 	@property
 	def conceals_existence (self) -> bool:
@@ -110,6 +111,7 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 		"This needs the {permission} permission, and acts on the whole installation, beyond the "
 		"one workspace the token you used is pinned to."
 	),
+	AuthorizationFailure.READ_ONLY: subroutine.domain.authentication.READ_ONLY,
 }
 
 _HINTS: dict[AuthorizationFailure, str] = {
@@ -124,6 +126,7 @@ _HINTS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"Ask whoever runs this instance to do it, or to make your account an administrator."
 	),
+	AuthorizationFailure.READ_ONLY: subroutine.domain.authentication.READ_ONLY_HINT,
 }
 
 
@@ -385,15 +388,18 @@ def instance_permissions (
 
 
 def may_instance (
-	principal: subroutine.domain.authentication.Principal, permission: str
+	principal: subroutine.domain.authentication.Principal, permission: str, *, reading: bool = False
 ) -> bool:
-	"""Report whether a principal may do this to the installation, without raising."""
+	"""Report whether a principal may do this to the installation, without raising.
 
-	return _instance_refusal(principal, permission) is None
+	``reading`` says the act only reads, as :func:`authorize_instance` takes it.
+	"""
+
+	return _instance_refusal(principal, permission, reading=reading) is None
 
 
 def authorize_instance (
-	principal: subroutine.domain.authentication.Principal, permission: str
+	principal: subroutine.domain.authentication.Principal, permission: str, *, reading: bool = False
 ) -> None:
 	"""Permit an action on the installation itself, or raise explaining why not.
 
@@ -403,9 +409,13 @@ def authorize_instance (
 
 	Only :data:`subroutine.permissions.INSTANCE_LEVEL` verbs may be asked here. Passing a
 	workspace permission is a programming error rather than a refusal, and says so.
+
+	**``reading`` says the act only reads** (decision `#4510`): listing every workspace, the
+	backups or the projects nobody can reach. A read-only session is refused every other act asked
+	here, and an act left to the default is a write, so forgetting it refuses rather than permits.
 	"""
 
-	failure = _instance_refusal(principal, permission)
+	failure = _instance_refusal(principal, permission, reading=reading)
 
 	if failure is None:
 		return
@@ -508,9 +518,14 @@ def outside_token_scope (
 
 
 def _instance_refusal (
-	principal: subroutine.domain.authentication.Principal, permission: str
+	principal: subroutine.domain.authentication.Principal, permission: str, *, reading: bool = False
 ) -> AuthorizationFailure | None:
-	"""Return why an instance-level action is refused, or ``None`` if it is permitted."""
+	"""Return why an instance-level action is refused, or ``None`` if it is permitted.
+
+	``reading`` says the act only reads. **An instance verb gates reads and writes alike** - the
+	listing of every workspace and the backups as well as making either - so the verb alone cannot
+	say which side of a read-only session an act is on, and the caller says it instead.
+	"""
 
 	if permission not in subroutine.permissions.INSTANCE_LEVEL:
 		valid = ", ".join(sorted(subroutine.permissions.INSTANCE_LEVEL))
@@ -519,6 +534,10 @@ def _instance_refusal (
 			f"Unknown instance permission {permission!r}. Valid permissions are: {valid}. "
 			"Workspace permissions go through authorize, which takes a workspace."
 		)
+
+	# **Before anything else, as for a workspace** (decision `#4510`).
+	if principal.read_only and not reading:
+		return AuthorizationFailure.READ_ONLY
 
 	if not principal.is_superuser:
 		return AuthorizationFailure.NOT_A_SUPERUSER
@@ -572,6 +591,11 @@ def _refusal (
 			f"Unknown workspace permission {permission!r}. Valid permissions are: {valid}. "
 			"Instance permissions go through authorize_instance, which takes no workspace."
 		)
+
+	# **A read-only session reads and does nothing else** (decision `#4510`). Asked before anything
+	# about the workspace or the project, because it is about the session and says nothing of either.
+	if principal.read_only and permission not in subroutine.permissions.READS:
+		return AuthorizationFailure.READ_ONLY
 
 	# A token pinned to one workspace cannot reach into another, whatever its owner may
 	# do there.

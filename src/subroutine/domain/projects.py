@@ -1327,7 +1327,7 @@ def unreachable (
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize_instance(
-			actor, subroutine.permissions.INSTANCE_ADMIN
+			actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
 		)
 
 		if not subroutine.domain.authorization.reaches_the_whole_installation(actor):

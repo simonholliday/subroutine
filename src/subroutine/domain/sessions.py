@@ -73,7 +73,10 @@ def mint_link (
 	with the database file, which §12.1a says is a caller no check narrows.
 	"""
 
-	# Asked first, because it is the final answer: holding the permission asked next changes nothing.
+	# A read-only session changes nothing, whoever the link would be for (decision `#4510`).
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+
+	# Asked next, because it is the final answer: holding the permission asked after changes nothing.
 	subroutine.domain.authentication.refuse_an_agent_issuing_for_a_person(
 		actor, user, what="a sign-in link"
 	)
@@ -390,6 +393,8 @@ def sign_out_everywhere (
 	and stopping the sessions while leaving the links would be a control that looks complete
 	and is not.
 	"""
+
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
 	_refuse_administering_somebody_else(actor, user, doing="sign out")
 

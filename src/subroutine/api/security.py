@@ -18,6 +18,7 @@ walks every registered route and fails the build for any that neither requires a
 nor appears in an explicit public list.
 """
 
+import dataclasses
 import datetime
 import typing
 import urllib.parse
@@ -55,6 +56,16 @@ TOKEN_PARAMETERS = ("token", "api_key", "apikey", "access_token", "auth")
 #: against. Derived rather than written out, so a name added above cannot be added here in the
 #: wrong case and quietly stop matching.
 CREDENTIAL_PARAMETERS = frozenset(name.lower() for name in TOKEN_PARAMETERS)
+
+#: **What a read-only connection sends with every request** (decision `#4510`, `SR#4562`): ``true``
+#: makes the session read-only, and the domain refuses it every act that is not a read.
+#:
+#: **A query parameter rather than a header, because it has to fail closed.** Every release before
+#: this one refuses a query parameter it does not know, so a read-only connection meeting an older
+#: instance is refused outright; a header would be ignored, and the write would go through.
+#: Read here rather than declared on each route, as the credential is, so it reaches every route
+#: without anybody remembering it.
+READ_ONLY_PARAMETER = "read_only"
 
 def misplaced_credentials (request: starlette.requests.Request) -> list[str]:
 	"""Return the query parameters of this request that are places a credential must not be.
@@ -474,11 +485,51 @@ def resolve (
 		found = resolver(session, request, record_use=record_use)
 
 		if found is not None:
-			return found
+			return _as_stated(request, found)
 
 	raise subroutine.errors.Unauthenticated(
 		"This endpoint needs a credential.", hint=_how_to_authenticate(request)
 	)
+
+
+def _as_stated (
+	request: starlette.requests.Request, found: subroutine.domain.authentication.Principal
+) -> subroutine.domain.authentication.Principal:
+	"""Return the principal narrowed to what the request says of its session - decision `#4510`.
+
+	**Here, in the one place a credential becomes a principal**, so the agent tools' second
+	resolution of the same request (``api/mcp._acting_as``) is narrowed exactly as the route's was.
+	"""
+
+	if not _read_only_asked(request):
+		return found
+
+	return dataclasses.replace(found, read_only=True)
+
+
+def _read_only_asked (request: starlette.requests.Request) -> bool:
+	"""Report whether this request says its session is read-only, refusing a value that says neither."""
+
+	values = request.query_params.getlist(READ_ONLY_PARAMETER)
+	unclear = [value for value in values if value.lower() not in ("true", "false")]
+
+	if unclear:
+		raise subroutine.errors.ValidationError(
+			f"'{READ_ONLY_PARAMETER}' is true or false, and was given {unclear[0]!r}.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field=READ_ONLY_PARAMETER,
+					code="invalid_field_value",
+					message=f"{unclear[0]!r} is neither true nor false.",
+					hint="Send read_only=true to have this session refuse every write, or leave "
+					"it out.",
+				)
+			],
+		)
+
+	# **Any true wins**, so a repeated parameter can only narrow.
+	return any(value.lower() == "true" for value in values)
 
 
 def _refuse_a_credential_in_the_url (request: starlette.requests.Request) -> None:

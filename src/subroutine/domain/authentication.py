@@ -157,6 +157,17 @@ class Principal:
 	#: accountability chain is for once a person disputes it.
 	interface: str | None = None
 
+	#: **This session may read and nothing else** - decision `#4510`, `SR#4562`. Stated where the
+	#: session is: a remote connection sends ``read_only`` with every request, and a local one is
+	#: built with its own setting. It only ever narrows, so a principal that does not say so is not.
+	#:
+	#: **Checked in the domain, on every act that is not a read**: by the permission check for an act
+	#: that asks a verb, and by :func:`refuse_a_read_only_session` for the ones that ask none. It was
+	#: a promise each client kept for itself, and the agent tools - which run on the instance, through
+	#: a client of their own - kept none, so an agent wrote through a read-only connection on every
+	#: release from 0.5.0 (`#4506` S1).
+	read_only: bool = False
+
 	def __post_init__ (self) -> None:
 		"""Refuse a principal that claims to hold more than one credential at once.
 
@@ -418,6 +429,8 @@ def issue_token (
 	means ``subroutine init`` and a script holding the database file.
 	"""
 
+	refuse_a_read_only_session(actor)
+
 	title = subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH)
 
 	if actor is not None:
@@ -521,6 +534,35 @@ def narrowing (
 		or project_write_scope is not None
 		or workspace_id is not None
 	)
+
+
+#: What a read-only session is told, by the permission check and by the acts that ask no verb alike.
+#:
+#: **It names no file and no connection.** The session may have come from another machine, whose
+#: configuration this one cannot see - the client's own sentence, reused here, told a remote caller
+#: where the *server's* configuration lives (`#4507`).
+READ_ONLY = "This session is read-only, so it can read and cannot change anything."
+READ_ONLY_HINT = (
+	"It came through a connection configured 'read_only = true'. Make changes through a connection "
+	"without that setting."
+)
+
+
+def refuse_a_read_only_session (actor: Principal | None) -> None:
+	"""Refuse an act that is not a read to a read-only session - decision `#4510`.
+
+	**For the acts that ask no permission verb**, which the permission check therefore never sees:
+	setting one's own timezone, issuing oneself a credential, minting or resetting one's own calendar
+	feed or sign-in link, and revoking or signing out one's own. Every other act asks a verb, and the
+	check refuses a read-only session every verb that is not a read.
+
+	``None`` is an internal caller with no session at all, which nothing here narrows.
+	"""
+
+	if actor is None or not actor.read_only:
+		return
+
+	raise subroutine.errors.Forbidden(READ_ONLY, hint=READ_ONLY_HINT)
 
 
 def refuse_a_bounded_credential (actor: Principal | None, *, act: str, hint: str) -> None:

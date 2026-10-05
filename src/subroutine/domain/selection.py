@@ -226,7 +226,7 @@ def _outside (
 		return None
 
 	if not subroutine.domain.authorization.may_instance(
-		principal, subroutine.permissions.INSTANCE_ADMIN
+		principal, subroutine.permissions.INSTANCE_ADMIN, reading=True
 	):
 		return None
 

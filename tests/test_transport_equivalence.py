@@ -2674,88 +2674,6 @@ def test_a_remote_refusal_keeps_its_field_errors (pair: Pair) -> None:
 	] == ["title"]
 
 
-@pytest.mark.parametrize("transport", ["local", "remote"])
-def test_a_read_only_connection_refuses_every_write_before_it_leaves (
-	session: sqlalchemy.orm.Session, transport: str
-) -> None:
-	"""Client-side enforcement, which is the only place it can be (§13.7).
-
-	Pointing an agent at a company instance for context while forbidding it to write there
-	is a reasonable posture, and it is not one the company's server can arrange on the
-	agent-owner's behalf.
-
-	**Parameterised over both transports, because it was not.** This test existed, passed, and
-	exercised the *local* client — where the setting is nearly pointless — while its own
-	docstring described the remote case. The HTTP client had no check at all, so a
-	``read_only = true`` employer's instance accepted ``subroutine add``. A true assertion that
-	proved nothing, which is the failure mode the slice-2 review was written about.
-	"""
-
-	setup = subroutine.domain.bootstrap.initialise(
-		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
-	)
-	_row, issued = subroutine.domain.authentication.issue_token(
-		session, user=setup.user, title="Read only"
-	)
-	session.flush()
-
-	factory = api_support.factory_for(session)
-	client: subroutine.clients.base.Client
-
-	if transport == "local":
-		client = subroutine.clients.local.Client(
-			subroutine.connections.Connection(name="local", read_only=True),
-			subroutine.config.Settings(dev_mode=True),
-			session_factory=factory,
-		)
-
-	else:
-		client = subroutine.clients.http.Client(
-			subroutine.connections.Connection(
-				name="work", url="https://employer.example.com", read_only=True
-			),
-			token=issued.value.get_secret_value(),
-			transport=api_support.SyncTransport(api_support.build_app(factory)),
-			base_url=api_support.BASE_URL,
-		)
-
-	with client:
-		# Every write, not just the first. A check added to `capture` alone would leave the
-		# other two open, and nothing would say so.
-		for attempt in (
-			lambda: client.capture(text="This should not be written"),
-			lambda: client.complete(ref=1),
-			lambda: client.schedule(ref=1, starts=datetime.date(2026, 8, 3)),
-			# **Curating the vocabulary is a write too** (`SR#826`), and the three verbs are
-			# three separate checks in three services — so one of them here would leave the
-			# other two open, which is what this loop exists to say.
-			lambda: client.create_status(
-				entity_type="task", key="x", label="X", category="todo"
-			),
-			lambda: client.create_link_type(
-				key="x", title="X", inverse_title="Y", category="describing"
-			),
-			lambda: client.create_tag(name="x"),
-			# **Deleting a workspace is the largest write there is** (`SR#704`), so a
-			# connection that refuses `add` and permits this would be refusing the cheap half.
-			lambda: client.delete_workspace("anything"),
-			lambda: client.restore_workspace("anything"),
-		):
-			with pytest.raises(subroutine.errors.Forbidden) as raised:
-				attempt()
-
-			assert "read-only" in raised.value.detail
-
-	# And nothing was written by any of them.
-	assert (
-		session.scalar(
-			sqlalchemy.select(sqlalchemy.func.count()).select_from(
-				subroutine.db.models.work.Task
-			)
-		)
-		== 0
-	)
-
 #: Where the two clients live. Held as a path so the scan below can be pointed at a synthetic
 #: source instead of at the real tree — `#405`'s rule, and the reason a planted offender can
 #: reach the real scanner rather than a copy of its rule.
@@ -2782,9 +2700,7 @@ def _is_a_write (node: ast.AST) -> bool:
 	"""Report whether this node is one of the two ways a client method writes.
 
 	Two spellings, one meaning: the local client opens ``_writing()`` and the HTTP client names
-	a verb that changes something. Named rather than written inline because they are the same
-	question asked of two transports, and because the alternative ruff offers is one line of
-	four ``isinstance`` calls joined by ``or``.
+	a verb that changes something.
 	"""
 
 	if isinstance(node, ast.Attribute):
@@ -2793,18 +2709,13 @@ def _is_a_write (node: ast.AST) -> bool:
 	return isinstance(node, ast.Constant) and node.value in CHANGING_VERBS
 
 
-def _writes_and_guards (source: str) -> tuple[set[str], set[str]]:
-	"""Return the public ``Client`` methods in this source that write, and those that refuse.
+def _writes (source: str) -> set[str]:
+	"""Return the public ``Client`` methods in this source that write.
 
-	**The write set is derived from what makes a method a write, never from what guards
-	one.** That distinction is the whole point: `#1164` shipped because the rule lived in a
-	hand-written list of eight attempts, and a list cannot notice the ninth. A method that
-	opens ``_writing()`` is writing to a local database, and one that names ``POST``,
-	``PUT``, ``PATCH`` or ``DELETE`` is asking a server to write — neither of which can be
-	spelt any other way, so a new write method arrives already inside this set.
-
-	Takes the source as an argument rather than reading the tree, so the falsification below
-	can feed it a defect through the real scanner.
+	**Derived from what makes a method a write**: a method that opens ``_writing()`` writes to a
+	local database, and one naming ``POST``, ``PUT``, ``PATCH`` or ``DELETE`` asks a server to,
+	so a new write method arrives already inside this set. Takes the source as an argument, so
+	the falsification below can feed it a defect through the real scanner (`#405`).
 	"""
 
 	found = next(
@@ -2813,85 +2724,255 @@ def _writes_and_guards (source: str) -> tuple[set[str], set[str]]:
 		if isinstance(node, ast.ClassDef) and node.name == "Client"
 	)
 
-	writes: set[str] = set()
-	guards: set[str] = set()
-
-	for method in found.body:
-		if not isinstance(method, ast.FunctionDef) or method.name.startswith("_"):
-			continue
-
-		for node in ast.walk(method):
-			if _is_a_write(node):
-				writes.add(method.name)
-
-			elif isinstance(node, ast.Attribute) and node.attr == "_refuse_if_read_only":
-				guards.add(method.name)
-
-	return writes, guards
+	return {
+		method.name
+		for method in found.body
+		if isinstance(method, ast.FunctionDef)
+		and not method.name.startswith("_")
+		and any(_is_a_write(node) for node in ast.walk(method))
+	}
 
 
-@pytest.mark.parametrize("module", ["local", "http"])
-def test_every_client_write_refuses_a_read_only_connection (module: str) -> None:
-	"""`#1164` and `#1165`. The rule the test above proves, asked of every write there is.
+def _every_client_write () -> set[str]:
+	"""Return every method either client writes with, bar the one that only asks a question."""
 
-	That test drives eight calls and proves the mechanism fires. It cannot prove the mechanism
-	is *reached*, because its list of eight is written by hand — and its own comment says a
-	check added to one write "would leave the other two open, and nothing would say so",
-	which is exactly what then happened. ``verify`` arrived, the list did not grow, and a
-	connection its owner had marked read-only wrote a permanent record for a fortnight.
+	found = set()
 
-	Sweeping for that shape found four more the report did not: ``claim``, ``release`` and
-	``set_timezone`` were guarded locally and open over HTTP — the transport §13.7 says the
-	setting exists for — and seven credential and calendar methods were open on both.
+	for module in ("local", "http"):
+		found |= _writes((CLIENTS / f"{module}.py").read_text(encoding="utf-8"))
 
-	**There is no exemption for a credential or a calendar feed** (Simon, 2026-08-24). What
-	decided it is ``sign_out_everywhere``: it ends every browser session an account holds, on
-	somebody else's instance, through a connection configured to permit no writes at all.
+	# A floor, because a scanner that read nothing satisfies every comparison made with it.
+	assert len(found) > 40, f"only {len(found)} client writes found"
+
+	return found - set(NOT_REALLY_A_WRITE)
+
+
+@pytest.mark.parametrize("transport", ["local", "remote"])
+def test_a_read_only_connection_is_refused_every_write (
+	session: sqlalchemy.orm.Session, transport: str
+) -> None:
+	"""S1 of `#4506`, decision `#4510`, `SR#4562`: the instance refuses a read-only session every write.
+
+	**It was each client's promise to keep, and the agent tools kept none**: they run on the
+	instance, through a client of their own, so an agent wrote through a connection its owner had
+	marked read-only on every release from 0.5.0. Both clients now say on every request that the
+	session is read-only, and the domain refuses it every act that is not a read - so this drives
+	every write either client has, against real targets, and asserts each is refused in the
+	domain's own words and that nothing was written.
+
+	**Every write, found rather than listed** (`#1164`, `#1165`): the scan must find nothing this
+	does not drive, so a write added to either client fails here until somebody drives it. Four of
+	them ask no permission verb at all - one's own timezone, revoking one's own token and feed,
+	signing oneself out everywhere - and a check on verbs alone left exactly those open (`#4507`).
 	"""
 
-	source = (CLIENTS / f"{module}.py").read_text(encoding="utf-8")
-	writes, guards = _writes_and_guards(source)
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Everything"
+	)
+	session.flush()
 
-	# A floor, because a scanner that read nothing satisfies every assertion below it.
-	assert len(writes) > 30, f"only {len(writes)} writes found in clients/{module}.py"
+	factory = api_support.factory_for(session)
+	secret = issued.value.get_secret_value()
+	me = setup.user.username
+	here = setup.workspace.slug
+	suffix = uuid.uuid4().hex[:6]
 
-	open_ones = sorted(writes - guards - set(NOT_REALLY_A_WRITE))
-
-	assert not open_ones, (
-		f"clients/{module}.py writes without consulting the connection's read_only setting: "
-		f"{open_ones}. Add self._refuse_if_read_only(), or say in NOT_REALLY_A_WRITE why the "
-		f"method does not write."
+	# **The targets are made through a client that may write**, so every refusal below is the
+	# read-only one rather than "there is no such thing".
+	writable = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=factory,
+		token=secret,
 	)
 
+	with writable:
+		first = writable.capture(text="Brief the crew", workspace=here).task.ref
+		second = writable.capture(text="Find the ship", workspace=here).task.ref
+		fourth = writable.capture(text="Call the operator", workspace=here).task.ref
+		trashed = writable.capture(text="Ring the oracle", workspace=here).task.ref
+		writable.discard(ref=trashed, workspace=here)
+		repeating = writable.capture(text="Water the plants every day", workspace=here).task.ref
+		document = writable.create_document(
+			title="How the crew is briefed", body="In person.", workspace=here
+		).ref
+		said = writable.remark(ref=first, body="Briefed.", workspace=here)
+		joined = writable.link(ref=first, link_type="blocks", target=second, workspace=here)
+		writable.claim(ref=second, workspace=here)
+		status = writable.create_status(
+			entity_type="task", key="reviewing", label="Reviewing", category="todo", workspace=here
+		)
+		kind = writable.create_link_type(
+			key="informs", title="Informs", inverse_title="Informed by", category="describing",
+			workspace=here,
+		)
+		tag = writable.create_tag(name="crew", workspace=here)
+		view = writable.save_view(title="Crew", arrangement="list", q="crew", workspace=here)
+		writable.create_project(key="web", title="Website rebuild", visibility="private", workspace=here)
+		writable.create_project(key="ops", title="Operations", workspace=here)
+		keanu = writable.create_user(username=f"keanu-{suffix}", display_name="Keanu")
+		gloria = writable.create_user(username=f"gloria-{suffix}", display_name="Gloria")
+		hugo = writable.create_user(
+			username=f"hugo-{suffix}", display_name="Hugo", is_service_account=True
+		)
+		writable.add_member(username=keanu.username, role="contributor", workspace=here)
+		writable.share_project("web", username=keanu.username, workspace=here)
+		other = writable.issue_token(title="Another")
+		feed = writable.create_calendar(title="Crew calendar", workspace=here)
+		spare = writable.create_workspace(slug=f"spare-{suffix}", title="Spare")
+		writable.delete_workspace(spare.slug)
 
-@pytest.mark.parametrize("module", ["local", "http"])
-def test_nothing_excused_from_the_read_only_rule_has_started_writing (module: str) -> None:
-	"""The other direction, which is what stops an excuse outliving its reason.
+	client: subroutine.clients.base.Client
 
-	An entry here says *the scan is wrong about this one*. If the method later grows a guard,
-	or stops being seen as a write at all, the entry is describing something that is no longer
-	true and the next reader takes it as a considered decision.
-	"""
-
-	source = (CLIENTS / f"{module}.py").read_text(encoding="utf-8")
-	writes, guards = _writes_and_guards(source)
-
-	for name, why in NOT_REALLY_A_WRITE.items():
-		if name not in writes:
-			continue
-
-		assert name not in guards, (
-			f"clients/{module}.py: {name!r} is excused from the read-only rule as {why!r} and "
-			f"now refuses one anyway. Delete the entry — the excuse is what is stale."
+	if transport == "local":
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local", read_only=True),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=factory,
+			token=secret,
 		)
 
+	else:
+		client = subroutine.clients.http.Client(
+			subroutine.connections.Connection(
+				name="work", url="https://employer.example.com", read_only=True
+			),
+			token=secret,
+			transport=api_support.SyncTransport(api_support.build_app(factory)),
+			base_url=api_support.BASE_URL,
+		)
 
-def test_the_read_only_scan_can_see_a_write_that_forgot () -> None:
-	"""Falsified through the real scanner, against both spellings of a write.
+	attempts: dict[str, typing.Callable[[], object]] = {
+		"capture": lambda: client.capture(text="This should not be written", workspace=here),
+		"complete": lambda: client.complete(ref=first, workspace=here),
+		"update": lambda: client.update(ref=first, title="Renamed", workspace=here),
+		"schedule": lambda: client.schedule(
+			ref=first, starts=datetime.date(2026, 8, 3), workspace=here
+		),
+		"skip": lambda: client.skip(ref=repeating, workspace=here),
+		"discard": lambda: client.discard(ref=first, workspace=here),
+		"undiscard": lambda: client.undiscard(ref=trashed, workspace=here),
+		"move": lambda: client.move(ref=first, parent=fourth, workspace=here),
+		"claim": lambda: client.claim(ref=first, workspace=here),
+		"release": lambda: client.release(ref=second, workspace=here),
+		"verify": lambda: client.verify(
+			ref=first, passed=True, summary="The deploy ran clean.", workspace=here
+		),
+		"remark": lambda: client.remark(ref=first, body="Not written.", workspace=here),
+		"uncomment": lambda: client.uncomment(ref=first, comment_id=str(said.id), workspace=here),
+		"link": lambda: client.link(
+			ref=fourth, link_type="blocks", target=repeating, workspace=here
+		),
+		"unlink": lambda: client.unlink(ref=first, link_id=str(joined.id), workspace=here),
+		"create_document": lambda: client.create_document(
+			title="Not written", body="No.", workspace=here
+		),
+		"update_document": lambda: client.update_document(
+			ref=document, title="Renamed", workspace=here
+		),
+		"save_view": lambda: client.save_view(
+			title="Not written", arrangement="list", q="nothing", workspace=here
+		),
+		"update_saved_view": lambda: client.update_saved_view(
+			key=view.key, title="Renamed", workspace=here
+		),
+		"forget_saved_view": lambda: client.forget_saved_view(key=view.key, workspace=here),
+		"create_status": lambda: client.create_status(
+			entity_type="task", key="waiting", label="Waiting", category="todo", workspace=here
+		),
+		"update_status": lambda: client.update_status(which=str(status.id), label="Renamed"),
+		"delete_status": lambda: client.delete_status(which=str(status.id)),
+		"create_link_type": lambda: client.create_link_type(
+			key="follows", title="Follows", inverse_title="Followed by", category="describing",
+			workspace=here,
+		),
+		"update_link_type": lambda: client.update_link_type(which=str(kind.id), title="Renamed"),
+		"delete_link_type": lambda: client.delete_link_type(which=str(kind.id)),
+		"create_tag": lambda: client.create_tag(name="ship", workspace=here),
+		"update_tag": lambda: client.update_tag(which=str(tag.id), name="crews"),
+		"delete_tag": lambda: client.delete_tag(which=str(tag.id)),
+		"create_project": lambda: client.create_project(
+			key="not-written", title="Not written", workspace=here
+		),
+		"rename_project": lambda: client.rename_project("ops", key="operations", workspace=here),
+		"update_project": lambda: client.update_project("ops", title="Renamed", workspace=here),
+		"move_project": lambda: client.move_project("ops", parent="web", workspace=here),
+		"share_project": lambda: client.share_project(
+			"web", username=gloria.username, workspace=here
+		),
+		"unshare_project": lambda: client.unshare_project(
+			"web", username=keanu.username, workspace=here
+		),
+		"add_member": lambda: client.add_member(
+			username=gloria.username, role="contributor", workspace=here
+		),
+		"set_member_role": lambda: client.set_member_role(
+			username=keanu.username, role="viewer", workspace=here
+		),
+		"remove_member": lambda: client.remove_member(username=keanu.username, workspace=here),
+		"create_user": lambda: client.create_user(
+			username=f"carrieanne-{suffix}", display_name="Carrie-Anne"
+		),
+		"set_active": lambda: client.set_active(username=keanu.username, active=False),
+		"transfer_agent": lambda: client.transfer_agent(username=hugo.username, to=keanu.username),
+		"set_timezone": lambda: client.set_timezone(username=me, timezone="Europe/London"),
+		"issue_token": lambda: client.issue_token(title="Not written"),
+		"create_login_link": lambda: client.create_login_link(username=me),
+		"sign_out_everywhere": lambda: client.sign_out_everywhere(username=me),
+		"revoke_token": lambda: client.revoke_token(id_or_prefix=other.prefix),
+		"create_calendar": lambda: client.create_calendar(title="Not written", workspace=here),
+		"reset_calendar": lambda: client.reset_calendar(id_or_prefix=feed.prefix),
+		"revoke_calendar": lambda: client.revoke_calendar(id_or_prefix=feed.prefix),
+		"create_workspace": lambda: client.create_workspace(slug=f"other-{suffix}", title="Other"),
+		"rename_workspace": lambda: client.rename_workspace(here, slug=f"renamed-{suffix}"),
+		"update_workspace": lambda: client.update_workspace(here, title="Renamed"),
+		"delete_workspace": lambda: client.delete_workspace(here),
+		"restore_workspace": lambda: client.restore_workspace(spare.slug),
+		"update_instance": lambda: client.update_instance(name="Renamed"),
+	}
+
+	assert set(attempts) == _every_client_write(), (
+		"a client writes in a way this test does not drive, or drives a method that no longer "
+		f"writes: {sorted(set(attempts) ^ _every_client_write())}"
+	)
+
+	written = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(subroutine.db.models.activity.Event)
+	)
+	wrong: list[str] = []
+
+	with client:
+		for name, attempt in attempts.items():
+			try:
+				attempt()
+
+			except subroutine.errors.SubroutineError as refused:
+				if refused.detail != subroutine.domain.authentication.READ_ONLY:
+					wrong.append(f"{name}: {type(refused).__name__} {refused.detail}")
+
+			else:
+				wrong.append(f"{name}: not refused")
+
+		# And reads still answer, so the rule is "nothing but reads" rather than "nothing".
+		found = client.task(ref=first, workspace=here)
+
+		assert found is not None and found.title == "Brief the crew"
+		assert client.tokens(), "a read-only session still lists its credentials"
+
+	assert not wrong, "\n".join(wrong)
+	assert session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(subroutine.db.models.activity.Event)
+	) == written, "a refused write left an event behind"
+
+
+def test_the_write_scan_can_see_a_write () -> None:
+	"""Falsified through the real scanner, against both spellings of a write (`#405`).
 
 	A guard tested against a copy of its own rule cannot notice that the real code is shaped
-	differently, and this repository has shipped that twice. So the two cases here are the
-	two the scan claims to cover, written as a client would write them.
+	differently, and this repository has shipped that twice.
 	"""
 
 	local_shaped = (
@@ -2907,23 +2988,17 @@ def test_the_read_only_scan_can_see_a_write_that_forgot () -> None:
 		'\t\t"""Delete everything."""\n\n'
 		'\t\tself._json("DELETE", "/v1/everything")\n'
 	)
+	reading = (
+		"class Client:\n"
+		"\tdef look (self) -> None:\n"
+		'\t\t"""Read everything."""\n\n'
+		'\t\tself._json("GET", "/v1/everything")\n'
+	)
 
 	for source in (local_shaped, http_shaped):
-		writes, guards = _writes_and_guards(source)
+		assert _writes(source) == {"wipe"}, f"the scan did not see the write in {source!r}"
 
-		assert writes == {"wipe"}, f"the scan did not see the write in {source!r}"
-		assert not guards
-
-	guarded = (
-		"class Client:\n"
-		"\tdef wipe (self) -> None:\n"
-		'\t\t"""Delete everything."""\n\n'
-		"\t\tself._refuse_if_read_only()\n\n"
-		'\t\tself._json("DELETE", "/v1/everything")\n'
-	)
-	writes, guards = _writes_and_guards(guarded)
-
-	assert writes == guards == {"wipe"}, "and it sees the guard when there is one"
+	assert _writes(reading) == set(), "and it does not see one where there is none"
 
 
 #: What may stand in a path the HTTP client builds, besides a parameter declared ``int``.
@@ -5089,14 +5164,9 @@ def test_a_read_only_connection_refuses_a_raw_write_too (
 	"""`#485`. The escape hatch may not be an escape from *this*.
 
 	**Found by falsification, not by design.** Removing the guard from ``call_api`` on both
-	clients failed nothing: the test above walks ``capture``, ``update`` and ``complete``, and a
-	method added later is invisible to it — the same shape as the defect it was itself written
-	for, one surface along.
-
-	§13.7 calls ``read_only`` a *client-side* control precisely because an employer's server
-	cannot be asked to arrange it on the agent-owner's behalf. A raw call that skipped it would
-	therefore not be a smaller hole than the original; it would be the whole feature missing,
-	reachable by anything that can spell a path.
+	clients failed nothing, when each client kept the rule for itself. The instance keeps it now
+	(decision `#4510`), so a raw write is refused there as a named one is, and the refusal comes
+	back as the instance's answer rather than as an exception, which is how a raw call reports.
 	"""
 
 	setup = subroutine.domain.bootstrap.initialise(
@@ -5110,6 +5180,15 @@ def test_a_read_only_connection_refuses_a_raw_write_too (
 	factory = api_support.factory_for(session)
 	secret = issued.value.get_secret_value()
 	client: subroutine.clients.base.Client
+
+	# Something real to change, so a refusal is the read-only one rather than "no such task".
+	with subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=factory,
+		token=secret,
+	) as writable:
+		ref = writable.capture(text="Brief the crew").task.ref
 
 	if transport == "local":
 		client = subroutine.clients.local.Client(
@@ -5132,14 +5211,14 @@ def test_a_read_only_connection_refuses_a_raw_write_too (
 	with client:
 		for method, path in (
 			("POST", "/v1/tasks"),
-			("PATCH", "/v1/tasks/1"),
-			("DELETE", "/v1/tasks/1"),
+			("PATCH", f"/v1/tasks/{ref}"),
+			("DELETE", f"/v1/tasks/{ref}"),
 		):
-			with pytest.raises(subroutine.errors.SubroutineError) as refused:
-				client.call_api(method=method, path=path, body={"title": "Nope"})
+			answered = client.call_api(method=method, path=path, body={"title": "Nope"})
 
-			assert "read" in str(refused.value).lower(), (
-				f"{method} {path} was refused for the wrong reason: {refused.value}"
+			assert answered.status == 403, f"{method} {path} answered {answered.status}"
+			assert json.loads(answered.text)["detail"] == subroutine.domain.authentication.READ_ONLY, (
+				f"{method} {path} was refused for the wrong reason: {answered.text}"
 			)
 
 		# And a read still works, so the rule is `read_only` rather than `no_api`.

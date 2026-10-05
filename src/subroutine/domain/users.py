@@ -302,6 +302,8 @@ def set_timezone (
 	rules out.
 	"""
 
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+
 	if actor is not None and actor.user.id != user.id:
 		raise subroutine.errors.Forbidden(
 			f"You can set your own timezone, not {user.username}'s.",

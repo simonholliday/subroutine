@@ -249,9 +249,6 @@ class Client:
 
 		verb = subroutine.clients.base.require_a_method(method)
 
-		if verb not in subroutine.clients.base.READING_VERBS:
-			self._refuse_if_read_only()
-
 		from subroutine.api import app as building
 		from subroutine.api import inprocess
 
@@ -1087,8 +1084,6 @@ class Client:
 	) -> subroutine.views.SavedView:
 		"""Save a view under a name, so nobody has to retype the narrowing."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
@@ -1123,8 +1118,6 @@ class Client:
 	) -> subroutine.views.SavedView:
 		"""Change a view you saved."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 			row = subroutine.domain.saved.by_key(
@@ -1150,8 +1143,6 @@ class Client:
 
 	def forget_saved_view (self, *, key: str, workspace: str | None = None) -> None:
 		"""Remove a view you saved, for good."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -1193,8 +1184,6 @@ class Client:
 	) -> subroutine.views.Status:
 		"""Add a status to this workspace's vocabulary."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
@@ -1223,8 +1212,6 @@ class Client:
 	) -> subroutine.views.Status:
 		"""Rename or reposition a status."""
 
-		self._refuse_if_read_only()
-
 		changes = _asked(key=key, label=label, is_default=is_default, position=position)
 
 		with self._writing() as (session, actor):
@@ -1238,8 +1225,6 @@ class Client:
 
 	def delete_status (self, *, which: str) -> None:
 		"""Remove a status nothing is in."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_status(
@@ -1276,8 +1261,6 @@ class Client:
 	) -> subroutine.views.LinkType:
 		"""Add a way two items can relate."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
@@ -1305,8 +1288,6 @@ class Client:
 	) -> subroutine.views.LinkType:
 		"""Rename a link type, reword either end of it, or say what it does."""
 
-		self._refuse_if_read_only()
-
 		changes = _asked(
 			key=key, title=title, inverse_title=inverse_title, category=category
 		)
@@ -1324,8 +1305,6 @@ class Client:
 
 	def delete_link_type (self, *, which: str) -> None:
 		"""Remove a link type nothing is joined by."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_link_type(
@@ -1409,8 +1388,6 @@ class Client:
 	) -> subroutine.views.TagEntry:
 		"""Declare a tag before anybody uses it."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
@@ -1429,8 +1406,6 @@ class Client:
 	) -> subroutine.views.TagEntry:
 		"""Rename a tag, or write down what it means."""
 
-		self._refuse_if_read_only()
-
 		changes = _asked(name=name, description=description)
 
 		with self._writing() as (session, actor):
@@ -1442,8 +1417,6 @@ class Client:
 
 	def delete_tag (self, *, which: str) -> None:
 		"""Take a tag off everything you can read; work hidden from you keeps it."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			subroutine.domain.vocabulary.delete_tag(
@@ -1724,8 +1697,6 @@ class Client:
 	) -> subroutine.views.Document:
 		"""Revise a document, through the same service the endpoint calls."""
 
-		self._refuse_if_read_only()
-
 		# Compared against UNSET rather than filtered for falsey values, because `None` is
 		# meaningful — it is how §8.3 says "clear this" — and `body=None` on a document is a
 		# thing somebody genuinely does.
@@ -1880,8 +1851,6 @@ class Client:
 	) -> subroutine.views.Verification:
 		"""Record what was checked against one task."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			task = self._require(session, actor, ref, workspace)
 			written = subroutine.domain.verifications.record(
@@ -1964,8 +1933,6 @@ class Client:
 	) -> subroutine.views.Link:
 		"""Join two items."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 			near = self._end(session, actor, chosen, entity_type, ref)
@@ -1998,8 +1965,6 @@ class Client:
 		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None
 	) -> None:
 		"""Withdraw a link."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -2423,8 +2388,6 @@ class Client:
 	) -> subroutine.views.Project:
 		"""Create a project."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 			above = (
@@ -2483,8 +2446,6 @@ class Client:
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included (`#348`)."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			row, owner, issued, created = subroutine.domain.tokens.issue(
 				session,
@@ -2517,8 +2478,6 @@ class Client:
 		self, *, username: str | None = None
 	) -> subroutine.views.SignInLink:
 		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
-
-		self._refuse_if_read_only()
 
 		# **Told, worked out, or refused** — `#1007`, and the middle branch is new.
 		#
@@ -2568,8 +2527,6 @@ class Client:
 	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
 		"""End every browser session an account holds, and report how many (`#248`)."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			for_whom = subroutine.domain.selection.user(session, username)
 			stopped = subroutine.domain.sessions.sign_out_everywhere(
@@ -2582,8 +2539,6 @@ class Client:
 
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now (`#348`)."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			found = subroutine.domain.tokens.mine(session, actor, id_or_prefix)
@@ -2619,8 +2574,6 @@ class Client:
 	) -> subroutine.views.IssuedCalendar:
 		"""Mint a calendar feed and return its URL once (`#916`)."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			feed, minted = subroutine.domain.calendars.issue(
 				session,
@@ -2652,8 +2605,6 @@ class Client:
 	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
 		"""Give a feed a new URL, so the one somebody had stops working (`#916`)."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
 			minted = subroutine.domain.calendars.reset(
@@ -2675,8 +2626,6 @@ class Client:
 
 	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
 		"""Stop a calendar feed for good, now (`#916`)."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
@@ -2755,8 +2704,6 @@ class Client:
 	) -> subroutine.views.User:
 		"""Add a person, or a machine identity, to this instance."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			created = subroutine.domain.users.create(
 				session,
@@ -2811,8 +2758,6 @@ class Client:
 	) -> subroutine.views.Member:
 		"""Give somebody a role in a workspace."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
@@ -2840,8 +2785,6 @@ class Client:
 	) -> subroutine.views.Member:
 		"""Change what somebody may do in a workspace they are already in."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
@@ -2867,8 +2810,6 @@ class Client:
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
 		"""Mark somebody as having left, or bring them back."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			account = subroutine.domain.users.by_username(session, username)
 
@@ -2887,8 +2828,6 @@ class Client:
 	) -> subroutine.views.User:
 		"""Say where somebody keeps their diary — your own account only."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			account = subroutine.domain.users.by_username(session, username)
 
@@ -2904,8 +2843,6 @@ class Client:
 
 	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
 		"""Hand an agent to somebody else, who becomes answerable for it."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			agent = subroutine.domain.users.by_username(session, username)
@@ -2925,8 +2862,6 @@ class Client:
 
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace_to_administer(
@@ -2990,8 +2925,6 @@ class Client:
 	) -> subroutine.views.Instance:
 		"""Change what this installation is called, or where it says it is."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			changed = subroutine.domain.instances.update(
 				session,
@@ -3009,8 +2942,6 @@ class Client:
 		self, project: str, *, username: str, workspace: str | None = None
 	) -> subroutine.views.ProjectMember:
 		"""Let one more person see a private project."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -3030,8 +2961,6 @@ class Client:
 		self, project: str, *, username: str, workspace: str | None = None
 	) -> None:
 		"""Take somebody's sight of a project away again."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -3099,8 +3028,6 @@ class Client:
 	) -> subroutine.views.Project:
 		"""Give a project a different short name."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(
 				session, actor, requested=workspace
@@ -3127,8 +3054,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address, in process."""
-
-		self._refuse_if_read_only()
 
 		given: dict[str, typing.Any] = {
 			"title": title,
@@ -3168,8 +3093,6 @@ class Client:
 	) -> subroutine.views.Workspace:
 		"""Make another workspace, through the same service the endpoint calls."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			created = subroutine.domain.workspaces.create(
 				session,
@@ -3208,8 +3131,6 @@ class Client:
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(
 				session, actor, requested=workspace
@@ -3233,8 +3154,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, in process."""
-
-		self._refuse_if_read_only()
 
 		given: dict[str, typing.Any] = {
 			"title": title,
@@ -3277,8 +3196,6 @@ class Client:
 	def delete_workspace (self, workspace: str) -> subroutine.views.Workspace:
 		"""Move a workspace to the trash, in process."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace_to_administer(
 				session, actor, requested=workspace
@@ -3289,8 +3206,6 @@ class Client:
 
 	def restore_workspace (self, workspace: str) -> subroutine.views.Workspace:
 		"""Take a workspace back out of the trash, in process."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			# **The one caller that reaches into the trash**, through the helper named for
@@ -3305,8 +3220,6 @@ class Client:
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:
 		"""Reparent a project, taking everything under it."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(
@@ -3344,8 +3257,6 @@ class Client:
 		binds: str | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -3402,8 +3313,6 @@ class Client:
 		recurrence_trigger: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -3612,8 +3521,6 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Let one occurrence of a repeat go by, and bring the next one."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
 
@@ -3640,8 +3547,6 @@ class Client:
 		workspace: str | None = None,
 	) -> subroutine.views.Comment:
 		"""Add one entry to an item's record of what happened."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -3673,8 +3578,6 @@ class Client:
 		workspace: str | None = None,
 	) -> None:
 		"""Withdraw a comment from an item's record."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -3708,16 +3611,12 @@ class Client:
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Move an item to the trash."""
 
-		self._refuse_if_read_only()
-
 		return self._moved(ref, entity_type, workspace, into_the_trash=True)
 
 	def undiscard (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Take an item back out of the trash."""
-
-		self._refuse_if_read_only()
 
 		return self._moved(ref, entity_type, workspace, into_the_trash=False)
 
@@ -3731,8 +3630,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Put an item under another one, or at the top level."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			row = self._in_the_trash_too(session, actor, ref, workspace, entity_type)
@@ -3823,8 +3720,6 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Take a lease on a task, or renew one this credential holds (`#350`)."""
 
-		self._refuse_if_read_only()
-
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
 			held = subroutine.domain.claims.claim(
@@ -3844,8 +3739,6 @@ class Client:
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Task:
 		"""Give a task back, so somebody else can take it (`#350`)."""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
@@ -3871,8 +3764,6 @@ class Client:
 		differently and two transports that disagreed here would disagree about the one case
 		this matters in — an absent-minded repeat of a command.
 		"""
-
-		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
@@ -3921,8 +3812,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
-
-		self._refuse_if_read_only()
 
 		# **An explicit None for a field that cannot be emptied is not given** (`#3936`), which is
 		# what the API has always read it as: a PATCH carrying ``"project": null`` changes nothing,
@@ -4030,8 +3919,6 @@ class Client:
 		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden."""
-
-		self._refuse_if_read_only()
 
 		changes: dict[str, typing.Any] = {}
 
@@ -4350,6 +4237,7 @@ class Client:
 			token=self._token,
 			local_user=self.settings.local_user,
 			token_source=self._token_source,
+			read_only=self.connection.read_only,
 		)
 
 	def _require (
@@ -4612,12 +4500,6 @@ class Client:
 
 		if out_of_sight is not None:
 			raise out_of_sight
-
-	def _refuse_if_read_only (self) -> None:
-		"""Refuse a write to a connection configured read-only."""
-
-		if self.connection.read_only:
-			subroutine.clients.base.refuse_a_write(self.connection)
 
 
 def opened (

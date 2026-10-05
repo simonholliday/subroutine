@@ -44,6 +44,7 @@ import sqlalchemy.orm
 import subroutine
 import subroutine.api.inprocess
 import subroutine.auth
+import subroutine.clients.base
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
@@ -210,6 +211,14 @@ def answering (
 					_how_to_make_one(),
 				)
 
+			# **An instance too old to hold a read-only connection refuses every message** by naming
+			# the parameter the relay sent, which nobody using the connection typed (decision `#4510`).
+			if connection.read_only and subroutine.clients.base.refuses_read_only(
+				trouble.get("code"),
+				(error.get("field") for error in trouble.get("errors") or [] if isinstance(error, dict)),
+			):
+				return _refused(raw, *subroutine.clients.base.too_old_for_read_only(connection))
+
 			# **Its own words when it has any.** A problem document already carries a `detail`
 			# written for a person and often a `hint` naming the remedy, and those are worth far
 			# more than a sentence composed here about a status code.
@@ -297,7 +306,7 @@ def _over_http (
 		try:
 			answered = client.post(
 				PATH,
-				params=_asking_for(workspace),
+				params=_asking_for(workspace, read_only=connection.read_only),
 				content=raw.encode("utf-8"),
 				headers=_standing(connection),
 			)
@@ -390,6 +399,7 @@ def _in_process (
 			token=held.token,
 			token_source=held.source if held.token else None,
 			local_user=settings.local_user,
+			read_only=connection.read_only,
 		)
 
 	def forward (raw: str) -> tuple[int, str]:
@@ -400,7 +410,7 @@ def _in_process (
 			resolve,
 			method="POST",
 			path=PATH,
-			query=_asking_for(workspace),
+			query=_asking_for(workspace, read_only=connection.read_only),
 			content=raw.encode("utf-8"),
 			headers=_standing(connection),
 		)
@@ -702,14 +712,24 @@ def _standing (connection: subroutine.connections.Connection) -> dict[str, str]:
 	return headers if said is None else {**headers, subroutine.directory.HEADER: said}
 
 
-def _asking_for (workspace: str | None) -> dict[str, str] | None:
+def _asking_for (workspace: str | None, *, read_only: bool = False) -> dict[str, str] | None:
 	"""Return the query the endpoint takes, or nothing when there is none.
 
 	``--workspace`` travels as the query parameter the plugin already uses, so there is one
 	spelling of it rather than two (`#539`).
+
+	**And a read-only connection says so on every message** (decision `#4510`), as the terminal's
+	client does on every request: the instance refuses the session every tool call that is not a
+	read. A session that did not say it wrote through a read-only connection on every release from
+	0.5.0, because the tools run on the instance through a client of their own (`#4506` S1).
 	"""
 
-	return None if workspace is None else {"workspace": workspace}
+	asked = {} if workspace is None else {"workspace": workspace}
+
+	if read_only:
+		asked["read_only"] = "true"
+
+	return asked or None
 
 
 def _in_this_machines_terms (

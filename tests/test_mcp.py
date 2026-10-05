@@ -7481,30 +7481,28 @@ def test_no_excused_handler_reads_the_checkout () -> None:
 
 
 def _writing_methods () -> set[str]:
-	"""Return the client methods that refuse on a read-only connection.
+	"""Return the client methods that ask the instance to change something.
 
 	**Read out of the code rather than listed here**, because a list would be a second copy of
-	a rule that already exists and is maintained: ``_refuse_if_read_only`` is what
-	``clients/http.py`` calls on every write, and §13.7's read-only connection depends on it
-	being complete. A tool that reaches one of these is writing, whatever it claims.
+	what ``clients/http.py`` already says: a method that names ``POST``, ``PUT``, ``PATCH`` or
+	``DELETE`` asks for a change, and ``call_api`` asks for whatever its caller says. A tool that
+	reaches one of these is writing, whatever it claims. ``read_repeat`` is the one ``POST`` that
+	stores nothing - a repeat rule is too long for a query string.
 	"""
 
 	source = pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
-	found: set[str] = set()
+	changing = subroutine.clients.base.CALLABLE_METHODS - subroutine.clients.base.READING_VERBS
+	found: set[str] = {"call_api"}
 
 	for node in ast.walk(ast.parse(source)):
 		if not isinstance(node, ast.FunctionDef):
 			continue
 
 		for inner in ast.walk(node):
-			if (
-				isinstance(inner, ast.Call)
-				and isinstance(inner.func, ast.Attribute)
-				and inner.func.attr == "_refuse_if_read_only"
-			):
+			if isinstance(inner, ast.Constant) and inner.value in changing:
 				found.add(node.name)
 
-	return found
+	return found - {"read_repeat"}
 
 
 def test_a_tool_that_says_it_only_reads_only_reads (
@@ -7518,8 +7516,12 @@ def test_a_tool_that_says_it_only_reads_only_reads (
 	beyond noise, and prose asserting it is exactly what this codebase has been bitten by.
 
 	Driven rather than compared: every read-only tool is *called*, against a real database, and
-	the client methods it reaches are checked against the set that refuses on a read-only
-	connection. A test comparing two hand-written lists would agree with itself forever.
+	the client methods it reaches are checked against the set that asks for a change. A test
+	comparing two hand-written lists would agree with itself forever.
+
+	**And called on a read-only connection** (decision `#4510`), where the instance refuses every
+	act that is not a read: a tool claiming to read that wrote anything would be refused there,
+	and fail here, whichever client method it went through.
 	"""
 
 	subroutine.domain.bootstrap.initialise(
@@ -7539,9 +7541,17 @@ def test_a_tool_that_says_it_only_reads_only_reads (
 		subroutine.config.Settings(dev_mode=True),
 		session_factory=api_support.factory_for(session),
 	)
+	reading_only = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local", read_only=True),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
 
-	with client:
-		recorded = _Recorded(client)
+	with client, reading_only:
+		recorded = _Recorded(reading_only)
+		writer = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
 		server = subroutine.mcp.protocol.Server(
 			subroutine.mcp.tools.catalogue(typing.cast(subroutine.clients.base.Client, recorded)),
 			name="subroutine",
@@ -7549,8 +7559,9 @@ def test_a_tool_that_says_it_only_reads_only_reads (
 		)
 
 		# Something for the readers to find, made through the tools so the fixture cannot be
-		# right in a way the surface is not.
-		ref = _added(server, "Something to read back")
+		# right in a way the surface is not - on a connection that may write, since the one
+		# being measured may not.
+		ref = _added(writer, "Something to read back")
 
 		reading: dict[str, dict[str, typing.Any]] = {
 			"subroutine_list": {},

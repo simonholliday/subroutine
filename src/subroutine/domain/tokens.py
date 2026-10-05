@@ -94,7 +94,7 @@ def issued_tokens (
 	model = subroutine.db.models.identity.ApiToken
 	statement = sqlalchemy.select(model).order_by(model.created_at.desc())
 
-	if not _may_administer_credentials(actor):
+	if not _may_administer_credentials(actor, reading=True):
 		statement = statement.where(
 			sqlalchemy.or_(
 				model.user_id == actor.user.id, model.created_by == actor.user.id
@@ -127,6 +127,8 @@ def revoke (
 	back without anybody's help, and the holder has to be able to burn their own if it leaks.
 	"""
 
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+
 	if actor is not None and not _may_revoke(actor, token):
 		raise subroutine.errors.Forbidden(
 			"Only the person a credential was issued for, the person who issued it, or an "
@@ -150,12 +152,17 @@ def revoke (
 	return token
 
 
-def _may_administer_credentials (actor: subroutine.domain.authentication.Principal) -> bool:
-	"""Whether this principal may act on credentials that are nothing to do with them."""
+def _may_administer_credentials (
+	actor: subroutine.domain.authentication.Principal, *, reading: bool = False
+) -> bool:
+	"""Whether this principal may act on credentials that are nothing to do with them.
+
+	``reading`` is the listing's question rather than revoking's, which a read-only session may ask.
+	"""
 
 	try:
 		subroutine.domain.authorization.authorize_instance(
-			actor, subroutine.permissions.INSTANCE_USER_CREATE
+			actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=reading
 		)
 
 	except subroutine.errors.SubroutineError:
@@ -233,6 +240,8 @@ def issue (
 	The fourth element of the return says whether an account had to be made, because "created
 	service account claude" is worth printing and cannot be inferred afterwards without a race.
 	"""
+
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
 	owner, created = _owner_for(
 		session,

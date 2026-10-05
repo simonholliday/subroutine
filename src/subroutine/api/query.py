@@ -204,10 +204,13 @@ def _asked_about (request: starlette.requests.Request) -> set[str]:
 	# was stepped over by neither and answered `unknown_field` from here — `#899`'s defect
 	# restored by a fix to one of its two halves. **Third site**, and the one that decides:
 	# whichever of these runs first wins, and this one is a route dependency.
+	# **Nor is a session's own read-only flag** (decision `#4510`): it is the session's, stated on
+	# every request a read-only connection makes, and `security.principal` reads it.
 	names = {
 		name
 		for name in request.query_params
 		if name.lower() not in subroutine.api.security.CREDENTIAL_PARAMETERS
+		and name != subroutine.api.security.READ_ONLY_PARAMETER
 	}
 
 	if subroutine.api.filters.declared_by(request.scope.get("route")) is None:

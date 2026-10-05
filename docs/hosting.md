@@ -1391,7 +1391,8 @@ server is down is the outcome this design exists to avoid.
 
 `connections add` writes a `[connections.<name>]` table, and the file is still yours to edit
 for anything it does not ask about. The other keys that table takes: `display_name` for what
-it is called in output, `read_only = true` to refuse writes to it from this machine,
+it is called in output, `read_only = true` to have that instance refuse every write from this
+machine, an agent's tools included,
 `token_env` or `token_command` to fetch the credential from the environment or from `pass`,
 `gpg`, `secret-tool` or a password manager rather than from a file, `timeout_seconds`, and
 `enabled = false` to keep a connection configured and switched off. Anything else in that table

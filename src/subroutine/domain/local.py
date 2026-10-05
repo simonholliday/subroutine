@@ -27,6 +27,7 @@ Resolution order:
    announces itself.
 """
 
+import dataclasses
 import typing
 import uuid
 
@@ -52,6 +53,7 @@ def principal (
 	token: str | None = None,
 	local_user: str | None = None,
 	token_source: str | None = None,
+	read_only: bool = False,
 ) -> subroutine.domain.authentication.Principal:
 	"""Return who this process is acting as, or refuse with what to do about it.
 
@@ -59,15 +61,25 @@ def principal (
 	optional because a caller may genuinely not know — a test, or anything that was handed a
 	token rather than resolving one — and a message that says "a credential" is honest where
 	one naming the wrong file is not.
+
+	``read_only`` is the connection's own setting (decision `#4510`). There is no request on this
+	path to carry it, so whoever opens the connection states it, and the domain refuses every act
+	that is not a read.
 	"""
 
 	if token:
-		return _from_token(session, token, source=token_source)
+		found = _from_token(session, token, source=token_source)
 
-	if local_user:
-		return _named(session, local_user)
+	elif local_user:
+		found = _named(session, local_user)
 
-	return _sole(session)
+	else:
+		found = _sole(session)
+
+	if not read_only:
+		return found
+
+	return dataclasses.replace(found, read_only=True)
 
 
 def workspace_for (

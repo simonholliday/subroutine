@@ -37,11 +37,10 @@ import subroutine.views
 #: date", so it cannot double as "not asked for".
 UNSET: typing.Any = object()
 
-#: The verbs that only read, so a raw call knows which side of ``read_only`` it is on.
+#: The verbs that only read, so a raw call knows whether it asked for a change.
 #:
 #: Named here rather than in each client, because the two would come to disagree about
-#: ``HEAD`` — and a disagreement in this particular list is a write escaping the one control
-#: §13.7 says the far end cannot enforce for you.
+#: ``HEAD``.
 READING_VERBS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: Every method a raw call may present. Not a syntax rule — an allow-list, because the point
@@ -340,9 +339,8 @@ class Client(typing.Protocol):
 		constraint: thirteen of twenty missing capabilities were excluded for tool budget rather
 		than by any decision.
 
-		``read_only`` is still enforced, and that is not automatic here: §13.7's setting is a
-		*client-side* promise about an employer's instance, and a raw call that skipped it would
-		be a hole in the one control the far end cannot enforce on the caller's behalf.
+		``read_only`` holds here as for every method: the instance refuses a read-only session every
+		act that is not a read (decision `#4510`), whichever way it was asked.
 		"""
 
 		raise NotImplementedError
@@ -2108,19 +2106,40 @@ def require_a_route (path: str) -> str:
 	return given
 
 
-def refuse_a_write (connection: subroutine.connections.Connection) -> typing.NoReturn:
-	"""Refuse a write to a connection configured read-only.
+def read_only_query (connection: subroutine.connections.Connection) -> dict[str, str] | None:
+	"""Return what every request on this connection adds to its query - decision `#4510`.
 
-	Enforced client-side and worth having (§13.7): pointing an agent at a company instance
-	for context while forbidding it to write there is a reasonable posture, and it is not one
-	the company's server can be asked to arrange on the agent-owner's behalf.
+	**A read-only connection says so on every request, and the instance refuses the writes.** This
+	was a promise each client kept for itself, and the agent tools kept none: they run on the
+	instance, through a client of their own, so an agent wrote through a connection its owner had
+	marked read-only on every release from 0.5.0 (`#4506` S1).
 	"""
 
-	raise subroutine.errors.Forbidden(
-		f"Connection {connection.name!r} is configured read-only, so nothing can be changed "
-		"there.",
-		hint=f"Remove 'read_only' from [connections.{connection.name}] in "
-		f"{subroutine.config.config_file_path()} if that is no longer what you want.",
+	return {"read_only": "true"} if connection.read_only else None
+
+
+def refuses_read_only (code: str | None, fields: typing.Iterable[str | None]) -> bool:
+	"""Report whether a refusal is an instance saying it does not know ``read_only``.
+
+	An instance from before decision `#4510` refuses the parameter as one it does not accept, which
+	is the refusal that keeps a read-only connection from writing to it - and reads, to somebody
+	who never typed ``read_only``, as nonsense.
+	"""
+
+	return code == "unknown_field" and any(
+		field in ("read_only", "query.read_only") for field in fields
+	)
+
+
+def too_old_for_read_only (connection: subroutine.connections.Connection) -> tuple[str, str]:
+	"""Return what to say when an instance refused a read-only connection for not knowing it."""
+
+	return (
+		f"{connection.name} does not know the 'read_only' setting this connection carries, so it "
+		"refused the request rather than risk a write. An instance enforces it from this program's "
+		"release on.",
+		f"Upgrade {connection.name}, or remove 'read_only' from [connections.{connection.name}] "
+		f"in {subroutine.config.config_file_path()} if writing there is what you want.",
 	)
 
 

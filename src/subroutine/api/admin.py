@@ -159,7 +159,7 @@ def list_backups (
 	"""List the backups this instance holds, newest first, and name any copy marked unfinished."""
 
 	subroutine.domain.authorization.authorize_instance(
-		actor, subroutine.permissions.INSTANCE_ADMIN
+		actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
 	)
 
 	return Backups(

@@ -12,6 +12,16 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+- **A connection configured `read_only = true` is read-only to an agent's tools too.** On every
+  release from 0.5.0 the terminal was refused writes on such a connection, while `subroutine mcp`
+  wrote through every tool and `subroutine_call_api`, on this machine and to a served instance. The
+  instance enforces it now: the program says so with every request, and the instance refuses that
+  session anything but a read, whichever command or tool asked. An instance older than this
+  release does not know the setting and refuses every request from such a connection, reads
+  included, rather than risk a write - upgrade it, or remove the setting.
+
 ## 0.10.0 — 2026-10-05
 
 > **This release changes the database schema**, to `6c708db1582c`.
