@@ -103,6 +103,8 @@ CHECKS: tuple[Check, ...] = (
 			"--dist",
 			"worksteal",
 			"--ignore=tests/test_browser.py",
+			# **The permission matrix has a step of its own** (`SR#4542`), below.
+			"--ignore=tests/test_permission_matrix.py",
 			# **Coverage rides on this step rather than earning a job** (`SR#1569`, L-7).
 			# `fail_under` is in `pyproject.toml`, so the number is declared once and both this
 			# and CI read it. Measured here rather than across the whole gate because the
@@ -119,6 +121,23 @@ CHECKS: tuple[Check, ...] = (
 			("SUBROUTINE_TEST_REQUIRE_POSTGRES", "1"),
 			("SUBROUTINE_TEST_REQUIRE_NODE", "1"),
 		),
+	),
+	# **The permission matrix, a step and a CI job of its own** (`SR#4542`, decision `SR#4532`): every
+	# act, as every kind of principal, through every way in, on both databases - about seventy calls
+	# an act, the slowest file in the suite by design, kept out of the step above so the four Python
+	# jobs in CI keep their length.
+	Check(
+		job="Permission matrix",
+		step="The permission matrix on SQLite and PostgreSQL",
+		command=(
+			"pytest",
+			"-n",
+			"auto",
+			"--dist",
+			"worksteal",
+			"tests/test_permission_matrix.py",
+		),
+		env=(("SUBROUTINE_TEST_REQUIRE_POSTGRES", "1"),),
 	),
 	# **Run again here, and the duplication is deliberate** (`SR#795`). In CI these tests skip
 	# in the job above — the runner has no browser — and this job is the only place they run at
@@ -165,6 +184,10 @@ NOT_LOCALLY: dict[tuple[str, str], str] = {
 		"The same suite without --cov, which CI runs on every leg but the one that measures "
 		"coverage. The one interpreter here runs the covered step instead, which checks all of "
 		"this and the floor as well. Goes away if CI measures coverage on every leg again."
+	),
+	("Permission matrix", "Install"): (
+		"The same, for the job that runs the permission matrix on one Python. Locally there is one "
+		"interpreter and it is already installed."
 	),
 	("Browser tests", "Install"): (
 		"The same again. This job installs only the development extra, because it needs no "

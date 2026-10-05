@@ -235,7 +235,7 @@ jobs:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
           SUBROUTINE_TEST_REQUIRE_NODE: "1"
-        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py --cov
+        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py --ignore=tests/test_permission_matrix.py --cov
 
       # **The same suite on every other leg, without measuring it** (`SR#4126`). Its command is
       # the one above less `--cov` and its environment is the same, which
@@ -247,7 +247,55 @@ jobs:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
           SUBROUTINE_TEST_REQUIRE_NODE: "1"
-        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py
+        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py --ignore=tests/test_permission_matrix.py
+
+  # **The permission matrix, a job of its own** (`SR#4542`, decision `SR#4532`). Every act, as every
+  # kind of principal, through all five ways in - the local client, the HTTP client, the agent
+  # tools, `call_api` and `subroutine mcp` in process - on both databases: about seventy calls an
+  # act, which is why it is not a step of the four jobs above. One Python, because what it asks
+  # is who may do what, which no interpreter changes.
+  #
+  # **The ceiling is a guess until the first run measures it**: 4m46s across eight local workers is
+  # roughly 35 minutes of calls, and this runner has two slower cores. Set to the test job's.
+  matrix:
+    name: Permission matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e '.[dev,postgres]'
+
+      - name: The permission matrix on SQLite and PostgreSQL
+        env:
+          SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
+        run: pytest -n auto --dist worksteal tests/test_permission_matrix.py
 
   # **One job rather than a step in the matrix, and that is the cost decision** (`SR#795`).
   # Chromium is ~400MB and the questions this file asks — is a computed colour ours, does a

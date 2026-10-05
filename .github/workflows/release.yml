@@ -43,9 +43,10 @@ jobs:
   # finishes, and each ceiling bounds something whose runtime is measured rather than guessed.
   # A release gate that is *slower* than the CI run on the same commit had no reason to be.
   #
-  # **The coverage is the union of the two**, which is exactly how `ci.yml` and the local gate in
-  # `scripts/check.py` already split it — and `tests/test_check_script.py` reads the union across
-  # the file for that reason. Neither job alone runs the suite; `Build` needs both.
+  # **The coverage is the union of the three**, with the permission matrix's job (`SR#4542`), which
+  # is exactly how `ci.yml` and the local gate in `scripts/check.py` already split it — and
+  # `tests/test_check_script.py` reads the union across the file for that reason. No job alone runs
+  # the suite; `Build` needs them all.
   #
   # **And that union is smaller than what it replaced, deliberately** (`SR#1176`). The single
   # serial job ran `test_browser.py` with `SUBROUTINE_TEST_REQUIRE_POSTGRES=1`; the `browser`
@@ -119,7 +120,49 @@ jobs:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
           SUBROUTINE_TEST_REQUIRE_NODE: "1"
-        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py
+        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py --ignore=tests/test_permission_matrix.py
+
+  # **The permission matrix, as `ci.yml` runs it** (`SR#4542`): a tag publishes nothing the matrix
+  # has not passed, since nothing else here drives every act through every way in.
+  matrix:
+    name: Permission matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e '.[dev,postgres]'
+
+      - name: The permission matrix on SQLite and PostgreSQL
+        env:
+          SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
+        run: pytest -n auto --dist worksteal tests/test_permission_matrix.py
 
   # The other half of the gate, and the reason it is its own job is the same one `ci.yml` gives:
   # Chromium is ~400MB, and a job that downloads it should not also be the job holding up
@@ -173,7 +216,7 @@ jobs:
 
   build:
     name: Build
-    needs: [test, browser]
+    needs: [test, matrix, browser]
     runs-on: ubuntu-latest
 
     timeout-minutes: 15
