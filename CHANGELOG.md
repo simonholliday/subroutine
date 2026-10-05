@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The `subroutine` plugin passes its token field as `SUBROUTINE_PLUGIN_TOKEN` alone.** It
+  passed it as `SUBROUTINE_TOKEN` too, for programs older than 0.9.9, and its pin admits none of
+  them from this release.
 - **An agent's API tool cannot make a calendar feed or give one a new URL**, either of which
   answered with a feed's address - a bearer URL with its owner's whole sight - into the agent's
   context. And a route refused because it answers with a credential says so, where every refusal

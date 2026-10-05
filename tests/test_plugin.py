@@ -606,40 +606,23 @@ def test_the_token_travels_in_the_environment_and_is_held_as_a_secret () -> None
 	assert _read(PLUGIN)["userConfig"]["token"]["sensitive"] is True
 
 
-#: The first release that reads the plugin's field as ``SUBROUTINE_PLUGIN_TOKEN`` (`SR#3600`): the
-#: one after 0.9.8, which can be no lower than the manifest that began passing it.
-FIRST_TO_READ_ITS_OWN = (0, 9, 9)
+def test_the_field_travels_under_its_own_name_alone () -> None:
+	"""`SR#3600` and `SR#4489`: the field went under both names until the pin passed 0.9.
 
-
-def test_the_field_also_travels_as_the_old_variable_until_the_pin_passes_what_needs_it () -> None:
-	"""`SR#3600`: the field is passed under both names, and the old one goes when nothing reads it.
-
-	**Both, because the plugin and the program move separately.** The marketplace serves
+	**Both, while the pin admitted a program that read only the old one.** The marketplace serves
 	``plugins/`` from ``main``, and ``uvx`` runs whichever release of the pinned series it has, so
-	a 0.9.9 plugin meets 0.9.8 programs, which read the field as ``SUBROUTINE_TOKEN`` alone. Passed
-	under its new name only, an agent's token would stop reaching them without a word, and their
-	tools would act as the person - `SR#3496`'s harm, done by an update.
+	a 0.9.9 plugin met 0.9.8 programs, which read the field as ``SUBROUTINE_TOKEN`` alone. **Now
+	``SUBROUTINE_PLUGIN_TOKEN`` alone**, because while the plugin set the old name, a
+	``SUBROUTINE_TOKEN`` somebody exported never reached the plugin's tools.
 
-	**And the old name goes once the pin admits no program that needs it**, because while the
-	plugin sets it, a ``SUBROUTINE_TOKEN`` somebody exported never reaches the plugin's tools. So
-	this fails on the release that moves the pin past 0.9, which is the one to take it out.
+	**It went in the commit before the release that moved the pin, pushed with it** (`SR#4489`).
+	This asked for it on that release, and no release could pass that: the release script commits
+	only its own edits, and the pin it moves was what decided which answer this wanted.
 	"""
 
-	server = _read(SERVERS)["mcpServers"]["tools"]
-	pinned = next(argument for argument in server["args"] if argument.startswith("subroutine~="))
-	floor = tuple(int(part) for part in pinned.removeprefix("subroutine~=").split("."))
-
-	if floor < FIRST_TO_READ_ITS_OWN:
-		assert server["env"].get("SUBROUTINE_TOKEN") == "${user_config.token}", (
-			f"{pinned} admits programs that read the plugin's field as SUBROUTINE_TOKEN alone"
-		)
-
-	else:
-		assert "SUBROUTINE_TOKEN" not in server["env"], (
-			f"{pinned} admits no program that reads the field as SUBROUTINE_TOKEN, so the plugin "
-			"should stop setting it"
-		)
-
+	assert "SUBROUTINE_TOKEN" not in _read(SERVERS)["mcpServers"]["tools"]["env"], (
+		"the plugin passes its field as SUBROUTINE_TOKEN too, which no program its pin admits needs"
+	)
 
 @pytest.mark.parametrize("option", ["connection", "workspace", "token"])
 def test_every_declared_option_is_substituted_somewhere (option: str) -> None:

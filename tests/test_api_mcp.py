@@ -641,7 +641,7 @@ def _the_field (monkeypatch: pytest.MonkeyPatch, holding: str | None) -> None:
 
 	**Every variable the shipped manifest fills from the field**, read from it rather than listed,
 	so these tests follow the plugin that ships: since `SR#3600` that is ``SUBROUTINE_PLUGIN_TOKEN``,
-	with ``SUBROUTINE_TOKEN`` beside it for older programs.
+	and since `SR#4489` that alone, where ``SUBROUTINE_TOKEN`` went beside it for older programs.
 	"""
 
 	passed = json.loads((OURS / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["tools"]
@@ -882,8 +882,13 @@ def test_whoami_names_no_sign_out_where_the_field_is_not_what_answers (
 	own = said()
 
 	monkeypatch.delenv("SUBROUTINE_TOKEN_LOCAL")
+
+	# **The old name set by hand** (`SR#4489`): a shell may export it, and a plugin from before 0.9.9
+	# passed the field under it alone, but the plugin that ships no longer sets it beside the new one.
+	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
 	unstarted = said(by_the_plugin=False)
 	older_plugin = said(root=older)
+	monkeypatch.delenv("SUBROUTINE_TOKEN")
 
 	_the_field(monkeypatch, "")
 	emptied = said()
