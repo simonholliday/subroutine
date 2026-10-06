@@ -8,12 +8,15 @@ is the workspace's vocabulary, so renaming it reaches where you cannot see.
 import typing
 
 import pytest
+import sqlalchemy
 
 import api_support
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.db.models.vocabulary
 import subroutine.domain.authentication
+import subroutine.domain.vocabulary
 import subroutine.errors
 import test_api_tasks
 import test_authorization
@@ -216,3 +219,39 @@ def test_a_credential_that_may_not_read_tasks_sees_only_the_tags_nothing_carries
 	projects_only = world._replace(secret=issued.value.get_secret_value())
 
 	assert set(_tags(projects_only)) == {"someday"}
+
+
+def test_the_domain_itself_refuses_a_tag_out_of_sight (world: World) -> None:
+	"""`SR#4551`: renaming or deleting a hidden tag is refused by the domain, wherever it is asked.
+
+	Both transports found the tag through ``selection.tag``, which hides it; a third caller handing
+	the domain the row renamed it, and deleted it from the private work. Now neither, and the tag is
+	as it was. One in sight is still the workspace's to rename.
+	"""
+
+	_seeded(world)
+	outsider = test_authorization._member(world.session, world.workspace, "member")
+	model = subroutine.db.models.vocabulary.Tag
+
+	def named (name: str) -> typing.Any:
+		"""Return this workspace's tag of that name."""
+
+		return world.session.scalars(
+			sqlalchemy.select(model).where(model.workspace_id == world.workspace.id, model.name == name)
+		).one()
+
+	hidden = named("rival-bid")
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.vocabulary.update_tag(
+			world.session, hidden, name="open-bid", actor=outsider
+		)
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.vocabulary.delete_tag(world.session, hidden, actor=outsider)
+
+	# Found by its old name, so neither refused call changed it.
+	named("rival-bid")
+	assert subroutine.domain.vocabulary.update_tag(
+		world.session, named("deploy"), name="release", actor=outsider
+	).name == "release"

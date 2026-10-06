@@ -823,12 +823,20 @@ def update_tag (
 	description: str | None = subroutine.domain.patch.UNSET,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.vocabulary.Tag:
-	"""Rename a tag, or say what it means in this workspace."""
+	"""Rename a tag, or say what it means in this workspace.
+
+	**Not a tag the actor cannot see** (`#4551`, decision `#4094`): one only private work they cannot
+	see uses is answered as though there were none, wherever this is called from. Both transports
+	found the tag through ``selection.tag``, which asks the same, and a third caller handing this a
+	row would have renamed it. One the actor can see is the workspace's, and its new name reaches
+	the hidden work too.
+	"""
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize(
 			session, actor, subroutine.permissions.TAG_WRITE, workspace_id=tag.workspace_id
 		)
+		_refuse_an_unseen(session, actor, tag)
 
 	if name is not subroutine.domain.patch.UNSET:
 		cleaned = subroutine.domain.text.fit(
@@ -894,6 +902,17 @@ def update_tag (
 	return tag
 
 
+def _refuse_an_unseen (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	tag: subroutine.db.models.vocabulary.Tag,
+) -> None:
+	"""Refuse a tag only private work the actor cannot see uses, as though there were none."""
+
+	if not subroutine.domain.scoping.tag_is_seen(session, actor, tag):
+		raise subroutine.errors.NotFound("There is no tag with that id.")
+
+
 def delete_tag (
 	session: sqlalchemy.orm.Session,
 	tag: subroutine.db.models.vocabulary.Tag,
@@ -912,13 +931,15 @@ def delete_tag (
 	bring its tag into sight by tagging their own work with it, then delete it, and the tag left the
 	private work too. Work hidden from them now keeps it, and the tag drops out of their sight; with
 	nothing else carrying it, it is deleted. Nothing returned says which, so a delete confirms no
-	hidden use. ``None`` is an internal caller, and reaches everything.
+	hidden use. ``None`` is an internal caller, and reaches everything. **Not a tag the actor cannot
+	see at all** (`#4551`), for :func:`update_tag`'s reason.
 	"""
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize(
 			session, actor, subroutine.permissions.TAG_WRITE, workspace_id=tag.workspace_id
 		)
+		_refuse_an_unseen(session, actor, tag)
 
 	reached = (
 		None
