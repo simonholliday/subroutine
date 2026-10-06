@@ -14,6 +14,17 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `4b82edddbc80`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result - in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
+- **The database holds every Inbox public, at the top level and out of the trash**, as the
+  program already did. Before 0.10.0 an Inbox could be made private or moved under another
+  project; if one of yours was, `db upgrade` stops before changing anything, names the
+  workspace and prints the statements that settle it, since making it public shows its work to
+  everybody in the workspace and that is yours to choose.
 - **`/v1/me` no longer lists, under each workspace, the projects where you hold a role of the
   project's own.** Nothing in the program could give anybody such a role, and permission checks
   no longer read one, so a workspace's permissions in that answer are yours in each of its

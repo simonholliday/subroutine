@@ -62,6 +62,12 @@ class Project(
 		sqlalchemy.Index("ix_project_workspace_id_path", "workspace_id", "path"),
 		sqlalchemy.Index("ix_project_workspace_id_status_id", "workspace_id", "status_id"),
 		subroutine.db.mixins.enum_check("visibility", subroutine.db.mixins.PROJECT_VISIBILITIES),
+		# **The Inbox is public, at the top level and out of the trash** (`#4549`, decision `#4532`):
+		# the backstop beneath ``projects.refuse_unsettling_the_inbox``, which refuses by name.
+		sqlalchemy.CheckConstraint(
+			"NOT is_inbox OR (visibility = 'public' AND parent_id IS NULL AND deleted_at IS NULL)",
+			name="inbox_settled",
+		),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()

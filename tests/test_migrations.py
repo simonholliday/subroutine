@@ -673,6 +673,9 @@ def _a_workspace_with_one_task (
 	return identifier
 
 
+#: The revision before `SR#4549` held every Inbox public, at the top level and out of the trash.
+_BEFORE_THE_INBOX_HELD = "6c708db1582c"
+
 #: The revision before `SR#1688` seeded the supersedes link type and the superseded status.
 _BEFORE_SUPERSEDING = "9c41d0b7ae52"
 
@@ -2758,6 +2761,144 @@ def test_a_document_that_binds_the_workspace_holds_the_downgrade_back (migrated_
 			}
 
 		assert bound == {plain_id: "project", marked_id: "project"}, bound
+
+	finally:
+		engine.dispose()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_an_inbox_that_breaks_the_rule_holds_the_upgrade_back_and_says_how (
+	migrated_url: str,
+) -> None:
+	"""`SR#4549`: refused before anything is written, naming each Inbox and what settles it.
+
+	The program refused a private Inbox, and one under another project, only from 0.10.0, so an older
+	installation can hold one. Settling it in the migration would show a private Inbox's work to the
+	whole workspace unasked (Simon, 2026-10-06), so the upgrade stops and prints the statements.
+	**They are run here, and the upgrade then goes through**, so the advice is proved rather than
+	read - the move to the top level above all, which rewrites the path of everything beneath it. An
+	ordinary Inbox beside them is not named.
+	"""
+
+	subroutine.db.migrate.downgrade(migrated_url, _BEFORE_THE_INBOX_HELD)
+	engine = subroutine.db.session.create_engine(migrated_url)
+	inboxes: dict[str, uuid.UUID] = {}
+	ship, errands = subroutine.db.types.new_uuid(), subroutine.db.types.new_uuid()
+	stamp = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+
+	try:
+		with engine.begin() as connection:
+			for slug in ("metacortex", "zion", "nebuchadnezzar", "construct"):
+				workspace, status, inbox = (subroutine.db.types.new_uuid() for _ in range(3))
+				inboxes[slug] = inbox
+				nested = slug == "nebuchadnezzar"
+				_insert(connection, "workspace", {"id": workspace, "slug": slug, "title": slug})
+				_insert(
+					connection,
+					"status",
+					{"id": status, "workspace_id": workspace, "key": "active", "label": "Active"},
+				)
+
+				if nested:
+					_insert(
+						connection,
+						"project",
+						{
+							"id": ship,
+							"workspace_id": workspace,
+							"key": "ship",
+							"title": "Ship",
+							"status_id": status,
+							"path": f"/{ship}/",
+						},
+					)
+
+				above = f"/{ship}/" if nested else "/"
+				_insert(
+					connection,
+					"project",
+					{
+						"id": inbox,
+						"workspace_id": workspace,
+						"key": "inbox",
+						"title": "Inbox",
+						"status_id": status,
+						"is_inbox": True,
+						"visibility": "private" if slug == "zion" else "public",
+						"parent_id": ship if nested else None,
+						"path": f"{above}{inbox}/",
+						"depth": 1 if nested else 0,
+						"deleted_at": stamp if slug == "construct" else None,
+					},
+				)
+
+				if nested:
+					_insert(
+						connection,
+						"project",
+						{
+							"id": errands,
+							"workspace_id": workspace,
+							"key": "errands",
+							"title": "Errands",
+							"status_id": status,
+							"parent_id": inbox,
+							"path": f"/{ship}/{inbox}/{errands}/",
+							"depth": 2,
+						},
+					)
+
+		with pytest.raises(Exception) as refused:
+			subroutine.db.migrate.upgrade(migrated_url)
+
+		said = str(refused.value)
+
+		for slug, wrong in (
+			("zion", "it is private"),
+			("nebuchadnezzar", "it is under another project"),
+			("construct", "it is in the trash"),
+		):
+			assert f"The Inbox of '{slug}': {wrong}." in said, said
+
+		assert "metacortex" not in said, said
+
+		with engine.connect() as connection:
+			assert subroutine.db.migrate.revision_on(connection) == _BEFORE_THE_INBOX_HELD, (
+				"the upgrade moved on before it refused"
+			)
+
+		advice = [line.strip() for line in said.splitlines() if line.strip().startswith("UPDATE ")]
+
+		with engine.begin() as connection:
+			for statement in advice:
+				connection.execute(sqlalchemy.text(statement))
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		project = subroutine.db.base.Base.metadata.tables["project"]
+
+		with engine.connect() as connection:
+			rows = {
+				row.id: row
+				for row in connection.execute(
+					sqlalchemy.select(
+						project.c.id,
+						project.c.parent_id,
+						project.c.path,
+						project.c.depth,
+						project.c.visibility,
+						project.c.deleted_at,
+					)
+				)
+			}
+
+		moved = rows[inboxes["nebuchadnezzar"]]
+
+		assert (moved.parent_id, moved.path, moved.depth) == (None, f"/{moved.id}/", 0), moved
+		assert (rows[errands].path, rows[errands].depth) == (f"/{moved.id}/{errands}/", 1)
+		assert rows[inboxes["zion"]].visibility == "public"
+		assert rows[inboxes["construct"]].deleted_at is None
+		assert subroutine.db.migrate.check_constraint_differences(engine) == []
 
 	finally:
 		engine.dispose()

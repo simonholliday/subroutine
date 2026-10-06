@@ -362,21 +362,8 @@ def move (
 	elif actor is not None and _beyond_reach_at_the_top(actor, project):
 		_refuse_the_top_level(session, actor, moving=project)
 
-	# **Nor under another project** (`#4143`), which is the same harm by a second route: privacy
-	# inherits down the tree, so a private project above the Inbox would hide it just as making it
-	# private does, and :func:`update` refuses that.
-	if project.is_inbox and parent is not None:
-		raise subroutine.errors.ValidationError(
-			"The Inbox cannot be moved under another project.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="parent",
-					code="invalid_field_value",
-					message="A private project above it would hide the Inbox, where everything filed "
-					"in this workspace without a project goes.",
-				)
-			],
-		)
+	# **Nor the Inbox under another project** (`#4143`): a private project above it would hide it.
+	refuse_unsettling_the_inbox(project, parent=parent)
 
 	# **Nor under a private project, unless by its owner or an administrator** (`#4383`, decision
 	# `#4384`): privacy inherits down the tree, so this takes it out of sight as making it private
@@ -557,23 +544,8 @@ def update (
 			],
 		)
 
-	# **The Inbox stays where everybody in the workspace can see it** (`#4143`, decided on `#3946`),
-	# as it stays undeleted. Everything filed there without a project goes to it, so a private
-	# Inbox refused every other member's capture as though they had named a project they could not
-	# see.
-	if visibility == "private" and project.is_inbox:
-		raise subroutine.errors.ValidationError(
-			"The Inbox cannot be made private.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="visibility",
-					code="invalid_field_value",
-					message="Everything filed in this workspace without a project goes to the Inbox, "
-					"so everybody in the workspace has to be able to see it.",
-					hint="For a list of your own, make a private project and file into it with +key.",
-				)
-			],
-		)
+	# **The Inbox stays where everybody in the workspace can see it** (`#4143`).
+	refuse_unsettling_the_inbox(project, visibility=visibility)
 
 	# **Nor a project holding a rule for the whole workspace** (`#4286`, decision `#4134`), unless
 	# by somebody who may mark one: it takes the rule out of sight of everybody not shared into it.
@@ -786,18 +758,7 @@ def delete (
 	if project.deleted_at is not None:
 		return project
 
-	if project.is_inbox:
-		raise subroutine.errors.ValidationError(
-			"The Inbox cannot be deleted.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="project",
-					code="invalid_field_value",
-					message="This is the project tasks are filed in when they have no other, "
-					"so a workspace is not usable without it.",
-				)
-			],
-		)
+	refuse_unsettling_the_inbox(project, deleting=True)
 
 	# **Nor a project holding a rule for the whole workspace** (`#4286`): the rule goes to the trash
 	# with it, which retires it for everybody.
@@ -1522,6 +1483,71 @@ def share (
 	)
 
 	return membership
+
+
+def refuse_unsettling_the_inbox (
+	project: subroutine.db.models.project.Project,
+	*,
+	visibility: typing.Any = None,
+	parent: subroutine.db.models.project.Project | None = None,
+	deleting: bool = False,
+) -> None:
+	"""Refuse what would take the Inbox from where everybody files - `#4549`, decision `#4532`.
+
+	**The Inbox is public, at the top level and out of the trash** (`#4143`, decided on `#3946`).
+	Everything filed in a workspace without a project goes to it, so everybody in the workspace has
+	to be able to reach it: a private one refused every other member's capture as though they had
+	named a project they could not see, one under a private project is hidden the same way, since
+	privacy inherits down the tree, and a workspace without one has nowhere to file at all.
+
+	**Said once, each door naming the part it would break**: ``visibility`` is what an update would
+	make it, ``parent`` where a move would put it, and ``deleting`` a move to the trash. Three doors
+	said it in their own places. ``ck_project_inbox_settled`` holds the same rule beneath, for a
+	door that forgets to ask - a refusal by name here, and an integrity error there.
+	"""
+
+	if not project.is_inbox:
+		return
+
+	if deleting:
+		raise subroutine.errors.ValidationError(
+			"The Inbox cannot be deleted.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="invalid_field_value",
+					message="This is the project tasks are filed in when they have no other, "
+					"so a workspace is not usable without it.",
+				)
+			],
+		)
+
+	if visibility == "private":
+		raise subroutine.errors.ValidationError(
+			"The Inbox cannot be made private.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="visibility",
+					code="invalid_field_value",
+					message="Everything filed in this workspace without a project goes to the Inbox, "
+					"so everybody in the workspace has to be able to see it.",
+					hint="For a list of your own, make a private project and file into it with +key.",
+				)
+			],
+		)
+
+	if parent is not None:
+		raise subroutine.errors.ValidationError(
+			"The Inbox cannot be moved under another project.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="invalid_field_value",
+					message="A private project above it would hide the Inbox, where everything filed "
+					"in this workspace without a project goes.",
+				)
+			],
+		)
 
 
 def may_rescue (actor: subroutine.domain.authentication.Principal | None) -> bool:

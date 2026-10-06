@@ -9,8 +9,12 @@ import typing
 import uuid
 
 import pytest
+import sqlalchemy
+import sqlalchemy.exc
 import sqlalchemy.orm
 
+import subroutine.db.models.project
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.tasks
@@ -392,6 +396,30 @@ def test_restoring_a_project_whose_key_was_reused_is_refused_by_name (
 	assert refused.status_code == 409, refused.text
 	assert refused.json()["code"] == "duplicate_key"
 	assert "project rename" in refused.text, "and it names the way out"
+
+
+def test_the_database_holds_the_inbox_where_everybody_files (world: test_api_tasks.World) -> None:
+	"""`SR#4549`: beneath the program's refusals, the database refuses each of the three too.
+
+	For a door that forgets to ask - an import, a bulk move - which would otherwise leave a private
+	Inbox, one under another project or one in the trash with nothing saying so.
+	"""
+
+	model = subroutine.db.models.project.Project
+	other = world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"}).json()
+	inbox = world.session.scalars(
+		sqlalchemy.select(model).where(model.workspace_id == world.workspace.id, model.is_inbox)
+	).one()
+
+	for change in (
+		{"visibility": "private"},
+		{"parent_id": uuid.UUID(other["id"])},
+		{"deleted_at": subroutine.db.types.utcnow()},
+	):
+		with pytest.raises(sqlalchemy.exc.IntegrityError), world.session.begin_nested():
+			world.session.execute(
+				sqlalchemy.update(model).where(model.id == inbox.id).values(**change)
+			)
 
 
 def test_the_inbox_cannot_be_deleted (world: test_api_tasks.World) -> None:
