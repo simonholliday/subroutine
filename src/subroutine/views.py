@@ -5712,6 +5712,17 @@ def writable (credential: Credential | Token) -> list[str]:
 	return list(credential.project_write_scope_keys or credential.project_write_scope)
 
 
+#: **What ``show`` says, on every surface, where an item's comments are left out** (`#4554`,
+#: decision `#4511`). A credential without ``comment:read`` was refused the whole item, so the
+#: hosting guide's own agent could not show one; the item is shown now, and this line keeps the
+#: gap from reading as *no comments*. One sentence, so the terminal and the agent tools cannot
+#: come to say it differently.
+COMMENTS_LEFT_OUT = (
+	"Its comments are left out: reading them takes comment:read, which this credential does not "
+	"carry."
+)
+
+
 def comments_saying (recorded: typing.Sequence[Comment], words: str) -> list[Comment]:
 	"""Return the comments whose text contains these words — item ``#415``.
 

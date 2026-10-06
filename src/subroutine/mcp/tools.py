@@ -3914,7 +3914,14 @@ def _shown (
 			for event in client.history(ref=ref, entity_type=kind, workspace=workspace)
 		)
 
-	remarks = client.comments(ref=ref, entity_type=kind, workspace=workspace)
+	# **Without the comments a credential may not read, saying so** (`#4554`, decision `#4511`):
+	# this refused the whole item, so the hosting guide's own agent could not show one.
+	try:
+		remarks = client.comments(ref=ref, entity_type=kind, workspace=workspace)
+
+	except subroutine.errors.Forbidden:
+		remarks = []
+		parts.extend(["", subroutine.views.COMMENTS_LEFT_OUT])
 
 	if remarks:
 		parts.append("")

@@ -13087,6 +13087,10 @@ class Sections:
 	#: apart — carried here rather than passed beside `Sections`, so the two cannot disagree.
 	asked_for_history: bool
 
+	#: Whether the comments were left out because this credential may not read them (`#4554`).
+	#: An empty ``remarks`` is what *no comments* looks like too, so it is said, on both paths.
+	comments_left_out: bool = False
+
 
 #: What a section returns when this instance is too old to have the route behind it.
 _Section = typing.TypeVar("_Section")
@@ -13135,9 +13139,19 @@ def _sections (
 
 	where = {"entity_type": located.entity_type, "workspace": located.workspace}
 
+	# **Without the comments a credential may not read** (`#4554`, decision `#4511`): this refused
+	# the whole item, so the hosting guide's own agent could not show one.
+	try:
+		remarks = client.comments(ref=located.ref, **where)
+		left_out = False
+
+	except subroutine.errors.Forbidden:
+		remarks, left_out = [], True
+
 	return Sections(
+		comments_left_out=left_out,
 		links=client.links(ref=located.ref, **where),
-		remarks=client.comments(ref=located.ref, **where),
+		remarks=remarks,
 		referring=_if_the_instance_can_answer(
 			lambda: client.backlinks(ref=located.ref, **where)
 		),
@@ -14211,6 +14225,10 @@ def _render_item (
 			line.append(f"  ({_against_the_tree(record.tree_hash, here)})", style=DETAIL)
 			console.print(line)
 
+	if gathered.comments_left_out:
+		console.print("")
+		console.print(rich.text.Text(subroutine.views.COMMENTS_LEFT_OUT, style=DETAIL))
+
 	if remarks:
 		# **The count is always shown; the bodies are bounded** (`#37`, Simon's request). Every
 		# comment in full is right for the three or four an item usually has and wrong for the
@@ -14974,6 +14992,9 @@ def _shown_as_json (
 		"item": located.item.model_dump(mode="json"),
 		"links": [link.model_dump(mode="json") for link in links],
 		"comments": [remark.model_dump(mode="json") for remark in remarks],
+		# **True where they were left out because this credential may not read them** (`#4554`),
+		# which an empty list cannot say.
+		"comments_left_out": gathered.comments_left_out,
 		# **What refers to this** (`#144`), carried for the scripted reader as well: a script
 		# asking "is this safe to close" wants what mentions it exactly as a person does, and
 		# a section the rendered path shows and this one omits is `#583`'s two-renderings

@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`show` prints an item without the comments its credential may not read, and says so**, in
+  the terminal and the agent tools. A credential without `comment:read` - the hosting guide's
+  own agent recipe among them - was refused the whole item. The recipe now carries
+  `comment:read` and `comment:write`, so an agent can say what it did.
 - **A credential narrowed to some projects reaches only the workspaces that hold them.** One
   narrowed to a project in one workspace read another workspace's record, members, settings and
   vocabulary, `/v1/me` offered it that workspace's verbs, and a capture with no workspace named

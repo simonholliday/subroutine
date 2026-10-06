@@ -1272,11 +1272,6 @@ KNOWN: dict[tuple[str, str], str] = {
 	("me", "scoped to reading tasks"): "#4553: S10, /v1/me describes the workspace.",
 	("me", "scoped to reading tasks and commenting"): "#4553: S10, /v1/me describes the workspace.",
 	("me", "scoped to filing tasks"): "#4553: S10, /v1/me describes the workspace.",
-	# `#4554`: `show` refuses a credential without comment:read (NEW-C-1 of `#4507`).
-	("task", "scoped to reading tasks"): "#4554: show asks comment:read.",
-	("task", "scoped to reading tasks and commenting"): "#4554: show asks comment:read.",
-	("document", "scoped to reading tasks"): "#4554: show asks comment:read.",
-	("document", "scoped to reading tasks and commenting"): "#4554: show asks comment:read.",
 }
 
 

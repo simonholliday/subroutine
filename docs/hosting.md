@@ -1013,14 +1013,15 @@ who did what if the screen is ever used to write, and turning it off does not lo
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine agent create claude --project web --scope task:read --scope task:write
+    /opt/subroutine/bin/subroutine agent create claude --project web --scope task:read --scope task:write \
+      --scope comment:read --scope comment:write
   Created service account claude, with the contributor role.
 
     sr_…
 
   That is the only time the credential is shown. Nothing recovers it afterwards.
 
-  Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
+  Checked, by presenting it: claude (agent), in projects (comment:read, comment:write, task:read, task:write), and only within web
   Account parent: laurence.
 
   Nothing here will use it yet. For one project on this machine, it goes in
