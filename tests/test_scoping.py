@@ -1382,3 +1382,42 @@ def test_the_read_scope_is_waived_only_where_a_reason_is_written_down () -> None
 			f"{module} waives the read scope at {places}. One reason is recorded for it, so "
 			f"a second site there is one nobody has argued for."
 		)
+
+
+def test_a_project_in_a_workspace_somebody_left_is_not_named_to_them_by_its_new_key (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4556`, S15 of the cold review of 2026-10-05: a token listing named it after they left.
+
+	``keys_for`` resolved a credential's project scope across every workspace on the installation,
+	so a member taken out of a workspace saw a project there renamed, under its new address, in
+	their own token listing. It is passed through as the id the token stored, as a project they
+	cannot see is.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	there = subroutine.domain.workspaces.create(
+		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Nebuchadnezzar", owner=setup.user
+	)
+	target = subroutine.domain.projects.create(
+		session, workspace_id=there.id, key="target", title="Target", owner_id=setup.user.id
+	)
+	trinity = subroutine.domain.users.create(session, username=f"trinity-{uuid.uuid4().hex[:8]}")
+
+	for space in (setup.workspace, there):
+		subroutine.domain.workspaces.add_member(session, space, trinity, role_key="member")
+
+	session.flush()
+	principal = subroutine.domain.authentication.Principal(user=trinity)
+
+	assert subroutine.domain.projects.keys_for(session, principal, [str(target.id)]) == ["target"]
+
+	subroutine.domain.workspaces.remove_member(session, there, trinity)
+	subroutine.domain.projects.update(session, target, key="takeover-target")
+	session.flush()
+
+	assert subroutine.domain.projects.keys_for(session, principal, [str(target.id)]) == [
+		str(target.id)
+	], "a project in a workspace they left was named to them by its new key"
