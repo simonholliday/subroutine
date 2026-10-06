@@ -1517,8 +1517,14 @@ def _by_client (act: Act, cast: Cast, client: Client) -> Outcome:
 	return Outcome(False, None, None, repr(answered))
 
 
-def _from_a_tool (result: dict[str, typing.Any]) -> Outcome:
-	"""Read a tool result: an error's first line is its refusal, and its status what was rendered."""
+def _from_a_tool (result: dict[str, typing.Any], *, tool: str) -> Outcome:
+	"""Read a tool result: an error's first line is its refusal, and its status what was rendered.
+
+	**A status line is read only from ``subroutine_call_api``** (`SR#4616`), whose answer opens with
+	one. The change feed's tools open theirs with an event's number, so one between 400 and 999 was
+	read as a refusal and its text parsed as a problem document - on PostgreSQL, whose counter is
+	shared by the whole run, in some orderings and not others.
+	"""
 
 	text = "\n".join(block.get("text", "") for block in result.get("content", ()))
 
@@ -1530,7 +1536,7 @@ def _from_a_tool (result: dict[str, typing.Any]) -> Outcome:
 			text,
 		)
 
-	if text[:3].isdigit() and text[3:4] in ("", " "):
+	if tool == "subroutine_call_api" and text[:3].isdigit() and text[3:4] in ("", " "):
 		# **`call_api` answers with the status and the body**, and a refusal is a successful call.
 		status = int(text[:3])
 
@@ -1577,7 +1583,7 @@ def _at_mcp (cast: Cast, who: Who, name: str, arguments: dict[str, typing.Any]) 
 
 	assert answered.status_code == 200, answered.text
 
-	return _from_a_tool(answered.json()["result"])
+	return _from_a_tool(answered.json()["result"], tool=name)
 
 
 def _driving_the_cast (cast: Cast, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1635,7 +1641,7 @@ def _relay (
 
 		assert answered is not None and "result" in answered, answered
 
-		return _from_a_tool(answered["result"])
+		return _from_a_tool(answered["result"], tool=name)
 
 	return call
 
@@ -1922,3 +1928,20 @@ def test_every_client_method_is_an_act_or_says_why_not () -> None:
 	assert methods - called - set(NOT_AN_ACT) == set(), "a client method no act drives"
 	assert called & set(NOT_AN_ACT) == set(), "a method in NOT_AN_ACT that an act drives"
 	assert set(NOT_AN_ACT) <= methods, "NOT_AN_ACT names a method the client does not have"
+
+
+def test_only_call_api_s_answer_is_read_for_a_status_line () -> None:
+	"""`SR#4616`: a change feed read opening with event 412 was taken for a refusal.
+
+	Its text was then parsed as a problem document and raised, in some orderings on PostgreSQL and
+	not others. A refusal from ``subroutine_call_api`` is still read as one.
+	"""
+
+	feed = {"content": [{"type": "text", "text": "412 created #5 Fix the build"}]}
+
+	assert not _from_a_tool(feed, tool="subroutine_changes").refused
+
+	refused = {"content": [{"type": "text", "text": '404 {"detail": "There is no task \'9\' here."}'}]}
+	read = _from_a_tool(refused, tool="subroutine_call_api")
+
+	assert read.refused and read.status == 404, read
