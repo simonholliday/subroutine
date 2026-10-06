@@ -42,6 +42,11 @@ import subroutine.db.migrate
 import subroutine.db.models.system
 import subroutine.db.session
 import subroutine.diagnosis
+import subroutine.domain.authentication
+import subroutine.domain.authorization
+import subroutine.domain.backups
+import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 import test_api_tasks
 
@@ -1917,6 +1922,41 @@ def test_a_narrowed_token_cannot_take_a_backup (
 
 	assert world.call("POST", "/v1/admin/backups").status_code == 403
 	assert world.call("GET", "/v1/admin/backups").status_code == 403
+
+
+def test_the_domain_asks_who_may_take_or_list_a_backup (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#4550`: ``instance:admin`` is the domain's question, so every transport meets it.
+
+	The route asked it itself, so a second door to a backup would have had to remember. A member
+	of the workspace and the superuser's own credential pinned to one workspace are refused both
+	taking and listing, with nothing written; the superuser's unpinned credential is answered.
+	"""
+
+	world = test_api_tasks._world(session)
+	settings = subroutine.config.Settings(backup_directory=str(tmp_path))
+	member = subroutine.domain.users.create(session, username=f"member-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(session, world.workspace, member, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="One workspace", workspace_id=world.workspace.id
+	)
+	session.flush()
+	pinned = subroutine.domain.authentication.authenticate(
+		session, issued.value.get_secret_value()
+	)
+
+	for refused in (subroutine.domain.authentication.Principal(user=member), pinned):
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+			subroutine.domain.backups.take(session, settings, actor=refused)
+
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+			subroutine.domain.backups.held(settings, actor=refused)
+
+	assert list(tmp_path.iterdir()) == [], "a refused caller left a copy behind"
+	assert subroutine.domain.backups.held(
+		settings, actor=subroutine.domain.authentication.Principal(user=world.user)
+	) == ([], [])
 
 
 def _settings () -> subroutine.config.Settings:

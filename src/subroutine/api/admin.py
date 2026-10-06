@@ -15,14 +15,12 @@ import datetime
 
 import fastapi
 import pydantic
-import sqlalchemy.orm
 
 import subroutine.api.dependencies
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.db.backup
-import subroutine.domain.authorization
-import subroutine.permissions
+import subroutine.domain.backups
 
 router = fastapi.APIRouter(
 	prefix="/v1/admin",
@@ -113,42 +111,7 @@ def create_backup (
 ) -> Backup:
 	"""Take a datetime-stamped copy of the database and report what it is called."""
 
-	subroutine.domain.authorization.authorize_instance(
-		actor, subroutine.permissions.INSTANCE_ADMIN
-	)
-
-	# **Routine, because somebody asked for it** (`#1712`). A copy taken through this endpoint is
-	# one an operator or their agent requested deliberately, which is exactly what the routine
-	# lifetime describes — the other two are copies the program takes on its own initiative
-	# during an upgrade or a restore, and nothing reaches those from here.
-	return _rendered(
-		subroutine.db.backup.take(
-			_engine_behind(session),
-			settings,
-			taken_for=subroutine.db.backup.ROUTINE,
-			keep=keep,
-		)
-	)
-
-
-def _engine_behind (session: sqlalchemy.orm.Session) -> sqlalchemy.engine.Engine:
-	"""Return the engine this session ultimately talks through.
-
-	The engine behind the *session*, rather than a second one built from the configured URL: a
-	backup taken over a different connection than the application serves from is a backup of a
-	database that may not be the one being served.
-
-	``get_bind`` answers with an ``Engine`` normally and with a ``Connection`` when something
-	has bound one — which the test harness does, so that a request shares the test's
-	transaction. Both have an engine behind them and it is the same engine either way.
-	"""
-
-	bind = session.get_bind()
-
-	if isinstance(bind, sqlalchemy.engine.Connection):
-		return bind.engine
-
-	return bind
+	return _rendered(subroutine.domain.backups.take(session, settings, keep=keep, actor=actor))
 
 
 @router.get("/backups", response_model=Backups, summary="List the backups this instance holds")
@@ -158,11 +121,9 @@ def list_backups (
 ) -> Backups:
 	"""List the backups this instance holds, newest first, and name any copy marked unfinished."""
 
-	subroutine.domain.authorization.authorize_instance(
-		actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
-	)
+	found, unfinished = subroutine.domain.backups.held(settings, actor=actor)
 
 	return Backups(
-		items=[_rendered(found) for found in subroutine.db.backup.catalogue(settings)],
-		unfinished=[copy.name for copy in subroutine.db.backup.unfinished(settings)],
+		items=[_rendered(backup) for backup in found],
+		unfinished=[copy.name for copy in unfinished],
 	)
