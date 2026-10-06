@@ -12895,7 +12895,10 @@ def test_a_span_written_as_two_bare_days_is_planned_as_one_pair (
 
 	shown = run("show", "1")
 
-	assert "Fri 4 Sep to Mon 7 Sep" in shown.output, (
+	# **A year may sit beside the Friday** (`SR#4612`): whether one is printed is decided against the
+	# real date, which this does not pin, and from 6 October 2026 the Friday is more than a month
+	# back. The property is the Monday, which has to be the 7th, read against the Friday.
+	assert re.search(r"Fri 4 Sep(?: 2026)? to Mon 7 Sep\b", shown.output), (
 		f"the Monday was read against today rather than against the Friday:\n{shown.output}"
 	)
 
