@@ -19,6 +19,10 @@ owner's to take back (`#4429`). Releasing and changing a comment pass ``doing=No
 asks nothing of the trash, and making one asks :func:`refuse_reaching` itself, once it has answered
 a link already made (`#3798`).
 
+**What is beneath the trash takes none of them** (Simon, `#4653`): it is hidden with its container
+(`#4091`), so nothing is done through it until that is restored, and each door that meets it says
+where it is. A link to it can still be removed from its live end (`#4429`).
+
 **What is done to an item from elsewhere** - filing or moving something under it - asks
 :func:`refuse_reaching` of the item it reaches, which is not the one being written (`#4096`).
 """

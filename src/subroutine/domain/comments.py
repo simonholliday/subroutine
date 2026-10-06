@@ -39,6 +39,7 @@ import subroutine.domain.patch
 import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.text
+import subroutine.domain.trash
 import subroutine.domain.versions
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -78,6 +79,7 @@ def _entity (
 	entity_type: str,
 	entity_id: uuid.UUID,
 	writing: bool = True,
+	workspace_id: uuid.UUID | None = None,
 ) -> typing.Any:
 	"""Return the thing being commented on, or report that there is no such thing.
 
@@ -109,6 +111,12 @@ def _entity (
 
 	**A template is an item you may read and annotate; it is not *work*.** That is what keeps it
 	out of a listing (§6.7), and it says nothing about its record.
+
+	**Beneath the trash is not "no such thing"** (`#4653`): an item hidden with its container
+	(`#4091`) is answered by saying where it is, as every other door says it, when ``workspace_id``
+	names where to look - which a comment already found knows. *There is no task here to comment
+	on* was false about it. Nothing is done through it, withdrawals included, until its container
+	is restored (decision `#4532`).
 	"""
 
 	if entity_type not in ENTITY_TYPES:
@@ -167,6 +175,14 @@ def _entity (
 			).where(subroutine.db.models.work.Document.id == entity_id)
 
 		found = session.scalars(statement).first()
+
+	if found is None and actor is not None and workspace_id is not None:
+		out_of_sight = subroutine.domain.trash.hidden(
+			session, actor, workspace_id=workspace_id, wanted=str(entity_id)
+		)
+
+		if out_of_sight is not None:
+			raise out_of_sight
 
 	if found is None:
 		raise subroutine.errors.NotFound(f"There is no {entity_type} here to comment on.")
@@ -361,6 +377,7 @@ def get (
 		entity_type=found.entity_type,
 		entity_id=found.entity_id,
 		writing=False,
+		workspace_id=found.workspace_id,
 	)
 
 	if actor is not None:
@@ -549,6 +566,7 @@ def _may_write (
 		entity_type=comment.entity_type,
 		entity_id=comment.entity_id,
 		writing=False,
+		workspace_id=comment.workspace_id,
 	)
 	subroutine.domain.authorization.authorize_on(
 		session, actor, subroutine.permissions.COMMENT_WRITE, subject, doing=None

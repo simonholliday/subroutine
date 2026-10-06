@@ -12,6 +12,7 @@ import uuid
 import pytest
 import sqlalchemy
 
+import subroutine.db.models.activity
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.claims
@@ -227,3 +228,44 @@ def test_the_domain_itself_refuses_a_write_beneath_the_trash (world: World) -> N
 
 	for refused in (changed, claimed, checked, commented):
 		assert beneath in str(refused.value), str(refused.value)
+
+
+def test_a_comment_on_work_beneath_the_trash_says_where_the_work_is (world: World) -> None:
+	"""`SR#4653`: changing or deleting it is refused naming the container, as every door says it.
+
+	The work is hidden with what it is beneath (`#4091`), and nothing is done through it until that
+	is restored, withdrawals included (Simon, 2026-10-06). The refusal said *There is no task here
+	to comment on*, which was false: the task is there. A link to it is still removed from its live
+	end (`#4429`).
+	"""
+
+	parent = _made(world, "/v1/tasks", {"title": "Plan the launch party"})
+	venue = _made(world, "/v1/tasks", {"title": "Book the venue", "parent_task_id": parent["id"]})
+	notes = _made(world, "/v1/tasks", {"title": "Write the release notes"})
+	said = _made(world, f"/v1/tasks/{venue['ref']}/comments", {"body": "Asked two places."})
+	link = _made(
+		world, f"/v1/tasks/{venue['ref']}/links", {"target": notes["ref"], "link_type": "blocks"}
+	)
+
+	assert world.call("DELETE", f"/v1/tasks/{parent['ref']}").is_success
+
+	beneath = f"#{venue['ref']} is beneath #{parent['ref']}, which is in the trash."
+
+	for refused in (
+		world.call("PATCH", f"/v1/comments/{said['id']}", json={"body": "Asked three."}),
+		world.call("DELETE", f"/v1/comments/{said['id']}"),
+	):
+		assert refused.status_code == 422, refused.text
+		assert refused.json()["detail"] == beneath, refused.text
+
+	# **And a caller of the domain that already holds the comment**, which asks the same of its item.
+	written = world.session.get(subroutine.db.models.activity.Comment, uuid.UUID(said["id"]))
+	actor = subroutine.domain.authentication.Principal(user=world.user)
+
+	assert written is not None
+
+	with pytest.raises(subroutine.errors.ValidationError) as changed:
+		subroutine.domain.comments.update(world.session, written, body="Asked three.", actor=actor)
+
+	assert str(changed.value) == beneath, str(changed.value)
+	assert world.call("DELETE", f"/v1/tasks/{notes['ref']}/links/{link['id']}").status_code == 204

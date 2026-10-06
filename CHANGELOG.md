@@ -20,6 +20,8 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Changing or deleting a comment on work beneath something in the trash says where the work
+  is**, and what to restore, as every other command does. It said there was no such task.
 - **The database holds every Inbox public, at the top level and out of the trash**, as the
   program already did. Before 0.10.0 an Inbox could be made private or moved under another
   project; if one of yours was, `db upgrade` stops before changing anything, names the
