@@ -1,9 +1,26 @@
-"""What may be done to an item in the trash: read it, restore it, or delete it again (§6.9).
+"""What may be done to an item in the trash, or beneath anything in it (§6.9, decision `#4532`).
 
-**Nothing else, and every writer asks here** (`#3935`). A comment on a trashed item was refused
-by name from the start, while an edit, a completion, a skip, a claim and a move answered as though
-it were live - and finishing a trashed occurrence of a repeat brought the next one. A row in the
-trash is somebody saying they are done with it, so work on it waits until it is taken back out.
+**Read it, restore it, or delete it again - and withdraw what hangs off it.** A row in the trash is
+somebody saying they are done with it, so work on it waits until it is taken back out (`#3935`): a
+comment on a trashed item was refused by name from the start, while an edit, a completion, a skip, a
+claim and a move answered as though it were live - and finishing a trashed occurrence of a repeat
+brought the next one. What is beneath it is out of sight with it (`#4091`), and refused the same.
+
+**One gate, at the permission check** (`#4548`): ``authorization.authorize_on`` refuses every
+write to a task or a document in or beneath the trash, with :func:`refuse_reaching`'s sentence, so
+no writer has to remember to ask. Seven asked here by hand, and comments kept a copy of their own.
+
+**Three acts are not refused, because they withdraw what hangs off the item and leave the item as
+it is** (Q10 of the cold review of 2026-10-05): editing or deleting a comment on it - changing one
+is not adding to its record (`#3920`) - releasing a lease on it, since the case a release exists
+for is an agent that died holding one, and removing a link to or from it, which is still its
+owner's to take back (`#4429`). Releasing and changing a comment pass ``doing=None`` to the gate.
+**A link's ends reach it as ends, not as items, so the gate does not hold them**: removing a link
+asks nothing of the trash, and making one asks :func:`refuse_reaching` itself, once it has answered
+a link already made (`#3798`).
+
+**What is done to an item from elsewhere** - filing or moving something under it - asks
+:func:`refuse_reaching` of the item it reaches, which is not the one being written (`#4096`).
 """
 
 import typing
@@ -23,50 +40,33 @@ import subroutine.errors
 Item = subroutine.db.models.work.Task | subroutine.db.models.work.Document
 
 
-def refuse (
-	row: subroutine.db.models.work.Task | subroutine.db.models.work.Document, *, doing: str
-) -> None:
-	"""Refuse ``doing`` to a task or a document in the trash, saying how to go on.
-
-	``doing`` finishes the sentence: *#42 is in the trash, so it cannot be* ``changed``. Refused
-	as a comment on one is, and with the same remedy.
-	"""
-
-	if row.deleted_at is None:
-		return
-
-	raise refusal(row.ref, doing=doing)
-
-
 def refusal (ref: int, *, doing: str) -> subroutine.errors.ValidationError:
-	"""Return :func:`refuse`'s sentence, for a caller that has to say it before it asks - `#4005`.
+	"""Return the sentence refusing ``doing`` to an item in the trash.
 
-	``document edit`` finds a document trash included and runs the editor before it saves, so the
-	domain's refusal arrived after the typing and the text was gone. The terminal asks first, in
-	these same words.
+	``doing`` is the whole clause after *so*: *#42 is in the trash, so* ``it cannot be changed``.
+	Public for a caller that has to say it before it asks (`#4005`): ``document edit`` finds a
+	document trash included and runs the editor before it saves, so the domain's refusal arrived
+	after the typing and the text was gone. The terminal asks first, in these same words.
 	"""
 
 	return subroutine.errors.ValidationError(
-		f"{subroutine.domain.refs.format_ref(ref)} is in the trash, so it cannot be {doing}.",
+		f"{subroutine.domain.refs.format_ref(ref)} is in the trash, so {doing}.",
 		hint="Restore it first if you meant to keep working on it.",
 	)
 
 
 def refuse_reaching (session: sqlalchemy.orm.Session, row: Item, *, doing: str) -> None:
-	"""Refuse ``doing`` to an item in the trash, or beneath one - decision `#4096`.
+	"""Refuse ``doing`` to an item in the trash, or beneath one - decisions `#4096` and `#4532`.
 
-	**For what is done to an item from elsewhere** - something filed or moved under it, a check
-	recorded on it, a link made to or from it - where :func:`refuse` is for a change to the row
-	itself. ``doing`` is the whole clause after *so*: *#42 is in the trash, so nothing can be filed
-	under it.* An item beneath one in the trash is refused with :func:`hidden`'s sentence, which
-	names the one to restore, since decision `#4091` hides it with its container.
+	**The gate ``authorization.authorize_on`` asks for every write**, and what is done to an item
+	from elsewhere asks it directly. ``doing`` is the whole clause after *so*: *#42 is in the trash,
+	so nothing can be filed under it.* An item beneath one in the trash is refused with
+	:func:`hidden`'s sentence, which names the one to restore, since decision `#4091` hides it with
+	its container.
 	"""
 
 	if row.deleted_at is not None:
-		raise subroutine.errors.ValidationError(
-			f"{subroutine.domain.refs.format_ref(row.ref)} is in the trash, so {doing}.",
-			hint="Restore it first if you meant to keep working on it.",
-		)
+		raise refusal(row.ref, doing=doing)
 
 	out_of_sight = _out_of_sight(session, row)
 

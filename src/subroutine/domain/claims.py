@@ -38,7 +38,6 @@ import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.occurrences
 import subroutine.domain.readiness
-import subroutine.domain.trash
 import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
@@ -118,8 +117,10 @@ def claim (
 
 	# **Before the conflict is reported, not after.** Whether somebody else is working on this
 	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
+	# **Nor one in the trash** (`#3935`), which the permission check asks: it holds work nobody is
+	# going to do.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, task
+		session, actor, subroutine.permissions.TASK_WRITE, task, doing="it cannot be claimed"
 	)
 
 	# **Nor the repeat itself** (`#3942`), which a deferral and a skip refuse too (decision `#3795`):
@@ -130,9 +131,6 @@ def claim (
 		subroutine.domain.occurrences.refuse_the_repeat_itself(
 			session, task, act="claiming", verb="claim", field="ref"
 		)
-
-	# **Nor one in the trash** (`#3935`): it holds work nobody is going to do.
-	subroutine.domain.trash.refuse(task, doing="claimed")
 
 	# **A finished task is not held** (`#2976`), for :func:`released_if_finished`'s reason: a
 	# lease over work nobody can start protects nothing, and a name on the row saying somebody
@@ -243,8 +241,10 @@ def release (
 
 	moment = now or subroutine.db.types.utcnow()
 
+	# **In the trash too**, which ``trash`` names as one of three withdrawals: giving back a lease
+	# leaves the task as it is.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, task
+		session, actor, subroutine.permissions.TASK_WRITE, task, doing=None
 	)
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")

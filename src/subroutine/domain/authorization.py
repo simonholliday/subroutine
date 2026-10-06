@@ -36,9 +36,11 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.work
 import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.hierarchy
+import subroutine.domain.trash
 import subroutine.errors
 import subroutine.permissions
 
@@ -342,6 +344,8 @@ def authorize_on (
 	principal: subroutine.domain.authentication.Principal | None,
 	permission: str,
 	item: typing.Any,
+	*,
+	doing: str | None = "it cannot be changed",
 ) -> None:
 	"""Permit an act on one item, or raise: against its project, and that project's workspace.
 
@@ -354,24 +358,39 @@ def authorize_on (
 	``None`` is an unauthenticated internal caller and is not checked: ``domain.bootstrap`` and the
 	tests. ``tests/test_actor_discipline.py`` fails the build if a module under ``src`` calls a
 	mutating service without an actor, which is what keeps this skip from being a hole.
+
+	**And the trash, which is one gate here** (`#4548`, decision `#4532`): a task or a document in
+	the trash, or beneath anything in it, takes no write but restore and delete, whoever asks -
+	internal callers included, as each writer's own check refused them. ``doing`` finishes the
+	refusal - *#42 is in the trash, so* ``it cannot be changed`` - and ``None`` is for an act the
+	trash does not stop, which :mod:`subroutine.domain.trash` names. After the permission, so a
+	caller who may not touch the item is told that first.
 	"""
 
-	if principal is None:
-		return
+	if principal is not None:
+		project = (
+			item
+			if isinstance(item, subroutine.db.models.project.Project)
+			else session.get(subroutine.db.models.project.Project, item.project_id)
+		)
 
-	project = (
-		item
-		if isinstance(item, subroutine.db.models.project.Project)
-		else session.get(subroutine.db.models.project.Project, item.project_id)
-	)
+		if project is None:
+			# ``project_id`` is NOT NULL with a foreign key on both backends, so reaching here means
+			# the schema is broken. The one thing not to do is check against the workspace alone,
+			# which is the permissive answer this exists to stop.
+			raise subroutine.errors.NotFound("The project this belongs to could not be read.")
 
-	if project is None:
-		# ``project_id`` is NOT NULL with a foreign key on both backends, so reaching here means the
-		# schema is broken. The one thing not to do is check against the workspace alone, which is
-		# the permissive answer this exists to stop.
-		raise subroutine.errors.NotFound("The project this belongs to could not be read.")
+		authorize(
+			session, principal, permission, workspace_id=project.workspace_id, project=project
+		)
 
-	authorize(session, principal, permission, workspace_id=project.workspace_id, project=project)
+	if (
+		doing is not None
+		and permission not in subroutine.permissions.READS
+		and permission != subroutine.permissions.TASK_DELETE
+		and isinstance(item, subroutine.db.models.work.Task | subroutine.db.models.work.Document)
+	):
+		subroutine.domain.trash.refuse_reaching(session, item, doing=doing)
 
 
 def instance_permissions (

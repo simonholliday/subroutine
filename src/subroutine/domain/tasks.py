@@ -1549,14 +1549,13 @@ def update (
 	# Permission first, before anything is even read: a caller who may not touch this task
 	# should not be able to learn from the error message whether their new title was valid.
 	# The version check follows it, for the same reason — a stranger should not learn what
-	# version a task is at (docs/design.md §8.9).
+	# version a task is at (docs/design.md §8.9). **Nothing but restoring changes a task in the
+	# trash** (`#3935`) - not an edit, a completion or a skip, which all come through here - and
+	# the permission check is where that is asked (`#4548`).
 	subroutine.domain.authorization.authorize_on(
 		session, actor, subroutine.permissions.TASK_WRITE, task
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
-	# **Nothing but restoring changes a task in the trash** (`#3935`) - not an edit, a completion or
-	# a skip, which all come through here.
-	subroutine.domain.trash.refuse(task, doing="changed")
 	refuse_an_answer_that_means_nothing(task, applies_to)
 	refuse_an_edit_that_does_not_say(task, applies_to, named=named)
 
@@ -2186,12 +2185,12 @@ def move (
 
 	filed_in = session.get(subroutine.db.models.project.Project, task.project_id)
 
+	# **Asked of the task**, which names the project it is filed in, so the trash is asked too.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, filed_in
+		session, actor, subroutine.permissions.TASK_WRITE, task, doing="it cannot be moved"
 	)
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")
-	subroutine.domain.trash.refuse(task, doing="moved")
 
 	# **Neither end of a move is the repeat itself** (`#3936`). The occurrence is what is in front
 	# of somebody, and the next one is filed where the series is, so moving the series moved

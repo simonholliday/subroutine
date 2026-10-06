@@ -412,15 +412,14 @@ def update (
 	Anything left at ``UNSET`` is untouched; passing ``None`` clears the field (§8.3).
 	**Everything is validated before anything is assigned**, for the reason ``tasks.update``
 	gives: a rejected update must leave the row exactly as it was, because the caller holds a
-	live session it may still commit.
+	live session it may still commit. **Nothing but restoring changes a document in the trash**
+	(`#3935`), which the permission check asks (`#4548`).
 	"""
 
 	subroutine.domain.authorization.authorize_on(
 		session, actor, subroutine.permissions.TASK_WRITE, document
 	)
 	subroutine.domain.versions.require(document, expected_version, noun="This document")
-	# **Nothing but restoring changes a document in the trash** (`#3935`).
-	subroutine.domain.trash.refuse(document, doing="changed")
 
 	# **Filing it somewhere else** (`#294`). A document could be created into a project and
 	# never moved, so a conclusion written before anybody decided where it belonged stayed in
@@ -694,13 +693,13 @@ def move (
 	filed_in = session.get(subroutine.db.models.project.Project, document.project_id)
 
 	# `task:write`, like every other document write here — a document has no permission
-	# of its own, which `#373` records as a deliberate not-yet rather than an oversight.
+	# of its own, which `#373` records as a deliberate not-yet rather than an oversight. Asked of
+	# the document, so the trash is asked too (`#4548`).
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, filed_in
+		session, actor, subroutine.permissions.TASK_WRITE, document, doing="it cannot be moved"
 	)
 
 	subroutine.domain.versions.require(document, expected_version, noun="document")
-	subroutine.domain.trash.refuse(document, doing="moved")
 
 	# Nor moved under one (decision `#4096`).
 	if parent is not None:

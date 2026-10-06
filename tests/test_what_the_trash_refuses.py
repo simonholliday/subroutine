@@ -13,7 +13,12 @@ import pytest
 import sqlalchemy
 
 import subroutine.db.models.work
+import subroutine.domain.authentication
+import subroutine.domain.claims
+import subroutine.domain.comments
+import subroutine.domain.tasks
 import subroutine.domain.trash
+import subroutine.domain.verifications
 import subroutine.errors
 import test_api_tasks
 
@@ -147,3 +152,78 @@ def test_what_is_beneath_the_trash_is_refused_naming_what_is_in_it (world: World
 	said = str(refused.value)
 
 	assert f"#{venue['ref']} is beneath #{parent['ref']}, which is in the trash" in said, said
+
+
+def test_the_trash_takes_only_the_three_withdrawals (world: World) -> None:
+	"""Q10 of the cold review of 2026-10-05, `SR#4548`: what hangs off a trashed task comes back off.
+
+	Editing or deleting a comment on it, releasing a lease on it and removing a link from it each
+	withdraw something and leave the task as it is, so each is answered as it would be on a live
+	one. An edit, a claim and a new comment change it, and each is refused naming the trash.
+	"""
+
+	fix = _made(world, "/v1/tasks", {"title": "Fix the deploy script"})
+	notes = _made(world, "/v1/tasks", {"title": "Write the release notes"})
+	started = _made(world, f"/v1/tasks/{fix['ref']}/comments", {"body": "Started on staging."})
+	waiting = _made(world, f"/v1/tasks/{fix['ref']}/comments", {"body": "Needs the new key."})
+	link = _made(
+		world, f"/v1/tasks/{fix['ref']}/links", {"target": notes["ref"], "link_type": "blocks"}
+	)
+
+	assert world.call("POST", f"/v1/tasks/{fix['ref']}/claim").is_success
+	assert world.call("DELETE", f"/v1/tasks/{fix['ref']}").is_success
+
+	for withdrawn in (
+		world.call("PATCH", f"/v1/comments/{started['id']}", json={"body": "Started, then not."}),
+		world.call("DELETE", f"/v1/comments/{waiting['id']}"),
+		world.call("POST", f"/v1/tasks/{fix['ref']}/release"),
+		world.call("DELETE", f"/v1/tasks/{fix['ref']}/links/{link['id']}"),
+	):
+		assert withdrawn.is_success, withdrawn.text
+
+	_refused(
+		world.call("PATCH", f"/v1/tasks/{fix['ref']}", json={"title": "Fix it properly"}),
+		fix["ref"],
+	)
+	_refused(world.call("POST", f"/v1/tasks/{fix['ref']}/claim"), fix["ref"])
+	_refused(
+		world.call("POST", f"/v1/tasks/{fix['ref']}/comments", json={"body": "One more."}),
+		fix["ref"],
+	)
+
+
+def test_the_domain_itself_refuses_a_write_beneath_the_trash (world: World) -> None:
+	"""`SR#4548`: the permission check holds what is beneath the trash for any caller of the domain.
+
+	A lookup hides it, so no transport reaches it to write. A direct call did: it changed the task,
+	claimed it, and was told *there is no task here* when it commented, where every transport names
+	the item in the trash. Each now says where it is.
+	"""
+
+	parent = _made(world, "/v1/tasks", {"title": "Plan the launch party"})
+	venue = _made(world, "/v1/tasks", {"title": "Book the venue", "parent_task_id": parent["id"]})
+
+	assert world.call("DELETE", f"/v1/tasks/{parent['ref']}").is_success
+
+	actor = subroutine.domain.authentication.Principal(user=world.user)
+	hidden = world.session.get(subroutine.db.models.work.Task, uuid.UUID(venue["id"]))
+	beneath = f"#{venue['ref']} is beneath #{parent['ref']}, which is in the trash"
+
+	assert hidden is not None
+
+	with pytest.raises(subroutine.errors.ValidationError) as changed:
+		subroutine.domain.tasks.update(world.session, hidden, title="Book a bigger venue", actor=actor)
+
+	with pytest.raises(subroutine.errors.ValidationError) as claimed:
+		subroutine.domain.claims.claim(world.session, hidden, actor=actor)
+
+	with pytest.raises(subroutine.errors.ValidationError) as checked:
+		subroutine.domain.verifications.record(world.session, hidden, passed=True, actor=actor)
+
+	with pytest.raises(subroutine.errors.ValidationError) as commented:
+		subroutine.domain.comments.create(
+			world.session, entity_type="task", entity_id=hidden.id, body="Booked.", actor=actor
+		)
+
+	for refused in (changed, claimed, checked, commented):
+		assert beneath in str(refused.value), str(refused.value)

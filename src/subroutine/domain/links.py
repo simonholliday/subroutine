@@ -456,7 +456,9 @@ def create (
 		)
 
 	# Both ends, because a link is a change to both. A caller who may write to the spec but
-	# not to the private project the task lives in may not join the two.
+	# not to the private project the task lives in may not join the two. **The trash is asked
+	# below**, after a link already made is answered (`#3798`): an end is not an item to the
+	# permission check's gate, which ``trash`` says.
 	for end in (source, target):
 		subroutine.domain.authorization.authorize_on(
 			session, actor, subroutine.permissions.TASK_WRITE, end
@@ -1058,6 +1060,8 @@ def remove (
 				hint="List the item's links to see the ones there are.",
 			)
 
+		# **In or beneath the trash too** - one of the three withdrawals ``trash`` names, and an
+		# end is not an item to the permission check's gate, so nothing here asks it.
 		if end is not None:
 			subroutine.domain.authorization.authorize_on(
 				session, actor, subroutine.permissions.TASK_WRITE, end

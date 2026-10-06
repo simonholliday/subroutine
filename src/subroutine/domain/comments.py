@@ -140,6 +140,8 @@ def _entity (
 			space.id for space in subroutine.domain.workspaces.readable(session, actor)
 		]
 
+		# **Beneath the trash too, for a write**, so the permission check can say where it is
+		# rather than this saying there is nothing here (E #11 of the cold review of 2026-10-05).
 		if entity_type == "task":
 			statement: typing.Any = subroutine.domain.scoping.readable_tasks(
 				actor,
@@ -147,6 +149,7 @@ def _entity (
 				include_completed=True,
 				include_deleted=True,
 				include_templates=True,
+				include_beneath_trash=writing,
 			).where(subroutine.db.models.work.Task.id == entity_id)
 
 		elif entity_type == "project":
@@ -156,7 +159,11 @@ def _entity (
 
 		else:
 			statement = subroutine.domain.scoping.readable_documents(
-				actor, workspace_ids=reachable, include_archived=True, include_deleted=True
+				actor,
+				workspace_ids=reachable,
+				include_archived=True,
+				include_deleted=True,
+				include_beneath_trash=writing,
 			).where(subroutine.db.models.work.Document.id == entity_id)
 
 		found = session.scalars(statement).first()
@@ -166,10 +173,12 @@ def _entity (
 
 	# **Deleted is refused for a write and allowed for a read**, and it is refused *by name*.
 	# Reporting it as absent would be the same sentence a caller gets for something that never
-	# existed, on the one occasion they know perfectly well it did — they deleted it.
-	if writing and getattr(found, "deleted_at", None) is not None:
+	# existed, on the one occasion they know perfectly well it did — they deleted it. **A project
+	# only, here**: a task or a document is refused by the permission check (`#4548`), and a project
+	# is not an item the trash's gate holds.
+	if writing and entity_type == "project" and found.deleted_at is not None:
 		raise subroutine.errors.ValidationError(
-			f"That {entity_type} is in the trash, so nothing more can be added to its record.",
+			"That project is in the trash, so nothing more can be added to its record.",
 			hint="Restore it first if you meant to keep working on it.",
 		)
 
@@ -223,7 +232,11 @@ def create (
 	# read a related tree and change only its own project, and adding to somebody else's record is
 	# changing it — which is why `#370` put ``comment:write`` in the write set in the first place.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.COMMENT_WRITE, subject
+		session,
+		actor,
+		subroutine.permissions.COMMENT_WRITE,
+		subject,
+		doing="nothing more can be added to its record",
 	)
 
 	comment = subroutine.db.models.activity.Comment(
@@ -523,7 +536,8 @@ def _may_write (
 	credential's scopes and its write set both reach editing and deleting. Only whether the
 	caller wrote it was asked, so a token scoped to reading, or one that may write only in another
 	project, edited and deleted its owner's comments while being refused a new one. The item is
-	read as a read, since changing a comment on something in the trash is not adding to it.
+	read as a read, since changing a comment on something in the trash is not adding to it - one
+	of the three withdrawals ``trash`` names.
 	"""
 
 	if actor is None:
@@ -537,7 +551,7 @@ def _may_write (
 		writing=False,
 	)
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.COMMENT_WRITE, subject
+		session, actor, subroutine.permissions.COMMENT_WRITE, subject, doing=None
 	)
 
 

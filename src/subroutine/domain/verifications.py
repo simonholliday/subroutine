@@ -26,7 +26,6 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.text
-import subroutine.domain.trash
 import subroutine.errors
 import subroutine.permissions
 
@@ -73,13 +72,15 @@ def record (
 	moment is not a thing to rewrite.
 	"""
 
-	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, task
-	)
-
 	# **Nothing is recorded against an item in the trash** (decision `#4096`): a check adds to its
 	# record, which the comment rule (`#535`) already closes while it is there.
-	subroutine.domain.trash.refuse_reaching(session, task, doing="nothing can be recorded against it")
+	subroutine.domain.authorization.authorize_on(
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		task,
+		doing="nothing can be recorded against it",
+	)
 
 	written = subroutine.db.models.work.Verification(
 		id=subroutine.db.types.new_uuid(),
