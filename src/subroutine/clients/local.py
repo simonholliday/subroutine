@@ -719,6 +719,7 @@ class Client:
 						ref=model.ref,
 						entity_type="task",
 						backend=backend,
+						reader=actor,
 					)
 				)
 
@@ -1572,6 +1573,7 @@ class Client:
 							ref=model.ref,
 							entity_type="document",
 							backend=backend,
+							reader=actor,
 						)
 					)
 					# §9.6's date comparisons (`#815`), compiled by the domain so that this and

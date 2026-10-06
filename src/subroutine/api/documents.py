@@ -408,6 +408,7 @@ def listing (
 				ref=model.ref,
 				entity_type="document",
 				backend=backend,
+				reader=actor,
 			)
 		)
 

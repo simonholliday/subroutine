@@ -790,6 +790,7 @@ def listing (
 				ref=model.ref,
 				entity_type="task",
 				backend=backend,
+				reader=actor,
 			)
 		)
 

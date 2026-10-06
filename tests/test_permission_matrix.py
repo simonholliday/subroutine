@@ -1247,31 +1247,6 @@ KNOWN: dict[tuple[str, str], str] = {
 	("sign-in link for somebody", "local member"): (
 		"#4567: S8, a local principal mints another account's sign-in link."
 	),
-	# `#4553`: comments and the workspace's own record read without their read verb (S3, S10).
-	("changes", "scoped to reading tasks"): "#4553: S3 and S10, the feed carries both.",
-	("changes", "scoped to reading tasks and commenting"): "#4553: S3 and S10, the feed carries both.",
-	("journal", "scoped to reading tasks"): "#4553: S3, the journal says what a comment said.",
-	("journal", "scoped to reading tasks and commenting"): (
-		"#4553: S3, the journal says what a comment said."
-	),
-	("history", "scoped to reading tasks"): "#4553: S3, an item's history holds its comments.",
-	("history", "scoped to reading tasks and commenting"): (
-		"#4553: S3, an item's history holds its comments."
-	),
-	("item journal", "scoped to reading tasks"): "#4553: S3, an item's journal says what they said.",
-	("item journal", "scoped to reading tasks and commenting"): (
-		"#4553: S3, an item's journal says what they said."
-	),
-	("export events", "scoped to reading tasks"): "#4553: S3 and S10, the events carry both.",
-	("export events", "scoped to reading tasks and commenting"): (
-		"#4553: S3 and S10, the events carry both."
-	),
-	("export workspace", "scoped to reading tasks"): "#4553: S10, the workspace record.",
-	("export workspace", "scoped to reading tasks and commenting"): "#4553: S10, the workspace record.",
-	("export workspace", "scoped to filing tasks"): "#4553: S10, the workspace record.",
-	("me", "scoped to reading tasks"): "#4553: S10, /v1/me describes the workspace.",
-	("me", "scoped to reading tasks and commenting"): "#4553: S10, /v1/me describes the workspace.",
-	("me", "scoped to filing tasks"): "#4553: S10, /v1/me describes the workspace.",
 }
 
 

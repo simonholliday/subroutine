@@ -758,9 +758,9 @@ def readable_event_kinds (
 	may read none of these gets the refusal and its operator gets the remedy, rather than an
 	empty page that reads as *nothing has happened*.
 
-	Workspace-level events are not gated here. They are narrowed by membership rather than by
-	joining a row anybody could be scoped out of, and there is no read verb between a member and
-	the fact that they are one.
+	**Workspace-level events and comments are narrowed by :func:`visible_events`** (`#4553`,
+	decision `#4511`): ``workspace:read`` and ``comment:read`` each leave their kind out of a feed
+	that carries others, rather than refusing it.
 	"""
 
 	return tuple(
@@ -945,7 +945,13 @@ def visible_events (
 		for kind, rows in identifiers.items()
 	]
 
-	clauses.append(model.entity_type.in_(_WORKSPACE_LEVEL))
+	# **The workspace's own events take ``workspace:read``** (`#4553`, decision `#4511`, S10 of the
+	# cold review of 2026-10-05): role changes and settings edits reached a credential that the
+	# members and settings routes refuse.
+	if not subroutine.domain.authorization.outside_token_scope(
+		principal, subroutine.permissions.WORKSPACE_READ
+	):
+		clauses.append(model.entity_type.in_(_WORKSPACE_LEVEL))
 
 	# **And a second subject, if the write happened on two things, must be visible too**
 	# (`#302`). Everything above is a disjunction — *any* of these makes an event readable —
@@ -968,7 +974,19 @@ def visible_events (
 		]
 	)
 
+	# **And a comment's events take ``comment:read``** (`#4553`, S3): what a comment said, before and
+	# after an edit, reached a credential that ``GET .../comments`` refuses - in the feed, an item's
+	# history, both journals and the event export, which all read through here.
+	said = (
+		model.entity_type != "comment"
+		if subroutine.domain.authorization.outside_token_scope(
+			principal, subroutine.permissions.COMMENT_READ
+		)
+		else sqlalchemy.true()
+	)
+
 	return sqlalchemy.and_(
 		sqlalchemy.or_(*clauses),
 		sqlalchemy.or_(model.subject_b_type.is_(None), stated),
+		said,
 	)

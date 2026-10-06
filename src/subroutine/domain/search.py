@@ -72,10 +72,13 @@ import sqlalchemy.orm
 import subroutine.config
 import subroutine.db.fulltext
 import subroutine.db.models.activity
+import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.errors
+import subroutine.permissions
 
 #: What answers ``q`` when nothing better is available, and what every instance had until
 #: `#823`. Named rather than spelled `"like"` at each site, so the two implementations are a
@@ -315,8 +318,14 @@ def anywhere (
 	ref: Searchable | None,
 	entity_type: str,
 	backend: str = LIKE,
+	reader: subroutine.domain.authentication.Principal | None = None,
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching this query in an item's own prose or in a comment on it.
+
+	**In a comment only for a ``reader`` who may read comments** (`#4553`, decision `#4511`, S3 of the
+	cold review of 2026-10-05): a credential refused ``GET .../comments`` was matched on what a
+	comment said. Taken here rather than from each caller, so the four cannot disagree; ``None`` is
+	an internal caller, which reads everything.
 
 	**One function rather than an ``or_`` written out at four call sites, and `#892` is why
 	that mattered.** The four spelled the composition themselves, and the composition was the
@@ -367,8 +376,12 @@ def anywhere (
 		sqlalchemy.select(identity).where(
 			matching(query, *columns, ref=None, backend=reading)
 		),
-		in_a_comment(query, entity_type=entity_type, backend=reading),
 	]
+
+	if reader is None or not subroutine.domain.authorization.outside_token_scope(
+		reader, subroutine.permissions.COMMENT_READ
+	):
+		sources.append(in_a_comment(query, entity_type=entity_type, backend=reading))
 
 	# **A third source rather than a fourth predicate** (`#1576`). A tag is not in any column
 	# this searches — it is a join row — so before this, `#research` found whatever the backend

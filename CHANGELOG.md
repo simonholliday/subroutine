@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Each read permission covers its own kind of thing wherever it appears.** A credential
+  without `comment:read` read what comments said in the change feed, an item's history, both
+  journals and the event export, and search matched on it; one without `workspace:read` read
+  the workspace's record, listing and export and its role changes and settings edits in the feed,
+  while its members and settings were refused. Each is left out of an answer that carries other
+  things, and refused where it is the whole answer.
 - **A superuser acts by their role inside a workspace, like everybody else.** Roles were
   bypassed for them, so one who was a viewer somewhere could write there, and one taken out of
   a workspace passed every check in it. An instance administrator still sees who is in any live

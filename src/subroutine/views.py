@@ -5680,7 +5680,13 @@ def workspace_access (
 		id=row.id,
 		slug=row.slug,
 		title=row.title,
-		description=row.description,
+		# **What the workspace says it is for takes ``workspace:read``** (`#4553`, S10): the record
+		# reading it does, and this answer is about the credential, not a read of the workspace.
+		description=(
+			row.description
+			if subroutine.permissions.WORKSPACE_READ in grant.permissions
+			else None
+		),
 		timezone=row.timezone,
 		# **The raw level above, and §6.5 already resolved below it.** ``timezone`` is what this
 		# workspace itself says, null where it says nothing; ``reader_timezone`` is the answer

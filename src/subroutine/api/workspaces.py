@@ -30,12 +30,15 @@ import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.paging
 import subroutine.domain.projects
+import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.settings
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.permissions
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -265,6 +268,10 @@ def listing (
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
+	# **Refused without ``workspace:read``** (`#4553`, decision `#4511`, S10): workspaces are this
+	# listing's only subject, so it says why rather than answering with nothing, as `#930` asks.
+	subroutine.domain.scoping.refuse_a_read_out_of_scope(actor, subroutine.permissions.WORKSPACE_READ)
+
 	model = subroutine.db.models.identity.Workspace
 
 	# Narrowed by membership and by a token's pin, through the one helper that owns that rule —
@@ -350,6 +357,13 @@ def read (
 	# workspace's settings and what it has prioritised, and discovery says nothing from inside.
 	found = subroutine.domain.selection.workspace(
 		session, actor, requested=id_or_slug, field="id_or_slug"
+	)
+
+	# **The record takes ``workspace:read``** (`#4553`, S10), as its members and settings do: it
+	# carries the settings that route refuses. An instance administrator outside it may read it
+	# (`#4557`).
+	subroutine.domain.authorization.authorize(
+		session, actor, subroutine.permissions.WORKSPACE_READ, workspace_id=found.id
 	)
 
 	return subroutine.api.shaping.single(one(session, actor, found), shape)

@@ -151,11 +151,16 @@ def _ordered (order: typing.Any, rows: Statement) -> Fetch:
 def _workspace (
 	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
 ) -> sqlalchemy.Select[typing.Any]:
-	"""Return the workspace's own row, as ``GET /v1/workspaces/<slug>`` reads it to a member.
+	"""Return the workspace's own row, as ``GET /v1/workspaces/<slug>`` reads it.
 
-	Nothing to refuse beyond what that route refuses, which is anybody outside the workspace, and
-	an export is made only of a workspace its reader belongs to.
+	**Refused without ``workspace:read``**, as that route refuses it (`#4553`, decision `#4511`, S10
+	of the cold review of 2026-10-05): the record carries the workspace's settings, which the
+	settings route refused the same credential.
 	"""
+
+	subroutine.domain.authorization.authorize(
+		session, reader, subroutine.permissions.WORKSPACE_READ, workspace_id=workspace_id
+	)
 
 	model = subroutine.db.models.identity.Workspace
 
