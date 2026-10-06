@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A credential narrowed to some projects reaches only the workspaces that hold them.** One
+  narrowed to a project in one workspace read another workspace's record, members, settings and
+  vocabulary, `/v1/me` offered it that workspace's verbs, and a capture with no workspace named
+  was refused as ambiguous though it could write in one place only. It now files where it can.
 - **A token listing no longer names a project, by its new key, in a workspace you have left.**
   Renamed there after you left, it showed under its new address in your own `token list` and
   `/v1/me`; it is shown as the id the token stored, as a project you cannot see is.

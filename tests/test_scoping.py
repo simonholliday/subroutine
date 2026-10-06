@@ -32,6 +32,7 @@ import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.permissions
+import test_api_tasks
 
 SOURCE = pathlib.Path(subroutine.__file__).parent
 
@@ -1421,3 +1422,41 @@ def test_a_project_in_a_workspace_somebody_left_is_not_named_to_them_by_its_new_
 	assert subroutine.domain.projects.keys_for(session, principal, [str(target.id)]) == [
 		str(target.id)
 	], "a project in a workspace they left was named to them by its new key"
+
+
+def test_a_credential_narrowed_to_a_project_reaches_only_the_workspace_holding_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4555`, S9 of the cold review of 2026-10-05, decided by `#4511`.
+
+	An unpinned credential narrowed to ``web`` in one workspace read the other workspace's record
+	and members, ``/v1/me`` offered it that workspace's verbs, and filing with no workspace named
+	was refused as ambiguous though it could write in one place only. Now the other workspace is
+	not there for it at all, and a capture files where it can.
+	"""
+
+	world = test_api_tasks._world(session)
+	there = subroutine.domain.workspaces.create(
+		session, slug=f"zion-{uuid.uuid4().hex[:8]}", title="Zion", owner=world.user
+	)
+	web = subroutine.domain.projects.create(
+		session, workspace_id=world.workspace.id, key="web", title="Web", owner_id=world.user.id
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Web only", project_scope=[str(web.id)]
+	)
+	session.flush()
+	narrowed = world._replace(secret=issued.value.get_secret_value())
+
+	listed = narrowed.call("GET", "/v1/workspaces").json()["items"]
+	me = narrowed.call("GET", "/v1/me").json()
+
+	assert [one["slug"] for one in listed] == [world.workspace.slug], listed
+	assert [one["slug"] for one in me["workspaces"]] == [world.workspace.slug], me["workspaces"]
+	assert narrowed.call("GET", f"/v1/workspaces/{there.slug}").status_code == 404
+	assert narrowed.call("GET", f"/v1/workspaces/{there.slug}/members").status_code == 404
+
+	filed = narrowed.call("POST", "/v1/tasks", json={"title": "Fix the header"})
+
+	assert filed.status_code == 201, filed.text
+	assert filed.json()["project_key"] == "web", filed.text

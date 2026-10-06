@@ -1258,6 +1258,21 @@ def readable (
 	if principal.pinned_workspace_id is not None:
 		statement = statement.where(workspace.id == principal.pinned_workspace_id)
 
+	# **A credential narrowed to some projects reaches only the workspaces holding them** (`#4555`,
+	# decision `#4511`, S9 of the cold review of 2026-10-05). An unpinned one narrowed to a project in
+	# one workspace read another's record, members, settings and vocabulary, `/v1/me` offered it that
+	# workspace's verbs, and filing with no workspace named was refused as ambiguous though it could
+	# write in one place only. Nothing is narrowed by default: whoever issued it named the projects.
+	# A write set alone narrows nothing here, since it reads everywhere its owner does.
+	if principal.project_scope is not None:
+		scoped = subroutine.db.models.project.Project
+		statement = statement.where(
+			sqlalchemy.exists().where(
+				scoped.workspace_id == workspace.id,
+				scoped.id.in_(_identifiers(principal.project_scope)),
+			)
+		)
+
 	# **An agent reaches a workspace only while the person at the top of its chain is a member of it
 	# too** (`#4546`, decision `#4518`), asked here because reach is decided here: checked only where
 	# a role is looked up, an agent refused writes still listed the workspace and read everything.
@@ -1276,6 +1291,21 @@ def readable (
 		)
 
 	return list(session.scalars(statement))
+
+
+def _identifiers (scope: typing.Sequence[str]) -> list[uuid.UUID]:
+	"""Return the project ids a credential's scope names, leaving out anything that is not one."""
+
+	found: list[uuid.UUID] = []
+
+	for named in scope:
+		try:
+			found.append(uuid.UUID(str(named)))
+
+		except ValueError:
+			continue
+
+	return found
 
 
 def find_role (
