@@ -1209,9 +1209,7 @@ def _administrators (
 		.join(role, role.id == member.role_id)
 		.join(user, user.id == member.user_id)
 		.where(
-			member.workspace_id == workspace.id,
-			user.is_active.is_(True),
-			user.deleted_at.is_(None),
+			member.workspace_id == workspace.id, subroutine.domain.accountability.live(user)
 		)
 	).all()
 

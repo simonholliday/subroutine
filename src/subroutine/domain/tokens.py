@@ -22,6 +22,7 @@ import sqlalchemy.orm
 import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.instances
@@ -337,7 +338,30 @@ def _owner_for (
 	subroutine.domain.text.readable(wanted, field="username")
 	subroutine.domain.text.readable(machine, field="service_account", label="service account")
 
-	existing = _live_account(session, wanted or machine)
+	found = _any_account(session, wanted or machine)
+	why = None if found is None else subroutine.domain.accountability.standing(session, found)
+
+	# **An agent nobody active answers for is refused, as a deactivated account is** (`#4545`, G8
+	# of the cold review of 2026-10-05): its credential was issued, printed and stored, and refused
+	# the first time anybody used it. Not found, for the reason given for a deactivated one below.
+	if found is not None and why == subroutine.domain.accountability.UNANSWERED:
+		field = "username" if wanted else "service_account"
+
+		raise subroutine.errors.NotFound(
+			f"Nobody who can act answers for {found.username!r} any more, so a credential issued "
+			f"for it would be refused the first time it was used.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="not_found",
+					message=f"{found.username!r} answers to nobody who can act.",
+					hint=f"Hand it to somebody who can - 'subroutine user transfer "
+					f"{found.username} --to <person>' - or issue the credential for somebody else.",
+				)
+			],
+		)
+
+	existing = found if why is None else None
 
 	if wanted:
 		if existing is not None:
@@ -346,7 +370,7 @@ def _owner_for (
 		# **"Absent" and "deactivated" get different sentences**, because they have different
 		# remedies and the wrong one wastes somebody's time in a way they cannot see: telling
 		# the holder of a deactivated account to create it sends them at a name already taken.
-		if _any_account(session, wanted) is not None:
+		if found is not None:
 			# **Not found, like an absent one, and the sentence carries the difference.** The
 			# endpoint has answered 404 for both since M1 — deliberately, since "inactive is
 			# as good as absent" here — and telling the two apart by *status* would both break
@@ -411,27 +435,6 @@ def _owner_for (
 	)
 
 	return account, True
-
-
-def _live_account (
-	session: sqlalchemy.orm.Session, username: str
-) -> subroutine.db.models.identity.User | None:
-	"""Return the account of that name a credential could actually be used with.
-
-	**Inactive is as good as absent** (`#207`): ``authenticate`` refuses a token whose owner is
-	not active, so issuing one for a deactivated account is dead on arrival — accepted,
-	printed, stored, and refused the first time somebody tries it.
-	"""
-
-	model = subroutine.db.models.identity.User
-
-	return session.scalars(
-		sqlalchemy.select(model).where(
-			model.username_normalized == subroutine.domain.users.normalize(username),
-			model.deleted_at.is_(None),
-			model.is_active.is_(True),
-		)
-	).one_or_none()
 
 
 def _any_account (

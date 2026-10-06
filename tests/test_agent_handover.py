@@ -327,3 +327,71 @@ def test_an_agent_that_cannot_make_agents_may_hold_one_and_gains_nothing_over_it
 		assert held.is_active, what
 		assert held.responsible_user_id == holder.id, what
 		assert its_own.revoked_at is None, what
+
+
+def test_an_agent_is_not_handed_to_somebody_who_cannot_act (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4545`, G8 of the cold review of 2026-10-05: it stopped the moment it moved.
+
+	Handed to a deactivated person, or to an agent nobody active answers for, the agent was
+	accepted and then refused on every request, and nothing said so at the hand-over. **Refused
+	there, saying which**, and nothing moves.
+	"""
+
+	staying = _person(session, "staying")
+	agent = _agent(session, staying)
+	gone = _person(session, "gone")
+	stranded = _agent(session, gone, "stranded")
+	subroutine.domain.users.set_active(session, gone, active=False, actor=_acting(staying))
+
+	for to, why in ((gone, "is deactivated"), (stranded, "nobody who can act answers for")):
+		with pytest.raises(subroutine.errors.ValidationError, match=why):
+			subroutine.domain.users.transfer(session, agent, to=to, actor=_acting(staying))
+
+		assert agent.responsible_user_id == staying.id
+
+
+def test_an_agent_is_not_made_to_answer_to_somebody_who_cannot_act (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4545`, G8's other half: an agent made to answer to a leaver could never act."""
+
+	staying = _person(session, "staying")
+	gone = _person(session, "gone")
+	subroutine.domain.users.set_active(session, gone, active=False, actor=_acting(staying))
+
+	with pytest.raises(subroutine.errors.ValidationError, match="is deactivated"):
+		subroutine.domain.users.create(
+			session,
+			username=f"agent-{uuid.uuid4().hex[:8]}",
+			is_service_account=True,
+			responsible_user_id=gone.id,
+			actor=_acting(staying),
+		)
+
+
+@pytest.mark.parametrize("named", ["username", "service_account"])
+def test_no_credential_is_issued_for_an_agent_nobody_active_answers_for (
+	session: sqlalchemy.orm.Session, named: str
+) -> None:
+	"""`SR#4545`, G8: issued, printed, stored, and refused the first time anybody used it.
+
+	**Not found, as a deactivated account is**, with the remedy named: hand it to somebody who can
+	act. Both ways of naming the account reached the dead credential.
+	"""
+
+	staying = _person(session, "staying")
+	gone = _person(session, "gone")
+	stranded = _agent(session, gone, "stranded")
+	subroutine.domain.users.set_active(session, gone, active=False, actor=_acting(staying))
+
+	with pytest.raises(subroutine.errors.NotFound, match="answers for") as refused:
+		subroutine.domain.tokens.issue(
+			session,
+			actor=_acting(staying),
+			title="Dead on arrival",
+			**typing.cast(dict[str, typing.Any], {named: stranded.username}),
+		)
+
+	assert "user transfer" in str(refused.value.errors[0].hint)

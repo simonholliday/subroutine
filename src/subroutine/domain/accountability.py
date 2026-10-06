@@ -102,23 +102,35 @@ def chain (
 	return walked
 
 
-def can_act (
+#: Why an account cannot act: it has been deactivated, or it is an agent that nobody active answers
+#: for. The two have different remedies - reactivate the account, or hand the agent to somebody - so
+#: a door that refuses says which.
+INACTIVE = "inactive"
+UNANSWERED = "unanswered"
+
+
+def standing (
 	session: sqlalchemy.orm.Session,
 	user: subroutine.db.models.identity.User,
 	*,
 	leaving: typing.Collection[uuid.UUID] = (),
-) -> bool:
-	"""Report whether this account can act here, exactly as authentication decides it - `#1453`.
+) -> str | None:
+	"""Say why this account cannot act, or ``None`` when it can - `#4545`, R1 of `#4506`.
 
-	**One rule, with authentication as its first reader.** An account acts when it is live and
-	active, and an agent only while every account it answers to is too - decision `#473`: when
-	the person who gave an agent permission leaves, the permission goes with them. A chain that
-	cannot be walked is a refusal, because an agent nobody answers for is what the model exists
-	to prevent.
+	**The one rule, asked at every door and of every account an act names.** An account acts when
+	it is live and active, and an agent only while every account it answers to is too - decision
+	`#473`: when the person who gave an agent permission leaves, the permission goes with them. A
+	chain that cannot be walked is a refusal, because an agent nobody answers for is what the model
+	exists to prevent. It was spelled twelve ways, two of which missed the chain (G13 and G8 of the
+	cold review of 2026-10-05); this and :func:`live` are where a user's ``deleted_at``, which
+	nothing sets, is still read as standing.
 
 	``leaving`` asks the same question of a future in which those accounts have gone, which is
 	what lets somebody be told what a deactivation will strand before they make it.
 	"""
+
+	if not user.is_active or user.deleted_at is not None or user.id in leaving:
+		return INACTIVE
 
 	walked: list[subroutine.db.models.identity.User]
 
@@ -126,12 +138,38 @@ def can_act (
 		walked = chain(session, user)
 
 	except subroutine.errors.ValidationError:
-		return False
+		return UNANSWERED
 
-	return all(
+	if all(
 		entry.is_active and entry.deleted_at is None and entry.id not in leaving
 		for entry in walked
-	)
+	):
+		return None
+
+	return UNANSWERED
+
+
+def can_act (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*,
+	leaving: typing.Collection[uuid.UUID] = (),
+) -> bool:
+	"""Report whether this account can act - :func:`standing`, as a yes or a no (`#1453`)."""
+
+	return standing(session, user, leaving=leaving) is None
+
+
+def live (
+	model: type[subroutine.db.models.identity.User] = subroutine.db.models.identity.User,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return :func:`standing`'s rule for one account as SQL, for a query that selects accounts.
+
+	**The whole of it for a person**, who answers for themselves; an agent's chain cannot be put in
+	a ``WHERE``, so a query that may select agents asks :func:`can_act` of each row it keeps.
+	"""
+
+	return sqlalchemy.and_(model.is_active.is_(True), model.deleted_at.is_(None))
 
 
 def answers_for (
@@ -437,6 +475,18 @@ def refuse_an_unaccountable_agent (
 	if named is None:
 		raise subroutine.errors.ValidationError(
 			"The account named as answerable for this agent does not exist."
+		)
+
+	# **Somebody who can act** (`#4545`, G8 of the cold review of 2026-10-05): an agent made to
+	# answer to a deactivated account, or to an agent nobody active answers for, could never act.
+	why = standing(session, named)
+
+	if why is not None:
+		cannot = "is deactivated" if why == INACTIVE else "answers to nobody who can act"
+
+		raise subroutine.errors.ValidationError(
+			f"'{named.username}' {cannot}, so an agent answering to it could never act.",
+			hint="Make it answer to somebody who can act.",
 		)
 
 	# Walking from the *named* account proves the new agent's chain before it is written: if the

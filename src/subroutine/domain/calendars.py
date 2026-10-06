@@ -331,10 +331,10 @@ def resolve (
 	owner = session.get(subroutine.db.models.identity.User, feed.owner_id)
 
 	# **The owner's standing is checked on every poll, not at creation** (§20.1, and `#475`'s
-	# rule that an account which has left stops working). A feed whose owner is gone has no
-	# visibility rule left to apply, and falling back to *something* is how a leak survives
-	# somebody being offboarded.
-	if owner is None or owner.deleted_at is not None or not owner.is_active:
+	# rule that an account which has left stops working), with their place in the workspace
+	# below. A feed whose owner is gone has no visibility rule left to apply, and falling back to
+	# *something* is how a leak survives somebody being offboarded.
+	if owner is None:
 		raise _unknown()
 
 	# **And the workspace's standing, for exactly the same reason** (`#704`). A feed is the

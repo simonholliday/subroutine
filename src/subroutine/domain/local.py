@@ -181,22 +181,23 @@ def _named (
 	model = subroutine.db.models.identity.User
 	normalized = subroutine.domain.users.normalize(username)
 
+	# A short name is unique among accounts not deleted, so that much is the lookup's; whether
+	# the account can act is the one predicate's (`#4545`), which also says why it cannot.
 	found = session.scalars(
 		sqlalchemy.select(model).where(
-			model.username_normalized == normalized,
-			model.deleted_at.is_(None),
-			model.is_active.is_(True),
+			model.username_normalized == normalized, model.deleted_at.is_(None)
 		)
 	).one_or_none()
+	why = None if found is None else subroutine.domain.accountability.standing(session, found)
 
-	if found is None:
+	if found is None or why == subroutine.domain.accountability.INACTIVE:
 		raise subroutine.errors.NotFound(
 			f"There is no account called {username!r} in this database, or it is no longer "
 			"active.",
 			hint=_candidates_hint(session),
 		)
 
-	if not subroutine.domain.accountability.can_act(session, found):
+	if why is not None:
 		raise subroutine.errors.Unauthenticated(
 			f"{found.username} is an agent that nobody active answers for any more, so it cannot "
 			"act.",
@@ -276,8 +277,7 @@ def _live_users (
 		session.scalars(
 			sqlalchemy.select(model)
 			.where(
-				model.deleted_at.is_(None),
-				model.is_active.is_(True),
+				subroutine.domain.accountability.live(model),
 				model.is_service_account.is_(False),
 			)
 			.order_by(model.created_at)
@@ -295,8 +295,7 @@ def _count (session: sqlalchemy.orm.Session) -> int:
 		sqlalchemy.select(sqlalchemy.func.count())
 		.select_from(model)
 		.where(
-			model.deleted_at.is_(None),
-			model.is_active.is_(True),
+			subroutine.domain.accountability.live(model),
 			model.is_service_account.is_(False),
 		)
 	) or 0

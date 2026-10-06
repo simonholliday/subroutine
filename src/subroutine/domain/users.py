@@ -383,6 +383,24 @@ def transfer (
 			hint="Hand it to somebody outside the chain below it.",
 		)
 
+	# **To somebody who can act** (`#4545`, G8 of the cold review of 2026-10-05). Handed to a
+	# deactivated person, or to an agent nobody active answers for, it stopped the moment it moved,
+	# and nothing said so.
+	why = subroutine.domain.accountability.standing(session, to)
+
+	if why is not None:
+		cannot = (
+			"is deactivated"
+			if why == subroutine.domain.accountability.INACTIVE
+			else "is an agent that nobody who can act answers for"
+		)
+
+		raise subroutine.errors.ValidationError(
+			f"{to.username} {cannot}, so {agent.username} would stop working the moment it was "
+			f"handed over.",
+			hint="Hand it to somebody who can act.",
+		)
+
 	# **Measured at the deepest agent below it, where the chain is longest** (`#3939`). Walking the
 	# moved agent alone let one with eight levels below it go to an agent ten deep, and its deepest
 	# sub-agent could not act, with nothing said. A target whose own chain reaches no person is
@@ -418,7 +436,7 @@ def _refuse_deactivating_the_last_administrator (
 	not so that it is the plan.
 	"""
 
-	if not going.is_superuser or not going.is_active:
+	if not going.is_superuser or not subroutine.domain.accountability.can_act(session, going):
 		return
 
 	model = subroutine.db.models.identity.User
@@ -432,9 +450,8 @@ def _refuse_deactivating_the_last_administrator (
 		sqlalchemy.update(model)
 		.where(
 			model.is_superuser.is_(True),
-			model.is_active.is_(True),
+			subroutine.domain.accountability.live(model),
 			model.is_service_account.is_(False),
-			model.deleted_at.is_(None),
 		)
 		.values(updated_at=model.updated_at)
 		.execution_options(synchronize_session=False)
@@ -443,9 +460,8 @@ def _refuse_deactivating_the_last_administrator (
 	others = session.scalars(
 		sqlalchemy.select(model.id).where(
 			model.is_superuser.is_(True),
-			model.is_active.is_(True),
+			subroutine.domain.accountability.live(model),
 			model.is_service_account.is_(False),
-			model.deleted_at.is_(None),
 			model.id != going.id,
 		)
 	).first()

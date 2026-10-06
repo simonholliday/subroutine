@@ -21,6 +21,7 @@ import sqlalchemy.orm
 import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.errors
 import subroutine.permissions
@@ -85,7 +86,7 @@ def mint_link (
 	# **An account that has left is refused by name as the link is made** (`#3944`), as ``token
 	# create`` refuses one. The check below speaks as authentication does - a credential refused -
 	# which at this moment read as the caller's own credential being wrong.
-	if not user.is_active:
+	if subroutine.domain.accountability.standing(session, user) == subroutine.domain.accountability.INACTIVE:
 		raise subroutine.errors.ValidationError(
 			f"{user.username!r} is deactivated, so a sign-in link for it would be refused.",
 			hint="Reactivate the account first.",
@@ -99,7 +100,7 @@ def mint_link (
 			],
 		)
 
-	_refuse_an_account_that_cannot_sign_in(user)
+	_refuse_an_account_that_cannot_sign_in(session, user)
 
 	moment = now if now is not None else subroutine.db.types.utcnow()
 
@@ -195,7 +196,7 @@ def redeem (
 			prefix=prefix,
 		)
 
-	_refuse_an_account_that_cannot_sign_in(user, prefix=prefix)
+	_refuse_an_account_that_cannot_sign_in(session, user, prefix=prefix)
 
 	minted = subroutine.auth.generate_token(kind=subroutine.auth.SESSION_KIND)
 
@@ -276,7 +277,7 @@ def would_sign_in (
 	# wording — and falling through to `redeem` is what preserves that wording, since this
 	# function's silence is only ever an instruction to ask the real thing.
 	try:
-		_refuse_an_account_that_cannot_sign_in(user, prefix=prefix)
+		_refuse_an_account_that_cannot_sign_in(session, user, prefix=prefix)
 
 	except (subroutine.domain.authentication.AuthenticationError, subroutine.errors.Forbidden):
 		return None
@@ -337,7 +338,7 @@ def authenticate (
 			prefix=prefix,
 		)
 
-	_refuse_an_account_that_cannot_sign_in(user, prefix=prefix)
+	_refuse_an_account_that_cannot_sign_in(session, user, prefix=prefix)
 
 	# **Both writes or neither, on one schedule** (`#1671`). Sliding the expiry is the same act
 	# as recording the use — it is *because* this session was used that it is still alive — so
@@ -531,7 +532,10 @@ def _refuse_a_credential_that_would_be_widened (
 
 
 def _refuse_an_account_that_cannot_sign_in (
-	user: subroutine.db.models.identity.User, *, prefix: str | None = None
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*,
+	prefix: str | None = None,
 ) -> None:
 	"""Refuse an account that is deleted, inactive, or not a person at all.
 
@@ -541,7 +545,8 @@ def _refuse_an_account_that_cannot_sign_in (
 	would be a way to hand an agent unbounded authority by signing in as it.
 	"""
 
-	if user.deleted_at is not None or not user.is_active:
+	# The account's own standing (`#4545`); an agent is refused below whatever its chain says.
+	if subroutine.domain.accountability.standing(session, user) == subroutine.domain.accountability.INACTIVE:
 		raise subroutine.domain.authentication.AuthenticationError(
 			subroutine.domain.authentication.AuthenticationFailure.USER_INACTIVE,
 			prefix=prefix,

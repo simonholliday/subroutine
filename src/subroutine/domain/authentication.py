@@ -841,50 +841,17 @@ def authenticate (
 
 	user = session.get(subroutine.db.models.identity.User, token.user_id)
 
-	if user is None or not user.is_active or user.deleted_at is not None:
+	# **One question for the account and everybody it answers to** (`#4545`): an agent stops when
+	# the person who gave it permission leaves (decision `#473`), and a chain that cannot be walked
+	# is a refusal, because an agent nobody answers for is what the model exists to prevent.
+	if user is None or not subroutine.domain.accountability.can_act(session, user):
 		raise AuthenticationError(AuthenticationFailure.USER_INACTIVE, prefix=prefix)
-
-	_refuse_an_agent_nobody_answers_for(session, user, prefix=prefix)
 
 	if record_use:
 		_record_use(token, moment)
 
 
 	return Principal(user=user, token=token, interface=interface)
-
-
-def _refuse_an_agent_nobody_answers_for (
-	session: sqlalchemy.orm.Session,
-	user: subroutine.db.models.identity.User,
-	*,
-	prefix: str | None,
-) -> None:
-	"""Refuse an agent whose accountability chain does not reach an *active* person — `#479`.
-
-	Decision `#473`: somebody gave an agent permission to work, and when that somebody leaves,
-	so does the permission. The check above asks whether *this* account is active; this asks the
-	same question of everybody it answers to, which is the half that makes marking a leaver
-	inactive mean anything.
-
-	**Fails safe, and that is the whole argument.** An agent acting with nobody on the hook is
-	what the model exists to prevent, so a chain that cannot be resolved — broken, circular, or
-	naming nobody — is a refusal rather than a shrug. `domain.accountability` already refuses
-	those on the way in; reaching one here means a database somebody edited, or the row a
-	migration deliberately left when it declined to guess between two administrators.
-
-	A person is not walked at all: they answer for themselves, and the check above has already
-	asked whether they are active.
-	"""
-
-	if not user.is_service_account:
-		return
-
-	# **Everybody in the chain, not only the person at the end**: an intermediate agent that has
-	# been deactivated is a link somebody deliberately cut, and honouring only the far end would
-	# walk straight past it. The rule is `accountability.can_act`, so what strands a private
-	# project (`#1453`) is decided by the same sentence that refuses the agent here.
-	if not subroutine.domain.accountability.can_act(session, user):
-		raise AuthenticationError(AuthenticationFailure.USER_INACTIVE, prefix=prefix)
 
 
 def revoke_token (

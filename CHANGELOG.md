@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **No credential is issued for an agent that nobody able to act answers for, and no agent is
+  handed to, or made to answer to, an account that cannot act.** Each was accepted and then
+  refused on every request: a token for an agent whose person had left failed the first time it
+  was used, and an agent handed to a deactivated person stopped the moment it moved. Each is
+  refused as it is asked, saying why.
 - **A local connection finds an item, a comment, a link or a tag the way a served instance
   does.** Completing or changing a task beneath something in the trash said there was no such
   task, rather than where it is. Deleting a comment did not ask to read comments first, so a
