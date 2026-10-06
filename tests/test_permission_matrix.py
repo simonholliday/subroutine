@@ -1775,9 +1775,9 @@ def _decided (
 
 	workspace_id, project = cast.places[place]
 
-	return subroutine.domain.authorization.may(
+	return (subroutine.domain.authorization.refusal(
 		cast.session, principal, verb, workspace_id=workspace_id, project=project
-	)
+	) is None)
 
 
 #: The two doors a principal arrives by, and the transports through each. **The agent tools are a door

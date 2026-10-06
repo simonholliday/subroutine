@@ -415,12 +415,12 @@ def test_a_read_only_token_cannot_write (session: sqlalchemy.orm.Session) -> Non
 	assert "task:write" in raised.value.detail
 
 	# And the read half still works, or the token would be useless rather than narrow.
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session,
 		principal,
 		subroutine.permissions.TASK_READ,
 		workspace_id=installed.workspace.id,
-	)
+	) is None
 
 
 def test_a_stranger_to_the_workspace_cannot_create_a_task (

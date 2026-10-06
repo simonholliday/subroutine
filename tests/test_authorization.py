@@ -159,9 +159,9 @@ def test_every_role_against_every_permission (
 	granted = set(_role(session, workspace, role_key).permissions)
 
 	for permission in sorted(subroutine.permissions.WORKSPACE_LEVEL):
-		allowed = subroutine.domain.authorization.may(
+		allowed = (subroutine.domain.authorization.refusal(
 			session, principal, permission, workspace_id=workspace.id
-		)
+		) is None)
 
 		assert allowed == (permission in granted), f"{role_key} / {permission}"
 
@@ -197,9 +197,9 @@ def test_an_empty_scope_list_narrows_nothing (session: sqlalchemy.orm.Session) -
 	granted = set(_role(session, workspace, "member").permissions)
 
 	for permission in sorted(granted):
-		assert subroutine.domain.authorization.may(
+		assert subroutine.domain.authorization.refusal(
 			session, principal, permission, workspace_id=workspace.id
-		), f"the empty-scope sentinel denied {permission}"
+		) is None, f"the empty-scope sentinel denied {permission}"
 
 
 def test_a_scoped_token_narrows_to_its_scopes (session: sqlalchemy.orm.Session) -> None:
@@ -212,9 +212,9 @@ def test_a_scoped_token_narrows_to_its_scopes (session: sqlalchemy.orm.Session) 
 		scopes=[subroutine.permissions.TASK_READ],
 	)
 
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session, principal, subroutine.permissions.TASK_READ, workspace_id=workspace.id
-	)
+	) is None
 
 	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
 		subroutine.domain.authorization.authorize(
@@ -237,12 +237,12 @@ def test_a_token_cannot_widen_its_owner (session: sqlalchemy.orm.Session) -> Non
 		scopes=[subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE],
 	)
 
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session, principal, subroutine.permissions.TASK_READ, workspace_id=workspace.id
-	)
-	assert not subroutine.domain.authorization.may(
+	) is None
+	assert subroutine.domain.authorization.refusal(
 		session, principal, subroutine.permissions.TASK_WRITE, workspace_id=workspace.id
-	)
+	) is not None
 
 
 def test_a_superuser_bypasses_roles_but_not_token_scopes (
@@ -254,18 +254,18 @@ def test_a_superuser_bypasses_roles_but_not_token_scopes (
 	root = subroutine.domain.authentication.Principal(user=_user(session, is_superuser=True))
 
 	# No membership row anywhere, and still permitted.
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session, root, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
-	)
+	) is None
 
 	scoped = _with_token(session, root, scopes=[subroutine.permissions.TASK_READ])
 
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session, scoped, subroutine.permissions.TASK_READ, workspace_id=workspace.id
-	)
-	assert not subroutine.domain.authorization.may(
+	) is None
+	assert subroutine.domain.authorization.refusal(
 		session, scoped, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
-	)
+	) is not None
 
 
 def test_a_token_pinned_to_one_workspace_cannot_reach_another (
@@ -289,9 +289,9 @@ def test_a_token_pinned_to_one_workspace_cannot_reach_another (
 
 	pinned = _with_token(session, principal, workspace_id=home.id)
 
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session, pinned, subroutine.permissions.TASK_READ, workspace_id=home.id
-	)
+	) is None
 
 	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
 		subroutine.domain.authorization.authorize(
@@ -337,13 +337,13 @@ def test_a_null_project_scope_restricts_nothing (session: sqlalchemy.orm.Session
 	project = _project(session, workspace)
 
 	assert principal.project_scope is None
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session,
 		principal,
 		subroutine.permissions.TASK_READ,
 		workspace_id=workspace.id,
 		project=project,
-	)
+	) is None
 
 
 def test_a_project_scope_carries_the_whole_subtree (
@@ -361,13 +361,13 @@ def test_a_project_scope_carries_the_whole_subtree (
 	scoped = _with_token(session, principal, project_scope=[str(parent.id)])
 
 	for permitted in (parent, child):
-		assert subroutine.domain.authorization.may(
+		assert subroutine.domain.authorization.refusal(
 			session,
 			scoped,
 			subroutine.permissions.TASK_READ,
 			workspace_id=workspace.id,
 			project=permitted,
-		)
+		) is None
 
 	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
 		subroutine.domain.authorization.authorize(
@@ -429,54 +429,65 @@ def test_a_project_member_can_see_a_private_project (
 	)
 	session.flush()
 
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session,
 		principal,
 		subroutine.permissions.TASK_WRITE,
 		workspace_id=workspace.id,
 		project=private,
-	)
+	) is None
 
 
-def test_a_project_role_replaces_the_workspace_role_there (
+def test_a_role_written_on_a_project_membership_changes_nothing (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""``project_member.role_id`` is documented as overriding; check that it does."""
+	"""A ``project_member.role_id`` leaves the workspace role in force, both ways - `SR#4547`.
+
+	A role of a project's own replaced the workspace's there (A I-9 of the cold review of
+	2026-10-05) while nothing wrote one, and it was the one way a read and a write could disagree
+	about a role. **Written by hand in both directions**, as only a hand could: a viewer given a
+	member's role in one project gains nothing there, and a member given a viewer's loses nothing.
+	"""
 
 	workspace = _seeded_workspace(session)
-	principal = _member(session, workspace, "viewer")
+	viewer = _member(session, workspace, "viewer")
+	member = _member(session, workspace, "member")
 	project = _project(session, workspace)
 
-	assert not subroutine.domain.authorization.may(
-		session,
-		principal,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=workspace.id,
-		project=project,
-	)
-
-	session.add(
-		subroutine.db.models.project.ProjectMember(
-			workspace_id=workspace.id,
-			project_id=project.id,
-			user_id=principal.user.id,
-			role_id=_role(session, workspace, "member").id,
+	for principal, written in ((viewer, "member"), (member, "viewer")):
+		session.add(
+			subroutine.db.models.project.ProjectMember(
+				workspace_id=workspace.id,
+				project_id=project.id,
+				user_id=principal.user.id,
+				role_id=_role(session, workspace, written).id,
+			)
 		)
-	)
+
 	session.flush()
 
-	assert subroutine.domain.authorization.may(
+	for principal in (viewer, member):
+		here = subroutine.domain.authorization.explain(session, principal, workspace.id)
+		there = subroutine.domain.authorization.explain(
+			session, principal, workspace.id, project=project
+		)
+
+		assert there == here, f"a role written on the project answered there: {there} for {here}"
+
+	assert subroutine.domain.authorization.refusal(
 		session,
-		principal,
+		viewer,
 		subroutine.permissions.TASK_WRITE,
 		workspace_id=workspace.id,
 		project=project,
-	)
-
-	# And nowhere else: the override is scoped to the project it was granted on.
-	assert not subroutine.domain.authorization.may(
-		session, principal, subroutine.permissions.TASK_WRITE, workspace_id=workspace.id
-	)
+	) is not None
+	assert subroutine.domain.authorization.refusal(
+		session,
+		member,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=workspace.id,
+		project=project,
+	) is None
 
 
 def test_an_unknown_permission_is_a_programming_error (
@@ -488,7 +499,7 @@ def test_an_unknown_permission_is_a_programming_error (
 	principal = _member(session, workspace, "owner")
 
 	with pytest.raises(ValueError) as error:
-		subroutine.domain.authorization.may(
+		subroutine.domain.authorization.refusal(
 			session, principal, "task:reed", workspace_id=workspace.id
 		)
 
@@ -530,7 +541,7 @@ def test_effective_permissions_is_empty_for_a_stranger (
 	stranger = subroutine.domain.authentication.Principal(user=_user(session))
 
 	assert (
-		subroutine.domain.authorization.effective_permissions(session, stranger, workspace.id)
+		subroutine.domain.authorization.explain(session, stranger, workspace.id).permissions
 		== frozenset()
 	)
 
@@ -559,14 +570,14 @@ def test_explain_never_promises_more_than_authorize_grants (
 	)
 
 	for label, principal, workspace_id, target in cases:
-		granted = subroutine.domain.authorization.effective_permissions(
+		granted = subroutine.domain.authorization.explain(
 			session, principal, workspace_id, project=target
-		)
+		).permissions
 
 		for permission in sorted(subroutine.permissions.WORKSPACE_LEVEL):
-			allowed = subroutine.domain.authorization.may(
+			allowed = (subroutine.domain.authorization.refusal(
 				session, principal, permission, workspace_id=workspace_id, project=target
-			)
+			) is None)
 
 			assert (permission in granted) == allowed, f"{label}: {permission}"
 
@@ -603,9 +614,9 @@ def test_explain_does_not_re_read_the_role_for_every_permission (
 	sqlalchemy.event.listen(engine, "before_cursor_execute", count)
 
 	try:
-		granted = subroutine.domain.authorization.effective_permissions(
+		granted = subroutine.domain.authorization.explain(
 			session, owner, workspace.id
-		)
+		).permissions
 
 	finally:
 		sqlalchemy.event.remove(engine, "before_cursor_execute", count)
@@ -764,9 +775,9 @@ def test_a_superuser_gets_the_workspace_tier_and_not_more (
 		user=_user(session, is_superuser=True)
 	)
 
-	granted = subroutine.domain.authorization.effective_permissions(
+	granted = subroutine.domain.authorization.explain(
 		session, superuser, workspace.id
-	)
+	).permissions
 
 	assert granted == subroutine.permissions.WORKSPACE_LEVEL
 
@@ -1056,9 +1067,9 @@ def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
 	narrowed = _with_token(session, owner, **{narrowing: [str(project.id)]})
 
 	for verb in sorted(subroutine.permissions.WORKSPACE_WIDE):
-		assert subroutine.domain.authorization.may(
+		assert subroutine.domain.authorization.refusal(
 			session, owner, verb, workspace_id=workspace.id
-		), f"the owner's own role grants {verb}, or this proves nothing"
+		) is None, f"the owner's own role grants {verb}, or this proves nothing"
 
 		with pytest.raises(subroutine.domain.authorization.AuthorizationError) as raised:
 			subroutine.domain.authorization.authorize(
@@ -1076,9 +1087,9 @@ def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
 			session, narrowed, verb, workspace_id=workspace.id, project=project
 		)
 
-	offered = subroutine.domain.authorization.effective_permissions(
+	offered = subroutine.domain.authorization.explain(
 		session, narrowed, workspace.id
-	)
+	).permissions
 
 	assert not offered & subroutine.permissions.WORKSPACE_WIDE, (
 		f"offered what the check refuses: {sorted(offered & subroutine.permissions.WORKSPACE_WIDE)}"

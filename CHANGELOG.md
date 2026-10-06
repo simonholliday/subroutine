@@ -14,6 +14,10 @@ upgrade involves.
 
 ## Unreleased
 
+- **`/v1/me` no longer lists, under each workspace, the projects where you hold a role of the
+  project's own.** Nothing in the program could give anybody such a role, and permission checks
+  no longer read one, so a workspace's permissions in that answer are yours in each of its
+  projects. A client from an earlier release reads the missing list as empty, as it always was.
 - **An agent works in a workspace only while the person it answers to is a member there too.**
   Once that person was taken out of a workspace, their agents went on writing there, listing it,
   reading its work and serving its calendar feeds. They stop there now, and work again when the

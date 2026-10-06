@@ -1157,8 +1157,11 @@ def _refuse_deciding_sight (
 	if actor is None or actor.user.id == project.owner_id:
 		return
 
-	if subroutine.domain.authorization.may(
-		session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=project.workspace_id
+	if (
+		subroutine.domain.authorization.refusal(
+			session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=project.workspace_id
+		)
+		is None
 	):
 		return
 
@@ -1329,22 +1332,14 @@ def unreachable (
 	`user deactivate` puts before it acts, which is the other half of the decision.
 
 	Needs ``instance:admin``, and a credential pinned to one workspace or narrowed to some projects
-	is refused: this answers for every project on the installation (`#2619`). The narrowing is
-	refused by ``authorize_instance`` itself since decision `#3802`, which is why it has no branch
-	of its own here.
+	is refused: this answers for every project on the installation (`#2619`). Both are refused by
+	``authorize_instance`` itself, since decisions `#3802` and `#4006`.
 	"""
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize_instance(
 			actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
 		)
-
-		if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
-			raise subroutine.errors.Forbidden(
-				"A token pinned to one workspace cannot ask which projects on this installation "
-				"nobody can reach.",
-				hint="Use a credential that was not pinned to a workspace.",
-			)
 
 	project = subroutine.db.models.project.Project
 	workspace = subroutine.db.models.identity.Workspace
@@ -1536,16 +1531,10 @@ def may_rescue (actor: subroutine.domain.authentication.Principal | None) -> boo
 	ask about yet. ``instance:admin``, on a credential that answers for every project on the
 	installation: not pinned to one workspace, and **not narrowed to some projects** (`#2619`). The
 	share this admits skips the check that applies a credential's project narrowing, so a narrowed
-	credential not refused here is a narrowing applied nowhere.
+	credential not refused here is a narrowing applied nowhere. ``may_instance`` refuses both.
 	"""
 
 	if actor is None:
-		return False
-
-	if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
-		return False
-
-	if subroutine.domain.authorization.narrowed_to_projects(actor):
 		return False
 
 	return subroutine.domain.authorization.may_instance(actor, subroutine.permissions.INSTANCE_ADMIN)

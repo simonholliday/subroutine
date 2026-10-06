@@ -30,9 +30,8 @@ export function settingsHere (me, registry, place) {
 
 		**Decided by what the instance publishes and nothing written here.** Which settings a scope
 		has and which verb changes each come from the registry in `/v1/meta` (`#2365`), and what
-		this reader holds from `allowedIn`, which is the project's own answer where they hold a
-		role there (`#2111`). So a setting added on the server moves this with no change to this
-		file, and no verb is copied into the browser to fall behind it.
+		this reader holds from `allowedIn`. So a setting added on the server moves this with no
+		change to this file, and no verb is copied into the browser to fall behind it.
 
 		**At least one, not every one**: a page on which one row can be changed is a page worth
 		opening, and each row still says for itself why it cannot be (`SettingRow`).
@@ -46,7 +45,7 @@ export function settingsHere (me, registry, place) {
 	if (!place || !place.workspace) return null;
 
 	const scope = place.project ? "project" : "workspace";
-	const held = allowedIn(me, place.workspace, place.project ? { address: place.project } : null);
+	const held = allowedIn(me, place.workspace);
 	const changeable = (registry || []).some((setting) => (setting.scopes || []).includes(scope)
 		&& held.has((setting.permission || {})[scope]));
 
@@ -626,10 +625,9 @@ export function ProjectSettings ({
 		that `#2110` §4 says read differently, and the reason the settings read carries
 		provenance at all.
 
-		**`may` is the reader's verbs in this project** — `allowedIn`'s answer, which is the
-		project's own where the reader holds a role there (`#2111`) and its workspace's
-		everywhere else — and a project setting is gated on the verb the registry publishes for
-		a project, which is `project:write`.
+		**`may` is the reader's verbs in this project** — `allowedIn`'s answer, its workspace's —
+		and a project setting is gated on the verb the registry publishes for a project, which is
+		`project:write`.
 	*/
 	if (!workspace || !project || !inForce) return html`<div class="empty">Reading…</div>`;
 
@@ -980,11 +978,9 @@ export function Settings ({
 		sections: meta.setting_sections || [],
 		statuses: hideableStatuses(meta),
 		inForce: current ? current.inForce : null,
-		/* **This project's own answer where it has one** (`#2111`) — `allowedIn`'s rule, so this
-		   page and an open item cannot disagree about what a reader may do in one project. */
-		may: entity
-			? [...allowedIn(me, page.slug, page.scope === "project" ? { address: page.project } : null)]
-			: [],
+		/* `allowedIn`'s answer, so this page and an open item cannot disagree about what a reader
+		   may do in one project. */
+		may: entity ? [...allowedIn(me, page.slug)] : [],
 		onChoose: (key, value) => onChoose(page, key, value),
 		busy,
 	};

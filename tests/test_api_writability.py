@@ -926,7 +926,7 @@ UNBUILT: dict[str, str] = {
 	# view of a project membership has no role, deliberately, so nothing reports it.
 	"ProjectMember.role_id": (
 		"#1452 — a role for one project, which would replace the workspace one. Read by "
-		"`authorization._role_for` and NULL in every row anything writes."
+		"nothing since #4547 deleted the override, and NULL in every row anything writes."
 	),
 	"User.deleted_at": (
 		"#670 — kept and never set: 1.0 deletes no account (decision #4083), and erasure decides "

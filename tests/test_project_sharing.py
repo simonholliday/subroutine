@@ -118,8 +118,8 @@ def test_sharing_grants_sight_and_never_authority (
 ) -> None:
 	"""A shared-in person keeps exactly the workspace role they arrived with.
 
-	The row is written with ``role_id=None`` deliberately, and ``authorization._role_for``
-	*does* read that column — a project role replaces the workspace one where it is set. So
+	The row is written with ``role_id=None`` deliberately. Nothing reads that column since
+	`#4547`, but `#1452` would make a project role replace the workspace one where it is set, so
 	writing anything there would quietly re-grade somebody as a side effect of being shown a
 	project, which is the conflict that moved roles out of this work altogether.
 	"""

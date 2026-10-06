@@ -158,10 +158,10 @@ class ProjectMember(
 	"""Grants a user sight of a private project.
 
 	**Presence is the whole of what §7.3a reads** — ``authorization.visible_projects`` asks
-	whether a row exists and nothing about what is in it. ``role_id`` is a separate mechanism
-	that ``authorization._role_for`` does read, letting a project role replace the workspace
-	one, and it is NULL in every row anybody writes today; `#1452` is where exposing it
-	belongs, because sight inherits down the tree and authority deliberately does not.
+	whether a row exists and nothing about what is in it. ``role_id`` is read by nothing since
+	`#4547`, which deleted the override that let it replace the workspace role while nothing
+	wrote one; `#1452` is where a project's own role would be built, because sight inherits down
+	the tree and authority deliberately does not.
 
 	**Written by ``projects.create`` for the owner, by ``projects.share``, and by
 	``projects._ensure_member`` when ownership moves.** This said *"empty for now — every
@@ -189,7 +189,7 @@ class ProjectMember(
 		index=True,
 	)
 
-	# NULL means the member keeps whatever role they hold at workspace level.
+	# Kept for `#1452`, and read by nothing: the member holds their workspace role here.
 	role_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.uuid_column(),
 		sqlalchemy.ForeignKey("role.id", ondelete="RESTRICT"),

@@ -141,8 +141,9 @@ def test_a_pinned_credential_cannot_ask_what_is_on_the_installation (
 
 	**Its sibling refused this from the day both were written**, which is what makes it a
 	defect rather than a decision: ``api/workspaces._for_an_administrator`` carried the
-	sentence, and the two were added in the same change for the same item. Both go through
-	:func:`subroutine.domain.authorization.reaches_the_whole_installation` now.
+	sentence, and the two were added in the same change for the same item. Both are refused by
+	:func:`subroutine.domain.authorization.authorize_instance` now, which asks the pin itself
+	(`#4006`, and S16 of the cold review of 2026-10-05).
 
 	**Asserted against the pinned workspace being visible the ordinary way**, because the
 	refusal alone would pass for a credential that could see nothing at all — which is a

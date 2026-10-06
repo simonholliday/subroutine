@@ -66,9 +66,9 @@ def _reaches (
 
 	principal = subroutine.domain.authentication.authenticate(session, secret)
 	listed = workspace in subroutine.domain.workspaces.readable(session, principal)
-	writes = subroutine.domain.authorization.may(
+	writes = (subroutine.domain.authorization.refusal(
 		session, principal, subroutine.permissions.TASK_WRITE, workspace_id=workspace.id
-	)
+	) is None)
 
 	assert listed == writes, f"the agent lists the workspace: {listed}, and may write in it: {writes}"
 

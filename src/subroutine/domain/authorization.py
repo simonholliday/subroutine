@@ -2,7 +2,7 @@
 
 One entry point, because a permission system with several is a permission system with
 several answers. Everything that needs to know goes through :func:`authorize` or
-:func:`may`, and both are built on the same private decision.
+:func:`refusal`, and both are built on the same private decision.
 
 docs/design.md §7.3 states the rule as set intersection::
 
@@ -224,18 +224,6 @@ class Grant:
 	narrowed_by_token: bool
 
 
-def effective_permissions (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-	workspace_id: uuid.UUID,
-	*,
-	project: subroutine.db.models.project.Project | None = None,
-) -> frozenset[str]:
-	"""Return everything this principal may do here, after every narrowing is applied."""
-
-	return explain(session, principal, workspace_id, project=project).permissions
-
-
 def explain (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
@@ -255,8 +243,7 @@ def explain (
 	that discloses nothing — the route that resolved the project id is where a 404 belongs.
 	"""
 
-	membership = _project_membership(session, principal, project)
-	role = _role_for(session, principal, workspace_id, membership=membership)
+	role = _role_for(session, principal, workspace_id)
 
 	if role is None:
 		return Grant(permissions=frozenset(), from_role=None, narrowed_by_token=False)
@@ -291,26 +278,6 @@ def explain (
 	return Grant(permissions=permitted, from_role=title, narrowed_by_token=narrowed)
 
 
-def may (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-	permission: str,
-	*,
-	workspace_id: uuid.UUID,
-	project: subroutine.db.models.project.Project | None = None,
-) -> bool:
-	"""Report whether a principal may do this, without raising.
-
-	For the places that need to *ask* rather than *demand* — filtering a list to what the
-	caller can see, or deciding whether to offer an action.
-	"""
-
-	return (
-		_refusal(session, principal, permission, workspace_id=workspace_id, project=project)
-		is None
-	)
-
-
 def refusal (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
@@ -319,11 +286,14 @@ def refusal (
 	workspace_id: uuid.UUID,
 	project: subroutine.db.models.project.Project | None = None,
 ) -> AuthorizationFailure | None:
-	"""Say why a principal may not do this, or ``None`` if they may - :func:`may`, with its reason.
+	"""Say why a principal may not do this, or ``None`` if they may, without raising.
 
-	For a rule of its own that refuses in its own words (`#4020`): the owner rule said *only an owner
-	may* to an owner whose token was not given the permission, where the token's own sentence says
-	what to do about it.
+	For the places that need to *ask* rather than *demand* - filtering a list to what the caller can
+	see, or deciding whether to offer an action - and for a rule of its own that refuses in its own
+	words (`#4020`): the owner rule said *only an owner may* to an owner whose token was not given the
+	permission, where the token's own sentence says what to do about it. **One function for both**
+	(S16 of the cold review of 2026-10-05): a ``may`` beside it asked the same question and dropped
+	the reason.
 	"""
 
 	return _refusal(session, principal, permission, workspace_id=workspace_id, project=project)
@@ -462,46 +432,19 @@ def authorize_instance (
 	raise AuthorizationError(failure, permission=permission)
 
 
-def reaches_the_whole_installation (
-	principal: subroutine.domain.authentication.Principal,
-) -> bool:
-	"""Report whether this credential may be asked about the installation as a whole.
-
-	**A pinned credential is still pinned** — `#344`, and `SR#2282` is what happens without
-	this. ``pinned_workspace_id`` is somebody saying *this token is for that workspace*, and an
-	instance-wide question is by construction not about one workspace. So a pin is a refusal
-	here even when the credential also carries ``instance:admin``, because pinning is precisely
-	the control an operator uses when handing a credential to an agent or to a second machine,
-	and ``scopes`` defaults to the owner's whole permission set.
-
-	**A predicate rather than a refusal, because each caller refuses in its own way and each is
-	right.** Two of them: ``selection._outside`` returns ``None`` so its
-	caller answers as though the workspace does not exist — which is what stops a pinned
-	credential probing for
-	one by name — while ``domain/workspaces.on_instance`` raises, because the caller asked a
-	question about the installation rather than about a workspace they might not be able to
-	see. What they share is the rule, and the rule is what this is.
-
-	It says nothing about permissions: ask :func:`authorize_instance` for those. This is the
-	other axis, and they were checked in one place and not the other for as long as
-	``/v1/instance/workspaces`` has existed.
-	"""
-
-	return principal.pinned_workspace_id is None
-
-
 def narrowed_to_projects (principal: subroutine.domain.authentication.Principal) -> bool:
 	"""Report whether this credential reaches, or may change, only some projects - `#2619`.
 
 	``project_scope`` says which projects a credential reaches and ``project_write_scope`` where it
 	may change anything (`#371`), and ``None`` is no narrowing in either. **A question or a repair
-	that spans every project on the installation is outside both by construction**, for
-	:func:`reaches_the_whole_installation`'s reason: narrowing is how an operator hands a credential
-	to an agent, and ``scopes`` defaults to the owner's whole permission set, so an administrator's
-	narrowed token still carries ``instance:admin``.
+	that spans every project on the installation is outside both by construction**, for a pin's
+	reason (`#344`): narrowing is how an operator hands a credential to an agent, and ``scopes``
+	defaults to the owner's whole permission set, so an administrator's narrowed token still carries
+	``instance:admin``.
 
-	A predicate beside that one, and for the same reason: the listing refuses such a credential by
-	name and the share answers *not found*, and both are right.
+	A predicate rather than a refusal, because each caller refuses in its own words: the
+	installation's acts, the workspace's administration, an act on the whole workspace, and a project
+	made at the top level.
 	"""
 
 	return principal.project_scope is not None or principal.project_write_scope is not None
@@ -594,11 +537,14 @@ def _instance_refusal (
 		return AuthorizationFailure.NARROWED_TO_PROJECTS
 
 	# **Nor a pin to one workspace** (`#4006`, M-9 of the cold review of 2026-09-30, the half of
-	# `#3883` M-4 the narrowing above left). :func:`reaches_the_whole_installation` already said a
-	# pinned credential may not be asked about the installation, and nothing here asked it: a
+	# `#3883` M-4 the narrowing above left). A pin says *this credential is for that workspace*
+	# (`#344`), and a question about the installation is by construction not about one, so a pin
+	# refuses here even with ``instance:admin`` among the scopes. Nothing here asked it once: a
 	# superuser's token pinned to one workspace listed and revoked a colleague's credentials, made
-	# a superuser, and minted a credential in a colleague's name and then acted as them.
-	if not reaches_the_whole_installation(principal):
+	# a superuser, and minted a credential in a colleague's name and then acted as them. **Asked
+	# only here** (S16 of the cold review of 2026-10-05): four callers asked it again beside this,
+	# and two of those could never run.
+	if principal.pinned_workspace_id is not None:
 		return AuthorizationFailure.PINNED_TO_A_WORKSPACE
 
 	return None
@@ -647,15 +593,13 @@ def _refusal (
 	if project is not None and project.workspace_id != workspace_id:
 		return AuthorizationFailure.WORKSPACE_MISMATCH
 
-	membership = _project_membership(session, principal, project)
-
 	# Checked before anything else about the project, so that a private one refuses
 	# identically no matter what else is or is not true. Asks about ancestors as well:
 	# privacy inherits down the tree (docs/design.md §7.3a).
 	if project is not None and not is_visible(session, principal, project):
 		return AuthorizationFailure.PROJECT_INVISIBLE
 
-	role = known_role or _role_for(session, principal, workspace_id, membership=membership)
+	role = known_role or _role_for(session, principal, workspace_id)
 
 	if role is None:
 		return AuthorizationFailure.NOT_A_MEMBER
@@ -702,26 +646,22 @@ def _role_for (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	workspace_id: uuid.UUID,
-	*,
-	membership: subroutine.db.models.project.ProjectMember | None = None,
 ) -> tuple[str, frozenset[str]] | None:
 	"""Return the role that applies, as ``(title, permissions)``, or ``None`` for a stranger.
 
 	A superuser bypasses role checks entirely — but not token scopes, which the caller
-	applies afterwards. Otherwise the workspace role applies, unless the caller found a
-	``project_member`` row naming a different one for this project.
+	applies afterwards. Otherwise the workspace role applies, in every project of the workspace.
+
+	**No role of a project's own** (`#4547`, A I-9 of the cold review of 2026-10-05): a
+	``project_member.role_id`` replaced this one here, while nothing wrote one and no served
+	instance held one, and it was the one way a read and a write could disagree about a role.
+	`#1452` is where a project's own role would be built, into this decision.
 	"""
 
 	# The workspace tier only. What a superuser may do *to the installation* is
 	# :func:`_instance_refusal`'s business, and a role is never the answer there.
 	if principal.is_superuser:
 		return "superuser", subroutine.permissions.WORKSPACE_LEVEL
-
-	if membership is not None and membership.role_id is not None:
-		project_role = session.get(subroutine.db.models.identity.Role, membership.role_id)
-
-		if project_role is not None:
-			return project_role.title, frozenset(project_role.permissions)
 
 	# **An agent holds no role where its person is not a member** (`#4546`, decision `#4518`), as it
 	# reaches no workspace there (``workspaces.readable``).
@@ -811,31 +751,6 @@ def is_visible (
 	)
 
 	return found is not None
-
-
-def _project_membership (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-	project: subroutine.db.models.project.Project | None,
-) -> subroutine.db.models.project.ProjectMember | None:
-	"""Return this principal's membership row for a project, if there is one.
-
-	Looks for a row on *this* project only. Visibility of an ancestor is a separate question
-	answered by :func:`visible_projects`, and a role override (§7.3) is deliberately not
-	inherited — being given `contributor` on a parent project does not silently make you a
-	contributor on everything under it.
-	"""
-
-	if project is None:
-		return None
-
-	model = subroutine.db.models.project.ProjectMember
-
-	return session.scalars(
-		sqlalchemy.select(model).where(
-			model.project_id == project.id, model.user_id == principal.user.id
-		)
-	).one_or_none()
 
 
 def _within_project_scope (

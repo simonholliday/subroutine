@@ -218,13 +218,10 @@ def _outside (
 	"""Return the live workspace a name means, where this caller may discover it and is outside it.
 
 	**Only for somebody decision `#1860` lets discover workspaces** - ``instance:admin``, on a
-	credential that answers for the installation, which is the pair the route's own copy of this
-	asked until `#4543` made it this. Anybody else keeps :func:`_named`'s refusal, which confirms
-	nothing (§8.7).
+	credential that answers for the installation, neither pinned nor narrowed, all of which
+	``may_instance`` asks. Anybody else keeps :func:`_named`'s refusal, which confirms nothing
+	(§8.7).
 	"""
-
-	if not subroutine.domain.authorization.reaches_the_whole_installation(principal):
-		return None
 
 	if not subroutine.domain.authorization.may_instance(
 		principal, subroutine.permissions.INSTANCE_ADMIN, reading=True

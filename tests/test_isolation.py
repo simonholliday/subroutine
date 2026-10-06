@@ -175,16 +175,16 @@ def test_membership_of_one_workspace_grants_nothing_in_the_other (
 	left, right = two_worlds
 	principal = subroutine.domain.authentication.Principal(user=left.owner)
 
-	assert subroutine.domain.authorization.may(
+	assert subroutine.domain.authorization.refusal(
 		session, principal, subroutine.permissions.TASK_READ, workspace_id=left.workspace.id
-	)
-	assert not subroutine.domain.authorization.may(
+	) is None
+	assert subroutine.domain.authorization.refusal(
 		session, principal, subroutine.permissions.TASK_READ, workspace_id=right.workspace.id
-	)
+	) is not None
 
-	assert subroutine.domain.authorization.effective_permissions(
+	assert subroutine.domain.authorization.explain(
 		session, principal, right.workspace.id
-	) == frozenset()
+	).permissions == frozenset()
 
 
 def test_a_project_from_the_other_workspace_is_refused (
