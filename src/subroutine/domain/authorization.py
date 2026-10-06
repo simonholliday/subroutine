@@ -36,6 +36,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.hierarchy
 import subroutine.errors
@@ -721,6 +722,13 @@ def _role_for (
 
 		if project_role is not None:
 			return project_role.title, frozenset(project_role.permissions)
+
+	# **An agent holds no role where its person is not a member** (`#4546`, decision `#4518`), as it
+	# reaches no workspace there (``workspaces.readable``).
+	if principal.user.is_service_account and not subroutine.domain.accountability.can_act(
+		session, principal.user, workspace_id=workspace_id
+	):
+		return None
 
 	role = subroutine.db.models.identity.Role
 	member = subroutine.db.models.identity.WorkspaceMember

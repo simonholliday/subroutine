@@ -568,9 +568,10 @@ prints. Then do by hand what `--here` does, in the project's directory:
 
 Then check it as above.
 
-**It answers to whoever made it**, which the *Account parent* line in what they sent you names.
-For it to answer to you, they run `subroutine user transfer web --to <you>` - only a person who
-may make accounts can.
+**It answers to whoever made it**, which the *Account parent* line in what they sent you names,
+and it works in a workspace only while that person is a member of it too. So if they are not in
+`acme`, it does nothing there until they hand it to you: `subroutine user transfer web --to <you>`
+- only a person who may make accounts can run that.
 
 ### A checkout more than one machine opens
 

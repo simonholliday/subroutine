@@ -14,6 +14,11 @@ upgrade involves.
 
 ## Unreleased
 
+- **An agent works in a workspace only while the person it answers to is a member there too.**
+  Once that person was taken out of a workspace, their agents went on writing there, listing it,
+  reading its work and serving its calendar feeds. They stop there now, and work again when the
+  person is added back, with nothing re-issued. `user remove` names the agents it stops, and
+  `user transfer` says where an agent stops when it goes to somebody outside one of its workspaces.
 - **No credential is issued for an agent that nobody able to act answers for, and no agent is
   handed to, or made to answer to, an account that cannot act.** Each was accepted and then
   refused on every request: a token for an agent whose person had left failed the first time it

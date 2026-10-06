@@ -9786,7 +9786,8 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Agents stop when the person answerable for them leaves, so this is how one is kept when
 		somebody goes. Only a person can hand an agent over. It can go to a person, or to an
-		agent whose own chain ends at one.
+		agent whose own chain ends at one. It works in a workspace only while that person is a
+		member there, and this says where it stops.
 		"""
 
 		with program.opened() as world:
@@ -9795,6 +9796,19 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			where.client.transfer_agent(username=username, to=to)
 
 			program.say(f"{to} now answers for {username}")
+
+			# **And where that stops it** (`#4546`, decision `#4518`): an agent works in a workspace
+			# only while the person at the top of its chain is a member there too.
+			stops, unchecked = _where_it_stops(where.client, username, to)
+
+			if stops:
+				program.say(
+					f"{username} stops working in {', '.join(stops)}, where the person it now "
+					f"answers to is not a member."
+				)
+
+			if unchecked:
+				program.say(f"Workspaces this credential cannot list were not checked: {unchecked}")
 
 	@user_app.command("remove")
 	def user_remove (
@@ -9815,11 +9829,84 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		with program.opened() as world:
 			where = world.writing_to()
 			chosen = _workspace_named_or_fail(program, workspace) or _writing_workspace(world)
+			stopping, unchecked = _agents_stopped_in(where.client, username, chosen)
 
 			where.client.remove_member(username=username, workspace=chosen)
 
 			program.say(f"{username} is no longer a member of {chosen}")
 
+			# **Named, as deactivation names what it stops** (`#4546`, decision `#4518`): an agent
+			# works in a workspace only while the person at the top of its chain is a member there.
+			if stopping:
+				program.say(f"This also stops {len(stopping)} agent(s) here: {', '.join(stopping)}")
+
+			if unchecked:
+				program.say(f"Whether this stops any of their agents here was not checked: {unchecked}")
+
+
+
+def _agents_stopped_in (
+	client: subroutine.clients.base.Client, username: str, workspace: str
+) -> tuple[list[str], str | None]:
+	"""Return the agents taking a person out of a workspace stops there, or why it was not asked.
+
+	**An agent works in a workspace only while the person at the top of its chain is a member of it**
+	(`#4546`, decision `#4518`), so taking that person out stops their agents there as well. Asked of
+	the server before the removal, as deactivation asks, and a refusal is said rather than read as
+	*none*. Taking an agent out stops nothing below it: an agent in the middle of a chain need not be
+	a member.
+	"""
+
+	try:
+		if client.user(username=username).is_service_account:
+			return [], None
+
+		theirs = {
+			one.username
+			for one in client.users(answers_to=username, limit=subroutine.clients.base.EVERY_ROW)
+		}
+		here = {one.user.username for one in client.members(workspace=workspace)}
+
+	except subroutine.errors.SubroutineError as refused:
+		return [], refused.detail
+
+	return sorted(theirs & here), None
+
+
+def _where_it_stops (
+	client: subroutine.clients.base.Client, agent: str, to: str
+) -> tuple[list[str], str | None]:
+	"""Return the workspaces an agent stops in once ``to`` answers for it, or why some went unasked.
+
+	**Where the agent is a member and the person who is now at the top of its chain is not** (`#4546`,
+	decision `#4518`). Every workspace on the instance is asked about where this credential may list
+	them, and its own otherwise, which is said.
+	"""
+
+	try:
+		holder = client.user(username=to)
+		person = holder.answers_to if holder.is_service_account else holder.username
+
+		try:
+			slugs = [one.slug for one in client.instance_workspaces()]
+			unchecked = None
+
+		except subroutine.errors.SubroutineError as refused:
+			slugs = [one.slug for one in client.identity().workspaces]
+			unchecked = refused.detail
+
+		stops = []
+
+		for slug in slugs:
+			names = {one.user.username for one in client.members(workspace=slug)}
+
+			if agent in names and person not in names:
+				stops.append(slug)
+
+	except subroutine.errors.SubroutineError as refused:
+		return [], refused.detail
+
+	return stops, unchecked
 
 
 def _register_workspace (app: typer.Typer, program: Program) -> None:

@@ -108,12 +108,17 @@ def chain (
 INACTIVE = "inactive"
 UNANSWERED = "unanswered"
 
+#: Why an account cannot act *in one workspace*: it, or the person at the top of its chain, is not a
+#: member there (`#4546`, decision `#4518`).
+OUTSIDE = "outside"
+
 
 def standing (
 	session: sqlalchemy.orm.Session,
 	user: subroutine.db.models.identity.User,
 	*,
 	leaving: typing.Collection[uuid.UUID] = (),
+	workspace_id: uuid.UUID | None = None,
 ) -> str | None:
 	"""Say why this account cannot act, or ``None`` when it can - `#4545`, R1 of `#4506`.
 
@@ -127,6 +132,10 @@ def standing (
 
 	``leaving`` asks the same question of a future in which those accounts have gone, which is
 	what lets somebody be told what a deactivation will strand before they make it.
+
+	**``workspace_id`` asks it inside one workspace** (`#4546`, decision `#4518`): there the account
+	must be a member, and so must the person at the top of its chain, so an agent stops where its
+	person was taken out and works again when they are added back, with nothing re-issued.
 	"""
 
 	if not user.is_active or user.deleted_at is not None or user.id in leaving:
@@ -140,13 +149,26 @@ def standing (
 	except subroutine.errors.ValidationError:
 		return UNANSWERED
 
-	if all(
+	if not all(
 		entry.is_active and entry.deleted_at is None and entry.id not in leaving
 		for entry in walked
 	):
+		return UNANSWERED
+
+	if workspace_id is None:
 		return None
 
-	return UNANSWERED
+	member = subroutine.db.models.identity.WorkspaceMember
+	wanted = {user.id, walked[-1].id}
+	seated = set(
+		session.scalars(
+			sqlalchemy.select(member.user_id).where(
+				member.workspace_id == workspace_id, member.user_id.in_(wanted)
+			)
+		)
+	)
+
+	return None if wanted <= seated else OUTSIDE
 
 
 def can_act (
@@ -154,10 +176,11 @@ def can_act (
 	user: subroutine.db.models.identity.User,
 	*,
 	leaving: typing.Collection[uuid.UUID] = (),
+	workspace_id: uuid.UUID | None = None,
 ) -> bool:
 	"""Report whether this account can act - :func:`standing`, as a yes or a no (`#1453`)."""
 
-	return standing(session, user, leaving=leaving) is None
+	return standing(session, user, leaving=leaving, workspace_id=workspace_id) is None
 
 
 def live (

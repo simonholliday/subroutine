@@ -356,14 +356,11 @@ def resolve (
 	# serving everything they could see, and an agent's feed outlived its person's deactivation.
 	# Suspended rather than revoked, as deactivation already treats a feed: added back, it answers
 	# again, with what its owner can then see.
-	member = subroutine.db.models.identity.WorkspaceMember
-	belongs = session.scalar(
-		sqlalchemy.select(member.id).where(
-			member.workspace_id == feed.workspace_id, member.user_id == owner.id
-		)
-	)
-
-	if belongs is None or not subroutine.domain.accountability.can_act(session, owner):
+	#
+	# **One question since `#4546`**, which asks of an agent's person too (decision `#4518`): an
+	# agent's feed stops where its person was taken out of the workspace, and answers again when
+	# they are added back.
+	if not subroutine.domain.accountability.can_act(session, owner, workspace_id=feed.workspace_id):
 		raise _unknown()
 
 	if record_poll:

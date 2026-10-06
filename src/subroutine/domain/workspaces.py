@@ -1258,6 +1258,23 @@ def readable (
 	if principal.pinned_workspace_id is not None:
 		statement = statement.where(workspace.id == principal.pinned_workspace_id)
 
+	# **An agent reaches a workspace only while the person at the top of its chain is a member of it
+	# too** (`#4546`, decision `#4518`), asked here because reach is decided here: checked only where
+	# a role is looked up, an agent refused writes still listed the workspace and read everything.
+	if principal.user.is_service_account:
+		try:
+			person = subroutine.domain.accountability.answers_for(session, principal.user)
+
+		except subroutine.errors.ValidationError:
+			return []
+
+		seated = sqlalchemy.orm.aliased(member)
+		statement = statement.where(
+			sqlalchemy.exists().where(
+				seated.workspace_id == workspace.id, seated.user_id == person.id
+			)
+		)
+
 	return list(session.scalars(statement))
 
 

@@ -1060,6 +1060,60 @@ def test_deactivating_somebody_names_the_agents_it_will_stop (
 	)
 
 
+def test_taking_somebody_out_of_a_workspace_names_the_agents_it_stops_there (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4546`, decision `#4518`: their agents stop there too, and are named as deactivation names them.
+
+	An agent works in a workspace only while the person at the top of its chain is a member of it.
+	**Exactly which**: an agent answering to somebody else is not named, and nor is one of theirs that
+	works in another workspace, where it carries on.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "dojo", "The Dojo")
+	run("user", "create", "thomas", "--name", "Thomas Anderson", "--workspace", "acme")
+	run("user", "add", "thomas", "--workspace", "dojo", "--role", "member")
+	run("agent", "create", "deploy-bot", "--workspace", "acme")
+	run("user", "transfer", "deploy-bot", "--to", "thomas")
+	run("agent", "create", "spar-bot", "--workspace", "dojo")
+	run("user", "transfer", "spar-bot", "--to", "thomas")
+	run("agent", "create", "review-bot", "--workspace", "acme")
+
+	removed = run("user", "remove", "thomas", "--workspace", "acme").output
+
+	assert "This also stops 1 agent(s) here: deploy-bot\n" in removed, removed
+
+
+def test_handing_an_agent_to_somebody_outside_its_workspace_says_where_it_stops (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4546`, decision `#4518`: handed to somebody who is not a member, it does nothing there.
+
+	Said when it is handed over, rather than found out at its next request; and nothing is said when
+	the new holder is a member.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "remove", "thomas", "--workspace", "acme")
+	run("agent", "create", "deploy-bot", "--workspace", "acme")
+
+	handed = run("user", "transfer", "deploy-bot", "--to", "thomas").output
+
+	assert (
+		"deploy-bot stops working in acme, where the person it now answers to is not a member."
+		in handed
+	), handed
+
+	run("user", "add", "thomas", "--workspace", "acme", "--role", "member")
+	run("agent", "create", "review-bot", "--workspace", "acme")
+
+	quiet = run("user", "transfer", "review-bot", "--to", "thomas").output
+
+	assert "stops working" not in quiet, quiet
+
+
 def test_a_departure_that_cannot_be_checked_for_stranded_projects_says_so (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

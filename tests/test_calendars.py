@@ -322,6 +322,46 @@ def test_an_agents_feed_stops_working_when_its_person_is_deactivated (
 		subroutine.domain.calendars.resolve(session, secret, now=NOW)
 
 
+def test_an_agents_feed_stops_where_its_person_was_taken_out_and_answers_on_their_return (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4546`, decision `#4518`: the agent's own membership stayed, and so did its feed.
+
+	Its person was taken out of the workspace and the feed went on serving it. Measured on both
+	databases in the verification of the cold review of 2026-10-05. **Added back, it answers again,
+	with nothing re-issued.**
+	"""
+
+	workspace, _owner = _world(session)
+	person = subroutine.domain.users.create(session, username=f"neo-{uuid.uuid4().hex[:8]}")
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+
+	for user in (person, agent):
+		subroutine.domain.workspaces.add_member(session, workspace, user, role_key="member")
+
+	session.flush()
+	_row, minted = _feed(session, workspace, agent)
+	secret = minted.value.get_secret_value()
+
+	assert subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+	subroutine.domain.workspaces.remove_member(session, workspace, person)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+	subroutine.domain.workspaces.add_member(session, workspace, person, role_key="member")
+	session.flush()
+
+	assert subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+
 def test_a_feed_stops_working_when_its_workspace_is_deleted (
 	session: sqlalchemy.orm.Session,
 ) -> None:
