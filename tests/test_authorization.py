@@ -245,26 +245,55 @@ def test_a_token_cannot_widen_its_owner (session: sqlalchemy.orm.Session) -> Non
 	) is not None
 
 
-def test_a_superuser_bypasses_roles_but_not_token_scopes (
+def test_a_superuser_outside_a_workspace_administers_it_and_does_nothing_else_there (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Otherwise a leaked admin-owned agent token would be unbounded (docs/design.md §7.3)."""
+	"""`SR#4557`, decision `#4519`: one clause for an instance administrator, member or not (`#1418`).
+
+	They see who is in it, administer its membership and delete it; everything else in a workspace
+	is a role's, and they hold none there. The clause is the instance tier's, so a credential not
+	scoped to ``instance:admin`` does not carry it, and a leaked one stays bounded (§7.3).
+	"""
 
 	workspace = _seeded_workspace(session)
 	root = subroutine.domain.authentication.Principal(user=_user(session, is_superuser=True))
 
-	# No membership row anywhere, and still permitted.
-	assert subroutine.domain.authorization.refusal(
-		session, root, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
-	) is None
+	for verb in sorted(subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE):
+		assert subroutine.domain.authorization.refusal(
+			session, root, verb, workspace_id=workspace.id
+		) is None, verb
+
+	for verb in (subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE):
+		assert subroutine.domain.authorization.refusal(
+			session, root, verb, workspace_id=workspace.id
+		) == subroutine.domain.authorization.AuthorizationFailure.NOT_A_MEMBER, verb
 
 	scoped = _with_token(session, root, scopes=[subroutine.permissions.TASK_READ])
 
 	assert subroutine.domain.authorization.refusal(
-		session, scoped, subroutine.permissions.TASK_READ, workspace_id=workspace.id
+		session, scoped, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+	) is not None
+
+	# **The verb as well as the tier**: a credential carrying ``instance:admin`` and only reading
+	# the workspace may read it and may not delete it.
+	reading = _with_token(
+		session,
+		root,
+		scopes=[subroutine.permissions.INSTANCE_ADMIN, subroutine.permissions.WORKSPACE_READ],
+	)
+
+	assert subroutine.domain.authorization.refusal(
+		session, reading, subroutine.permissions.WORKSPACE_READ, workspace_id=workspace.id
 	) is None
 	assert subroutine.domain.authorization.refusal(
-		session, scoped, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+		session, reading, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+	) is not None
+
+	# **A pin is not the installation** (`#4006`), even when it is this workspace's.
+	pinned = _with_token(session, root, workspace_id=workspace.id)
+
+	assert subroutine.domain.authorization.refusal(
+		session, pinned, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
 	) is not None
 
 
@@ -765,21 +794,27 @@ def test_the_two_tiers_refuse_each_others_verbs (session: sqlalchemy.orm.Session
 		)
 
 
-def test_a_superuser_gets_the_workspace_tier_and_not_more (
+def test_a_superuser_acts_by_their_role_inside_a_workspace (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Bypassing roles grants the workspace verbs, never the instance ones."""
+	"""`SR#4557`, decision `#4519`: a superuser who is a viewer somewhere is a viewer there.
+
+	The role lookup bypassed roles for them, so a superuser agent could make itself owner where a
+	person check should have stopped it. They regrade themselves, through the clause, before writing.
+	"""
 
 	workspace = _seeded_workspace(session)
-	superuser = subroutine.domain.authentication.Principal(
-		user=_user(session, is_superuser=True)
-	)
+	viewer = _member(session, workspace, "viewer")
+	viewer.user.is_superuser = True
+	session.flush()
 
-	granted = subroutine.domain.authorization.explain(
-		session, superuser, workspace.id
-	).permissions
+	grant = subroutine.domain.authorization.explain(session, viewer, workspace.id)
 
-	assert granted == subroutine.permissions.WORKSPACE_LEVEL
+	assert grant.from_role == "Viewer", grant
+	assert subroutine.permissions.TASK_WRITE not in grant.permissions, grant
+	assert subroutine.domain.authorization.refusal(
+		session, viewer, subroutine.permissions.TASK_WRITE, workspace_id=workspace.id
+	) == subroutine.domain.authorization.AuthorizationFailure.ROLE_LACKS_PERMISSION
 
 
 def _document_permissions () -> set[str]:

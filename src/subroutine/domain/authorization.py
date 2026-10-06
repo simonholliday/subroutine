@@ -618,6 +618,23 @@ def _refusal (
 	if project is not None and not is_visible(session, principal, project):
 		return AuthorizationFailure.PROJECT_INVISIBLE
 
+	# **An instance administrator administers any live workspace's membership, and deletes it,
+	# member or not** (`#4557`, decision `#4519`, `#1418`): the one clause, where a superuser
+	# bypassed every role. Asked of the instance tier, so a pin, a narrowing to some projects and a
+	# read-only session each refuse it as they refuse any instance act; and the verb itself must be
+	# within the credential's scopes, as everywhere.
+	if (
+		permission in subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
+		and _instance_refusal(
+			principal,
+			subroutine.permissions.INSTANCE_ADMIN,
+			reading=permission in subroutine.permissions.READS,
+		)
+		is None
+		and not outside_token_scope(principal, permission)
+	):
+		return None
+
 	role = known_role or _role_for(session, principal, workspace_id)
 
 	if role is None:
@@ -668,19 +685,17 @@ def _role_for (
 ) -> tuple[str, frozenset[str]] | None:
 	"""Return the role that applies, as ``(title, permissions)``, or ``None`` for a stranger.
 
-	A superuser bypasses role checks entirely — but not token scopes, which the caller
-	applies afterwards. Otherwise the workspace role applies, in every project of the workspace.
+	**A superuser too** (`#4557`, decision `#4519`): inside a workspace everybody acts by their role
+	there, and what an instance administrator may do in any workspace is one clause in
+	:func:`_refusal`. The bypass here let a superuser agent make itself owner where a person check
+	should have stopped it, and left a superuser removed from a workspace passing every check in it.
+	The workspace role applies in every project of the workspace.
 
 	**No role of a project's own** (`#4547`, A I-9 of the cold review of 2026-10-05): a
 	``project_member.role_id`` replaced this one here, while nothing wrote one and no served
 	instance held one, and it was the one way a read and a write could disagree about a role.
 	`#1452` is where a project's own role would be built, into this decision.
 	"""
-
-	# The workspace tier only. What a superuser may do *to the installation* is
-	# :func:`_instance_refusal`'s business, and a role is never the answer there.
-	if principal.is_superuser:
-		return "superuser", subroutine.permissions.WORKSPACE_LEVEL
 
 	# **An agent holds no role where its person is not a member** (`#4546`, decision `#4518`), as it
 	# reaches no workspace there (``workspaces.readable``).

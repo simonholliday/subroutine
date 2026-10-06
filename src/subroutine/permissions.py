@@ -145,6 +145,14 @@ WORKSPACE_WIDE: frozenset[str] = frozenset(
 	}
 )
 
+#: **What an instance administrator may do in any live workspace, member or not** (`#4557`,
+#: decision `#4519`, `#1418`): see who is in it, administer its membership - themselves included,
+#: which is how `#3808`'s repair of a workspace whose owners cannot act is made - and delete it.
+#: Everything else in a workspace is their role's there, as it is everybody's.
+ADMINISTERED_FROM_THE_INSTANCE: frozenset[str] = frozenset(
+	{WORKSPACE_READ, USER_ADMIN, WORKSPACE_DELETE}
+)
+
 #: Creating the second workspace happens outside every existing workspace, and creating an
 #: account happens before that account belongs to one — so neither can be expressed as a
 #: role permission, and without their own verbs the only way to do either is to skip the

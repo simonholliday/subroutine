@@ -1312,7 +1312,7 @@ _OPS = frozenset({"narrowed to another project", "writing only in another projec
 #: asked the decision what to expect. ``test_the_decision_is_as_written`` holds the code to this, and
 #: every act holds every transport to it. **A read-only connection is a rule rather than a column**
 #: (decision `#4510`): its person's own reads, and nothing else. An item that changes the model
-#: changes a line here, as `#4519` will for the superuser who reads Zion without belonging to it.
+#: changes a line here, as `#4557` did for the superuser who read Zion without belonging to it.
 DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.INSTANCE_ADMIN, "instance"): _INSTALLATION,
 	(P.INSTANCE_USER_CREATE, "instance"): _INSTALLATION,
@@ -1342,13 +1342,10 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.COMMENT_READ, "vault"): _VAULT,
 	(P.TASK_READ, "zion"): frozenset(
 		{
-			"superuser",
 			"member",
 			"outsider",
 			"writing only in another project",
 			"pinned to another workspace",
-			"superuser pinned to another workspace",
-			"local superuser",
 			"local member",
 		}
 	)

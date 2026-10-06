@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A superuser acts by their role inside a workspace, like everybody else.** Roles were
+  bypassed for them, so one who was a viewer somewhere could write there, and one taken out of
+  a workspace passed every check in it. An instance administrator still sees who is in any live
+  workspace, administers its membership - themselves included - and deletes it, member or not.
 - **`show` prints an item without the comments its credential may not read, and says so**, in
   the terminal and the agent tools. A credential without `comment:read` - the hosting guide's
   own agent recipe among them - was refused the whole item. The recipe now carries
