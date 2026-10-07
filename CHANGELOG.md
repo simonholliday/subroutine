@@ -20,6 +20,16 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The agent tools are never handed a secret, and never administer a workspace or the
+  installation, whatever the credential allows.** Through `/mcp` or `subroutine mcp`, the instance
+  refuses minting a credential, a sign-in link or a calendar feed, giving a feed a new address,
+  every permission over the installation, and `workspace:admin` and `workspace:delete`: a
+  workspace's settings, deleting somebody else's comment or shared view, who owns a project that
+  is not yours and whether it is private, and deleting the workspace. It refuses them through
+  `subroutine_call_api` as through every other tool. A list of seven routes held this before: it
+  let deleting a workspace through, and an agent on its person's own credential could make a
+  superuser or deactivate a person. Moving a project and renaming a workspace, which the list
+  refused, are allowed. Do the rest from a terminal or the browser.
 - **`agent create --workspace` names where the agent joins, and no longer pins its credential
   there.** `--pin` pins it. On an instance with several workspaces every new agent was pinned,
   though nothing else pins a credential unasked; and without `--workspace` an agent joins the

@@ -132,6 +132,12 @@ ADMINISTERED_FROM_THE_INSTANCE: frozenset[str] = frozenset(
 	{WORKSPACE_READ, USER_ADMIN, WORKSPACE_DELETE}
 )
 
+#: **What a session through the agent tools never holds in a workspace** (decision `#4520`,
+#: `SR#4563`): administering it and deleting it. With every instance verb, which the installation's
+#: check refuses such a session whole, this is the agent tools' ceiling; everything else its
+#: credential allows, the session may do.
+ABOVE_THE_AGENT_TOOLS: frozenset[str] = frozenset({WORKSPACE_ADMIN, WORKSPACE_DELETE})
+
 #: Creating the second workspace happens outside every existing workspace, and creating an
 #: account happens before that account belongs to one — so neither can be expressed as a
 #: role permission, and without their own verbs the only way to do either is to skip the

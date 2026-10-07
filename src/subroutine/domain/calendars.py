@@ -113,6 +113,9 @@ def create (
 	"""
 
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+	subroutine.domain.authentication.refuse_handing_the_agent_tools_a_secret(
+		actor, what="a calendar feed's address", command="subroutine calendar create"
+	)
 
 	owner = actor.user
 
@@ -390,6 +393,9 @@ def reset (
 
 	refuse_when_disabled(enabled)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+	subroutine.domain.authentication.refuse_handing_the_agent_tools_a_secret(
+		actor, what="a calendar feed's address", command="subroutine calendar reset"
+	)
 	subroutine.domain.authentication.refuse_undominated(
 		session,
 		actor,

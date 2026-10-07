@@ -158,10 +158,17 @@ def _watch (case: Case) -> subroutine.releases.Watch | None:
 
 
 def _me (case: Case) -> subroutine.views.Me:
-	"""Answer ``/v1/me`` as this case's instance would, through the renderer the route uses."""
+	"""Answer ``/v1/me`` as this case's instance would, through the renderer the route uses.
 
-	return test_installations._me(instance_version=case.instance).model_copy(update={
+	**An administrator is the account** (decision `#4520`, `SR#4563`), so the case sets that, with
+	the permissions an administrator's own credential holds beside it.
+	"""
+
+	answered = test_installations._me(instance_version=case.instance)
+
+	return answered.model_copy(update={
 		"releases": subroutine.views.release_news(_watch(case)),
+		"user": answered.user.model_copy(update={"is_superuser": case.administers}),
 		"instance_permissions": (
 			[subroutine.permissions.INSTANCE_ADMIN] if case.administers else []
 		),
@@ -393,6 +400,27 @@ def test_the_browser_writes_the_instance_notice_as_the_views_do (tmp_path: pathl
 		"database, so plan a short outage: stop it, install the new version, run 'subroutine db "
 		"upgrade', then start it."
 	)
+
+
+def test_an_administrator_through_the_agent_tools_is_told_the_instance_is_behind (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4563`, decision `#4520`: through the agent tools a session holds no instance permission.
+
+	The notice is for the person, who upgrades the instance where that ceiling does not reach, so it
+	reads the account; it was read from the session's permissions, and an administrator working
+	through the tools would no longer have been told. The browser's twin agrees.
+	"""
+
+	behind = [case for case in CASES if case.administers and subroutine.views.INSTANCE in case.behind]
+
+	assert behind, "no case has the instance behind for an administrator"
+
+	me = _me(behind[0]).model_copy(update={"instance_permissions": []})
+	said = subroutine.views.instance_behind(me)
+
+	assert said is not None, "an administrator through the agent tools was not told"
+	assert _in_the_browser(tmp_path, [me.model_dump(mode="json")]) == [said]
 
 
 def test_whoami_answers_what_the_check_found_and_says_so_when_it_could_not () -> None:

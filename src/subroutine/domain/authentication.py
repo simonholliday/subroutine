@@ -168,6 +168,18 @@ class Principal:
 	#: release from 0.5.0 (`#4506` S1).
 	read_only: bool = False
 
+	#: **This session came through the agent tools, and is held to their ceiling** - decision `#4520`,
+	#: `SR#4563`. Set where ``/mcp`` identifies its caller, which every way into the tools passes
+	#: through: the instance's own endpoint, and ``subroutine mcp`` relaying to it or driving it in
+	#: process. **Observed rather than reported**, since the instance answers that endpoint itself, so
+	#: it is the one door that narrows (decision `#1426`).
+	#:
+	#: Such a session is handed no secret (:func:`refuse_handing_the_agent_tools_a_secret`) and holds
+	#: no instance verb, ``workspace:admin`` or ``workspace:delete`` (the permission check). It only
+	#: ever narrows. A list of routes ``subroutine_call_api`` refused held this before, and missed
+	#: deleting a workspace while refusing an untitled edit of one (`#4507`, area T).
+	through_the_agent_tools: bool = False
+
 	def __post_init__ (self) -> None:
 		"""Refuse a principal that claims to hold more than one credential at once.
 
@@ -430,6 +442,9 @@ def issue_token (
 	"""
 
 	refuse_a_read_only_session(actor)
+	refuse_handing_the_agent_tools_a_secret(
+		actor, what="a credential", command="subroutine token create"
+	)
 
 	title = subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH)
 
@@ -569,6 +584,36 @@ def refuse_a_read_only_session (actor: Principal | None) -> None:
 		return
 
 	raise subroutine.errors.Forbidden(READ_ONLY, hint=READ_ONLY_HINT)
+
+
+#: What a session through the agent tools is told where its ceiling is what stands in the way -
+#: decision `#4520`, `SR#4563`. **Somewhere else to do it, and somebody to ask**, as the route list it
+#: replaces said: a refusal that only says *not here* strands an agent mid-task.
+AGENT_TOOLS_HINT = "Do it from a terminal or the browser, or ask the person you answer to."
+
+
+def refuse_handing_the_agent_tools_a_secret (
+	actor: Principal | None, *, what: str, command: str
+) -> None:
+	"""Refuse to mint a secret for a session through the agent tools - decision `#4520`, `SR#4563`.
+
+	**Asked by each of the four functions that hand one back**: issuing a credential, making a
+	sign-in link, and making a calendar feed or giving one a new address. ``tests/test_ceiling.py``
+	finds them by what they call, so a fifth cannot be added without this being asked of it.
+
+	**Whatever the credential holds**: the secret would pass through the agent's context and stay
+	there, which is a fact about the door rather than about the credential. ``what`` is the secret
+	as the refusal names it, and ``command`` the terminal's way to make it.
+	"""
+
+	if actor is None or not actor.through_the_agent_tools:
+		return
+
+	raise subroutine.errors.Forbidden(
+		f"A session through the agent tools is never handed {what}, which would pass through your "
+		"context and stay in it.",
+		hint=f"Run '{command}' in a terminal, or ask the person you answer to.",
+	)
 
 
 @dataclasses.dataclass(frozen=True)

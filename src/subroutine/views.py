@@ -6418,9 +6418,13 @@ def _administers (me: Me) -> bool:
 	**The instance is named as behind only to them** (Simon, 2026-09-17, for the browser, and
 	applied to ``whoami`` for the reason `#2224` opens with): telling somebody their server is
 	behind when they cannot upgrade it is worse than noise.
+
+	**Asked of the account, not of this session** (Simon, decision `#4520`, `SR#4563`): through the
+	agent tools a session holds no instance permission, and the upgrade is done where that ceiling
+	does not reach.
 	"""
 
-	return subroutine.permissions.INSTANCE_ADMIN in me.instance_permissions
+	return me.user.is_superuser
 
 
 def program_behind (me: Me, *, program: str | None) -> str | None:

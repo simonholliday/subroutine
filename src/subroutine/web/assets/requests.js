@@ -120,14 +120,16 @@ export function instanceBehind (me) {
 		`tests/test_release_notices.py` renders both from one set of cases, so they cannot drift.
 
 		**Administrators only** (Simon, 2026-09-17). The browser has no program or plugin of its
-		own, so the instance is the one installation it can report on - and only somebody holding
-		`instance:admin` can act on that, so saying it to anybody else is noise.
+		own, so the instance is the one installation it can report on - and only an administrator
+		of it can act on that, so saying it to anybody else is noise. **Asked of the account**, as
+		`views` asks it (decision `#4520`): a session through the agent tools holds no instance
+		permission, and the upgrade is done where that does not reach.
 
 		**The record is the order.** How far behind is a position in `releases`, and whether the
 		database moves is two schema revisions compared, so no version string is ranked here. A
 		version the record does not hold is a development build, which says nothing.
 	*/
-	if (!me || !(me.instance_permissions || []).includes("instance:admin")) return null;
+	if (!me || !me.user || !me.user.is_superuser) return null;
 
 	const news = me.releases;
 

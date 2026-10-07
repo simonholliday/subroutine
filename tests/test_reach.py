@@ -49,7 +49,6 @@ import subroutine.api.routing
 import subroutine.cli.main
 import subroutine.clients.base
 import subroutine.clients.http
-import subroutine.mcp.tools
 import subroutine.views
 
 #: The repository root, resolved from this file rather than from the working directory.
@@ -1295,95 +1294,6 @@ def test_no_client_method_is_both_called_by_mcp_and_excused_from_it () -> None:
 
 	assert not contradicted, (
 		f"these methods are excused from MCP and called by it: {contradicted}."
-	)
-
-
-def test_every_denied_route_is_one_that_exists () -> None:
-	"""`#485`'s deny-list may not name a route that has gone.
-
-	The entries in :data:`subroutine.mcp.tools.DENIED` are the shape `#412` keeps finding:
-	written once with the argument fresh, then never re-read. An entry naming a route that no
-	longer exists still *reads* as a considered exclusion — it refuses nothing and looks like a
-	control — which is the same failure as an allow-list entry whose reason has expired.
-
-	Imported rather than restated, so the surface and this guard cannot come to disagree about
-	which routes are refused.
-
-	**An equality since `#528`, where it used to be a regex match against a route with its
-	parameters substituted.** The entries are now the path templates the application registers,
-	so "does this entry name a real route" is the same question the router answers rather than a
-	second one asked with a pattern — which is what let three respellings of a denied path walk
-	past the surface this backs up.
-	"""
-
-	mounted = {
-		(method, path)
-		for path, methods in subroutine.api.routing.declarations(subroutine.api.app.ROUTERS)
-		for method in methods
-	}
-
-	for verb, template, instead in subroutine.mcp.tools.DENIED:
-		assert (verb, template) in mounted, (
-			f"{verb} {template} is refused by subroutine_call_api and is not a route this "
-			f"application registers, so it guards nothing"
-		)
-		assert instead, f"{verb} {template} refuses without naming what to do instead"
-
-
-def test_every_route_that_answers_with_a_credential_is_denied_to_an_agent () -> None:
-	"""`#927`'s H-7, and the direction the deny-list could not answer for itself.
-
-	`DENIED` had three entries against roughly forty-three writing routes, and its written
-	reason covered one kind of risk: consequential, no undo, a confirmation step. Two routes
-	sat outside it that fail differently — `POST /v1/tokens` answers with a secret that exists
-	nowhere else ever, and `POST /v1/login-links` with a working sign-in URL that takes a
-	`username`, so it can be minted for somebody else. **A tool result is text in a model's
-	context**, which is the one place this project cannot revoke anything from.
-
-	Not an escalation: `_refuse_amplification` correctly stops a credential widening itself.
-	A disclosure — and `api/mcp.py` already argues that this transport must refuse browser
-	sessions because it is *"driven by an agent reading item text that anybody with a
-	credential may have written"*. The same reader must not be handed a credential.
-
-	**Derived from the response models rather than from the two paths.** A list of routes that
-	return a secret is a second copy of a fact the routes already carry, and the copy is the
-	one that goes stale — so this asks which routes answer with one of
-	`tools.CARRIES_A_SECRET` and requires each to be refused. A third such route cannot be
-	added without somebody deciding about this.
-
-	The floor matters as much as the check: if the response models stopped being readable this
-	would find nothing and pass, which is the "reads nothing and succeeds" shape met three
-	times in this repository already.
-	"""
-
-	minting = {
-		(method, f"{prefix}{route.path}")
-		for prefix, router in subroutine.api.app.ROUTERS
-		for route in typing.cast(list[typing.Any], router.routes)
-		for method in sorted(getattr(route, "methods", None) or ())
-		if getattr(route, "response_model", None) in subroutine.mcp.tools.CARRIES_A_SECRET
-	}
-
-	assert len(minting) >= 2, (
-		f"only {len(minting)} routes were found to answer with a credential — has the "
-		f"response model stopped being readable from the route?"
-	)
-
-	refused = {(verb, template) for verb, template, _instead in subroutine.mcp.tools.DENIED}
-	reachable = minting - refused
-
-	# **And refused for that reason, which is read from a set this holds to them** (`SR#4427`):
-	# every entry was refused as consequential and un-undoable, which no credential is.
-	assert minting == set(subroutine.mcp.tools.ANSWERS_WITH_A_CREDENTIAL), (
-		f"ANSWERS_WITH_A_CREDENTIAL disagrees with the routes that answer with one: "
-		f"{sorted(minting ^ set(subroutine.mcp.tools.ANSWERS_WITH_A_CREDENTIAL))}"
-	)
-
-	# A `HEAD` or a `GET` on one of these would be a different question and there are none;
-	# every one found is a mint.
-	assert not reachable, (
-		f"these routes answer with a live credential and subroutine_call_api can reach them: "
-		f"{sorted(reachable)}. A tool result is text in a model's context."
 	)
 
 

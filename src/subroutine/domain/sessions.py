@@ -74,8 +74,12 @@ def mint_link (
 	with the database file, which §12.1a says is a caller no check narrows.
 	"""
 
-	# A read-only session changes nothing, whoever the link would be for (decision `#4510`).
+	# A read-only session changes nothing, whoever the link would be for (decision `#4510`), and a
+	# session through the agent tools is handed no secret, whatever it holds (decision `#4520`).
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+	subroutine.domain.authentication.refuse_handing_the_agent_tools_a_secret(
+		actor, what="a sign-in link", command="subroutine login link"
+	)
 
 	# Asked next, because it is the final answer: holding the permission asked after changes nothing.
 	subroutine.domain.authentication.refuse_an_agent_issuing_for_a_person(
@@ -454,12 +458,17 @@ def _refuse_administering_somebody_else (
 	**Nor is a local person, and only a person** (`#4430`, R2-L33 of the cold review of 2026-10-04):
 	with ``local_user`` naming an agent, the terminal acting as it signed a superuser out everywhere,
 	which the same agent presenting a credential is refused - as issuing a credential already
-	decided for a local agent.
+	decided for a local agent. **Nor through the agent tools** (decision `#4520`, `SR#4563`): a local
+	person working through them holds no instance verb, which is what this asks.
 	"""
 
 	if (
 		actor is None
-		or (actor.is_local and not actor.user.is_service_account)
+		or (
+			actor.is_local
+			and not actor.user.is_service_account
+			and not actor.through_the_agent_tools
+		)
 		or actor.user.id == user.id
 	):
 		return

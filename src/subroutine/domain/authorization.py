@@ -61,6 +61,7 @@ class AuthorizationFailure(enum.StrEnum):
 	PINNED_TO_A_WORKSPACE = "pinned_to_a_workspace"
 	NOT_A_SUPERUSER = "not_a_superuser"
 	READ_ONLY = "read_only"
+	ABOVE_THE_AGENT_TOOLS = "above_the_agent_tools"
 
 	@property
 	def conceals_existence (self) -> bool:
@@ -103,6 +104,12 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 		"one workspace the token you used is pinned to."
 	),
 	AuthorizationFailure.READ_ONLY: subroutine.domain.authentication.READ_ONLY,
+	# **The agent tools' ceiling** (decision `#4520`, `SR#4563`): said only where everything else
+	# allowed the act, so it never sends somebody to a terminal that would refuse them too.
+	AuthorizationFailure.ABOVE_THE_AGENT_TOOLS: (
+		"This needs the {permission} permission, which a session through the agent tools does not "
+		"hold."
+	),
 }
 
 _HINTS: dict[AuthorizationFailure, str] = {
@@ -115,6 +122,7 @@ _HINTS: dict[AuthorizationFailure, str] = {
 		"Ask whoever runs this instance to do it, or to make your account an administrator."
 	),
 	AuthorizationFailure.READ_ONLY: subroutine.domain.authentication.READ_ONLY_HINT,
+	AuthorizationFailure.ABOVE_THE_AGENT_TOOLS: subroutine.domain.authentication.AGENT_TOOLS_HINT,
 }
 
 
@@ -597,6 +605,13 @@ def _instance_refusal (
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
+	# **No instance verb through the agent tools** (decision `#4520`, `SR#4563`), reads included:
+	# an agent on a superuser's own credential made a superuser and deactivated a person through
+	# ``subroutine_call_api`` (G16 of the cold review of 2026-10-05). Intersected as the scopes are,
+	# after them, so somebody who could not do it anywhere is told why, not where.
+	if principal.through_the_agent_tools:
+		return AuthorizationFailure.ABOVE_THE_AGENT_TOOLS
+
 	# **The installation is a place beyond every project** (decision `#3802`, item `#3812`; `#4558`,
 	# decision `#4527`), held only by a credential narrowed to none: ``scopes`` defaults to the
 	# owner's whole set, so a superuser's credential narrowed to one project created accounts and
@@ -688,6 +703,12 @@ def _refusal (
 
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
+
+	# **Nor administering or deleting a workspace through the agent tools** (decision `#4520`,
+	# `SR#4563`): a ceiling on the session, intersected as the scopes are. It replaced a list of
+	# routes ``subroutine_call_api`` refused, which let deleting a workspace through.
+	if principal.through_the_agent_tools and permission in subroutine.permissions.ABOVE_THE_AGENT_TOOLS:
+		return AuthorizationFailure.ABOVE_THE_AGENT_TOOLS
 
 	# **Every act but a read lands on a place the credential may change** (`#4558`, decision
 	# `#4527`): its project, or its workspace where none is named. Reach has established that it

@@ -40,6 +40,7 @@ build time and say so in their capabilities. Measured against ``claude-code/2.1.
 the ``GET``, is answered ``405``, and proceeds without complaint.
 """
 
+import dataclasses
 import json
 import typing
 
@@ -353,9 +354,21 @@ def _acting_as (
 	for it and the one :mod:`subroutine.api.inprocess` already uses — so this asks the
 	application rather than going around it. Two authentications per request, disagreeing, is
 	what the previous shape would have produced.
+
+	**Held to the agent tools' ceiling either way** (decision `#4520`, `SR#4563`), here, because every
+	way into the tools passes through: this endpoint served, ``subroutine mcp`` relaying to it, and
+	``subroutine mcp`` driving it in process, whose caller arrives as the override. The tools' own
+	client and ``subroutine_call_api``'s requests both act as what this returns.
 	"""
 
 	def resolve (
+		session: sqlalchemy.orm.Session,
+	) -> subroutine.domain.authentication.Principal:
+		"""Identify the caller against this session, as this application would, under the ceiling."""
+
+		return dataclasses.replace(identified(session), through_the_agent_tools=True)
+
+	def identified (
 		session: sqlalchemy.orm.Session,
 	) -> subroutine.domain.authentication.Principal:
 		"""Identify the caller against this session, as this application would."""

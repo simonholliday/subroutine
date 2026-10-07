@@ -400,7 +400,8 @@ class Act:
 	``secret`` says the answer is a credential, a sign-in link or a calendar feed, which no session
 	through the agent tools is handed (`#4520`). ``route`` is the request ``call_api`` makes, for an
 	act whose request names the principal making it; every other act's is recorded from the HTTP
-	client.
+	client. ``theirs`` names the person whose own thing the act is on, where anybody else needs
+	``workspace:admin`` to do it - which the agent tools never hold (`SR#4563`).
 	"""
 
 	key: str
@@ -413,18 +414,22 @@ class Act:
 	rule: str | None = None
 	secret: bool = False
 	route: typing.Callable[[Cast, "Who"], dict[str, typing.Any]] | None = None
+	theirs: str | None = None
 
-	@property
-	def beyond_the_agent_tools (self) -> bool:
-		"""Say whether the agent tools' ceiling refuses this act whatever the credential allows.
+	def beyond_the_agent_tools (self, who: "Who") -> bool:
+		"""Say whether the agent tools' ceiling refuses this act to ``who``, whatever it holds.
 
 		Decision `#4520`: a session through ``/mcp`` or ``subroutine mcp`` is handed no secret, holds no
 		instance verb, and holds neither ``workspace:admin`` nor ``workspace:delete``.
 		"""
 
-		return self.secret or any(
-			verb in P.INSTANCE_LEVEL or verb in (P.WORKSPACE_ADMIN, P.WORKSPACE_DELETE)
-			for verb in self.verbs
+		return (
+			self.secret
+			or (self.theirs is not None and who.person != self.theirs)
+			or any(
+				verb in P.INSTANCE_LEVEL or verb in (P.WORKSPACE_ADMIN, P.WORKSPACE_DELETE)
+				for verb in self.verbs
+			)
 		)
 
 
@@ -843,6 +848,7 @@ ACTS: tuple[Act, ...] = (
 			ref=s.refs["task"], comment_id=s.ids["hugo's comment"], workspace=s.slug
 		),
 		rule="A comment is deleted by its author or by an administrator.",
+		theirs="hugo",
 	),
 	Act(
 		"create document",
@@ -965,6 +971,7 @@ ACTS: tuple[Act, ...] = (
 		"metacortex",
 		lambda c, s: c.forget_saved_view(key=s.names["view"], workspace=s.slug),
 		rule="A saved view is forgotten by whoever saved it.",
+		theirs="laurence",
 	),
 	# --- Projects --------------------------------------------------------------------------------
 	Act(
@@ -1210,35 +1217,6 @@ NOT_AN_ACT: dict[str, str] = {
 #: agree. A principal of ``"*"`` stands for every principal driving that act. Deleting an entry is
 #: what closes it, and an entry whose cell agrees fails as stale.
 KNOWN: dict[tuple[str, str], str] = {
-	# `#4563`: the agent tools' route list refuses these through `call_api`, and the ceiling that
-	# replaces it does not.
-	("update workspace", "*"): "#4563: call_api refuses the route by a list the ceiling replaces.",
-	("rename workspace", "*"): "#4563: call_api refuses the route by a list the ceiling replaces.",
-	("move project", "*"): "#4563: call_api refuses the route by a list the ceiling replaces.",
-	# `#4563`: the agent tools hold an administrator's instance verbs, and an owner's deletion, today
-	# (G16 of `#4506`).
-	**{
-		(act, who): "#4563: G16, the agent tools hold the instance's verbs."
-		for act in (
-			"create user",
-			"sign somebody out",
-			"revoke somebody's token",
-			"deactivate somebody",
-			"transfer an agent",
-			"update instance",
-			"instance workspaces",
-			"unreachable projects",
-			"unadministered workspaces",
-			"delete workspace",
-			"restore workspace",
-		)
-		for who in ("superuser", "local superuser")
-	},
-	**{
-		(act, "read-only connection"): "#4563: G16, the agent tools hold the instance's verbs."
-		for act in ("instance workspaces", "unreachable projects", "unadministered workspaces")
-	},
-	("delete workspace", "owner"): "#4563: the agent tools hold workspace:delete.",
 	# `#4567`: the terminal's exemptions for its local principal (S8 and D6 of `#4506`).
 	("sign somebody out", "local member"): "#4567: S8, a local principal acts on another account.",
 	("issue token for somebody", "local member"): (
@@ -1776,7 +1754,7 @@ def _disagreements (act: Act, cast: Cast, who: Who, outcomes: dict[str, Outcome]
 			found.append(f"the transports through {door} disagree: {_one_line(met)}")
 
 	terminal, tools = outcomes["local client"], outcomes["relay"]
-	ceiling = act.beyond_the_agent_tools
+	ceiling = act.beyond_the_agent_tools(who)
 
 	if ceiling:
 		for transport, outcome in doors["the agent tools"].items():

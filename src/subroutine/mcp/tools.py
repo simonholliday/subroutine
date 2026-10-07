@@ -26,9 +26,7 @@ import dataclasses
 import datetime
 import json
 import pathlib
-import posixpath
 import typing
-import urllib.parse
 
 import subroutine.addressing
 import subroutine.clients.base
@@ -268,92 +266,6 @@ READS = {"readOnlyHint": True}
 #: carries, so an annotation that changes no client's behaviour is exactly the fat §21.2 asks to
 #: be read for before the cap moves.
 ADDS = {"destructiveHint": False}
-
-#: Routes ``call_api`` will not reach, and what to do instead — decision `#484`.
-#:
-#: **Two reasons, and the second was added by `#927`'s H-7.**
-#:
-#: The first three are *consequential, no undo, and the safety is a confirmation step*. The CLI
-#: half of each counts what will change and asks before doing it, which is not a shape a tool
-#: call has today.
-#:
-#: The last two **return a live credential in readable form**, and a tool result is text in a
-#: model's context: `POST /v1/tokens` answers with the secret, which exists nowhere else ever,
-#: and `POST /v1/login-links` with a working sign-in URL that takes a `username`, so it can be
-#: minted *for somebody else*. Not an escalation — `_refuse_amplification` correctly stops a
-#: credential widening itself — but a disclosure, into the one place this project has no way to
-#: revoke: a transcript. `api/mcp.py` argues at length that this transport must refuse browser
-#: sessions because it is "driven by an agent reading item text that anybody with a credential
-#: may have written"; the same reader must not be handed a credential either.
-#:
-#: **That second reason is derived rather than remembered.** ``tests/test_reach.py`` asks which
-#: routes answer with a view model carrying a live secret and fails when one of them is missing
-#: from here, so a third such route cannot be added without this being decided about it.
-#:
-#: **The written reason used to say a tool call *cannot* express that, and the protocol has
-#: retired it** — elicitation is part of revision ``2025-06-18``, which is the one this server
-#: negotiates, and ``2026-07-28`` rebuilds it as Multi Round-Trip Requests: a tool returns what
-#: it needs and the client retries with the answer, which is exactly "count, ask, then act". So
-#: the entries stand on two reasons that *are* true — support is uneven across the clients agents
-#: actually run in, and these three fire perhaps once a month — and each carries its expiry:
-#: **delete an entry when a confirmation round-trip is dependable in the clients that matter.**
-#:
-#: Read by ``tests/test_reach.py`` as well, so there is one definition and two readers.
-#:
-#: **The third element is one command and nothing else** (`#497`). It carried a clause —
-#: "subroutine init, or 'workspace create'" — and the refusal wraps it in quotes, so it rendered
-#: as ``Run 'subroutine init, or 'workspace create'' instead``. Prose in the data reads as a typo
-#: in the product's own voice, on the one message whose job is handing somebody something to run.
-#: **Route templates, not regexes** (`#528`). These were `$`-anchored patterns matched against
-#: the caller's raw path string, and three ordinary respellings walked through all of them —
-#: `?x=1` fell outside the anchor, `/v1/../v1/workspaces` was resolved by httpx after the check,
-#: and `%77` was decoded by the server after it. Each created a workspace. The one entry that
-#: held did so by accident, because `[^/]+` happens to swallow a query string.
-#:
-#: A template is the same thing the application registers, matched by the same function
-#: `routing.check` uses — which `tests/test_api_routing.py` holds to the real framework by
-#: putting real requests through a real application. And because it is a template rather than a
-#: pattern, it can be *checked against the routes that exist*, so renaming a route cannot
-#: silently disarm the entry that names it.
-DENIED: tuple[tuple[str, str, str], ...] = (
-	("POST", "/v1/workspaces", "subroutine workspace create"),
-	("PATCH", "/v1/workspaces/{id_or_slug}", "subroutine workspace rename"),
-	("POST", "/v1/projects/{id_or_key:path}/move", "subroutine project move"),
-	("POST", "/v1/tokens", "subroutine token create"),
-	("POST", "/v1/login-links", "subroutine login link"),
-	("POST", "/v1/calendars", "subroutine calendar create"),
-	("POST", "/v1/calendars/{id_or_prefix}/reset", "subroutine calendar reset"),
-)
-
-#: The entries in :data:`DENIED` that are refused because they answer with a credential, rather
-#: than because they cannot be undone (`#4427`, R2-D5 of the cold review of 2026-10-04). Each was
-#: refused as *consequential, it cannot be undone, and the command line asks first*, none of
-#: which is true of a token, a sign-in link or a calendar feed. ``tests/test_reach.py`` holds this
-#: to the routes whose response is one of :data:`CARRIES_A_SECRET`, in both directions.
-ANSWERS_WITH_A_CREDENTIAL = frozenset(
-	{
-		("POST", "/v1/tokens"),
-		("POST", "/v1/login-links"),
-		("POST", "/v1/calendars"),
-		("POST", "/v1/calendars/{id_or_prefix}/reset"),
-	}
-)
-
-#: The view models that carry a credential somebody could use, at the one moment it is readable.
-#:
-#: Named here so :data:`DENIED` can be checked against the routes rather than against a memory
-#: of which ones there are. Both say so in their own docstrings — *"the secret is in the URL and
-#: nowhere else in this object"*, *"a credential at the one moment its secret exists in readable
-#: form"* — and this is that fact made reachable by a guard.
-#:
-#: **And a calendar feed's URL** (`#4427`, R2-L29 of the cold review of 2026-10-04), which is a
-#: bearer address with its owner's whole sight; making one and giving one a new URL were both
-#: reachable, because this named the other two alone.
-CARRIES_A_SECRET = (
-	subroutine.views.IssuedToken,
-	subroutine.views.SignInLink,
-	subroutine.views.IssuedCalendar,
-)
 
 #: How much of a response is worth returning. **A refusal rather than a truncation**, because a
 #: truncated JSON document is unparseable and reads as an answer: the caller gets something
@@ -1811,8 +1723,6 @@ def _called_directly (
 	if not path.startswith("/"):
 		raise ValueError(f"A path starts with '/': {path!r}. Try '/{path.lstrip('/')}'.")
 
-	_refuse_a_denied_route(method, path)
-
 	body = arguments.get("body")
 	given = arguments.get("query")
 	query = (
@@ -1845,73 +1755,6 @@ def _called_directly (
 	# The status is reported rather than folded into the text: a caller that cannot tell 201
 	# from 200, or 404 from an empty list, has to infer it from prose written for a person.
 	return f"{answer.status} {answer.text}" if answer.text else str(answer.status)
-
-
-def _readings (path: str) -> set[str]:
-	"""Return every path this request could arrive at the router as — `#528`.
-
-	**More than one, because the stack normalises in more than one place and not in one order.**
-	httpx resolves dot segments when it merges a path against a base URL, *before* anything is
-	sent; the server percent-decodes, *after*. So `/v1/../v1/x` is resolved and then decoded,
-	while `/v1/%2e%2e/v1/x` is decoded and then not resolved — and a check that picked one order
-	would be blind to the other.
-
-	So the readings are generated and the caller refuses if **any** of them names a denied route.
-	Over-refusing is the safe direction here: the cost is an agent being told to use the command
-	line for something it could have done anyway, and the cost the other way is the thing this
-	exists to prevent happening without anybody being asked.
-	"""
-
-	# The query and the fragment are not part of what the router matches, and leaving them on
-	# is what let `?x=1` walk past an anchored pattern.
-	bare = path.split("#", 1)[0].split("?", 1)[0]
-	found = {bare}
-
-	for candidate in (bare, urllib.parse.unquote(bare)):
-		# `normpath` resolves `.` and `..` and collapses repeated slashes. It also strips a
-		# trailing slash, which the router treats as the same route anyway.
-		#
-		# **Except a leading `//`, which POSIX says to keep and `normpath` therefore keeps.**
-		# `//v1/workspaces` is a 404 from Starlette and *is* the route once anything in front
-		# collapses it — nginx does, and this instance is served through a proxy. So the leading
-		# slashes are collapsed by hand rather than left to a function that is documented not to.
-		resolved = posixpath.normpath("/" + candidate.lstrip("/"))
-		found.update({candidate, resolved, urllib.parse.unquote(resolved)})
-
-	return {reading for reading in found if reading.startswith("/")}
-
-
-def _refuse_a_denied_route (method: str, path: str) -> None:
-	"""Refuse the routes in :data:`DENIED`, each for its own reason.
-
-	**Named alternatives, never a dead end.** A refusal that only says "not here" strands an
-	agent mid-task; these three exist at a terminal, and saying which command is the difference
-	between a wall and a hand-off.
-
-	Matched with ``routing._matches``, which is what decides whether a path template covers a
-	path everywhere else in this application — so there is one answer to "does this route match"
-	rather than a second one written here, which is what `#528` was.
-	"""
-
-	readings = _readings(path)
-
-	for verb, template, instead in DENIED:
-		if method != verb:
-			continue
-
-		if any(subroutine.addressing.matches(template, reading) for reading in readings):
-			# **Its own reason** (`#4427`): a token is revocable and its command never asks, so the
-			# sentence written for the routes that cannot be undone was false of every credential.
-			why = (
-				"it answers with a credential, which would pass through your context and stay in it"
-				if (verb, template) in ANSWERS_WITH_A_CREDENTIAL
-				else "it is consequential, it cannot be undone, and the command line asks before doing it"
-			)
-
-			raise ValueError(
-				f"{method} {path} is deliberately not reachable from here: {why}. Run '{instead}' "
-				"instead, or ask the person you answer to."
-			)
 
 
 def _claimed (
@@ -2060,16 +1903,15 @@ def _whoami (
 	# own. Named to whoever may run it, and **'--here' only to somebody who may** (`#3286`): it
 	# writes the credential where this project's sessions read it and prints nothing, so an
 	# agent can run it for them. Anybody else gets a credential made by an administrator and
-	# handed over, which prints.
+	# handed over, which prints. **Who may is the account, not this session** (Simon, decision
+	# `#4520`, `SR#4563`): the agent tools hold no instance permission, and the command is run at
+	# the person's own terminal, which their ceiling does not reach.
 	#
 	# **And '--here' reaches these tools only where a process was started for them** (`#3407`).
 	# 'subroutine-remote' starts none, so the project's settings never reach its token: offered
 	# plainly there, the command names the shell and leaves every write here as it was.
 	if kind == "person":
-		if (
-			subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
-			and caller.through_remote
-		):
+		if me.user.is_superuser and caller.through_remote:
 			# **The switch that closes the gap is named with it** (`#3454`): Claude Code's own
 			# commands, with '--scope local' so nothing is installed per project.
 			lines.append(
@@ -2086,17 +1928,14 @@ def _whoami (
 				"default connection."
 			)
 
-		elif (
-			subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
-			and _here_reaches(caller)
-		):
+		elif me.user.is_superuser and _here_reaches(caller):
 			lines.append(
 				f"What you write here is recorded as {me.user.username}'s. For a name of your own "
 				f"in this project, {me.user.username} can run 'subroutine agent create <name> "
 				"--workspace <workspace> --here' in its directory, then start a new session there."
 			)
 
-		elif subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:
+		elif me.user.is_superuser:
 			lines.append(
 				f"What you write here is recorded as {me.user.username}'s. For a name of your own, "
 				f"{me.user.username} can run 'subroutine agent create <name>' and give this client "

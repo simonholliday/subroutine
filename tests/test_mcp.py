@@ -33,8 +33,6 @@ import sqlalchemy.orm
 import api_support
 import subroutine.api.app
 import subroutine.api.mcp
-import subroutine.api.routing
-import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.clients.http
 import subroutine.clients.local
@@ -7806,55 +7804,6 @@ def test_an_agent_can_reach_a_route_no_tool_covers (
 	assert "A better conclusion" in read, "the write did not land"
 
 
-def test_the_three_refused_routes_name_what_to_do_instead (
-	bound: subroutine.mcp.protocol.Server,
-) -> None:
-	"""Decision `#484`'s deny-list, and the half that stops it being a wall.
-
-	A refusal saying only "not here" strands an agent mid-task. These three exist at a terminal,
-	so naming the command is the difference between a dead end and a hand-off — review dimension
-	4 applied to our own guard rather than to the API's.
-	"""
-
-	for method, path in (
-		("POST", "/v1/workspaces"),
-		("PATCH", "/v1/workspaces/somewhere"),
-		("POST", "/v1/projects/SR/move"),
-	):
-		answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
-
-		assert failed, f"{method} {path} was allowed through"
-		assert "subroutine" in answered, f"{method} {path} refuses without naming an alternative"
-		assert "cannot be undone" in answered
-
-
-def test_a_route_that_merely_looks_like_a_refused_one_is_allowed (
-	bound: subroutine.mcp.protocol.Server,
-) -> None:
-	"""The other side, so the deny-list is a rule rather than a substring search.
-
-	``POST /v1/projects`` is not ``POST /v1/projects/{key}/move``, and ``GET /v1/workspaces`` is
-	not ``POST`` of the same path. A guard matching too widely would refuse ordinary work and
-	pass every test above.
-	"""
-
-	answered, failed = _called(bound, "subroutine_call_api", method="GET", path="/v1/workspaces")
-
-	assert not failed, answered
-	assert answered.startswith("200 ")
-
-	made, failed = _called(
-		bound,
-		"subroutine_call_api",
-		method="POST",
-		path="/v1/projects",
-		body={"key": "NEW", "title": "Somewhere to file things"},
-	)
-
-	assert not failed, made
-	assert made.startswith("201 ")
-
-
 def test_an_enormous_answer_is_refused_rather_than_truncated (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -8036,124 +7985,6 @@ def test_the_instructions_say_the_tools_are_not_the_whole_product (
 	assert "if you can run commands" in instructions.lower(), (
 		"it must stay conditional: a session reaching this over HTTP may have no shell"
 	)
-
-
-def test_a_refusal_reads_as_a_sentence_somebody_could_follow (
-	bound: subroutine.mcp.protocol.Server,
-) -> None:
-	"""`#497`. Every other test here asks whether the refusal *names* an alternative.
-
-	None of them read it as a person would, so ``Run 'subroutine init, or 'workspace create''
-	instead`` shipped — the entry carried a clause and the message quotes it as a command. That
-	is `#366`'s shape: a substring assertion cannot see a sentence malformed around the
-	substring it is looking for.
-
-	Checked as a class rather than as the instance: nested quotes anywhere in a rendered refusal
-	mean data and prose have been mixed again, whichever entry did it.
-	"""
-
-	for method, path in (
-		("POST", "/v1/workspaces"),
-		("PATCH", "/v1/workspaces/somewhere"),
-		("POST", "/v1/projects/SR/move"),
-	):
-		answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
-
-		assert failed, f"{method} {path} was allowed through"
-		assert "''" not in answered, f"nested quotes in the refusal for {method} {path}"
-
-#: Every way `#527` found of spelling a denied route so the old guard missed it, plus the ones
-#: that pass looking for the fourth. Each created or moved something when it was measured.
-RESPELT: tuple[tuple[str, str], ...] = (
-	("POST", "/v1/workspaces?x=1"),
-	("POST", "/v1/workspaces/"),
-	("POST", "/v1/../v1/workspaces"),
-	("POST", "/v1/./workspaces"),
-	("POST", "/v1/%77orkspaces"),
-	("POST", "/v1/%2e%2e/v1/workspaces"),
-	("POST", "//v1/workspaces"),
-	("POST", "/v1/workspaces#x"),
-	("PATCH", "/v1/workspaces/personal?x=1"),
-	("PATCH", "/v1/workspaces/personal/?x=1"),
-	("POST", "/v1/projects/a/move?x=1"),
-	("POST", "/v1/projects/a/move/?x=1"),
-	("POST", "/v1/projects/a/%6dove"),
-)
-
-
-@pytest.mark.parametrize(
-	("method", "path", "why"),
-	[
-		("POST", "/v1/calendars", "answers with a credential"),
-		("POST", "/v1/calendars/abc123/reset", "answers with a credential"),
-		("POST", "/v1/tokens", "answers with a credential"),
-		("POST", "/v1/workspaces", "cannot be undone"),
-	],
-)
-def test_a_denied_route_is_refused_for_its_own_reason (
-	bound: subroutine.mcp.protocol.Server, method: str, path: str, why: str
-) -> None:
-	"""`SR#4427`, R2-L29 and R2-D5 of the cold review of 2026-10-04.
-
-	Making a calendar feed and giving one a new URL each answered with the feed's address into the
-	agent's context; and a token was refused as an act that cannot be undone, which it is not.
-	"""
-
-	answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
-
-	assert failed and "deliberately not reachable" in answered, answered
-	assert why in answered, answered
-
-
-@pytest.mark.parametrize(("method", "path"), RESPELT, ids=[p for _m, p in RESPELT])
-def test_a_denied_route_is_refused_however_it_is_spelled (
-	bound: subroutine.mcp.protocol.Server, method: str, path: str
-) -> None:
-	"""`#528`. The old guard matched the caller's raw string with `$`-anchored regexes.
-
-	Everything downstream normalises, so the string it inspected was not the path the router
-	matched — and three of these created a workspace while a fourth moved a project. A query
-	string fell outside the anchor; httpx resolved `..` after the check; the server decoded `%77`
-	after it. The one entry that held did so because `[^/]+` happens to swallow `?x=1`, which is
-	luck rather than design.
-
-	**Not privilege escalation**, and this test is not claiming it was: the credential still
-	needed the permission. What was defeated is decision `#484`'s stated property, that three
-	consequential and un-undoable acts are reachable only where a person is asked first.
-	"""
-
-	answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
-
-	assert failed, f"{method} {path} reached the application"
-	assert "deliberately not reachable" in answered, (
-		f"{method} {path} was refused for some other reason: {answered}"
-	)
-	# And the entries themselves, so a new one cannot reintroduce it before anybody renders it.
-	groups = {
-		group.name: group for group in subroutine.cli.main.app.registered_groups if group.name
-	}
-
-	for _verb, _pattern, instead in subroutine.mcp.tools.DENIED:
-		assert "'" not in instead and "," not in instead, (
-			f"{instead!r} is a clause rather than a command — the refusal quotes it as one"
-		)
-
-		# **And it has to be a command that exists**, which is `#134`/`#136`/`#138`'s lesson:
-		# every one of those was a page naming something nobody could run. A refusal is the
-		# worst place to do it — the reader is already stuck, and is being handed a second
-		# dead end by the message meant to release them.
-		words = instead.split()
-
-		assert words[0] == "subroutine", f"{instead!r} does not name this program"
-		assert words[1] in groups, f"{instead!r} names no such command group"
-
-		nested = groups[words[1]].typer_instance
-
-		assert nested is not None, f"{words[1]} is a group with nothing under it"
-		assert words[2] in {
-			command.name or (command.callback.__name__ if command.callback else "")
-			for command in nested.registered_commands
-		}, f"{instead!r} names no such command"
 
 
 def test_the_instructions_name_every_document_a_session_might_not_find (
