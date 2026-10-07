@@ -96,42 +96,21 @@ READS: frozenset[str] = frozenset(
 	}
 )
 
-#: The verbs whose effect lands *inside a project*, which is what makes them the ones a
-#: credential's write set narrows (§7.3, decision `#370`, item `#371`).
+#: The verbs that act only on the whole workspace, and are never asked with a project named - its
+#: name, settings and prioritised project, its trash, who belongs to it, its vocabulary, and
+#: moderating other people's comments and shared views (decision `#3802`, item `#3812`).
 #:
-#: **Named explicitly rather than derived from the string.** "Anything not ending in `:read`"
-#: would be an implicit convention deciding a security control, and it is wrong in both
-#: directions: `tag:write`, `status:write` and `link_type:write` curate the *workspace's*
-#: vocabulary rather than anything in a project, and `workspace:admin` is not about a project
-#: at all. A verb added later joins this set by somebody deciding it does, which is the
-#: property a suffix rule cannot have.
+#: **A description, never a check** (`#4558`, decision `#4527` as revised on 2026-10-07). The
+#: permission check asks of every verb only whether it reads: anything else lands on a place, and
+#: a credential narrowed to some projects is refused the workspace's place whatever the verb.
+#: This says where these verbs land for the two questions that are not a check: what ``/v1/me``
+#: offers a narrowed credential in a workspace, which is the verbs it uses inside its projects
+#: and not these; and which credentials could never be used, refused when they are issued.
 #:
-#: Reads are deliberately absent. A credential's *reach* — `project_scope` — already decides
-#: which rows exist for it, and narrowing reads twice would mean two controls with one job.
-WRITES_INSIDE_A_PROJECT: frozenset[str] = frozenset(
-	{
-		PROJECT_WRITE,
-		PROJECT_DELETE,
-		TASK_WRITE,
-		TASK_DELETE,
-		COMMENT_WRITE,
-	}
-)
-
-#: The verbs whose effect is the whole workspace rather than anything inside a project - its name,
-#: settings and prioritised project, its trash, who belongs to it, its vocabulary, and moderating
-#: other people's comments and shared views (decision `#3802`, item `#3812`).
-#:
-#: **A credential narrowed to some projects is refused these wherever no project is named**, in
-#: ``authorization._refusal``, because somebody issuing a credential for one project expects it to
-#: stop at that project. Until then §7.3's *restricts which rows, not which verbs* was applied only
-#: where an action names a project, so an owner's credential narrowed to one could make somebody
-#: else owner, rename the workspace and move it to the trash (`#3744`). A project's own
-#: administration always names its project, and is unchanged.
-#:
-#: **Named explicitly, like the set above**, and the three sets together must be every workspace
-#: verb: ``tests/test_authorization.py`` fails the build on a verb that is none of a read, a write
-#: inside a project, or one of these, so a verb added later is placed by somebody deciding where.
+#: **Named explicitly rather than derived from the string**, since "anything not ending in
+#: ``:read``" would sweep in ``task:write``. A verb added later that acts only on the workspace
+#: and is left out here is offered to a narrowed credential and then refused: an answer that
+#: over-promises, never a check that lets it through.
 WORKSPACE_WIDE: frozenset[str] = frozenset(
 	{
 		WORKSPACE_WRITE,

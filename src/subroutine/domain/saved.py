@@ -235,28 +235,13 @@ def place_alone (q: str | None) -> str | None:
 	return value if name == f"{subroutine.domain.filtering.PROJECT}.eq" else None
 
 
-def _refuse_sharing_from_a_narrowed_credential (
-	actor: subroutine.domain.authentication.Principal,
-) -> None:
-	"""Refuse to share a view from a credential narrowed to some projects - `#3151`.
-
-	**A view shared is in front of the whole workspace**, and a credential narrowed to some of
-	its projects is narrower than its maker on purpose: `#1367`'s rule is that it stays so, and
-	``_refuse_amplification`` makes the same argument for issuing credentials. Running a view
-	grants nobody any reach, so nothing could be read that could not be already; what sharing
-	does is put a name and a query in front of everybody, which is a workspace-wide act.
-	Keeping a view of its own touches nobody else, and is untouched.
-	"""
-
-	# **Shared with marking a document as binding the whole workspace** (`#4134`), which is the
-	# same kind of act and is refused by the same rule.
-	subroutine.domain.authorization.refuse_a_workspace_act_from_a_narrowed_credential(
-		actor,
-		act="share a view with the whole workspace",
-		field="shared",
-		why="Sharing is an act on the workspace, and this credential reaches part of it.",
-		hint="Keep it as your own, or share it from a credential that reaches the whole workspace.",
-	)
+#: **What a credential refused sharing a view may do instead** (`#3151`). A view shared is in front
+#: of the whole workspace, so sharing one lands on the workspace's place, which a credential narrowed
+#: to some projects does not hold (`#4558`, decision `#4527`); keeping a view of its own lands on
+#: its own account, which it does.
+_KEEP_IT_YOUR_OWN = (
+	"Keep it as your own, or share it from a credential that reaches the whole workspace."
+)
 
 
 #: The longest a view's order may be written: the column's width. **Several valid fields run
@@ -449,15 +434,27 @@ def create (
 	exists at which one needs to be written.
 	"""
 
+	# **A view is the caller's own until it is shared** (`#4558`, Q14 of the cold review of
+	# 2026-10-05, decision `#4527`): it lands on their account, which every credential holds, so one
+	# narrowed to some projects keeps its views. Still ``task:write``, so a viewer saves none
+	# (`SR#3149`).
 	subroutine.domain.authorization.authorize(
-		session, actor, subroutine.permissions.TASK_WRITE, workspace_id=workspace_id
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=workspace_id,
+		own_account=True,
 	)
 
 	if shared:
 		subroutine.domain.authorization.authorize(
-			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id
+			session,
+			actor,
+			subroutine.permissions.PROJECT_WRITE,
+			workspace_id=workspace_id,
+			instead=_KEEP_IT_YOUR_OWN,
+			field="shared",
 		)
-		_refuse_sharing_from_a_narrowed_credential(actor)
 
 	named = check_title(title)
 	key = normalize_key(named)
@@ -517,7 +514,11 @@ def update (
 
 	_refuse_somebody_elses(row, actor)
 	subroutine.domain.authorization.authorize(
-		session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=row.workspace_id,
+		own_account=True,
 	)
 	subroutine.domain.versions.require(row, expected_version)
 
@@ -535,23 +536,30 @@ def update (
 				],
 			)
 
-	# **Changing what a shared view says is sharing what it now says** (`#3589`). A credential
-	# narrowed to some projects was refused ``shared: true`` and allowed to rewrite the query of a
-	# view its owner had shared from elsewhere, which stayed in front of the whole workspace.
+	# **Changing what a shared view says is an act on the workspace** (`#3589`; `#4558`, B I-5 of the
+	# cold review of 2026-10-05): it stays in front of everybody, so it lands on the workspace's place.
+	# A credential narrowed to some projects rewrote the query of a view its owner had shared from
+	# elsewhere, and later was refused a title edit as though it were sharing the view.
 	if row.shared and shared is not False and any(
 		field in given for field in ("title", "arrangement", "q", "order", "group_by")
 	):
-		_refuse_sharing_from_a_narrowed_credential(actor)
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
+		)
 
 	before = _held(row)
 
+	# **Sharing and unsharing alike** (B I-5): taking a view from in front of the workspace is an act
+	# there as much as putting it there, and a narrowed credential unshared what it could not share.
 	if shared is not None and shared != row.shared:
 		subroutine.domain.authorization.authorize(
-			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=row.workspace_id
+			session,
+			actor,
+			subroutine.permissions.PROJECT_WRITE,
+			workspace_id=row.workspace_id,
+			instead=_KEEP_IT_YOUR_OWN if shared else None,
+			field="shared",
 		)
-
-		if shared:
-			_refuse_sharing_from_a_narrowed_credential(actor)
 
 		row.shared = shared
 
@@ -621,8 +629,14 @@ def delete (
 			session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=row.workspace_id
 		)
 
+	# **One's own view lands on one's own account, and a shared one on the workspace** (`#4558`, B
+	# I-5 of the cold review of 2026-10-05): a narrowed credential deleted a view everybody saw.
 	subroutine.domain.authorization.authorize(
-		session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=row.workspace_id,
+		own_account=not row.shared,
 	)
 	session.delete(row)
 	session.flush()

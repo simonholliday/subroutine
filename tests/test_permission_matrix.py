@@ -1300,7 +1300,7 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.LINK_TYPE_WRITE, "metacortex"): _ADMINISTRATORS,
 	(P.TAG_WRITE, "metacortex"): _ROLES - {"contributor", "viewer"},
 	(P.PROJECT_READ, "metacortex"): _ROLES | _OPS,
-	(P.PROJECT_WRITE, "metacortex"): _ROLES - {"contributor", "viewer"} | _OPS,
+	(P.PROJECT_WRITE, "metacortex"): _ROLES - {"contributor", "viewer"},
 	(P.TASK_READ, "metacortex"): _ROLES | _READING | _OPS,
 	(P.PROJECT_READ, "web"): _ROLES | {"writing only in another project"},
 	(P.PROJECT_WRITE, "web"): _ROLES - {"contributor", "viewer"},

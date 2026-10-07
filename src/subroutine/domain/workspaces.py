@@ -785,7 +785,7 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	# only an owner may, about a workspace they own.
 	if failure in (
 		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
-		subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS,
+		subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES,
 	):
 		raise subroutine.domain.authorization.AuthorizationError(
 			failure, permission=subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id

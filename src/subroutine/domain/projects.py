@@ -134,24 +134,26 @@ def create (
 	# Bounded as well as readable since `#1601` — `text.summary` is where both rules meet,
 	# and it is what lets a listing render this with a worst case somebody chose.
 	description = subroutine.domain.text.summary(description)
-	if actor is not None:
-		subroutine.domain.authorization.authorize(
-			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id
-		)
 
-	# **And of the project it goes into** (`#4013`, M-10 of the cold review of 2026-09-30), which
-	# checks the credential's reach and the projects it may write in together: asked of the
-	# workspace alone, a credential writing only in ``web`` made ``ops/sub``.
+	# **Asked of the place it lands on, and only that** (`#4558`, decision `#4527`): the project it
+	# goes into (`#4013`, M-10 of the cold review of 2026-09-30), where asking the workspace alone let
+	# a credential writing only in ``web`` make ``ops/sub``, and asking the workspace as well refused
+	# one making a project inside ``web`` (`#4095`). At the top level the place is the workspace,
+	# which a credential narrowed to some projects never holds: a new project cannot already be named
+	# in a scope, so it would be beyond it the moment it was made, and in front of everybody.
 	if parent is not None:
 		subroutine.domain.authorization.authorize_on(
 			session, actor, subroutine.permissions.PROJECT_WRITE, parent
 		)
 
-	# **Never at the top level for a narrowed credential** (decision `#4095`): a new project cannot
-	# already be named in a scope, so it would be beyond the credential's reach the moment it was
-	# made - unreadable, unchangeable and undeletable by what made it, and in front of everybody.
-	elif actor is not None and subroutine.domain.authorization.narrowed_to_projects(actor):
-		_refuse_the_top_level(session, actor, moving=None)
+	elif actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.PROJECT_WRITE,
+			workspace_id=workspace_id,
+			instead=lambda: _inside_instead(session, actor, moving=None),
+		)
 
 	return _made(
 		session,
@@ -352,15 +354,23 @@ def move (
 	)
 
 	# **And of where it goes** (`#4013`), for :func:`create`'s reason: asked of the project moved
-	# alone, a credential writing only in ``web`` moved it under ``ops``.
+	# alone, a credential writing only in ``web`` moved it under ``ops``. **The top level is the
+	# workspace's place** (`#4558`, Q15 of the cold review of 2026-10-05, decision `#4527`), as it is
+	# for making one there: a credential narrowed to ``ops`` no longer moves ``ops`` itself out to
+	# it, which `#4095` allowed by reading the top level a second way.
 	if parent is not None:
 		subroutine.domain.authorization.authorize_on(
 			session, actor, subroutine.permissions.PROJECT_WRITE, parent
 		)
 
-	# **And to the top level only where it would still be reached there** (decision `#4095`).
-	elif actor is not None and _beyond_reach_at_the_top(actor, project):
-		_refuse_the_top_level(session, actor, moving=project)
+	elif actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.PROJECT_WRITE,
+			workspace_id=project.workspace_id,
+			instead=lambda: _inside_instead(session, actor, moving=project),
+		)
 
 	# **Nor the Inbox under another project** (`#4143`): a private project above it would hide it.
 	refuse_unsettling_the_inbox(project, parent=parent)
@@ -381,7 +391,6 @@ def move (
 			session,
 			actor,
 			project,
-			act="move under a private project a project holding a rule that binds the whole workspace",
 			field="parent",
 		)
 
@@ -396,8 +405,6 @@ def move (
 			session,
 			actor,
 			project,
-			act="move out from under a private project a project holding a rule that binds the whole "
-			"workspace",
 			field="parent",
 		)
 
@@ -561,7 +568,6 @@ def update (
 			session,
 			actor,
 			project,
-			act="make public a project holding a rule that binds the whole workspace",
 			field="visibility",
 		)
 
@@ -570,8 +576,22 @@ def update (
 			session,
 			actor,
 			project,
-			act="make private a project holding a rule that binds the whole workspace",
 			field="visibility",
+		)
+
+	# **Who sees a project is decided at the workspace's place** (`#4558`, C I-3 of the cold review
+	# of 2026-10-05, decision `#4509`), in both directions: making one public puts it in front of the
+	# whole workspace, and making one private takes it from in front of it. A credential narrowed to
+	# some projects published the one it was narrowed to, while refused sharing a view (`#3151`).
+	# The role already granted the verb in the project above, so only the place is new here, and it
+	# is asked after the rules above, whose reasons are the more particular.
+	if (
+		actor is not None
+		and visibility is not subroutine.domain.patch.UNSET
+		and visibility != project.visibility
+	):
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=project.workspace_id
 		)
 
 	# **Membership, not existence** (`#3934`): an account outside the workspace was taken here too,
@@ -677,62 +697,36 @@ def update (
 	return project
 
 
-def _beyond_reach_at_the_top (
-	actor: subroutine.domain.authentication.Principal,
-	project: subroutine.db.models.project.Project,
-) -> bool:
-	"""Report whether a narrowed credential would lose sight of a project at the top level.
-
-	A scope names projects, each bringing its subtree, so at the top level a project is within a
-	scope only if the scope names that project itself: ``ops/x`` is reached through ``ops`` until it
-	is moved out from under it. Asked of both narrowings, since a credential may read everything
-	and change only some projects (`#371`).
-	"""
-
-	identifier = str(project.id)
-
-	return any(
-		scope is not None and identifier not in {str(each) for each in scope}
-		for scope in (actor.project_scope, actor.project_write_scope)
-	)
-
-
-def _refuse_the_top_level (
+def _inside_instead (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	*,
 	moving: subroutine.db.models.project.Project | None,
-) -> typing.NoReturn:
-	"""Refuse a narrowed credential a project at the top level - decision `#4095`.
+) -> str:
+	"""Say where a credential refused the top level may put the project instead - decision `#4095`.
 
-	**The sentence the rest of the narrowing uses**, so a caller meets one way of being told, and a
-	hint saying where it *can* put the project, which that sentence's own hint, *use a token that
-	is not narrowed*, does not. As `saved._refuse_sharing_from_a_narrowed_credential` (`#3151`)
-	names its alternative.
+	**The hint of the one refusal every narrowed act meets** (`#4558`), naming where it *can* put
+	the project, which that refusal's own hint, *use a token that is not narrowed*, does not.
 	"""
 
-	refused = subroutine.domain.authorization.AuthorizationError(
-		subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS,
-		permission=subroutine.permissions.PROJECT_WRITE,
+	named = ", ".join(
+		keys_for(session, actor, list(subroutine.domain.authorization.write_places(actor) or ()))
 	)
-	changes = (
-		actor.project_write_scope if actor.project_write_scope is not None else actor.project_scope
-	)
-	named = ", ".join(keys_for(session, actor, list(changes or ())))
 	inside = f"inside a project it may change ({named})" if named else "inside a project"
 
 	# **A move is told how to move** (`#4323`, of the cold review of 2026-10-03): it was told to use
 	# ``--parent``, which ``project move`` does not take.
-	refused.hint = (
-		f"Make it {inside}: --parent in the terminal, parent in the agent tools, or use a token "
-		"that is not narrowed to projects."
-		if moving is None
-		else f"Move it {inside}: 'subroutine project move {path_of(session, moving)} --under <key>' "
+	if moving is None:
+		return (
+			f"Make it {inside}: --parent in the terminal, parent in the agent tools, or use a token "
+			"that is not narrowed to projects."
+		)
+
+	return (
+		f"Move it {inside}: 'subroutine project move {path_of(session, moving)} --under <key>' "
 		"in the terminal, parent in the move request, or use a token that is not narrowed to "
 		"projects."
 	)
-
-	raise refused
 
 
 def delete (
@@ -766,7 +760,6 @@ def delete (
 		session,
 		actor,
 		project,
-		act="delete a project holding a rule that binds the whole workspace",
 		field="project",
 	)
 
@@ -894,7 +887,6 @@ def restore (
 		session,
 		actor,
 		project,
-		act="restore a project holding a rule that binds the whole workspace",
 		field="project",
 	)
 
@@ -1079,7 +1071,6 @@ def _refuse_hiding_a_rule (
 	actor: subroutine.domain.authentication.Principal | None,
 	project: subroutine.db.models.project.Project,
 	*,
-	act: str,
 	field: str,
 ) -> None:
 	"""Refuse hiding a project holding a rule for the whole workspace, as `domain.documents` says.
@@ -1093,7 +1084,7 @@ def _refuse_hiding_a_rule (
 
 	from subroutine.domain import documents as rules
 
-	rules.refuse_hiding_a_rule(session, actor, project, act=act, field=field)
+	rules.refuse_hiding_a_rule(session, actor, project, field=field)
 
 
 def _refuse_deciding_sight (

@@ -150,7 +150,9 @@ def test_marking_takes_project_write_on_a_credential_reaching_the_whole_workspac
 		back = _as(world, narrow, "PATCH", path, json={"binds": "project"})
 
 		assert back.status_code == 403, back.text
-		assert "cannot set a document that binds the whole workspace back" in back.text, back.text
+		assert "beyond the projects" in back.json()["detail"], back.text
+		assert back.json()["errors"][0]["field"] == "binds", back.text
+		assert "Leave what it binds as it is" in back.json()["hint"], back.text
 
 	revised = _as(world, contributor, "PATCH", path, json={"body": "Name it with +key."})
 
@@ -293,7 +295,9 @@ def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	"""`SR#4286`: privacy inherits down the tree, and a deleted project takes its rules with it.
 
 	Making the rule's project private, moving it under a private one, or deleting it each took the
-	rule out of sight. **And the control**: a project holding no marked rule goes through each.
+	rule out of sight. **And the control**: a project holding no marked rule goes through each - bar
+	making it private, which a narrowed credential is refused whatever the project holds, since who
+	sees a project is the workspace's to decide (`SR#4558`, C I-3 of the cold review of 2026-10-05).
 	"""
 
 	ops = world.call("POST", "/v1/projects", json={"key": "ops", "title": "Operations"}).json()["id"]
@@ -319,7 +323,15 @@ def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 
 	assert refused.status_code == 403, f"{door} went through: {refused.text}"
 	assert "rule that binds the whole workspace" in refused.text, refused.text
-	assert through("web").status_code == 200, f"{door} was refused for a project holding no rule"
+
+	control = through("web")
+
+	if door == "private":
+		assert control.status_code == 403, control.text
+		assert "rule that binds the whole workspace" not in control.text, control.text
+
+	else:
+		assert control.status_code == 200, f"{door} was refused for a project holding no rule"
 
 
 @pytest.mark.parametrize(
@@ -436,7 +448,17 @@ def test_showing_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 
 	assert refused.status_code == 403, f"{door} went through: {refused.text}"
 	assert "rule that binds the whole workspace" in refused.text, refused.text
-	assert through("docs").status_code == 200, f"{door} was refused for a project holding no rule"
+
+	# **Bar making it public** (`SR#4558`, C I-3): who sees a project is the workspace's to decide,
+	# so a narrowed credential is refused that whatever the project holds.
+	control = through("docs")
+
+	if door == "public":
+		assert control.status_code == 403, control.text
+		assert "rule that binds the whole workspace" not in control.text, control.text
+
+	else:
+		assert control.status_code == 200, f"{door} was refused for a project holding no rule"
 
 
 def test_a_successor_carries_the_mark_and_superseding_takes_what_marking_takes (

@@ -1104,8 +1104,11 @@ rather than go and look up.
 account's role - `worker` and `collaborator` included. The workspace's name, settings and
 members, its statuses, tags and link types, moderating other people's comments and moving the
 workspace to the trash are all refused to it, and so is the installation's own administration.
-Its work in those projects is unchanged, and so is each project's own administration. An agent
-that curates the vocabulary or moderates needs a credential that is not narrowed to projects.
+So is anything that puts something in front of the whole workspace or takes it away: a project
+made at the top level or moved there, whether a project is public or private, and a view shared
+with everybody. Its work in those projects is unchanged, and so is each project's own
+administration, bar who may see it. An agent that curates the vocabulary or moderates needs a
+credential that is not narrowed to projects.
 
 The rest of this section is the same work done piece by piece, which is worth reading once
 because it says what each piece is for.

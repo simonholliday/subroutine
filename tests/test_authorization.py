@@ -347,17 +347,22 @@ def test_a_token_pinned_to_one_workspace_cannot_reach_another (
 	assert error.value.failure is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
 
 
-def test_a_project_from_another_workspace_is_refused (
+def test_a_project_named_with_another_workspace_is_a_programming_error (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Passing a mismatched pair must not quietly check the wrong one."""
+	"""`SR#4558`, A I-7 of the cold review of 2026-10-05: a mismatched pair is the caller's mistake.
+
+	It must not quietly check the wrong one, and it must not read as a refusal either: it was told
+	it was pinned to a different workspace, unpinned, and then that the project was not there. No
+	route can send one, so the check and ``explain`` both raise, as for an unknown verb.
+	"""
 
 	home = _seeded_workspace(session)
 	elsewhere = _seeded_workspace(session)
 	principal = _member(session, home, "owner")
 	foreign = _project(session, elsewhere)
 
-	with pytest.raises(subroutine.domain.authorization.OutOfReach) as error:
+	with pytest.raises(ValueError, match="Ask a check of the project's own workspace"):
 		subroutine.domain.authorization.authorize(
 			session,
 			principal,
@@ -366,7 +371,8 @@ def test_a_project_from_another_workspace_is_refused (
 			project=foreign,
 		)
 
-	assert error.value.failure is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
+	with pytest.raises(ValueError, match="Ask a check of the project's own workspace"):
+		subroutine.domain.authorization.explain(session, principal, home.id, project=foreign)
 
 
 def test_a_null_project_scope_restricts_nothing (session: sqlalchemy.orm.Session) -> None:
@@ -593,7 +599,6 @@ def test_explain_never_promises_more_than_authorize_grants (
 	owner = _member(session, workspace, "owner")
 	project = _project(session, workspace)
 	private = _project(session, workspace, visibility="private")
-	foreign = _project(session, elsewhere)
 
 	pinned = _with_token(session, owner, workspace_id=workspace.id)
 	scoped = _with_token(session, owner, project_scope=[str(project.id)])
@@ -602,7 +607,6 @@ def test_explain_never_promises_more_than_authorize_grants (
 		("pinned token, other workspace", pinned, elsewhere.id, None),
 		("project outside the token's scope", scoped, workspace.id, private),
 		("private project, no membership", owner, workspace.id, private),
-		("project from another workspace", owner, workspace.id, foreign),
 		("ordinary case", owner, workspace.id, project),
 	)
 
@@ -1110,26 +1114,85 @@ def test_membership_is_administered_by_the_verb_named_for_it (
 	), f"the correction moved a capability between roles: {holders}"
 
 
-def test_every_workspace_verb_is_a_read_a_write_inside_a_project_or_workspace_wide () -> None:
-	"""`#3812`. Each workspace verb is in exactly one of the three sets, so each was placed.
+def _workspace_verbs_asked_of_a_project (tree: pathlib.Path) -> list[str]:
+	"""Return each check under ``tree`` asking a verb in ``WORKSPACE_WIDE`` with a project named.
 
-	Decision `#3802` refuses a credential narrowed to some projects the verbs in
-	``WORKSPACE_WIDE`` wherever no project is named. A verb in none of the sets is one nobody
-	decided about, and a narrowed credential would keep it wherever it is asked with no project -
-	which is how the whole workspace's administration was reached before (`#3744`).
+	``authorize_on`` always names one; ``authorize`` and ``refusal`` do with a ``project`` that is
+	not ``None``. Takes the tree as an argument, as :func:`_verbs_reaching_a_gate` does, so a
+	planted call reaches the real scanner (`#405`).
 	"""
 
-	sets = {
-		"READS": subroutine.permissions.READS,
-		"WRITES_INSIDE_A_PROJECT": subroutine.permissions.WRITES_INSIDE_A_PROJECT,
-		"WORKSPACE_WIDE": subroutine.permissions.WORKSPACE_WIDE,
+	wide = {
+		name
+		for name, value in _declared_permissions().items()
+		if value in subroutine.permissions.WORKSPACE_WIDE
 	}
-	placed = [verb for members in sets.values() for verb in members]
+	found: list[str] = []
 
-	assert len(placed) == len(set(placed)), f"a verb is in two sets: {sets}"
-	assert set(placed) == subroutine.permissions.WORKSPACE_LEVEL, (
-		f"placed in no set: {sorted(subroutine.permissions.WORKSPACE_LEVEL - set(placed))}"
+	for path in sorted(tree.rglob("*.py")):
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			if not isinstance(node, ast.Call):
+				continue
+
+			function = node.func
+			name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
+
+			if name not in {"authorize", "refusal", "authorize_on"}:
+				continue
+
+			given = [*node.args, *(keyword.value for keyword in node.keywords)]
+			verbs = [each.attr for each in given if isinstance(each, ast.Attribute) and each.attr in wide]
+			project = next((each.value for each in node.keywords if each.arg == "project"), None)
+			named = name == "authorize_on" or not (
+				project is None or (isinstance(project, ast.Constant) and project.value is None)
+			)
+
+			if verbs and named:
+				found.append(f"{path.name}:{node.lineno} {name}({', '.join(verbs)})")
+
+	return found
+
+
+def test_no_verb_that_acts_on_the_whole_workspace_is_asked_of_a_project () -> None:
+	"""`SR#4558`, decision `#4527` as revised on 2026-10-07: ``WORKSPACE_WIDE`` says where they land.
+
+	The check asks of a verb only whether it reads, so the set decides nothing there. It describes,
+	for ``/v1/me`` and for refusing at issue a credential that could never be used, which verbs act
+	only on the whole workspace - and that description holds only while none of them is asked with
+	a project named. A call that does would make ``/v1/me`` withhold from a narrowed credential a
+	verb it can use; this is what says so, rather than a reading.
+	"""
+
+	source = pathlib.Path(subroutine.permissions.__file__).parent
+
+	assert _workspace_verbs_asked_of_a_project(source) == []
+	assert not subroutine.permissions.WORKSPACE_WIDE & subroutine.permissions.READS
+	assert subroutine.permissions.WORKSPACE_WIDE <= subroutine.permissions.WORKSPACE_LEVEL
+
+
+def test_the_guard_on_workspace_verbs_finds_one_asked_of_a_project (tmp_path: pathlib.Path) -> None:
+	"""The scan above, fed a planted call of each shape and one it must pass over."""
+
+	(tmp_path / "planted.py").write_text(
+		"subroutine.domain.authorization.authorize(\n"
+		"\tsession, actor, subroutine.permissions.TAG_WRITE, workspace_id=w, project=p\n"
+		")\n"
+		"subroutine.domain.authorization.authorize_on(\n"
+		"\tsession, actor, subroutine.permissions.WORKSPACE_ADMIN, item\n"
+		")\n"
+		"subroutine.domain.authorization.authorize(\n"
+		"\tsession, actor, subroutine.permissions.TAG_WRITE, workspace_id=w, project=None\n"
+		")\n"
+		"subroutine.domain.authorization.authorize_on(\n"
+		"\tsession, actor, subroutine.permissions.TASK_WRITE, item\n"
+		")\n",
+		encoding="utf-8",
 	)
+
+	assert _workspace_verbs_asked_of_a_project(tmp_path) == [
+		"planted.py:1 authorize(TAG_WRITE)",
+		"planted.py:4 authorize_on(WORKSPACE_ADMIN)",
+	]
 
 
 @pytest.mark.parametrize("narrowing", ["project_scope", "project_write_scope"])
@@ -1142,6 +1205,10 @@ def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
 	workspace and move it to the trash (`#3744`), because a project scope was asked only where an
 	action names a project. Narrowing where it may write (`#371`) is narrowing too. Its work in
 	the project is unchanged, and ``explain`` - what ``/v1/me`` reads - offers only that.
+
+	**Every verb but a read, since `SR#4558`** (decision `#4527`): the workspace is a place the
+	credential does not hold, so the verbs that act inside projects are refused there too, and
+	offered by ``explain`` for the projects it does.
 	"""
 
 	workspace = _seeded_workspace(session)
@@ -1161,14 +1228,25 @@ def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
 
 		assert (
 			raised.value.failure
-			is subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS
+			is subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES
 		), verb
-		assert "narrowed to" in raised.value.detail, raised.value.detail
+		assert "beyond the projects" in raised.value.detail, raised.value.detail
 
-	for verb in sorted(subroutine.permissions.WRITES_INSIDE_A_PROJECT):
+	inside = (
+		subroutine.permissions.WORKSPACE_LEVEL
+		- subroutine.permissions.READS
+		- subroutine.permissions.WORKSPACE_WIDE
+	)
+
+	for verb in sorted(inside):
 		subroutine.domain.authorization.authorize(
 			session, narrowed, verb, workspace_id=workspace.id, project=project
 		)
+
+		assert (
+			subroutine.domain.authorization.refusal(session, narrowed, verb, workspace_id=workspace.id)
+			is subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES
+		), verb
 
 	offered = subroutine.domain.authorization.explain(
 		session, narrowed, workspace.id
@@ -1177,6 +1255,7 @@ def test_a_credential_narrowed_to_projects_administers_nothing_beyond_them (
 	assert not offered & subroutine.permissions.WORKSPACE_WIDE, (
 		f"offered what the check refuses: {sorted(offered & subroutine.permissions.WORKSPACE_WIDE)}"
 	)
+	assert inside <= offered, f"withheld what it does in its project: {sorted(inside - offered)}"
 
 
 def test_a_superusers_credential_pinned_to_a_workspace_administers_nothing_on_the_installation (
@@ -1239,7 +1318,7 @@ def test_a_superusers_credential_narrowed_to_projects_administers_nothing_on_the
 
 		assert (
 			raised.value.failure
-			is subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS
+			is subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES
 		), verb
 
 
@@ -1295,3 +1374,69 @@ def test_an_agent_whose_person_has_left_reaches_nothing (session: sqlalchemy.orm
 	assert subroutine.domain.authorization.refusal(
 		session, acting, subroutine.permissions.TASK_READ, workspace_id=workspace.id
 	) is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
+
+
+def test_every_act_but_a_read_needs_its_project_among_the_write_places (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4558`, A I-4 of the cold review of 2026-10-05: the write set was asked of five verbs.
+
+	A verb outside ``WRITES_INSIDE_A_PROJECT``, asked with a project named, escaped the write set:
+	nothing asked one that way yet, so it was a hole waiting for its first caller. Every verb that
+	is not a read is asked of it now (decision `#4527`), and a read never is.
+	"""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	mine = _project(session, workspace)
+	theirs = _project(session, workspace)
+	writing = _with_token(session, owner, project_write_scope=[str(mine.id)])
+
+	for verb in sorted(subroutine.permissions.WORKSPACE_LEVEL):
+		inside = subroutine.domain.authorization.refusal(
+			session, writing, verb, workspace_id=workspace.id, project=mine
+		)
+		outside = subroutine.domain.authorization.refusal(
+			session, writing, verb, workspace_id=workspace.id, project=theirs
+		)
+
+		assert inside is None, verb
+		assert outside is (
+			None
+			if verb in subroutine.permissions.READS
+			else subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES
+		), verb
+
+
+def test_an_act_on_ones_own_account_asks_the_verb_and_no_place (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4558`, Q14 of the cold review of 2026-10-05, decision `#4527`: a private view is its saver's.
+
+	Every credential holds its own account, so one narrowed to some projects is not refused the
+	place - while the role and the scopes still decide, so a viewer saves no view (`SR#3149`).
+	"""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	viewer = _member(session, workspace, "viewer")
+	project = _project(session, workspace)
+	narrowed = _with_token(session, owner, project_scope=[str(project.id)])
+	failure = subroutine.domain.authorization.AuthorizationFailure
+
+	def asked (
+		principal: subroutine.domain.authentication.Principal, *, own_account: bool
+	) -> typing.Any:
+		"""Ask whether this principal may write a task-like thing with no project named."""
+
+		return subroutine.domain.authorization.refusal(
+			session,
+			principal,
+			subroutine.permissions.TASK_WRITE,
+			workspace_id=workspace.id,
+			own_account=own_account,
+		)
+
+	assert asked(narrowed, own_account=True) is None
+	assert asked(narrowed, own_account=False) is failure.BEYOND_ITS_PLACES
+	assert asked(viewer, own_account=True) is failure.ROLE_LACKS_PERMISSION

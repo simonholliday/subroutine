@@ -1267,11 +1267,11 @@ def _files_where (
 		if fileable is not None:
 			return inbox
 
-	# **Its write set where it has one, its reach where it does not** — the same fallback
-	# `authorization._within_write_scope` makes, so what a credential is *offered* here and what
-	# it is *allowed* at the check cannot come apart.
+	# **Its write places: its write set where it has one, its reach where it does not**, asked of
+	# the one spelling the check uses (`#4558`), so what a credential is *offered* here and what it
+	# is *allowed* at the check cannot come apart.
 	writes = actor.project_write_scope
-	pointed = writes if writes is not None else actor.project_scope
+	pointed = subroutine.domain.authorization.write_places(actor)
 	candidates = _named_within(session, actor, workspace, pointed)
 
 	if len(candidates) == 1:

@@ -301,8 +301,7 @@ class ApiToken(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 	# spelling the default as a null rather than as a copy of `project_scope`.
 	#
 	# A list is a *subset* of `project_scope` when that is set, enforced at issue. Reads still
-	# go by `project_scope` alone: this narrows the verbs in
-	# `permissions.WRITES_INSIDE_A_PROJECT` and nothing else.
+	# go by `project_scope` alone: this narrows every act that is not a read (`#4558`).
 	project_write_scope: sqlalchemy.orm.Mapped[list[str] | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.json_column(), nullable=True
 	)

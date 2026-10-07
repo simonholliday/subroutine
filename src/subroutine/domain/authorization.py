@@ -15,9 +15,11 @@ with one exception that has to be stated in the code as loudly as in the spec: *
 Read as literal set algebra, the formula gives every ordinary token nothing at all — which
 is the single easiest way to ship an API where everything is refused.
 
-**And a project scope does restrict verbs, since decision `#3802`**: a credential narrowed to some
-projects is refused the workspace's administration wherever no project is named — the verbs in
-:data:`subroutine.permissions.WORKSPACE_WIDE` — and the installation's altogether.
+**And every act lands on a place** (`#4558`, decision `#4527`): a read needs its place among the
+credential's read places, which reach decides, and any other act needs it among its write places
+as well - its project, or its workspace where no project is named, which a credential narrowed to
+some projects never holds. So such a credential administers nothing beyond its projects, whatever
+the verb, and the installation not at all (decision `#3802`).
 
 The instance tier (docs/design.md §7.1) has its own entry point, :func:`authorize_instance`, for
 the acts that have no workspace to be checked against — creating a workspace, creating an
@@ -55,8 +57,7 @@ class AuthorizationFailure(enum.StrEnum):
 	OUT_OF_REACH = "out_of_reach"
 	ROLE_LACKS_PERMISSION = "role_lacks_permission"
 	OUT_OF_TOKEN_SCOPE = "out_of_token_scope"
-	OUT_OF_PROJECT_WRITE_SCOPE = "out_of_project_write_scope"
-	NARROWED_TO_PROJECTS = "narrowed_to_projects"
+	BEYOND_ITS_PLACES = "beyond_its_places"
 	PINNED_TO_A_WORKSPACE = "pinned_to_a_workspace"
 	NOT_A_SUPERUSER = "not_a_superuser"
 	READ_ONLY = "read_only"
@@ -85,18 +86,13 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 		"This needs the {permission} permission. Your role allows it, but the token you "
 		"used is scoped to a narrower set."
 	),
-	# Says which of the two restrictions stopped it, because the remedy is different: this
-	# credential can *read* here and the caller can see that it can, so a message about the
-	# project scope would send them looking for a restriction that is not the one biting.
-	AuthorizationFailure.OUT_OF_PROJECT_WRITE_SCOPE: (
-		"The token you used can read this project but may only write in another."
-	),
-	# One sentence for both tiers, since the workspace's administration and the installation's
-	# are refused for the same reason (decision `#3802`): each reaches past the projects the
-	# credential was issued for.
-	AuthorizationFailure.NARROWED_TO_PROJECTS: (
+	# **One sentence wherever an act lands beyond the places a credential may change** (`#4558`,
+	# decision `#4527`): a project outside its write set, the workspace, and the installation. It
+	# names what the credential may change rather than what it reaches, so it holds where it
+	# reads the place and may not change it, and where it does neither.
+	AuthorizationFailure.BEYOND_ITS_PLACES: (
 		"This needs the {permission} permission, and acts beyond the projects the token you "
-		"used is narrowed to."
+		"used may change."
 	),
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"This affects the whole installation, and needs the {permission} permission. "
@@ -113,7 +109,7 @@ _HINTS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.OUT_OF_TOKEN_SCOPE: (
 		"Use a token that includes {permission}, or one with no scope restriction at all."
 	),
-	AuthorizationFailure.NARROWED_TO_PROJECTS: "Use a token that is not narrowed to projects.",
+	AuthorizationFailure.BEYOND_ITS_PLACES: "Use a token that is not narrowed to projects.",
 	AuthorizationFailure.PINNED_TO_A_WORKSPACE: "Use a token issued without a workspace.",
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"Ask whoever runs this instance to do it, or to make your account an administrator."
@@ -254,7 +250,16 @@ def explain (
 	A refusal that would conceal a project's existence returns an empty grant rather than
 	raising. The caller is asking "what may I do here", and "nothing" is an honest answer
 	that discloses nothing — the route that resolved the project id is where a 404 belongs.
+
+	**With no project named, it says what may be done anywhere in the workspace** (`#4558`, decision
+	`#4527` as revised on 2026-10-07): a credential narrowed to some projects holds no place at the
+	workspace itself, so the check refuses it every write asked there - and ``/v1/me``, which reads
+	this, would tell an agent that files in its projects that it may only read. So a verb that acts
+	inside projects is offered where only its place stood in the way, and a verb in
+	:data:`subroutine.permissions.WORKSPACE_WIDE`, which acts on nothing smaller, is not (`#4095`).
 	"""
+
+	_refuse_a_project_from_another_workspace(workspace_id, project)
 
 	# **Reach is asked once**, as the role was (`#4674`): each verb below is decided against it
 	# rather than asking again, which for a project was two queries a verb.
@@ -278,18 +283,34 @@ def explain (
 	permitted = frozenset(
 		permission
 		for permission in candidates
-		if _refusal(
-			session,
-			principal,
+		if _offered(
+			_refusal(
+				session,
+				principal,
+				permission,
+				workspace_id=workspace_id,
+				project=project,
+				known=reached,
+			),
 			permission,
-			workspace_id=workspace_id,
-			project=project,
-			known=reached,
+			anywhere_inside=project is None,
 		)
-		is None
 	)
 
 	return Grant(permissions=permitted, from_role=reached.title, narrowed_by_token=narrowed)
+
+
+def _offered (failure: AuthorizationFailure | None, permission: str, *, anywhere_inside: bool) -> bool:
+	"""Report whether :func:`explain` offers a verb, given what the check said of it."""
+
+	if failure is None:
+		return True
+
+	return (
+		anywhere_inside
+		and failure is AuthorizationFailure.BEYOND_ITS_PLACES
+		and permission not in subroutine.permissions.WORKSPACE_WIDE
+	)
 
 
 def refusal (
@@ -299,6 +320,7 @@ def refusal (
 	*,
 	workspace_id: uuid.UUID,
 	project: subroutine.db.models.project.Project | None = None,
+	own_account: bool = False,
 ) -> AuthorizationFailure | None:
 	"""Say why a principal may not do this, or ``None`` if they may, without raising.
 
@@ -308,9 +330,18 @@ def refusal (
 	permission, where the token's own sentence says what to do about it. **One function for both**
 	(S16 of the cold review of 2026-10-05): a ``may`` beside it asked the same question and dropped
 	the reason.
+
+	``own_account`` is as :func:`authorize` takes it.
 	"""
 
-	return _refusal(session, principal, permission, workspace_id=workspace_id, project=project)
+	return _refusal(
+		session,
+		principal,
+		permission,
+		workspace_id=workspace_id,
+		project=project,
+		own_account=own_account,
+	)
 
 
 def authorize (
@@ -320,6 +351,9 @@ def authorize (
 	*,
 	workspace_id: uuid.UUID,
 	project: subroutine.db.models.project.Project | None = None,
+	own_account: bool = False,
+	instead: str | typing.Callable[[], str] | None = None,
+	field: str | None = None,
 ) -> None:
 	"""Permit the action, or raise explaining why not.
 
@@ -329,10 +363,26 @@ def authorize (
 	Returns nothing on success on purpose. A function that returned ``True`` could have
 	its result dropped and the call would still read as a check; this one cannot be
 	ignored without ignoring an exception.
+
+	**``own_account`` says the act lands on the caller's own account** (`#4558`, decision `#4527`):
+	a private saved view changes nothing anybody else sees, and every credential reaches its own
+	account, so the place test is not asked while the role, the scopes and a read-only session
+	still are - a workspace viewer saves no view (`SR#3149`).
+
+	**``instead`` says what to do where the act lands beyond the credential's places**, as the hint
+	of that one refusal: making a project inside one it may change, or keeping a view as one's own.
+	The sentence stays the one every such refusal says. A function is called only on refusal, for a
+	hint that costs a query. **``field`` names the part of the request that took the act to the
+	workspace**, such as ``binds`` or ``shared``, so a caller is told what to change.
 	"""
 
 	failure = _refusal(
-		session, principal, permission, workspace_id=workspace_id, project=project
+		session,
+		principal,
+		permission,
+		workspace_id=workspace_id,
+		project=project,
+		own_account=own_account,
 	)
 
 	if failure is None:
@@ -343,9 +393,26 @@ def authorize (
 	if failure.conceals_existence:
 		raise OutOfReach(permission=permission, workspace_id=workspace_id, project_id=project_id)
 
-	raise AuthorizationError(
+	refused = AuthorizationError(
 		failure, permission=permission, workspace_id=workspace_id, project_id=project_id
 	)
+
+	if failure is AuthorizationFailure.BEYOND_ITS_PLACES:
+		if instead is not None:
+			refused.hint = instead if isinstance(instead, str) else instead()
+
+		if field is not None:
+			refused.errors = (
+				subroutine.errors.FieldError(
+					field=field,
+					code="forbidden",
+					message="This acts on the whole workspace, and the credential may change only "
+					"some of its projects.",
+					hint=refused.hint,
+				),
+			)
+
+	raise refused
 
 
 def authorize_on (
@@ -460,50 +527,23 @@ def authorize_instance (
 	raise AuthorizationError(failure, permission=permission)
 
 
-def narrowed_to_projects (principal: subroutine.domain.authentication.Principal) -> bool:
-	"""Report whether this credential reaches, or may change, only some projects - `#2619`.
-
-	``project_scope`` says which projects a credential reaches and ``project_write_scope`` where it
-	may change anything (`#371`), and ``None`` is no narrowing in either. **A question or a repair
-	that spans every project on the installation is outside both by construction**, for a pin's
-	reason (`#344`): narrowing is how an operator hands a credential to an agent, and ``scopes``
-	defaults to the owner's whole permission set, so an administrator's narrowed token still carries
-	``instance:admin``.
-
-	A predicate rather than a refusal, because each caller refuses in its own words: the
-	installation's acts, the workspace's administration, an act on the whole workspace, and a project
-	made at the top level.
-	"""
-
-	return principal.project_scope is not None or principal.project_write_scope is not None
-
-
-def refuse_a_workspace_act_from_a_narrowed_credential (
+def write_places (
 	principal: subroutine.domain.authentication.Principal,
-	*,
-	act: str,
-	field: str,
-	why: str,
-	hint: str,
-) -> None:
-	"""Refuse an act on the whole workspace from a credential narrowed to some projects.
+) -> typing.Sequence[str] | None:
+	"""Return the projects a credential may change things in, ``None`` being wherever it reaches.
 
-	**Sharing a view** (`#3151`) **and marking a rule as binding the whole workspace** (`#4134`)
-	each put something in front of everybody in it, and a credential narrowed to some of its
-	projects is narrower than its maker on purpose: `#1367`'s rule is that it stays so. One refusal
-	for both, so they cannot come to disagree about what narrowed means; the words are each
-	caller's, since each names its own act and what to do instead.
+	**Its write set, else its reach** (`#371`, decision `#4527`): ``project_write_scope`` where it
+	has one, ``project_scope`` where it does not, and ``None`` for neither. A workspace and the
+	installation are places of their own, beyond every project, so **only a credential whose write
+	places are ``None`` holds them** - which is how a credential narrowed to some projects
+	administers nothing beyond them (decision `#3802`). One spelling, for the check and for what a
+	refusal or a filing offers instead, which each wrote out for themselves (`#4558`).
 	"""
 
-	if not narrowed_to_projects(principal):
-		return
+	if principal.project_write_scope is not None:
+		return principal.project_write_scope
 
-	raise subroutine.errors.Forbidden(
-		f"A credential narrowed to some projects cannot {act}.",
-		errors=[
-			subroutine.errors.FieldError(field=field, code="forbidden", message=why, hint=hint)
-		],
-	)
+	return principal.project_scope
 
 
 def outside_token_scope (
@@ -557,12 +597,15 @@ def _instance_refusal (
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
-	# **Nor the narrowing to some projects** (decision `#3802`, item `#3812`). The installation is
-	# beyond every project, and ``scopes`` defaults to the owner's whole set, so a superuser's
-	# credential narrowed to one project created accounts and revoked other people's credentials
-	# and sign-ins (`#3883` M-4). Everything that acts on the installation asks here.
-	if narrowed_to_projects(principal):
-		return AuthorizationFailure.NARROWED_TO_PROJECTS
+	# **The installation is a place beyond every project** (decision `#3802`, item `#3812`; `#4558`,
+	# decision `#4527`), held only by a credential narrowed to none: ``scopes`` defaults to the
+	# owner's whole set, so a superuser's credential narrowed to one project created accounts and
+	# revoked other people's credentials and sign-ins (`#3883` M-4). **For reading too, as before**:
+	# the installation's listings span every workspace on it, which a credential narrowed even only
+	# in what it changes was issued to stop short of. Everything that acts on the installation asks
+	# here.
+	if write_places(principal) is not None:
+		return AuthorizationFailure.BEYOND_ITS_PLACES
 
 	# **Nor a pin to one workspace** (`#4006`, M-9 of the cold review of 2026-09-30, the half of
 	# `#3883` M-4 the narrowing above left). A pin says *this credential is for that workspace*
@@ -586,6 +629,7 @@ def _refusal (
 	workspace_id: uuid.UUID,
 	project: subroutine.db.models.project.Project | None,
 	known: _Reached | None = None,
+	own_account: bool = False,
 ) -> AuthorizationFailure | None:
 	"""Return why the action is refused, or ``None`` if it is permitted.
 
@@ -603,6 +647,8 @@ def _refusal (
 			f"Unknown workspace permission {permission!r}. Valid permissions are: {valid}. "
 			"Instance permissions go through authorize_instance, which takes no workspace."
 		)
+
+	_refuse_a_project_from_another_workspace(workspace_id, project)
 
 	# **A read-only session reads and does nothing else** (decision `#4510`). Asked before anything
 	# about the workspace or the project, because it is about the session and says nothing of either.
@@ -643,31 +689,42 @@ def _refusal (
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
-	# **A credential narrowed to some projects administers nothing beyond them** (decision
-	# `#3802`, item `#3812`). A verb whose effect is the whole workspace, asked with no project,
-	# is by construction beyond them - and the narrowing below is asked only where a project is
-	# named, which is how an owner's credential narrowed to one project could hand out ownership
-	# and move the workspace to the trash (`#3744`). A project's own administration names its
-	# project and never reaches this.
-	if (
-		project is None
-		and permission in subroutine.permissions.WORKSPACE_WIDE
-		and narrowed_to_projects(principal)
-	):
-		return AuthorizationFailure.NARROWED_TO_PROJECTS
+	# **Every act but a read lands on a place the credential may change** (`#4558`, decision
+	# `#4527`): its project, or its workspace where none is named. Reach has established that it
+	# reads the place (`#371`'s first question), and this is the second, whether it may change
+	# anything there - asked of every verb that is not a read, where three sets of verbs each
+	# decided which of the two questions a verb was asked. The workspace is held only by a credential
+	# narrowed to no project, so one narrowed to some administers nothing beyond them (decision
+	# `#3802`, `#3744`), makes no project at the top level (`#4095`, Q15 of `#4506`), and puts
+	# nothing in front of the whole workspace (`#3151`, `#4134`). An act on the caller's own account
+	# lands on that account, which every credential holds.
+	if permission in subroutine.permissions.READS or own_account:
+		return None
 
-	# **Reach and write are two questions** (`#371`). Reach has established that this credential
-	# can *see* the project; this asks whether it may change anything there. Only the verbs that
-	# land inside a project are narrowed, and they are named rather than derived - see
-	# `permissions.WRITES_INSIDE_A_PROJECT`.
-	if (
-		project is not None
-		and permission in subroutine.permissions.WRITES_INSIDE_A_PROJECT
-		and not reached.writes_here
-	):
-		return AuthorizationFailure.OUT_OF_PROJECT_WRITE_SCOPE
+	if project is None:
+		return None if write_places(principal) is None else AuthorizationFailure.BEYOND_ITS_PLACES
 
-	return None
+	return None if reached.writes_here else AuthorizationFailure.BEYOND_ITS_PLACES
+
+
+def _refuse_a_project_from_another_workspace (
+	workspace_id: uuid.UUID, project: subroutine.db.models.project.Project | None
+) -> None:
+	"""Raise where a check names a project with a workspace it is not in: a programming error.
+
+	**A failure of its own** (`#4558`, A I-7 of the cold review of 2026-10-05), as an unknown verb
+	is: it was refused as pinned to a different workspace, said to callers who were not pinned, and
+	then as not found. No route can send one - every check is asked of the project's own workspace -
+	so only a caller's mistake reaches this, and it should say so rather than read as a refusal.
+	"""
+
+	if project is None or project.workspace_id == workspace_id:
+		return
+
+	raise ValueError(
+		f"Project {project.id} is in workspace {project.workspace_id}, not {workspace_id}. Ask a "
+		"check of the project's own workspace."
+	)
 
 
 def visible_projects (

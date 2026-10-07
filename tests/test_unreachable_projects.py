@@ -314,8 +314,9 @@ def test_a_credential_narrowed_to_some_projects_may_not_ask_about_all_of_them (
 
 		assert refused.status_code == 403, (narrowing, refused.text)
 
-		# Refused by the instance tier itself since decision `#3802` (`#3812`), in its sentence.
-		assert "the token you used is narrowed to" in refused.text, refused.text
+		# Refused by the instance tier itself since decision `#3802` (`#3812`), in its sentence -
+		# the one every act beyond a credential's places meets since `SR#4558`.
+		assert "beyond the projects the token you used may change" in refused.text, refused.text
 
 
 def test_only_a_credential_that_reaches_every_project_can_let_somebody_back_in (

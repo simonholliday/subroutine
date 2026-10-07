@@ -57,7 +57,9 @@ def _refused (response: typing.Any) -> None:
 	"""Assert one refusal, by the decision's own sentence rather than by the status alone."""
 
 	assert response.status_code == 403, response.text
-	assert "narrowed to" in response.json()["detail"], response.text
+	assert "beyond the projects the token you used may change" in response.json()["detail"], (
+		response.text
+	)
 
 
 def test_a_narrowed_credential_cannot_change_the_workspace_or_point_its_osc (

@@ -694,7 +694,9 @@ def test_a_credential_narrowed_in_what_it_writes_cannot_share_a_view (
 	)
 
 	assert shared.status_code == 403, shared.text
-	assert "cannot share a view" in shared.text, shared.text
+	assert "beyond the projects" in shared.json()["detail"], shared.text
+	assert "Keep it as your own" in shared.json()["hint"], shared.text
+	assert shared.json()["errors"][0]["field"] == "shared", shared.text
 
 	kept = _as(
 		world, narrow, "POST", "/v1/views", json={"title": "Just mine", "arrangement": "list"}
@@ -1008,3 +1010,48 @@ def test_a_credential_that_cannot_read_work_cannot_read_the_saved_questions_abou
 	# **And the unnarrowed credential still reads it**, which is the half that says the refusal
 	# is about the scope rather than about the route being broken.
 	assert world.call("GET", "/v1/views/team-queue").status_code == 200
+
+
+def test_a_narrowed_credential_takes_no_view_from_in_front_of_the_workspace (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4558`, B I-5 of the cold review of 2026-10-05: unsharing and deleting are acts there too.
+
+	A credential narrowed to some projects was refused sharing a view, and allowed to unshare or
+	delete one its owner had shared from elsewhere - and refused a title edit as though it were
+	sharing the view. **A view in front of the whole workspace is the workspace's**, so each is
+	refused with the one sentence every such act meets; a view of its own is its account's, and
+	keeping, renaming and deleting one is untouched.
+	"""
+
+	_saved(world, title="Everyone's", arrangement="list", shared=True)
+
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Inbox only", project_scope=[inbox]
+	)
+	world.session.flush()
+	narrow = str(issued.value.get_secret_value())
+
+	for method, change in (
+		("PATCH", {"shared": False}),
+		("PATCH", {"title": "Mine now"}),
+		("DELETE", None),
+	):
+		refused = _as(world, narrow, method, "/v1/views/everyone-s", json=change)
+
+		assert refused.status_code == 403, (method, change, refused.text)
+		assert "beyond the projects" in refused.json()["detail"], refused.text
+		assert "share" not in refused.json()["detail"], "a title edit is not sharing"
+
+	kept = world.call("GET", "/v1/views/everyone-s").json()
+
+	assert (kept["title"], kept["shared"]) == ("Everyone's", True), kept
+
+	assert _as(
+		world, narrow, "POST", "/v1/views", json={"title": "Just mine", "arrangement": "list"}
+	).status_code == 201
+	assert _as(
+		world, narrow, "PATCH", "/v1/views/just-mine", json={"title": "Still mine"}
+	).status_code == 200
+	assert _as(world, narrow, "DELETE", "/v1/views/still-mine").status_code == 204

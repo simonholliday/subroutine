@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A credential narrowed to some projects acts on nothing beyond them, whatever the act.** It
+  could move a project its scope named out to the top level, make the project it was narrowed
+  to public or private, and unshare, rename or delete a view somebody had shared with the whole
+  workspace. Each is refused now, as making a top-level project, sharing a view and marking a
+  rule for the whole workspace already were, and all of them in one sentence. Its own views,
+  and its work inside its projects, are unchanged.
 - **Each read permission covers its own kind of thing wherever it appears.** A credential
   without `comment:read` read what comments said in the change feed, an item's history, both
   journals and the event export, and search matched on it; one without `workspace:read` read

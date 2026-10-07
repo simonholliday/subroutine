@@ -774,8 +774,8 @@ def test_a_credential_can_read_a_project_it_cannot_write_to (
 	]
 
 	# It writes in its own, and is refused in the other, *by name*: the refusal says the
-	# credential can read here and writes elsewhere, because that is the fact that decides
-	# what the caller does next.
+	# credential may change only some projects and this is beyond them, because that is the
+	# fact that decides what the caller does next (`SR#4558`).
 	subroutine.domain.authorization.authorize(
 		session,
 		bounded,
@@ -793,17 +793,20 @@ def test_a_credential_can_read_a_project_it_cannot_write_to (
 			project=world.private,
 		)
 
-	assert "may only write in another" in str(refused.value)
+	assert "beyond the projects the token you used may change" in str(refused.value)
 
 
-def test_a_write_set_narrows_only_the_verbs_that_land_in_a_project (
+def test_a_write_set_narrows_every_act_but_a_read (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
-	"""Reading is governed by the reach alone, and the two controls must not overlap.
+	"""Reading is governed by the reach alone, and everything else by where the act lands.
 
-	Written because the tempting implementation — "narrow anything that is not a read" — would
-	have caught `tag:write` and `status:write`, which curate the *workspace's* vocabulary and
-	have no project to be inside.
+	**"Narrow anything that is not a read" is the rule now** (`SR#4558`, decision `#4527`), which
+	this test was first written against, because it would have caught ``tag:write`` and
+	``status:write``: those curate the *workspace's* vocabulary and have no project to be inside.
+	They land on the workspace instead, a place a credential writing only in some projects does not
+	hold - refused before by a set of verbs, and now by the place - while in a project of its own
+	the same verbs are not refused by the place.
 	"""
 
 	bounded = _reaching_writing(
@@ -823,9 +826,16 @@ def test_a_write_set_narrows_only_the_verbs_that_land_in_a_project (
 			project=world.private,
 		)
 
-	assert subroutine.permissions.TAG_WRITE not in (
-		subroutine.permissions.WRITES_INSIDE_A_PROJECT
-	), "curating a workspace's vocabulary is not a write inside a project"
+	for vocabulary in (subroutine.permissions.TAG_WRITE, subroutine.permissions.STATUS_WRITE):
+		assert subroutine.domain.authorization.refusal(
+			session, bounded, vocabulary, workspace_id=world.workspace.id
+		) is subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES, vocabulary
+		assert subroutine.domain.authorization.refusal(
+			session,
+			subroutine.domain.authentication.Principal(user=world.owner),
+			vocabulary,
+			workspace_id=world.workspace.id,
+		) is None, f"the owner's own role grants {vocabulary}, or this proves nothing"
 
 
 def test_a_comment_lands_in_a_project_and_is_narrowed_like_every_other_write (
@@ -883,7 +893,7 @@ def test_a_comment_lands_in_a_project_and_is_narrowed_like_every_other_write (
 				actor=bounded,
 			)
 
-		assert "may only write in another" in str(stopped.value), (
+		assert "beyond the projects the token you used may change" in str(stopped.value), (
 			f"a comment on a {kind} outside the write set is refused by name"
 		)
 

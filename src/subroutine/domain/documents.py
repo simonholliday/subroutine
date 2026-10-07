@@ -323,7 +323,6 @@ def create (
 			session,
 			actor,
 			workspace_id,
-			act="write a document that binds the whole workspace",
 			hint=f"Write it binding its project. {_ASK_FROM_THE_WHOLE}",
 		)
 
@@ -528,11 +527,6 @@ def update (
 			session,
 			actor,
 			document.workspace_id,
-			act=(
-				"mark a document as binding the whole workspace"
-				if bound == BINDS_THE_WORKSPACE
-				else "set a document that binds the whole workspace back to its project"
-			),
 			hint=f"Leave what it binds as it is. {_ASK_FROM_THE_WHOLE}",
 		)
 
@@ -545,9 +539,7 @@ def update (
 	)
 
 	if retiring is not None:
-		act, field = retiring
-
-		_permitted_to_mark(session, actor, document.workspace_id, act=act, hint=_LEAVE_IT, field=field)
+		_permitted_to_mark(session, actor, document.workspace_id, hint=_LEAVE_IT, field=retiring)
 
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
@@ -815,7 +807,6 @@ def delete (
 			session,
 			actor,
 			document.workspace_id,
-			act="delete a document that binds the whole workspace, or one holding it",
 			hint=_LEAVE_IT,
 			field="binds",
 		)
@@ -873,7 +864,6 @@ def restore (
 			session,
 			actor,
 			document.workspace_id,
-			act="restore a document that binds the whole workspace, or one holding it",
 			hint=_LEAVE_IT,
 			field="binds",
 		)
@@ -1331,34 +1321,31 @@ def _permitted_to_mark (
 	actor: subroutine.domain.authentication.Principal | None,
 	workspace_id: uuid.UUID,
 	*,
-	act: str,
 	hint: str,
 	field: str = "binds",
 ) -> None:
 	"""Check that an actor may change whom a document binds, or raise - `#4133`, decision `#4134`.
 
-	**What sharing a view takes** (`#3151`): ``project:write`` in the workspace, on a credential
-	not narrowed to some projects. A rule that binds the whole workspace is listed for every
-	reader of the conventions, which every agent is told to read before its first write - the
-	channel §14.12 warns about, through which one user can place text in another user's agent's
-	context. So only somebody holding ``project:write`` in the workspace - a member or above - from
-	a credential that reaches all of its projects, can widen a rule's reach, narrow it again, or
-	retire it by another door (`#4286`). ``None`` is an internal caller.
+	**What sharing a view takes** (`#3151`): ``project:write`` at the workspace's place, which a
+	credential narrowed to some projects does not hold (`#4558`, decision `#4527`). A rule that binds
+	the whole workspace is listed for every reader of the conventions, which every agent is told to
+	read before its first write - the channel §14.12 warns about, through which one user can place
+	text in another user's agent's context. So only somebody holding ``project:write`` in the
+	workspace - a member or above - from a credential that reaches all of its projects, can widen a
+	rule's reach, narrow it again, or retire it by another door (`#4286`). ``None`` is an internal
+	caller.
 	"""
 
 	if actor is None:
 		return
 
 	subroutine.domain.authorization.authorize(
-		session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id
-	)
-	subroutine.domain.authorization.refuse_a_workspace_act_from_a_narrowed_credential(
+		session,
 		actor,
-		act=act,
+		subroutine.permissions.PROJECT_WRITE,
+		workspace_id=workspace_id,
+		instead=hint,
 		field=field,
-		why="A rule for the whole workspace is an act on the workspace, and this credential "
-		"reaches part of it.",
-		hint=hint,
 	)
 
 
@@ -1374,9 +1361,9 @@ def _retiring (
 	item_type: typing.Any,
 	moving: bool,
 	beneath: typing.Sequence[subroutine.db.models.work.Document],
-) -> tuple[str, str] | None:
-	"""Return how an update would retire a rule binding the whole workspace, or bring one into force,
-	and its field - `#4286`, `#4389`.
+) -> str | None:
+	"""Return the field by which an update would retire a rule binding the whole workspace, or bring
+	one into force - `#4286`, `#4389`.
 
 	Decision `#4134` names the doors: a status leaving or entering the current category, a type
 	leaving or entering the governing types, and a move to another project - which takes a
@@ -1392,7 +1379,7 @@ def _retiring (
 		document.binds == BINDS_THE_WORKSPACE
 		or any(one.binds == BINDS_THE_WORKSPACE and one.deleted_at is None for one in beneath)
 	):
-		return "move a document that binds the whole workspace, or one holding it", "project"
+		return "project"
 
 	if document.binds != BINDS_THE_WORKSPACE:
 		return None
@@ -1401,19 +1388,23 @@ def _retiring (
 		was = session.get(subroutine.db.models.vocabulary.Status, document.status_id)
 
 		if was is not None and was.category == CURRENT_CATEGORY and status.category != CURRENT_CATEGORY:
-			return "take a document that binds the whole workspace out of force", "status"
+			# Taking it out of force.
+			return "status"
 
 		if was is not None and was.category != CURRENT_CATEGORY and status.category == CURRENT_CATEGORY:
-			return "put a document that binds the whole workspace into force", "status"
+			# Putting it into force.
+			return "status"
 
 	if item_type is not subroutine.domain.patch.UNSET:
 		kind = session.get(subroutine.db.models.vocabulary.ItemType, document.type_id)
 
 		if kind is not None and kind.key in GOVERNS and item_type.key not in GOVERNS:
-			return "make a document that binds the whole workspace a type that binds nobody", "type"
+			# A type that binds nobody.
+			return "type"
 
 		if kind is not None and kind.key not in GOVERNS and item_type.key in GOVERNS:
-			return "make a document that binds the whole workspace a type that binds everybody", "type"
+			# A type that binds everybody.
+			return "type"
 
 	return None
 
@@ -1452,7 +1443,6 @@ def refuse_hiding_a_rule (
 	actor: subroutine.domain.authentication.Principal | None,
 	project: subroutine.db.models.project.Project,
 	*,
-	act: str,
 	field: str,
 ) -> None:
 	"""Refuse hiding a project that holds a rule binding the whole workspace, or showing one again,
@@ -1492,7 +1482,6 @@ def refuse_hiding_a_rule (
 		session,
 		actor,
 		project.workspace_id,
-		act=act,
 		hint=f"It holds a rule that binds the whole workspace. {_ASK_FROM_THE_WHOLE}",
 		field=field,
 	)
@@ -1528,7 +1517,6 @@ def successor_to_mark (
 		session,
 		actor,
 		new.workspace_id,
-		act="supersede a document that binds the whole workspace",
 		hint=f"Its successor would bind the whole workspace too. {_ASK_FROM_THE_WHOLE}",
 		field=field,
 	)

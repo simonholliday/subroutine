@@ -190,12 +190,16 @@ def test_membership_of_one_workspace_grants_nothing_in_the_other (
 def test_a_project_from_the_other_workspace_is_refused (
 	session: sqlalchemy.orm.Session, two_worlds: tuple[Side, Side]
 ) -> None:
-	"""Passing a mismatched workspace and project must not check whichever is convenient."""
+	"""Passing a mismatched workspace and project must not check whichever is convenient.
+
+	**A programming error rather than a refusal** since `SR#4558` (A I-7 of the cold review of
+	2026-10-05): no route can send one, and it was told it was pinned, then not found.
+	"""
 
 	left, right = two_worlds
 	principal = subroutine.domain.authentication.Principal(user=left.owner)
 
-	with pytest.raises(subroutine.errors.SubroutineError):
+	with pytest.raises(ValueError, match="Ask a check of the project's own workspace"):
 		subroutine.domain.authorization.authorize(
 			session,
 			principal,
