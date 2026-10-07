@@ -154,7 +154,7 @@ def test_a_view_is_mine_until_i_share_it (world: test_api_tasks.World) -> None:
 
 	**Mine by default and shared on purpose.** Somebody else's private view is *not found*
 	rather than *forbidden*, because a 403 would confirm the name is in use to anybody who
-	guessed it — the distinction `authorization.ProjectNotVisible` already draws one entity
+	guessed it — the distinction `authorization.OutOfReach` already draws one entity
 	over.
 	"""
 

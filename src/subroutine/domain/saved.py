@@ -403,7 +403,7 @@ def by_key (
 
 	**A view somebody else has kept private is *not found*, never *forbidden*.** Saying
 	forbidden would confirm the name is in use to anybody who guessed it, which is the
-	distinction ``authorization.ProjectNotVisible`` already draws one entity over.
+	distinction ``authorization.OutOfReach`` already draws one entity over.
 	"""
 
 	wanted = key_named(key)

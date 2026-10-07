@@ -426,14 +426,18 @@ def test_a_read_only_token_cannot_write (session: sqlalchemy.orm.Session) -> Non
 def test_a_stranger_to_the_workspace_cannot_create_a_task (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Membership is the floor for writing, not only for reading."""
+	"""Membership is the floor for writing, not only for reading.
+
+	**Refused as not found** (`SR#4674`): a workspace they are not in is not there for them, as
+	every listing already says.
+	"""
 
 	installed = _installed(session)
 	outsider = subroutine.domain.users.create(
 		session, username=f"outsider-{uuid.uuid4().hex[:8]}"
 	)
 
-	with pytest.raises(subroutine.errors.Forbidden):
+	with pytest.raises(subroutine.domain.authorization.OutOfReach):
 		subroutine.domain.tasks.create(
 			session,
 			project=installed.inbox,
@@ -502,8 +506,8 @@ def test_privacy_reaches_a_private_projects_children (
 		visibility="public",
 	)
 
-	assert not subroutine.domain.authorization.is_visible(session, principal, private)
-	assert not subroutine.domain.authorization.is_visible(session, principal, child)
+	assert not _sees(session, principal, private)
+	assert not _sees(session, principal, child)
 
 	session.add(
 		subroutine.db.models.project.ProjectMember(
@@ -514,5 +518,21 @@ def test_privacy_reaches_a_private_projects_children (
 	)
 	session.flush()
 
-	assert subroutine.domain.authorization.is_visible(session, principal, private)
-	assert subroutine.domain.authorization.is_visible(session, principal, child)
+	assert _sees(session, principal, private)
+	assert _sees(session, principal, child)
+
+
+def _sees (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether the permission check finds this project in sight (`SR#4674`)."""
+
+	return subroutine.domain.authorization.refusal(
+		session,
+		principal,
+		subroutine.permissions.TASK_READ,
+		workspace_id=project.workspace_id,
+		project=project,
+	) is None

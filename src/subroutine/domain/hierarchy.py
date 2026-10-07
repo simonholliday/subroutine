@@ -137,6 +137,34 @@ def within (allowed: typing.Collection[str], *, identifier: str, path: str | Non
 	return any(segment in allowed for segment in path_segments(path))
 
 
+def beneath_any (
+	model: type[typing.Any], allowed: typing.Collection[str] | None
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching a node that is one of ``allowed`` or filed under one of them.
+
+	:func:`within` as SQL, for rows that exist (`#4674`): a node's ``path`` holds its own id as well
+	as every ancestor's - a root's path is ``/<its own id>/`` - so one substring test covers both.
+	Never a range comparison, which is wrong under a non-byte-wise collation (:func:`subtree`).
+
+	**``None`` and ``[]`` are different things and neither is a guess** (`#201`). ``None`` narrows
+	nothing; an empty list admits no node. ``sqlalchemy.or_()`` with no clauses renders as nothing
+	at all, so a ``WHERE`` built from it for ``[]`` would lose the restriction and fail open.
+	"""
+
+	if allowed is None:
+		return sqlalchemy.true()
+
+	if not allowed:
+		return sqlalchemy.false()
+
+	return sqlalchemy.or_(
+		*[
+			model.path.contains(f"{PATH_SEPARATOR}{identifier}{PATH_SEPARATOR}")
+			for identifier in allowed
+		]
+	)
+
+
 def is_ancestor_of (candidate: Node, node: Node) -> bool:
 	"""Report whether one node lies on another's path.
 

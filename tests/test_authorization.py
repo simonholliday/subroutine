@@ -169,21 +169,26 @@ def test_every_role_against_every_permission (
 def test_a_stranger_to_the_workspace_may_do_nothing (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Membership is the floor; there is no ambient access."""
+	"""Membership is the floor; there is no ambient access.
+
+	**And a workspace they are not in is not there for them** (`SR#4674`): not found, as every
+	listing already answers, where this was a 403 saying they were not a member.
+	"""
 
 	workspace = _seeded_workspace(session)
 	principal = subroutine.domain.authentication.Principal(user=_user(session))
 
-	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
+	with pytest.raises(subroutine.domain.authorization.OutOfReach) as error:
 		subroutine.domain.authorization.authorize(
 			session, principal, subroutine.permissions.TASK_READ, workspace_id=workspace.id
 		)
 
 	assert (
-		error.value.failure is subroutine.domain.authorization.AuthorizationFailure.NOT_A_MEMBER
+		error.value.failure is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
 	)
-	assert error.value.status == 403
-	assert error.value.code == "forbidden"
+	assert error.value.status == 404
+	assert error.value.code == "not_found"
+	assert "workspace" in error.value.detail.lower()
 
 
 def test_an_empty_scope_list_narrows_nothing (session: sqlalchemy.orm.Session) -> None:
@@ -266,7 +271,7 @@ def test_a_superuser_outside_a_workspace_administers_it_and_does_nothing_else_th
 	for verb in (subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE):
 		assert subroutine.domain.authorization.refusal(
 			session, root, verb, workspace_id=workspace.id
-		) == subroutine.domain.authorization.AuthorizationFailure.NOT_A_MEMBER, verb
+		) == subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH, verb
 
 	scoped = _with_token(session, root, scopes=[subroutine.permissions.TASK_READ])
 
@@ -296,6 +301,18 @@ def test_a_superuser_outside_a_workspace_administers_it_and_does_nothing_else_th
 		session, pinned, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
 	) is not None
 
+	# **Never with a project named** (`SR#4674`): the clause is the one way past reach, and a
+	# project in a workspace they are not in is not there for them.
+	project = _project(session, workspace)
+
+	assert subroutine.domain.authorization.refusal(
+		session,
+		root,
+		subroutine.permissions.WORKSPACE_READ,
+		workspace_id=workspace.id,
+		project=project,
+	) is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
+
 
 def test_a_token_pinned_to_one_workspace_cannot_reach_another (
 	session: sqlalchemy.orm.Session,
@@ -322,15 +339,12 @@ def test_a_token_pinned_to_one_workspace_cannot_reach_another (
 		session, pinned, subroutine.permissions.TASK_READ, workspace_id=home.id
 	) is None
 
-	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
+	with pytest.raises(subroutine.domain.authorization.OutOfReach) as error:
 		subroutine.domain.authorization.authorize(
 			session, pinned, subroutine.permissions.TASK_READ, workspace_id=elsewhere.id
 		)
 
-	assert (
-		error.value.failure
-		is subroutine.domain.authorization.AuthorizationFailure.WORKSPACE_MISMATCH
-	)
+	assert error.value.failure is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
 
 
 def test_a_project_from_another_workspace_is_refused (
@@ -343,7 +357,7 @@ def test_a_project_from_another_workspace_is_refused (
 	principal = _member(session, home, "owner")
 	foreign = _project(session, elsewhere)
 
-	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
+	with pytest.raises(subroutine.domain.authorization.OutOfReach) as error:
 		subroutine.domain.authorization.authorize(
 			session,
 			principal,
@@ -352,10 +366,7 @@ def test_a_project_from_another_workspace_is_refused (
 			project=foreign,
 		)
 
-	assert (
-		error.value.failure
-		is subroutine.domain.authorization.AuthorizationFailure.WORKSPACE_MISMATCH
-	)
+	assert error.value.failure is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
 
 
 def test_a_null_project_scope_restricts_nothing (session: sqlalchemy.orm.Session) -> None:
@@ -398,7 +409,7 @@ def test_a_project_scope_carries_the_whole_subtree (
 			project=permitted,
 		) is None
 
-	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as error:
+	with pytest.raises(subroutine.domain.authorization.OutOfReach) as error:
 		subroutine.domain.authorization.authorize(
 			session,
 			scoped,
@@ -407,10 +418,7 @@ def test_a_project_scope_carries_the_whole_subtree (
 			project=unrelated,
 		)
 
-	assert (
-		error.value.failure
-		is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_PROJECT_SCOPE
-	)
+	assert error.value.failure is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
 
 
 def test_a_private_project_conceals_its_existence (session: sqlalchemy.orm.Session) -> None:
@@ -420,7 +428,7 @@ def test_a_private_project_conceals_its_existence (session: sqlalchemy.orm.Sessi
 	principal = _member(session, workspace, "owner")
 	private = _project(session, workspace, visibility="private")
 
-	with pytest.raises(subroutine.domain.authorization.ProjectNotVisible) as error:
+	with pytest.raises(subroutine.domain.authorization.OutOfReach) as error:
 		subroutine.domain.authorization.authorize(
 			session,
 			principal,
@@ -655,6 +663,46 @@ def test_explain_does_not_re_read_the_role_for_every_permission (
 		f"explain issued {counted} queries for {len(subroutine.permissions.WORKSPACE_LEVEL)} "
 		f"permissions; it should resolve the role once."
 	)
+
+
+def test_explain_asks_reach_once_for_a_project (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4674`: one question about a project costs a handful of queries, not two per verb.
+
+	Asked about a project, every verb asked again whether the project was in sight, and the
+	review of 2026-10-05 measured about 34 statements for one. Reach is one query now, asked once,
+	with the write set in it.
+	"""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	project = _project(session, workspace)
+	narrowed = _with_token(
+		session, owner, project_scope=[str(project.id)], project_write_scope=[str(project.id)]
+	)
+	session.flush()
+
+	engine = session.get_bind()
+	counted = 0
+
+	def count (*_arguments: typing.Any) -> None:
+		"""Tally one statement."""
+
+		nonlocal counted
+
+		counted += 1
+
+	sqlalchemy.event.listen(engine, "before_cursor_execute", count)
+
+	try:
+		granted = subroutine.domain.authorization.explain(
+			session, narrowed, workspace.id, project=project
+		).permissions
+
+	finally:
+		sqlalchemy.event.remove(engine, "before_cursor_execute", count)
+
+	assert subroutine.permissions.TASK_WRITE in granted, granted
+	assert counted <= 3, f"explain issued {counted} queries for one project; it should ask reach once"
 
 
 def test_a_pinned_or_project_scoped_token_reports_itself_as_narrowing (
@@ -1193,3 +1241,57 @@ def test_a_superusers_credential_narrowed_to_projects_administers_nothing_on_the
 			raised.value.failure
 			is subroutine.domain.authorization.AuthorizationFailure.NARROWED_TO_PROJECTS
 		), verb
+
+
+def test_an_owner_reaches_their_workspace_in_the_trash_to_restore_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4674`: the check reaches a deleted workspace, because restoring one is checked.
+
+	The listings leave a deleted workspace out (`#704`), and reach is one predicate for both, so
+	the check asks it with deleted workspaces in. An instance administrator passes by their own
+	clause, which is why the restore tests, run as one, could not see this: an owner who is not
+	one is the case.
+	"""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	workspace.deleted_at = subroutine.db.types.utcnow()
+	session.flush()
+
+	assert not owner.user.is_superuser
+	assert subroutine.domain.authorization.refusal(
+		session, owner, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+	) is None
+
+
+def test_an_agent_whose_person_has_left_reaches_nothing (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4674`, decision `#473`: an agent acts only while everybody it answers to can.
+
+	Asked at the door first, and at the check too, as the role lookup asked it before reach was one
+	predicate: a principal made without the door, as a direct domain call makes one, is refused
+	alike.
+	"""
+
+	workspace = _seeded_workspace(session)
+	person = _member(session, workspace, "owner")
+	agent = _user(session, is_service_account=True, responsible_user_id=person.user.id)
+	session.add(
+		subroutine.db.models.identity.WorkspaceMember(
+			workspace_id=workspace.id, user_id=agent.id, role_id=_role(session, workspace, "member").id
+		)
+	)
+	session.flush()
+
+	acting = subroutine.domain.authentication.Principal(user=agent)
+
+	assert subroutine.domain.authorization.refusal(
+		session, acting, subroutine.permissions.TASK_READ, workspace_id=workspace.id
+	) is None
+
+	person.user.is_active = False
+	session.flush()
+
+	assert subroutine.domain.authorization.refusal(
+		session, acting, subroutine.permissions.TASK_READ, workspace_id=workspace.id
+	) is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH

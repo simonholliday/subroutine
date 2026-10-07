@@ -52,15 +52,12 @@ class AuthorizationFailure(enum.StrEnum):
 	is ever reported to the caller in any detail — see :attr:`conceals_existence`.
 	"""
 
-	WORKSPACE_MISMATCH = "workspace_mismatch"
-	NOT_A_MEMBER = "not_a_member"
+	OUT_OF_REACH = "out_of_reach"
 	ROLE_LACKS_PERMISSION = "role_lacks_permission"
 	OUT_OF_TOKEN_SCOPE = "out_of_token_scope"
-	OUT_OF_PROJECT_SCOPE = "out_of_project_scope"
 	OUT_OF_PROJECT_WRITE_SCOPE = "out_of_project_write_scope"
 	NARROWED_TO_PROJECTS = "narrowed_to_projects"
 	PINNED_TO_A_WORKSPACE = "pinned_to_a_workspace"
-	PROJECT_INVISIBLE = "project_invisible"
 	NOT_A_SUPERUSER = "not_a_superuser"
 	READ_ONLY = "read_only"
 
@@ -68,31 +65,25 @@ class AuthorizationFailure(enum.StrEnum):
 	def conceals_existence (self) -> bool:
 		"""Report whether this refusal must be reported as "not found".
 
-		A private project answers ``404`` rather than ``403`` (docs/design.md §7.3a, §8.7):
-		telling someone they are forbidden confirms the thing is there, which is precisely
-		what private means they should not learn.
+		**Anything out of reach answers ``404`` rather than ``403``** (docs/design.md §7.3a, §8.7;
+		`#4674`, P-1 of the cold review of 2026-10-05): telling someone they are forbidden confirms
+		the thing is there, which is what a private project, a workspace they are not in and a
+		project outside their credential each mean they should not learn.
 		"""
 
-		return self is AuthorizationFailure.PROJECT_INVISIBLE
+		return self is AuthorizationFailure.OUT_OF_REACH
 
 
 #: What to tell the caller for each refusal. Every one of these is safe to say to the
 #: person it is said to: it describes their own role and their own token, which they may
 #: already inspect, and never anything about what they were reaching for.
 _EXPLANATIONS: dict[AuthorizationFailure, str] = {
-	AuthorizationFailure.WORKSPACE_MISMATCH: (
-		"The token you used is pinned to a different workspace."
-	),
-	AuthorizationFailure.NOT_A_MEMBER: "You are not a member of this workspace.",
 	AuthorizationFailure.ROLE_LACKS_PERMISSION: (
 		"This needs the {permission} permission, which your role here does not include."
 	),
 	AuthorizationFailure.OUT_OF_TOKEN_SCOPE: (
 		"This needs the {permission} permission. Your role allows it, but the token you "
 		"used is scoped to a narrower set."
-	),
-	AuthorizationFailure.OUT_OF_PROJECT_SCOPE: (
-		"The token you used is scoped to a different set of projects."
 	),
 	# Says which of the two restrictions stopped it, because the remedy is different: this
 	# credential can *read* here and the caller can see that it can, so a message about the
@@ -121,9 +112,6 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 _HINTS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.OUT_OF_TOKEN_SCOPE: (
 		"Use a token that includes {permission}, or one with no scope restriction at all."
-	),
-	AuthorizationFailure.WORKSPACE_MISMATCH: (
-		"Use a token issued without a workspace, or one issued for this workspace."
 	),
 	AuthorizationFailure.NARROWED_TO_PROJECTS: "Use a token that is not narrowed to projects.",
 	AuthorizationFailure.PINNED_TO_A_WORKSPACE: "Use a token issued without a workspace.",
@@ -186,8 +174,14 @@ class AuthorizationError(subroutine.errors.Forbidden):
 		self.project_id = project_id
 
 
-class ProjectNotVisible(subroutine.errors.NotFound):
-	"""Raised when a private project is not this caller's to know about.
+class OutOfReach(subroutine.errors.NotFound):
+	"""Raised when what was named is beyond the caller's reach, so is not there for them (`#4674`).
+
+	A private project, a workspace they are not in, one their credential is pinned away from, and
+	a project outside their credential: **one refusal, said as not found**, since saying forbidden
+	confirms the thing exists. The 403s these were before could be met only by a direct domain
+	call, because every route finds what it was named through the listings, which already leave
+	all of them out.
 
 	Deliberately *not* a subclass of :class:`AuthorizationError`. A caller catching "the
 	permission check said no" and logging "permission denied" would be reporting the one
@@ -204,9 +198,13 @@ class ProjectNotVisible(subroutine.errors.NotFound):
 	) -> None:
 		"""Record what was refused, while saying only that it is not there."""
 
-		super().__init__("No project with that id, or none that you can see.")
+		super().__init__(
+			"No workspace with that id, or none that you can reach."
+			if project_id is None
+			else "No project with that id, or none that you can see."
+		)
 
-		self.failure = AuthorizationFailure.PROJECT_INVISIBLE
+		self.failure = AuthorizationFailure.OUT_OF_REACH
 		self.permission = permission
 		self.workspace_id = workspace_id
 		self.project_id = project_id
@@ -224,6 +222,19 @@ class Grant:
 	permissions: frozenset[str]
 	from_role: str | None
 	narrowed_by_token: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class _Reached:
+	"""What one query says of a principal at one place they reach - `#4674`.
+
+	The role they hold in the workspace, and whether the project named, if one was, is inside the
+	credential's write set (``True`` where none was named, or the credential has none).
+	"""
+
+	title: str
+	permissions: frozenset[str]
+	writes_here: bool
 
 
 def explain (
@@ -245,12 +256,13 @@ def explain (
 	that discloses nothing — the route that resolved the project id is where a 404 belongs.
 	"""
 
-	role = _role_for(session, principal, workspace_id)
+	# **Reach is asked once**, as the role was (`#4674`): each verb below is decided against it
+	# rather than asking again, which for a project was two queries a verb.
+	reached = _reached(session, principal, workspace_id=workspace_id, project=project)
 
-	if role is None:
+	if reached is None:
 		return Grant(permissions=frozenset(), from_role=None, narrowed_by_token=False)
 
-	title, granted = role
 	scopes = principal.scopes
 	# **The one definition, asked rather than worked out again** (`#3934`). This spelled out three
 	# of the four axes by hand and never learned the fourth, `project_write_scope`, so `/v1/me`
@@ -259,7 +271,7 @@ def explain (
 	narrowed = principal.narrows
 
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
-	candidates = granted if not scopes else granted & frozenset(scopes)
+	candidates = reached.permissions if not scopes else reached.permissions & frozenset(scopes)
 
 	# Ask the real decision about each candidate rather than reproducing its checks here.
 	# Duplicating them is how the two answers drifted apart in the first place.
@@ -272,12 +284,12 @@ def explain (
 			permission,
 			workspace_id=workspace_id,
 			project=project,
-			known_role=role,
+			known=reached,
 		)
 		is None
 	)
 
-	return Grant(permissions=permitted, from_role=title, narrowed_by_token=narrowed)
+	return Grant(permissions=permitted, from_role=reached.title, narrowed_by_token=narrowed)
 
 
 def refusal (
@@ -311,9 +323,8 @@ def authorize (
 ) -> None:
 	"""Permit the action, or raise explaining why not.
 
-	Raises :class:`AuthorizationError` (403) for an ordinary refusal, and
-	:class:`ProjectNotVisible` (404) where saying "forbidden" would confirm that a private
-	project exists.
+	Raises :class:`AuthorizationError` (403) for an ordinary refusal, and :class:`OutOfReach`
+	(404) where saying "forbidden" would confirm that what was named exists.
 
 	Returns nothing on success on purpose. A function that returned ``True`` could have
 	its result dropped and the call would still read as a check; this one cannot be
@@ -330,9 +341,7 @@ def authorize (
 	project_id = None if project is None else project.id
 
 	if failure.conceals_existence:
-		raise ProjectNotVisible(
-			permission=permission, workspace_id=workspace_id, project_id=project_id
-		)
+		raise OutOfReach(permission=permission, workspace_id=workspace_id, project_id=project_id)
 
 	raise AuthorizationError(
 		failure, permission=permission, workspace_id=workspace_id, project_id=project_id
@@ -576,16 +585,15 @@ def _refusal (
 	*,
 	workspace_id: uuid.UUID,
 	project: subroutine.db.models.project.Project | None,
-	known_role: tuple[str, frozenset[str]] | None = None,
+	known: _Reached | None = None,
 ) -> AuthorizationFailure | None:
 	"""Return why the action is refused, or ``None`` if it is permitted.
 
-	``known_role`` is the caller's already-resolved role, and means *not yet looked up*
-	when absent — never *no role*, which is reported by :func:`_role_for` returning
-	``None``. It exists for :func:`explain`, which asks about every permission in turn and
-	would otherwise re-read the same role row once per permission: seventeen queries per
-	workspace to answer a question whose input it computed before the loop started. The
-	decision itself is untouched; only the lookup of one of its inputs is skipped.
+	``known`` is what :func:`_reached` already said of this place, and means *not yet asked* when
+	absent - never *out of reach*, which is :func:`_reached` returning ``None``. It exists for
+	:func:`explain`, which asks about every permission in turn and would otherwise ask the same
+	question once per permission. The decision itself is untouched; only the lookup of one of its
+	inputs is skipped.
 	"""
 
 	if permission not in subroutine.permissions.WORKSPACE_LEVEL:
@@ -601,30 +609,15 @@ def _refusal (
 	if principal.read_only and permission not in subroutine.permissions.READS:
 		return AuthorizationFailure.READ_ONLY
 
-	# A token pinned to one workspace cannot reach into another, whatever its owner may
-	# do there.
-	if (
-		principal.pinned_workspace_id is not None
-		and principal.pinned_workspace_id != workspace_id
-	):
-		return AuthorizationFailure.WORKSPACE_MISMATCH
-
-	if project is not None and project.workspace_id != workspace_id:
-		return AuthorizationFailure.WORKSPACE_MISMATCH
-
-	# Checked before anything else about the project, so that a private one refuses
-	# identically no matter what else is or is not true. Asks about ancestors as well:
-	# privacy inherits down the tree (docs/design.md §7.3a).
-	if project is not None and not is_visible(session, principal, project):
-		return AuthorizationFailure.PROJECT_INVISIBLE
-
 	# **An instance administrator administers any live workspace's membership, and deletes it,
 	# member or not** (`#4557`, decision `#4519`, `#1418`): the one clause, where a superuser
 	# bypassed every role. Asked of the instance tier, so a pin, a narrowing to some projects and a
 	# read-only session each refuse it as they refuse any instance act; and the verb itself must be
-	# within the credential's scopes, as everywhere.
+	# within the credential's scopes, as everywhere. **Before reach, since it is the one way past
+	# it, and only with no project named**, as none of its three verbs is ever asked with one.
 	if (
-		permission in subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
+		project is None
+		and permission in subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
 		and _instance_refusal(
 			principal,
 			subroutine.permissions.INSTANCE_ADMIN,
@@ -635,14 +628,16 @@ def _refusal (
 	):
 		return None
 
-	role = known_role or _role_for(session, principal, workspace_id)
+	# **Reach is one question, and out of reach is not found** (`#4674`, P-1 of the cold review of
+	# 2026-10-05): a pin to another workspace, a project in another workspace, a project out of
+	# sight, no membership and a project outside the credential were five checks here, three of
+	# them refusing as forbidden what the listings leave out.
+	reached = known or _reached(session, principal, workspace_id=workspace_id, project=project)
 
-	if role is None:
-		return AuthorizationFailure.NOT_A_MEMBER
+	if reached is None:
+		return AuthorizationFailure.OUT_OF_REACH
 
-	_title, granted = role
-
-	if permission not in granted:
+	if permission not in reached.permissions:
 		return AuthorizationFailure.ROLE_LACKS_PERMISSION
 
 	if outside_token_scope(principal, permission):
@@ -661,64 +656,18 @@ def _refusal (
 	):
 		return AuthorizationFailure.NARROWED_TO_PROJECTS
 
-	if project is not None and not _within_project_scope(principal, project):
-		return AuthorizationFailure.OUT_OF_PROJECT_SCOPE
-
-	# **Reach and write are two questions, asked in that order** (`#371`). Everything above
-	# has established that this credential can *see* the project; this asks whether it may
-	# change anything there. Only the verbs that land inside a project are narrowed, and they
-	# are named rather than derived — see `permissions.WRITES_INSIDE_A_PROJECT`.
+	# **Reach and write are two questions** (`#371`). Reach has established that this credential
+	# can *see* the project; this asks whether it may change anything there. Only the verbs that
+	# land inside a project are narrowed, and they are named rather than derived - see
+	# `permissions.WRITES_INSIDE_A_PROJECT`.
 	if (
 		project is not None
 		and permission in subroutine.permissions.WRITES_INSIDE_A_PROJECT
-		and not _within_write_scope(principal, project)
+		and not reached.writes_here
 	):
 		return AuthorizationFailure.OUT_OF_PROJECT_WRITE_SCOPE
 
 	return None
-
-
-def _role_for (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-	workspace_id: uuid.UUID,
-) -> tuple[str, frozenset[str]] | None:
-	"""Return the role that applies, as ``(title, permissions)``, or ``None`` for a stranger.
-
-	**A superuser too** (`#4557`, decision `#4519`): inside a workspace everybody acts by their role
-	there, and what an instance administrator may do in any workspace is one clause in
-	:func:`_refusal`. The bypass here let a superuser agent make itself owner where a person check
-	should have stopped it, and left a superuser removed from a workspace passing every check in it.
-	The workspace role applies in every project of the workspace.
-
-	**No role of a project's own** (`#4547`, A I-9 of the cold review of 2026-10-05): a
-	``project_member.role_id`` replaced this one here, while nothing wrote one and no served
-	instance held one, and it was the one way a read and a write could disagree about a role.
-	`#1452` is where a project's own role would be built, into this decision.
-	"""
-
-	# **An agent holds no role where its person is not a member** (`#4546`, decision `#4518`), as it
-	# reaches no workspace there (``workspaces.readable``).
-	if principal.user.is_service_account and not subroutine.domain.accountability.can_act(
-		session, principal.user, workspace_id=workspace_id
-	):
-		return None
-
-	role = subroutine.db.models.identity.Role
-	member = subroutine.db.models.identity.WorkspaceMember
-
-	found = session.execute(
-		sqlalchemy.select(role.title, role.permissions)
-		.join(member, member.role_id == role.id)
-		.where(member.workspace_id == workspace_id, member.user_id == principal.user.id)
-	).one_or_none()
-
-	if found is None:
-		return None
-
-	title, permissions = found
-
-	return title, frozenset(permissions)
 
 
 def visible_projects (
@@ -771,81 +720,149 @@ def visible_projects (
 	return sqlalchemy.not_(hidden)
 
 
-def is_visible (
+def reaches (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
-	project: subroutine.db.models.project.Project,
-) -> bool:
-	"""Report whether one project is visible to this principal, ancestors included."""
+	workspace_id: (
+		uuid.UUID
+		| sqlalchemy.ColumnElement[uuid.UUID]
+		| sqlalchemy.orm.InstrumentedAttribute[uuid.UUID]
+	),
+	*,
+	include_deleted: bool = False,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate saying a principal reaches a workspace - `#4674`.
 
+	**The one answer to *which workspaces*, for listing and for checking alike** (P-1 of the cold
+	review of 2026-10-05): :func:`subroutine.domain.workspaces.readable` lists by it, and
+	:func:`_reached` asks it of the one workspace a check names. ``workspace_id`` is a value, or a
+	column of the query this goes into.
+
+	Membership is what grants reach. A pin narrows it to one workspace (docs/design.md §7.3); a
+	credential narrowed to some projects reaches only the workspaces holding them (`#4555`); and an
+	agent reaches a workspace only while its chain of accountability stands and the person at the
+	top of it is a member there too (`#4546`, decision `#4518`). ``include_deleted`` is for the
+	check, which :func:`subroutine.domain.workspaces.restore` asks of a workspace in the trash;
+	every listing leaves them out (`#704`).
+
+	**Built of its own aliases**, so a query that already selects members or workspaces cannot
+	correlate it away (`#3922`).
+	"""
+
+	member = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
+	workspace = sqlalchemy.orm.aliased(subroutine.db.models.identity.Workspace)
+
+	clauses: list[sqlalchemy.ColumnElement[bool]] = [
+		member.workspace_id == workspace_id,
+		member.user_id == principal.user.id,
+		workspace.id == member.workspace_id,
+	]
+
+	if not include_deleted:
+		clauses.append(workspace.deleted_at.is_(None))
+
+	if principal.pinned_workspace_id is not None:
+		clauses.append(member.workspace_id == principal.pinned_workspace_id)
+
+	if principal.project_scope is not None:
+		scoped = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+		clauses.append(
+			sqlalchemy.exists().where(
+				scoped.workspace_id == member.workspace_id,
+				scoped.id.in_(_project_ids(principal.project_scope)),
+			)
+		)
+
+	if principal.user.is_service_account:
+		if not subroutine.domain.accountability.can_act(session, principal.user):
+			return sqlalchemy.false()
+
+		person = subroutine.domain.accountability.answers_for(session, principal.user)
+		seated = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
+		clauses.append(
+			sqlalchemy.exists().where(
+				seated.workspace_id == member.workspace_id, seated.user_id == person.id
+			)
+		)
+
+	return sqlalchemy.exists().where(*clauses)
+
+
+def _reached (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	project: subroutine.db.models.project.Project | None,
+) -> _Reached | None:
+	"""Return the principal's role where they reach this place, or ``None`` where they do not.
+
+	**One query** (`#4674`): the role row, kept only where :func:`reaches` holds of the workspace
+	and, with a project named, where that project is in that workspace, in sight
+	(:func:`visible_projects`) and inside the credential's project scope; the write set is asked in
+	the same statement.
+	Deleted workspaces are reached here, as they were, because restoring one is checked.
+
+	**The workspace role applies in every project of the workspace**, a superuser's included
+	(`#4557`, decision `#4519`), and no project has a role of its own (`#4547`).
+	"""
+
+	role = subroutine.db.models.identity.Role
+	member = subroutine.db.models.identity.WorkspaceMember
 	model = subroutine.db.models.project.Project
 
-	found = session.scalar(
-		sqlalchemy.select(model.id).where(model.id == project.id, visible_projects(principal))
+	# **The write set in the same statement** (`#371`): ``None`` means wherever it reaches, which
+	# reach has already established, so it is asked only of a project named to a credential that
+	# has one.
+	writes_here: sqlalchemy.ColumnElement[bool] = sqlalchemy.true()
+
+	if project is not None and principal.project_write_scope is not None:
+		writes_here = sqlalchemy.exists().where(
+			model.id == project.id,
+			subroutine.domain.hierarchy.beneath_any(model, principal.project_write_scope),
+		)
+
+	statement = (
+		sqlalchemy.select(role.title, role.permissions, writes_here.label("writes_here"))
+		.select_from(member)
+		.join(role, member.role_id == role.id)
+		.where(
+			member.workspace_id == workspace_id,
+			member.user_id == principal.user.id,
+			reaches(session, principal, workspace_id, include_deleted=True),
+		)
 	)
 
-	return found is not None
+	if project is not None:
+		statement = statement.where(
+			sqlalchemy.exists().where(
+				model.id == project.id,
+				model.workspace_id == workspace_id,
+				visible_projects(principal),
+				subroutine.domain.hierarchy.beneath_any(model, principal.project_scope),
+			)
+		)
+
+	found = session.execute(statement).one_or_none()
+
+	if found is None:
+		return None
+
+	title, permissions, writes = found
+
+	return _Reached(title=title, permissions=frozenset(permissions), writes_here=bool(writes))
 
 
-def _within_project_scope (
-	principal: subroutine.domain.authentication.Principal,
-	project: subroutine.db.models.project.Project,
-) -> bool:
-	"""Report whether a project falls inside the token's project restriction.
+def _project_ids (scope: typing.Sequence[str]) -> list[uuid.UUID]:
+	"""Return the project ids a credential's scope names, leaving out anything that is not one."""
 
-	A scoped project brings its whole subtree with it: restricting an agent to a project
-	and then refusing it the sub-projects underneath would make the restriction useless
-	for any tree deeper than one level. The materialised ``path`` is what makes that an
-	ordinary string check rather than a recursive query.
-	"""
+	found: list[uuid.UUID] = []
 
-	return _covers(principal.project_scope, project)
+	for named in scope:
+		try:
+			found.append(uuid.UUID(str(named)))
 
+		except ValueError:
+			continue
 
-def _within_write_scope (
-	principal: subroutine.domain.authentication.Principal,
-	project: subroutine.db.models.project.Project,
-) -> bool:
-	"""Report whether a credential may change things in this project — item ``#371``.
-
-	**``None`` means "wherever it can reach", not "everywhere".** That is what keeps every
-	credential issued before this column existed behaving exactly as it did: the reach check
-	has already run and passed by the time this is asked, so falling through here grants
-	nothing the reach did not already allow. Spelling the default as a copy of
-	``project_scope`` would have been the same behaviour and a worse record — a credential
-	would then carry a write set nobody chose, indistinguishable from one somebody did.
-
-	Subtree-inclusive for :func:`_within_project_scope`'s reason: a write set of ``SR`` that
-	refused ``SR/WEB`` would be useless on any tree deeper than one level.
-	"""
-
-	writable = principal.project_write_scope
-
-	if writable is None:
-		return True
-
-	return _covers(writable, project)
-
-
-def _covers (
-	allowed: list[str] | None, project: subroutine.db.models.project.Project
-) -> bool:
-	"""Report whether a list of project ids covers this project or an ancestor of it.
-
-	Shared by the two restrictions above so that "reaches" and "may write in" cannot come to
-	mean subtly different things about the same tree — which is the divergence this codebase
-	finds more often than any other.
-
-	**And the rule itself lives in `hierarchy`, one level further out** (`#413`). Two copies
-	were not enough: the check that refuses a write set outside the reach was a third reader of
-	"is this project inside that one", written as a flat set subset, and it refused a child of a
-	project the credential could read. A rule with one implementation cannot do that.
-	"""
-
-	# The sentinel again: no list means no restriction.
-	if allowed is None:
-		return True
-
-	return subroutine.domain.hierarchy.within(
-		allowed, identifier=str(project.id), path=project.path
-	)
+	return found

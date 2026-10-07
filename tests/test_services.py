@@ -53,6 +53,7 @@ import subroutine.domain.users
 import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 import subroutine.views
 
 
@@ -660,7 +661,13 @@ def test_creating_a_project_makes_its_owner_a_member_of_it (
 
 	principal = subroutine.domain.authentication.Principal(user=owner)
 
-	assert subroutine.domain.authorization.is_visible(session, principal, project)
+	assert subroutine.domain.authorization.refusal(
+		session,
+		principal,
+		subroutine.permissions.TASK_READ,
+		workspace_id=workspace.id,
+		project=project,
+	) is None
 
 
 #: Settings a template may write, because each only *describes* how a project is meant to be

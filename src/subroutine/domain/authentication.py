@@ -950,7 +950,7 @@ def _refuse_a_write_set_outside_the_reach (
 	*"a project it cannot read"* — about a project it reads and writes perfectly well. That is
 	the ordinary shape of decision `#370`'s ``collaborator``, so the profile built for it could
 	not express it on any tree deeper than one level. :func:`subroutine.domain.hierarchy.within`
-	is now the one implementation, shared with ``authorization._covers``.
+	is now the one implementation, and :func:`subroutine.domain.hierarchy.beneath_any` is it as SQL.
 
 	**So this does ask the database, and only about the write set.** The ids are not validated
 	for *existence* — :func:`_canonical_project_scope`'s reason still holds, and a credential
@@ -1025,7 +1025,7 @@ def _outside (
 ) -> bool:
 	"""Report whether anything asked for falls outside a credential's own bounds — `#344`.
 
-	**Two rules about one thing, and they disagreed.** ``authorization._within_project_scope``
+	**Two rules about one thing, and they disagreed.** The permission check's project scope
 	decides what a credential may *reach* and honours the subtree, in its own words because
 	*"restricting an agent to a project and then refusing it the sub-projects underneath would
 	make the restriction useless for any tree deeper than one level"*. This one decides what it

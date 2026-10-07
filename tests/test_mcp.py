@@ -730,8 +730,8 @@ _REFUSED_LATER: dict[str, typing.Callable[[], subroutine.errors.SubroutineError]
 		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
 		permission="task:write",
 	),
-	"private": lambda: subroutine.domain.authorization.ProjectNotVisible(
-		permission="task:write", workspace_id=uuid.uuid4()
+	"private": lambda: subroutine.domain.authorization.OutOfReach(
+		permission="task:write", workspace_id=uuid.uuid4(), project_id=uuid.uuid4()
 	),
 	"unaccepted": lambda: subroutine.domain.authentication.AuthenticationError(
 		subroutine.domain.authentication.AuthenticationFailure.REVOKED, prefix="sr_abc123"

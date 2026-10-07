@@ -494,7 +494,7 @@ def test_somebody_who_cannot_see_the_project_is_told_it_is_not_there (
 	colleague = _outsider(session, workspace)
 	project = _owned(session, workspace, owner)
 
-	with pytest.raises(subroutine.domain.authorization.ProjectNotVisible):
+	with pytest.raises(subroutine.domain.authorization.OutOfReach):
 		subroutine.domain.projects.share(session, project, owner.user, actor=colleague)
 
 

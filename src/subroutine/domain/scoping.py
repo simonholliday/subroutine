@@ -81,11 +81,10 @@ def within_project_scope (
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return a predicate selecting the projects a credential's scope admits.
 
-	A scoped project brings its whole subtree, for the reason
-	:func:`subroutine.domain.authorization._within_project_scope` gives about the
-	single-project form: restricting an agent to a project and then refusing it the
-	sub-projects underneath makes the restriction useless below one level. This is the
-	same rule as a predicate, so a listing can apply it to rows it has not loaded.
+	A scoped project brings its whole subtree: restricting an agent to a project and then
+	refusing it the sub-projects underneath makes the restriction useless below one level.
+	**The permission check asks the same predicate** (`#4674`), :func:`subroutine.domain.
+	hierarchy.beneath_any`, where it asked a Python copy of the rule of its own.
 
 	**``None`` and ``[]`` are different things and neither is a guess** (`#201`). ``None`` is
 	the sentinel and narrows nothing; an empty *list* is a restriction that admits no project,
@@ -102,23 +101,8 @@ def within_project_scope (
 	on a validator two modules away.
 	"""
 
-	allowed = principal.project_scope
-
-	# The sentinel: no list means no restriction, never "no projects" (docs/design.md §7.3).
-	if allowed is None:
-		return sqlalchemy.true()
-
-	if not allowed:
-		return sqlalchemy.false()
-
-	project = subroutine.db.models.project.Project
-
-	# A project's `path` contains its *own* id as well as every ancestor's — measured, not
-	# assumed: a root's path is `/<its own id>/`. So one substring test covers both "this
-	# is the scoped project" and "this is underneath it", and no separate check on `id` is
-	# needed. Never a range comparison, which is wrong under a non-byte-wise collation.
-	return sqlalchemy.or_(
-		*[project.path.contains(f"/{identifier}/") for identifier in allowed]
+	return subroutine.domain.hierarchy.beneath_any(
+		subroutine.db.models.project.Project, principal.project_scope
 	)
 
 

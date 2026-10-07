@@ -425,8 +425,8 @@ def test_an_empty_project_scope_admits_nothing_rather_than_everything (
 ) -> None:
 	"""`#201`. The other sentinel, in the direction that failed open — and it did.
 
-	``None`` narrows nothing; ``[]`` is a restriction naming no project, which is what
-	``authorization._within_project_scope`` has always returned ``False`` for. The predicate
+	``None`` narrows nothing; ``[]`` is a restriction naming no project, which is what the
+	permission check has always refused. The predicate
 	built ``sqlalchemy.or_()`` with no clauses, which renders as nothing, so the ``WHERE``
 	lost the restriction and the listing returned every project — the two copies of one rule
 	disagreeing on one edge, in opposite directions.
@@ -455,8 +455,14 @@ def test_an_empty_project_scope_admits_nothing_rather_than_everything (
 
 	assert _titles(session, starved, world.workspace) == []
 
-	# And the two copies agree about it, which is the part that was wrong.
-	assert not subroutine.domain.authorization._within_project_scope(starved, world.public)
+	# And the check agrees about it, which is the part that was wrong: one predicate now (`SR#4674`).
+	assert subroutine.domain.authorization.refusal(
+		session,
+		starved,
+		subroutine.permissions.TASK_READ,
+		workspace_id=world.workspace.id,
+		project=world.public,
+	) is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
 
 
 def test_the_agenda_honours_a_project_scoped_token (
