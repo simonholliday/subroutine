@@ -1252,8 +1252,24 @@ def _files_where (
 
 		return inbox
 
-	if inbox is not None and _may_file_in(actor, inbox):
-		return inbox
+	# **Could it put a new item in the Inbox at all**: both restrictions, a null on either being no
+	# narrowing on that axis and a list being subtree-inclusive (`#413`), asked as the permission
+	# check asks them (`#4676`) rather than by a Python copy of the rule. Deliberately **not** the
+	# role or the scopes: those decide whether this caller may write *anything*, and the check
+	# answers that a moment later with a message about the verb. This answers only *which project
+	# did they mean*, where a place they could never write to is not a candidate.
+	if inbox is not None:
+		model = subroutine.db.models.project.Project
+		fileable = session.scalar(
+			sqlalchemy.select(model.id).where(
+				model.id == inbox.id,
+				subroutine.domain.hierarchy.beneath_any(model, actor.project_scope),
+				subroutine.domain.hierarchy.beneath_any(model, actor.project_write_scope),
+			)
+		)
+
+		if fileable is not None:
+			return inbox
 
 	# **Its write set where it has one, its reach where it does not** — the same fallback
 	# `authorization._within_write_scope` makes, so what a credential is *offered* here and what
@@ -1297,33 +1313,6 @@ def _files_where (
 			)
 		],
 	)
-
-
-def _may_file_in (
-	actor: subroutine.domain.authentication.Principal,
-	project: subroutine.db.models.project.Project,
-) -> bool:
-	"""Report whether a credential could put a new item in this project at all.
-
-	Both restrictions, in the one implementation ``authorization`` applies — a null on either
-	means no narrowing on that axis, and a list is subtree-inclusive (`#413`). Deliberately
-	**not** the role or the scopes: those decide whether this caller may write *anything*, and
-	the permission check answers that a moment later with a message about the verb. This
-	answers only "which project did they mean", where a place they could never write to is not
-	a candidate.
-	"""
-
-	for allowed in (actor.project_scope, actor.project_write_scope):
-		# The sentinel both restrictions share: no list means no narrowing on that axis.
-		if allowed is None:
-			continue
-
-		if not subroutine.domain.hierarchy.within(
-			allowed, identifier=str(project.id), path=project.path
-		):
-			return False
-
-	return True
 
 
 def _named_within (
