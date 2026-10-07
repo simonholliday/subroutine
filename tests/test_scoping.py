@@ -1338,7 +1338,7 @@ def test_a_credential_with_no_scopes_is_narrowed_by_none_of_this (
 #: Every place the read scope is waived, and why each one is entitled to. **The reason is the
 #: entry** — a count would say two waivers are allowed and let the next one take either slot.
 #:
-#: The test both of these have to pass is the same: *did the caller ask to see this?* A caller
+#: The test each of these has to pass is the same: *did the caller ask to see this?* A caller
 #: who asked for projects and holds no ``project:read`` is what `#930`'s enforcement exists to
 #: refuse. A caller who asked for something else, and had a project read on their behalf on the
 #: way, is not.
@@ -1362,8 +1362,34 @@ READ_SCOPE_WAIVERS = {
 }
 
 
+def _naming_sites (root: pathlib.Path) -> dict[str, list[str]]:
+	"""Return, for each module under ``root``, the functions that name projects without reading them.
+
+	A call to ``nameable_projects`` is that (`SR#4677`), bar the one inside ``readable_projects``,
+	which refuses a caller without ``project:read`` first and so is the read itself.
+	"""
+
+	found: dict[str, list[str]] = {}
+
+	for path in sorted(root.rglob("*.py")):
+		tree = ast.parse(path.read_text(encoding="utf-8"))
+
+		for function in ast.walk(tree):
+			if not isinstance(function, ast.FunctionDef) or function.name == "readable_projects":
+				continue
+
+			for call in ast.walk(function):
+				named = getattr(call, "func", None)
+				called = getattr(named, "attr", None) or getattr(named, "id", None)
+
+				if isinstance(call, ast.Call) and called == "nameable_projects":
+					found.setdefault(str(path.relative_to(root)), []).append(function.name)
+
+	return found
+
+
 def test_the_read_scope_is_waived_only_where_a_reason_is_written_down () -> None:
-	"""`#930`. An opt-out with a written reason is a decision; a bare one is a hole.
+	"""`#930`. Naming projects without reading them, with a written reason, is a decision; a bare one is a hole.
 
 	**Found by the suite rather than by reasoning.** The check went in without the first
 	exception and took five tests with it, all of them about a credential describing itself —
@@ -1373,26 +1399,43 @@ def test_the_read_scope_is_waived_only_where_a_reason_is_written_down () -> None
 	**Named rather than counted, which is the change `#1065` made.** The count said *one
 	waiver*, so raising it to two would have permitted a second anywhere. What each entry has
 	to carry is the argument, because the argument is what a third one has to match.
+
+	**A call to ``nameable_projects`` since `SR#4677`**, where it was an ``enforce_read_scope``
+	switch turned off; read out of the syntax, so a call split over lines is still found.
 	"""
 
-	waivers: dict[str, list[str]] = {}
-
-	for path in sorted(SOURCE.rglob("*.py")):
-		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-			if "enforce_read_scope=False" in line:
-				waivers.setdefault(str(path.relative_to(SOURCE)), []).append(f"line {number}")
+	waivers = _naming_sites(SOURCE)
 
 	assert set(waivers) == set(READ_SCOPE_WAIVERS), (
-		f"the read-scope waiver is used in {sorted(waivers)} and the reasons here cover "
+		f"projects are named without being read in {sorted(waivers)}, and the reasons here cover "
 		f"{sorted(READ_SCOPE_WAIVERS)}. Each one is a read the caller's own scopes do not "
-		f"narrow — write the reason into READ_SCOPE_WAIVERS, or do not waive it."
+		f"narrow — write the reason into READ_SCOPE_WAIVERS, or ask readable_projects."
 	)
 
 	for module, places in waivers.items():
 		assert len(places) == 1, (
-			f"{module} waives the read scope at {places}. One reason is recorded for it, so "
-			f"a second site there is one nobody has argued for."
+			f"{module} names projects without reading them in {places}. One reason is recorded "
+			f"for it, so a second site there is one nobody has argued for."
 		)
+
+
+def test_the_naming_guard_finds_a_call_it_was_not_told_about (tmp_path: pathlib.Path) -> None:
+	"""`SR#4677`: fed a module that names projects with no reason written, the scan finds it.
+
+	Through its own entry point (`#405`), so a walk that read nothing could not pass: and the call
+	inside ``readable_projects`` is not one.
+	"""
+
+	(tmp_path / "elsewhere.py").write_text(
+		"import subroutine.domain.scoping\n\n\n"
+		"def peek (session, principal):\n"
+		"\treturn subroutine.domain.scoping.nameable_projects(session, principal)\n\n\n"
+		"def readable_projects (session, principal):\n"
+		"\treturn nameable_projects(session, principal)\n",
+		encoding="utf-8",
+	)
+
+	assert _naming_sites(tmp_path) == {"elsewhere.py": ["peek"]}
 
 
 def test_a_project_in_a_workspace_somebody_left_is_not_named_to_them_by_its_new_key (

@@ -73,12 +73,11 @@ import subroutine.config
 import subroutine.db.fulltext
 import subroutine.db.models.activity
 import subroutine.domain.authentication
-import subroutine.domain.authorization
 import subroutine.domain.refs
+import subroutine.domain.scoping
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.errors
-import subroutine.permissions
 
 #: What answers ``q`` when nothing better is available, and what every instance had until
 #: `#823`. Named rather than spelled `"like"` at each site, so the two implementations are a
@@ -378,9 +377,7 @@ def anywhere (
 		),
 	]
 
-	if reader is None or not subroutine.domain.authorization.outside_token_scope(
-		reader, subroutine.permissions.COMMENT_READ
-	):
+	if reader is None or subroutine.domain.scoping.reads(reader, "comment"):
 		sources.append(in_a_comment(query, entity_type=entity_type, backend=reading))
 
 	# **A third source rather than a fourth predicate** (`#1576`). A tag is not in any column

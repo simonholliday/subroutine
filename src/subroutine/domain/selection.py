@@ -1064,9 +1064,7 @@ def _alternative_projects (
 
 	making = "Make one with 'subroutine project create'."
 
-	if actor is not None and subroutine.domain.authorization.outside_token_scope(
-		actor, subroutine.permissions.PROJECT_READ
-	):
+	if actor is not None and not subroutine.domain.scoping.reads(actor, "project"):
 		return f"This credential cannot list projects, so none are named here. {making}"
 
 	rows = list(session.scalars(statement))
@@ -1173,9 +1171,7 @@ def _named_twice (
 	are what ``project:read`` gates, and naming one without reading it reaches here (`#3909`).
 	"""
 
-	if actor is not None and subroutine.domain.authorization.outside_token_scope(
-		actor, subroutine.permissions.PROJECT_READ
-	):
+	if actor is not None and not subroutine.domain.scoping.reads(actor, "project"):
 		return subroutine.errors.ValidationError(
 			f"More than one project in {workspace.slug} is called {wanted!r}.",
 			errors=[
@@ -1362,13 +1358,12 @@ def _nameable (
 	not, and a miss names no projects to it (:func:`_alternative_projects`).
 	"""
 
-	return subroutine.domain.scoping.readable_projects(
+	return subroutine.domain.scoping.nameable_projects(
 		session,
 		principal,
 		workspace_ids=workspace_ids,
 		include_deleted=include_deleted,
 		include_archived=include_archived,
-		enforce_read_scope=False,
 	)
 
 

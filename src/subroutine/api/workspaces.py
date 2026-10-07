@@ -270,7 +270,7 @@ def listing (
 
 	# **Refused without ``workspace:read``** (`#4553`, decision `#4511`, S10): workspaces are this
 	# listing's only subject, so it says why rather than answering with nothing, as `#930` asks.
-	subroutine.domain.scoping.refuse_a_read_out_of_scope(actor, subroutine.permissions.WORKSPACE_READ)
+	subroutine.domain.scoping.refuse_a_read_out_of_scope(actor, "workspace")
 
 	model = subroutine.db.models.identity.Workspace
 

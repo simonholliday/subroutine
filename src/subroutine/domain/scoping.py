@@ -39,11 +39,44 @@ import subroutine.domain.authorization
 import subroutine.domain.hierarchy
 import subroutine.permissions
 
+#: **Which verb reads which kind of row** (`#4677`, decision `#4511`): one table for every read
+#: gate, the refusals and the narrowings alike, where each spelled its own verb. A document is read
+#: with ``task:read`` - there is no ``document:read`` (§7.3a, ``permissions.COVERAGE``) - and the
+#: workspace's own record, members and events with ``workspace:read``.
+READ_VERB: dict[str, str] = {
+	"task": subroutine.permissions.TASK_READ,
+	"document": subroutine.permissions.TASK_READ,
+	"project": subroutine.permissions.PROJECT_READ,
+	"comment": subroutine.permissions.COMMENT_READ,
+	"workspace": subroutine.permissions.WORKSPACE_READ,
+	"workspace_member": subroutine.permissions.WORKSPACE_READ,
+}
+
+
+def reads (principal: subroutine.domain.authentication.Principal, kind: str) -> bool:
+	"""Report whether this credential may read rows of this kind - the one read gate (`#4677`).
+
+	**Two outcomes, each a decision of its own**, and both ask this: a request whose only subject is
+	this kind is refused (:func:`refuse_a_read_out_of_scope`, `#930`), and an answer that carries
+	other kinds leaves this one out (`#1085`, decision `#4511`). A I-6 of the cold review of
+	2026-10-05 counted four policies; `#4507` found two of them were these decisions, spelled at
+	each site.
+
+	**Scopes only, and that is complete rather than partial.** The other half of
+	``role ∩ scopes`` is the role, and every seeded role carries every read verb — measured,
+	all five — while `#826` records that no installation can add one. So for reads the role
+	half is vacuous by construction, and the credential's own narrowing is the only thing that
+	can decide. It is also the half that needs no workspace, which is what lets a listing that
+	spans several ask it.
+	"""
+
+	return not subroutine.domain.authorization.outside_token_scope(principal, READ_VERB[kind])
+
 
 def refuse_a_read_out_of_scope (
-	principal: subroutine.domain.authentication.Principal, permission: str
+	principal: subroutine.domain.authentication.Principal, kind: str
 ) -> None:
-	"""Refuse a listing the credential's own scopes do not reach (`#930`).
+	"""Refuse a request about a kind of row the credential's own scopes do not read (`#930`).
 
 	**A read verb gated nothing until this existed.** ``task:read``, ``project:read`` and
 	``workspace:read`` appeared in no check anywhere, so a token issued ``--scope task:delete``
@@ -56,23 +89,17 @@ def refuse_a_read_out_of_scope (
 	query reaches those tables from anywhere else. A check spread over the call sites is a
 	list, and a list falls behind.
 
-	**Scopes only, and that is complete rather than partial.** The other half of
-	``role ∩ scopes`` is the role, and every seeded role carries every read verb — measured,
-	all five — while `#826` records that no installation can add one. So for reads the role
-	half is vacuous by construction, and the credential's own narrowing is the only thing that
-	can decide. It is also the half that needs no session, which is what lets the check live
-	in a query builder at all.
-
 	**It refuses rather than narrowing to nothing.** An empty page is a plausible, complete,
-	wrong answer to *may I read this*, and the operator's remedy is the refusal.
+	wrong answer to *may I read this*, and the operator's remedy is the refusal. Which credential
+	reads which kind is :func:`reads`'s.
 	"""
 
-	if not subroutine.domain.authorization.outside_token_scope(principal, permission):
+	if reads(principal, kind):
 		return
 
 	raise subroutine.domain.authorization.AuthorizationError(
 		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
-		permission=permission,
+		permission=READ_VERB[kind],
 	)
 
 
@@ -259,9 +286,12 @@ def readable_projects (
 	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 	include_deleted: bool = False,
 	include_archived: bool = False,
-	enforce_read_scope: bool = True,
 ) -> sqlalchemy.Select[subroutine.db.models.project.Project]:
 	"""Return a select over the projects this principal may see, and no others.
+
+	**Refused without ``project:read``** (`#930`), since this is a read of projects. Naming one -
+	to file in, move to or narrow a read by, or a credential's own - is
+	:func:`nameable_projects`, which this is with the refusal in front (`#4677`).
 
 	**Only in the workspaces the principal reaches**, which this asks itself (`#4675`):
 	``workspace_ids`` narrows within them, and ``None`` is all of them. An empty list is no
@@ -275,16 +305,38 @@ def readable_projects (
 	nothing at all.
 	"""
 
-	# **Opt-out rather than opt-in, so forgetting it is safe.** Two callers turn it off and
-	# each says why where it does it: `projects.keys_for`, which resolves ids out of the
-	# caller's own token for display (`#930`), and `prioritised_projects` below, which applies
-	# an ordering rather than listing anything (`#1065`).
-	#
-	# **Both are reads nobody asked for**, which is the test to apply to a third: a caller
-	# who did not ask to see projects must not be refused because something else went looking
-	# at one on their behalf. A caller who *did* ask is the case this exists for.
-	if enforce_read_scope:
-		refuse_a_read_out_of_scope(principal, subroutine.permissions.PROJECT_READ)
+	refuse_a_read_out_of_scope(principal, "project")
+
+	return nameable_projects(
+		session,
+		principal,
+		workspace_ids=workspace_ids,
+		include_deleted=include_deleted,
+		include_archived=include_archived,
+	)
+
+
+def nameable_projects (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
+	include_deleted: bool = False,
+	include_archived: bool = False,
+) -> sqlalchemy.Select[subroutine.db.models.project.Project]:
+	"""Return the projects this principal may *name*, which is every one it may see - `#4677`.
+
+	**Without asking for ``project:read``**, which gates asking *for* projects: naming one to
+	file in, move to or narrow a read by is not a read of it (`#3909`), nor is a credential's own
+	list of them (`projects.keys_for`, `#930`), nor the ordering a prioritised project applies
+	(:func:`prioritised_projects`, `#1065`). **Each of those is a read nobody asked for**, which is
+	the test for another: a caller who did not ask to see projects must not be refused because
+	something else went looking at one on their behalf. This replaces an ``enforce_read_scope``
+	switch the three turned off.
+
+	Everything else applies - reach, privacy and the credential's project scope - so nothing is
+	named that could not be seen.
+	"""
 
 	project = subroutine.db.models.project.Project
 
@@ -376,8 +428,8 @@ def prioritised_projects (
 	if not chosen:
 		return {}
 
-	# **The read scope is not enforced here, and that is the second permitted opt-out**
-	# (`#1065`). This call *applies* an ordering and names the project the ordering favoured;
+	# **Named, not read** (`#1065`, :func:`nameable_projects`). This call *applies* an ordering
+	# and names the project the ordering favoured;
 	# it does not list projects, and no caller asked to. Enforcing it meant that one
 	# `subroutine project prioritise` took every `task:read`-scoped credential in the
 	# workspace offline — measured, `/v1/me`, `/v1/tasks`, `/v1/agenda` and `/v1/changes` all
@@ -390,9 +442,9 @@ def prioritised_projects (
 	# `project:read` learns the *address* of a project it can already see.
 	#
 	# Simon's decision of 2026-08-22, taken over two alternatives written up on `#1065`.
-	visible = readable_projects(
-		session, principal, workspace_ids=workspace_ids, enforce_read_scope=False
-	).where(project.id.in_(chosen))
+	visible = nameable_projects(session, principal, workspace_ids=workspace_ids).where(
+		project.id.in_(chosen)
+	)
 
 	return {chosen[row.id]: row for row in session.scalars(visible)}
 
@@ -449,7 +501,7 @@ def readable_documents (
 
 	# A document is a work item under a task's permissions, so it is `task:read` that reaches
 	# one and there is no `document:read` to hold it to (§7.3a, `permissions.COVERAGE`).
-	refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
+	refuse_a_read_out_of_scope(principal, "document")
 
 	document = subroutine.db.models.work.Document
 	project = subroutine.db.models.project.Project
@@ -504,7 +556,7 @@ def readable_tasks (
 	`#4091`). One flag for both would put a task nobody deleted into the trash.
 	"""
 
-	refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
+	refuse_a_read_out_of_scope(principal, "task")
 
 	task = subroutine.db.models.work.Task
 	project = subroutine.db.models.project.Project
@@ -555,9 +607,7 @@ def task_seen_by (
 	honest answer to how much of the work a reader can see.
 	"""
 
-	if subroutine.domain.authorization.outside_token_scope(
-		principal, subroutine.permissions.TASK_READ
-	):
+	if not reads(principal, "task"):
 		return sqlalchemy.false()
 
 	return sqlalchemy.and_(
@@ -606,9 +656,7 @@ def tags_seen_by (
 	# **Only in a workspace the principal reaches** (`#4675`), carried or not.
 	reached = in_reach(session, principal, tag.workspace_id, workspace_ids)
 
-	if subroutine.domain.authorization.outside_token_scope(
-		principal, subroutine.permissions.TASK_READ
-	):
+	if not reads(principal, "task"):
 		return sqlalchemy.and_(reached, sqlalchemy.not_(carried))
 
 	tasks, documents = held_by_an_export(session, principal, workspace_ids=workspace_ids)
@@ -646,9 +694,7 @@ def held_by_an_export (
 	task = subroutine.db.models.work.Task
 	document = subroutine.db.models.work.Document
 
-	if subroutine.domain.authorization.outside_token_scope(
-		principal, subroutine.permissions.TASK_READ
-	):
+	if not reads(principal, "task"):
 		return (
 			sqlalchemy.select(task.id).where(sqlalchemy.false()),
 			sqlalchemy.select(document.id).where(sqlalchemy.false()),
@@ -750,14 +796,9 @@ def the_other_kind (
 #: somebody was added to one.
 _WORKSPACE_LEVEL = ("workspace", "workspace_member")
 
-#: The verb that decides whether the change feed can carry each kind of event. Documents share
-#: ``task:read`` — that is what ``readable_documents`` asks and this must agree with it, which
-#: is why it is read from :mod:`subroutine.permissions` rather than spelled out again.
-_FEED_KINDS = {
-	"task": subroutine.permissions.TASK_READ,
-	"project": subroutine.permissions.PROJECT_READ,
-	"document": subroutine.permissions.TASK_READ,
-}
+#: The kinds the change feed narrows through their own identity, each read by its verb in
+#: :data:`READ_VERB`, which is what ``readable_documents`` asks too (`#4677`).
+_FEED_KINDS = ("task", "project", "document")
 
 
 def readable_event_kinds (
@@ -785,11 +826,7 @@ def readable_event_kinds (
 	that carries others, rather than refusing it.
 	"""
 
-	return tuple(
-		kind
-		for kind, permission in _FEED_KINDS.items()
-		if not subroutine.domain.authorization.outside_token_scope(principal, permission)
-	)
+	return tuple(kind for kind in _FEED_KINDS if reads(principal, kind))
 
 
 def readable_identifiers (
@@ -951,14 +988,14 @@ def visible_events (
 
 	# **Narrowed to the kinds this credential may read, rather than refused because of one it
 	# did not ask about** (`#1085`). Each builder below calls `refuse_a_read_out_of_scope` for
-	# its own verb, so composing all three made the feed as narrow as the *narrowest* of them —
+	# its own kind, so composing all three made the feed as narrow as the *narrowest* of them —
 	# which for a `task:read`-less credential was nothing at all.
 	kinds = readable_event_kinds(principal)
 
 	if not kinds:
 		# `#930` intact where it belongs: nothing here is readable, so an empty page would be
 		# a plausible, complete, wrong answer to *may I read this*.
-		refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
+		refuse_a_read_out_of_scope(principal, "task")
 
 	identifiers = readable_identifiers(session, principal, workspace_ids=workspace_ids)
 
@@ -976,9 +1013,7 @@ def visible_events (
 	# **The workspace's own events take ``workspace:read``** (`#4553`, decision `#4511`, S10 of the
 	# cold review of 2026-10-05): role changes and settings edits reached a credential that the
 	# members and settings routes refuse.
-	if not subroutine.domain.authorization.outside_token_scope(
-		principal, subroutine.permissions.WORKSPACE_READ
-	):
+	if reads(principal, "workspace"):
 		clauses.append(model.entity_type.in_(_WORKSPACE_LEVEL))
 
 	# **And a second subject, if the write happened on two things, must be visible too**
@@ -1007,9 +1042,7 @@ def visible_events (
 	# history, both journals and the event export, which all read through here.
 	said = (
 		model.entity_type != "comment"
-		if subroutine.domain.authorization.outside_token_scope(
-			principal, subroutine.permissions.COMMENT_READ
-		)
+		if not reads(principal, "comment")
 		else sqlalchemy.true()
 	)
 
