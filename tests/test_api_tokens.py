@@ -439,3 +439,28 @@ def test_an_empty_project_scope_is_refused_rather_than_guessed_at (world: World)
 	)
 
 	assert refused.status_code == 422
+
+
+def test_a_credential_that_could_never_be_used_is_refused_by_a_field_the_request_sent (
+	world: World,
+) -> None:
+	"""`SR#4559`: refused at issue over HTTP too, naming the field as ``POST /v1/tokens`` spells it.
+
+	The domain test drives each of the three; this is the door a caller meets them at, where a
+	field named as the domain calls it - ``workspace_id`` for the body's ``workspace`` - would be one
+	nobody can send.
+	"""
+
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	workspace = world.call("GET", "/v1/me").json()["workspaces"][0]["slug"]
+
+	for field, body in (
+		("project_write_scope", {"scopes": ["task:read"], "project_write_scope": [inbox]}),
+		("scopes", {"scopes": ["tag:write"], "project_scope": [inbox]}),
+		("workspace", {"scopes": ["instance:workspace_create"], "workspace": workspace}),
+	):
+		refused = world.call("POST", "/v1/tokens", json={"title": "Inert", **body})
+
+		assert refused.status_code == 422, (body, refused.text)
+		assert refused.json()["errors"][0]["field"] == field, refused.text
+		assert field in body, f"the refusal names {field!r}, which the request did not send"

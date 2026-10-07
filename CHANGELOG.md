@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A credential that could never be used is refused when it is issued, with the reason.**
+  A write set on one that only reads, one narrowed to some projects whose every permission
+  acts on the whole workspace or the installation, and one pinned to a workspace whose every
+  permission acts on the installation were each issued, listed as able to do what they could
+  not, and refused at every use. A write without its read is still issued, for capturing.
 - **A credential narrowed to some projects acts on nothing beyond them, whatever the act.** It
   could move a project its scope named out to the top level, make the project it was narrowed
   to public or private, and unshare, rename or delete a view somebody had shared with the whole

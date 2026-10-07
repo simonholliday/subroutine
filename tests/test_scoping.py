@@ -957,6 +957,52 @@ def test_a_write_set_outside_the_reach_is_refused_at_issue (
 	assert str(world.private.id) not in str(refused.value.errors[0].message)
 
 
+def test_a_credential_that_could_never_be_used_is_refused_at_issue (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#4559`, B I-7 of the cold review of 2026-10-05: issued, listed, and refused at every use.
+
+	A write set on a credential that only reads (P3a); a credential narrowed to some projects, by
+	either list, whose every verb acts on the whole workspace or the installation (P3b); and one
+	pinned to a workspace whose every verb acts on the installation (P3c). Each is refused at issue,
+	naming the part that could never be used. **And the control**: the same narrowing with one
+	usable verb beside it is issued, and so is a write without its read (P3d), the capture
+	credential the read verbs stay granular for.
+	"""
+
+	public = [str(world.public.id)]
+	pinned = {"workspace_id": world.workspace.id}
+	refused: tuple[tuple[str, dict[str, typing.Any]], ...] = (
+		("project_write_scope", {"scopes": ["task:read", "comment:read"], "project_write_scope": public}),
+		("scopes", {"scopes": ["tag:write", "status:write"], "project_scope": public}),
+		("scopes", {"scopes": ["tag:write"], "project_write_scope": public}),
+		("scopes", {"scopes": ["instance:workspace_create"], "project_scope": public}),
+		("workspace", {"scopes": ["instance:workspace_create"], **pinned}),
+	)
+
+	for field, narrowing in refused:
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			subroutine.domain.authentication.issue_token(
+				session, user=world.owner, title="Inert", **narrowing
+			)
+
+		assert raised.value.errors[0].field == field, narrowing
+
+	issued: tuple[dict[str, typing.Any], ...] = (
+		{"scopes": ["task:read", "task:write"], "project_write_scope": public},
+		{"scopes": ["tag:write", "task:read"], "project_scope": public},
+		{"scopes": ["instance:workspace_create", "task:read"], **pinned},
+		{"scopes": ["task:write"]},
+		{"scopes": ["task:write"], "project_scope": public},
+		{"project_scope": public, "project_write_scope": public, **pinned},
+	)
+
+	for narrowing in issued:
+		subroutine.domain.authentication.issue_token(
+			session, user=world.owner, title="Usable", **narrowing
+		)
+
+
 def test_a_write_set_may_name_a_project_under_the_reach (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:

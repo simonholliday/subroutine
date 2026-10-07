@@ -481,6 +481,12 @@ def issue_token (
 	)
 
 	_refuse_a_write_set_outside_the_reach(session, project_scope, project_write_scope)
+	_refuse_a_credential_that_could_never_be_used(
+		scopes,
+		workspace_id=workspace_id,
+		project_scope=project_scope,
+		project_write_scope=project_write_scope,
+	)
 
 	issued = _mint_unused_token(session)
 
@@ -996,6 +1002,80 @@ def _refuse_a_write_set_outside_the_reach (
 			)
 		],
 	)
+
+
+def _refuse_a_credential_that_could_never_be_used (
+	scopes: typing.Sequence[str],
+	*,
+	workspace_id: uuid.UUID | None,
+	project_scope: list[str] | None,
+	project_write_scope: list[str] | None,
+) -> None:
+	"""Refuse a credential whose every permission its own narrowing refuses - `#4559`.
+
+	**Accepted, and then refused at every use** (B I-7 of the cold review of 2026-10-05, P3a to P3c;
+	decision `#4527`): a write set on a credential that may change nothing, a credential narrowed to
+	some projects whose every verb acts on the whole workspace or the installation, and one pinned
+	to a workspace whose every verb acts on the installation. Each was issued, listed and described
+	as a capability it did not have - *writing only in web* on a credential that reads - and only
+	the terminal's profiles refused any of them. Said at issue, with the part that could never be
+	used, since that is when somebody can still change it.
+
+	**Empty scopes are everything the owner holds**, which is usable wherever the owner is, so
+	nothing here asks about them. **A write without its read is not refused** (P3d): that is the
+	capture credential that files and reads nothing, which the read verbs stay granular for (decision
+	`#4511`).
+	"""
+
+	if not scopes:
+		return
+
+	verbs = frozenset(scopes)
+	changes = subroutine.permissions.WORKSPACE_LEVEL - subroutine.permissions.READS
+
+	if project_write_scope is not None and not verbs & changes:
+		raise subroutine.errors.ValidationError(
+			"A credential that changes nothing cannot be given projects to write in.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project_write_scope",
+					code="invalid_field_value",
+					message="Every permission it carries reads, so where it may write would never "
+					"be asked.",
+					hint="Drop the write set, or add the permissions it is meant to write with.",
+				)
+			],
+		)
+
+	beyond_projects = subroutine.permissions.WORKSPACE_WIDE | subroutine.permissions.INSTANCE_LEVEL
+
+	if (project_scope is not None or project_write_scope is not None) and verbs <= beyond_projects:
+		raise subroutine.errors.ValidationError(
+			"A credential narrowed to some projects needs a permission it can use inside them.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="scopes",
+					code="invalid_field_value",
+					message="Every permission it carries acts on the whole workspace or the "
+					"installation, which a credential narrowed to some projects never reaches.",
+					hint="Drop the projects, or add a permission for the work inside them.",
+				)
+			],
+		)
+
+	if workspace_id is not None and verbs <= subroutine.permissions.INSTANCE_LEVEL:
+		raise subroutine.errors.ValidationError(
+			"A credential pinned to one workspace needs a permission it can use there.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="workspace",
+					code="invalid_field_value",
+					message="Every permission it carries acts on the whole installation, which a "
+					"credential pinned to one workspace never reaches.",
+					hint="Issue it without a workspace, or add the workspace permissions it is for.",
+				)
+			],
+		)
 
 
 def _projects_by_id (
