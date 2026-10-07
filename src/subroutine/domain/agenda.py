@@ -530,7 +530,7 @@ def build (
 	sortable = subroutine.domain.ordering.scheduling(sortable)
 
 	scoped = _scoped(
-		workspace_ids, principal=principal, sortable=sortable, now=now, project=project
+		session, workspace_ids, principal=principal, sortable=sortable, now=now, project=project
 	)
 
 	# **Which zones the whole-day rows in scope were dated in** (`#1296`), so each of them can
@@ -577,7 +577,7 @@ def build (
 	asked = set(
 		session.scalars(
 			subroutine.domain.scoping.readable_tasks(
-				principal, workspace_ids=workspace_ids, include_completed=False
+				session, principal, workspace_ids=workspace_ids, include_completed=False
 			)
 			.where(*(
 				[] if project is None
@@ -723,6 +723,7 @@ def build (
 		# which would put somebody else's deadline under the reader's *Overdue*.
 		"blocked_by_others": _visible(
 			_scoped(
+				session,
 				workspace_ids,
 				principal=principal,
 				sortable=sortable,
@@ -1032,7 +1033,7 @@ def build (
 	# exactly the case `#1267` §1's third clause exists for.
 	elsewhere = (
 		subroutine.domain.scoping.readable_tasks(
-			principal, workspace_ids=workspace_ids, include_completed=False
+			session, principal, workspace_ids=workspace_ids, include_completed=False
 		)
 		.where(*(
 			[] if project is None
@@ -1153,13 +1154,14 @@ def _deferred (
 	# second time asks for rows that are both deferred and not, which is nothing at all — written
 	# that way first, and it returned zero against data holding nine.
 	return _scoped(
-		workspace_ids, principal=principal, sortable=sortable, now=now, project=project
+		session, workspace_ids, principal=principal, sortable=sortable, now=now, project=project
 	).where(
 		sqlalchemy.not_(subroutine.domain.readiness.undeferred(model, now=until))
 	)
 
 
 def _scoped (
+	session: sqlalchemy.orm.Session,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	*,
 	principal: subroutine.domain.authentication.Principal,
@@ -1220,7 +1222,7 @@ def _scoped (
 
 	return (
 		subroutine.domain.scoping.readable_tasks(
-			principal, workspace_ids=workspace_ids, include_completed=False
+			session, principal, workspace_ids=workspace_ids, include_completed=False
 		)
 		.where(*narrowed)
 		# **Every row carries the ordering value, because a merged agenda re-sorts in Python**

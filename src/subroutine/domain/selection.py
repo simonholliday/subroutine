@@ -503,6 +503,7 @@ def task (
 	model = subroutine.db.models.work.Task
 	wanted = id_or_ref.strip()
 	statement = subroutine.domain.scoping.readable_tasks(
+		session,
 		actor,
 		workspace_ids=[workspace.id],
 		include_deleted=True,
@@ -591,7 +592,7 @@ def document (
 	model = subroutine.db.models.work.Document
 	wanted = id_or_ref.strip()
 	statement = subroutine.domain.scoping.readable_documents(
-		actor, workspace_ids=[workspace.id], include_deleted=True, include_archived=True
+		session, actor, workspace_ids=[workspace.id], include_deleted=True, include_archived=True
 	)
 
 	# A ref is all digits and a project key must start with a letter (docs/design.md §6.2), so
@@ -886,11 +887,12 @@ def addressed (
 
 	elif nameable:
 		statement = _nameable(
-			actor, workspace_ids=[workspace.id], include_deleted=include_deleted, include_archived=True
+			session, actor, workspace_ids=[workspace.id], include_deleted=include_deleted, include_archived=True
 		)
 
 	else:
 		statement = subroutine.domain.scoping.readable_projects(
+			session,
 			actor,
 			workspace_ids=[workspace.id],
 			include_deleted=include_deleted,
@@ -1348,12 +1350,13 @@ def _named_within (
 
 	model = subroutine.db.models.project.Project
 	wanted = [uuid.UUID(item) for item in identifiers]
-	statement = _nameable(actor, workspace_ids=[workspace.id], include_archived=True)
+	statement = _nameable(session, actor, workspace_ids=[workspace.id], include_archived=True)
 
 	return list(session.scalars(statement.where(model.id.in_(wanted))))
 
 
 def _nameable (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
@@ -1371,6 +1374,7 @@ def _nameable (
 	"""
 
 	return subroutine.domain.scoping.readable_projects(
+		session,
 		principal,
 		workspace_ids=workspace_ids,
 		include_deleted=include_deleted,

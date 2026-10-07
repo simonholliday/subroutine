@@ -605,7 +605,7 @@ def test_a_template_is_in_no_listing_and_its_instance_is (
 	visible = set(
 		session.scalars(
 			subroutine.domain.scoping.readable_tasks(
-				principal, workspace_ids=[instance.workspace_id]
+				session, principal, workspace_ids=[instance.workspace_id]
 			)
 		)
 	)
@@ -618,6 +618,7 @@ def test_a_template_is_in_no_listing_and_its_instance_is (
 	with_templates = set(
 		session.scalars(
 			subroutine.domain.scoping.readable_tasks(
+				session,
 				principal,
 				workspace_ids=[instance.workspace_id],
 				include_templates=True,

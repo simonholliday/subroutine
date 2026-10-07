@@ -219,7 +219,7 @@ def listing (
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_projects(
-		actor, workspace_ids=[workspace.id], include_archived=include_archived
+		session, actor, workspace_ids=[workspace.id], include_archived=include_archived
 	)
 	collection = subroutine.api.pagination.in_workspace("projects", workspace.id)
 

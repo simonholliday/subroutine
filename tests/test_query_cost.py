@@ -770,7 +770,7 @@ def _base (context: Context) -> sqlalchemy.Select[subroutine.db.models.work.Task
 	"""Return the statement every listing starts from: what this principal may read."""
 
 	return subroutine.domain.scoping.readable_tasks(
-		context.principal, workspace_ids=[context.workspace_id]
+		context.session, context.principal, workspace_ids=[context.workspace_id]
 	)
 
 

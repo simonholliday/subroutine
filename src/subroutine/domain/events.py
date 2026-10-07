@@ -747,6 +747,7 @@ LAST_SEQ = 2**63 - 1
 
 
 def feed (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
@@ -788,7 +789,7 @@ def feed (
 		since=since,
 		before=before,
 		visible=subroutine.domain.scoping.visible_events(
-			principal, workspace_ids=workspace_ids
+			session, principal, workspace_ids=workspace_ids
 		),
 		actor_token_id=token_id if mine else None,
 		narrowing=narrowing,
@@ -817,6 +818,7 @@ def feed (
 
 
 def history (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
 	workspace_id: uuid.UUID,
@@ -843,7 +845,7 @@ def history (
 		entity_type=entity_type,
 		entity_id=entity_id,
 		upper_bound=None,
-		visible=subroutine.domain.scoping.visible_events(principal, workspace_ids=[workspace_id]),
+		visible=subroutine.domain.scoping.visible_events(session, principal, workspace_ids=[workspace_id]),
 		everything=True,
 	)
 
@@ -890,6 +892,7 @@ def page (
 	newest = newest and since is None
 
 	statement = feed(
+		session,
 		principal,
 		workspace_ids=workspace_ids,
 		since=since,
@@ -1128,7 +1131,7 @@ def refuse_a_period_behind_the_floor (
 	statement = sqlalchemy.select(archive.c.seq).where(
 		archive.c.workspace_id.in_(workspace_ids),
 		moved.traverse(
-			subroutine.domain.scoping.visible_events(principal, workspace_ids=workspace_ids)
+			subroutine.domain.scoping.visible_events(session, principal, workspace_ids=workspace_ids)
 		),
 		*[moved.traverse(clause) for clause in narrowing],
 	)

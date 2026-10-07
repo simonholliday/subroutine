@@ -569,6 +569,7 @@ def listing (
 	)
 
 	statement = subroutine.domain.scoping.readable_tasks(
+		session,
 		actor,
 		workspace_ids=[workspace.id],
 		include_completed=completion,

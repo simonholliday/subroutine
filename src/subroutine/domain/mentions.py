@@ -250,11 +250,11 @@ def backlinks (
 	for kind in ("task", "document"):
 		readable = (
 			subroutine.domain.scoping.readable_tasks(
-				principal, workspace_ids=[workspace_id]
+				session, principal, workspace_ids=[workspace_id]
 			)
 			if kind == "task"
 			else subroutine.domain.scoping.readable_documents(
-				principal, workspace_ids=[workspace_id]
+				session, principal, workspace_ids=[workspace_id]
 			)
 		).subquery()
 

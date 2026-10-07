@@ -944,7 +944,7 @@ def delete_tag (
 	reached = (
 		None
 		if actor is None
-		else subroutine.domain.scoping.held_by_an_export(actor, workspace_ids=[tag.workspace_id])
+		else subroutine.domain.scoping.held_by_an_export(session, actor, workspace_ids=[tag.workspace_id])
 	)
 
 	for association, held, ids in (

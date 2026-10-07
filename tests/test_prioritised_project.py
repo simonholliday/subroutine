@@ -65,7 +65,7 @@ class World(typing.NamedTuple):
 			subroutine.domain.ordering.TASK_FIELDS, prefixes=prefixes
 		)
 		statement = subroutine.domain.scoping.readable_tasks(
-			self.principal, workspace_ids=[self.workspace.id]
+			self.session, self.principal, workspace_ids=[self.workspace.id]
 		).order_by(
 			*subroutine.domain.ordering.clauses(
 				"-priority_score",

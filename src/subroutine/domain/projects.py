@@ -32,7 +32,6 @@ import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.versions
-import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.permissions
 
@@ -821,9 +820,9 @@ def keys_for (
 	2026-10-05). This resolved across every workspace on the installation, so somebody taken out of
 	one went on seeing a project there renamed, under its new address, in their own token listing.
 	A project in a workspace they have left is passed through as its id, as one they cannot see is.
+	The listing asks reach itself since `#4675`, so nothing here names the workspaces.
 	"""
 
-	spaces = [space.id for space in subroutine.domain.workspaces.readable(session, principal)]
 	named: list[str | subroutine.db.models.project.Project] = []
 
 	for identifier in identifiers:
@@ -837,8 +836,8 @@ def keys_for (
 
 		found = session.scalars(
 			subroutine.domain.scoping.readable_projects(
+				session,
 				principal,
-				workspace_ids=spaces,
 				include_deleted=True,
 				include_archived=True,
 				# **The one place a read scope is not applied, and the reason is whose rows

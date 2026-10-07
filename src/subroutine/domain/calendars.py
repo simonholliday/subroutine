@@ -337,30 +337,25 @@ def resolve (
 	if owner is None:
 		raise _unknown()
 
-	# **And the workspace's standing, for exactly the same reason** (`#704`). A feed is the
-	# one credential that reaches tasks without going through ``workspaces.readable``, which
-	# is where every other surface stops at the trash — it holds a ``workspace_id`` and asks
-	# ``readable_tasks`` directly. So until a workspace could be deleted this could not be
-	# wrong, and the moment one can it is the single URL that goes on serving a tenancy
-	# nobody can otherwise see. Measured rather than reasoned about: the first version of
-	# `#704` shipped the delete and left this poll answering with the deleted workspace's
-	# whole calendar.
-	workspace = session.get(subroutine.db.models.identity.Workspace, feed.workspace_id)
+	# **And the owner's reach of the workspace, which is the rule every listing asks** (`#4675`):
+	# the workspace not in the trash (`#704` - the first version of that shipped the delete and
+	# left this poll answering with the deleted workspace's whole calendar), the owner a member
+	# of it (`#4380`, decision `#4381`) and, for an agent, the person it answers to as well
+	# (`#4546`, decision `#4518`). Suspended rather than revoked, as deactivation already treats a
+	# feed: added back, it answers again, with what its owner can then see. **Asked here as well
+	# as by the listing**, so a feed out of reach answers *no such feed* rather than an empty
+	# calendar.
+	workspace = subroutine.db.models.identity.Workspace
+	reached = session.scalar(
+		sqlalchemy.select(workspace.id).where(
+			workspace.id == feed.workspace_id,
+			subroutine.domain.authorization.reaches(
+				session, subroutine.domain.authentication.Principal(user=owner), workspace.id
+			),
+		)
+	)
 
-	if workspace is None or workspace.deleted_at is not None:
-		raise _unknown()
-
-	# **And the owner's place in it, as every other door asks** (`#4380`, decision `#4381`, R2-H1 of
-	# the cold review of 2026-10-04): membership is reach (`#1418`), and an agent acts only while
-	# every account it answers to can (`#473`). A member taken out of the workspace kept a URL
-	# serving everything they could see, and an agent's feed outlived its person's deactivation.
-	# Suspended rather than revoked, as deactivation already treats a feed: added back, it answers
-	# again, with what its owner can then see.
-	#
-	# **One question since `#4546`**, which asks of an agent's person too (decision `#4518`): an
-	# agent's feed stops where its person was taken out of the workspace, and answers again when
-	# they are added back.
-	if not subroutine.domain.accountability.can_act(session, owner, workspace_id=feed.workspace_id):
+	if not subroutine.domain.accountability.can_act(session, owner) or reached is None:
 		raise _unknown()
 
 	if record_poll:
@@ -586,6 +581,7 @@ def occasions (
 	# from every other listing — decision `#972` §4 and §1. A calendar is not a work queue: it
 	# keeps the recent past, and a `schedule`-anchored series exists only as its template.
 	statement = subroutine.domain.scoping.readable_tasks(
+		session,
 		principal,
 		workspace_ids=[feed.workspace_id],
 		include_completed=True,
@@ -722,7 +718,7 @@ def _emptied_slots (
 
 	task = subroutine.db.models.work.Task
 	discarded = subroutine.domain.scoping.readable_tasks(
-		principal, workspace_ids=[workspace_id], include_deleted=True, include_completed=True
+		session, principal, workspace_ids=[workspace_id], include_deleted=True, include_completed=True
 	).where(
 		task.deleted_at.is_not(None),
 		task.recurrence_template_id.in_(gridded),

@@ -4907,6 +4907,7 @@ def _describe (ref: int, description: str) -> None:
 			principal = subroutine.domain.local.principal(session)
 			found = session.scalars(
 				subroutine.domain.scoping.readable_tasks(
+					session,
 					principal,
 					workspace_ids=[
 						workspace.id
@@ -5117,6 +5118,7 @@ def _parented (child_ref: int, parent_ref: int) -> None:
 		with sqlalchemy.orm.Session(engine) as session:
 			principal = subroutine.domain.local.principal(session)
 			statement = subroutine.domain.scoping.readable_tasks(
+				session,
 				principal,
 				workspace_ids=[
 					workspace.id

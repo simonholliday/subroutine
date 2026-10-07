@@ -346,6 +346,7 @@ def _reaches (
 
 	principal = subroutine.domain.authentication.Principal(user=user)
 	statement = subroutine.domain.events.feed(
+		session,
 		principal,
 		workspace_ids=[
 			row.id for row in subroutine.domain.workspaces.readable(session, principal)
@@ -568,7 +569,7 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	acting = subroutine.domain.authentication.Principal(user=world.owner)
 
 	before = {row.seq for row in session.scalars(
-		subroutine.domain.events.feed(acting, workspace_ids=[world.workspace.id])
+		subroutine.domain.events.feed(session, acting, workspace_ids=[world.workspace.id])
 	)}
 
 	near = subroutine.domain.links.resolve(
@@ -595,7 +596,7 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	session.flush()
 
 	after = {row.seq for row in session.scalars(
-		subroutine.domain.events.feed(acting, workspace_ids=[world.workspace.id])
+		subroutine.domain.events.feed(session, acting, workspace_ids=[world.workspace.id])
 	)}
 
 	(made,) = sorted(after - before)
@@ -615,7 +616,7 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	session.flush()
 
 	withdrawn = {row.seq for row in session.scalars(
-		subroutine.domain.events.feed(acting, workspace_ids=[world.workspace.id])
+		subroutine.domain.events.feed(session, acting, workspace_ids=[world.workspace.id])
 	)} - after - before
 
 	(gone,) = sorted(withdrawn)

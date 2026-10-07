@@ -41,7 +41,6 @@ import subroutine.domain.selection
 import subroutine.domain.text
 import subroutine.domain.trash
 import subroutine.domain.versions
-import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.permissions
 
@@ -144,16 +143,12 @@ def _entity (
 		found = session.get(models[entity_type], entity_id)
 
 	else:
-		reachable = [
-			space.id for space in subroutine.domain.workspaces.readable(session, actor)
-		]
-
 		# **Beneath the trash too, for a write**, so the permission check can say where it is
 		# rather than this saying there is nothing here (E #11 of the cold review of 2026-10-05).
 		if entity_type == "task":
 			statement: typing.Any = subroutine.domain.scoping.readable_tasks(
+				session,
 				actor,
-				workspace_ids=reachable,
 				include_completed=True,
 				include_deleted=True,
 				include_templates=True,
@@ -162,13 +157,13 @@ def _entity (
 
 		elif entity_type == "project":
 			statement = subroutine.domain.scoping.readable_projects(
-				actor, workspace_ids=reachable, include_archived=True, include_deleted=True
+				session, actor, include_archived=True, include_deleted=True
 			).where(subroutine.db.models.project.Project.id == entity_id)
 
 		else:
 			statement = subroutine.domain.scoping.readable_documents(
+				session,
 				actor,
-				workspace_ids=reachable,
 				include_archived=True,
 				include_deleted=True,
 				include_beneath_trash=writing,

@@ -12,10 +12,13 @@ import typing
 import uuid
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
@@ -27,6 +30,7 @@ import subroutine.domain.journal
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.selection
+import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -309,7 +313,7 @@ def _titles (
 	return sorted(
 		task.title
 		for task in session.scalars(
-			subroutine.domain.scoping.readable_tasks(principal, workspace_ids=[workspace.id])
+			subroutine.domain.scoping.readable_tasks(session, principal, workspace_ids=[workspace.id])
 		)
 	)
 
@@ -498,7 +502,7 @@ def test_an_empty_workspace_list_returns_nothing_rather_than_everything (
 
 	owner = subroutine.domain.authentication.Principal(user=world.owner)
 	found = session.scalars(
-		subroutine.domain.scoping.readable_tasks(owner, workspace_ids=[])
+		subroutine.domain.scoping.readable_tasks(session, owner, workspace_ids=[])
 	).all()
 
 	assert list(found) == []
@@ -716,7 +720,7 @@ def test_the_reach_is_what_was_scoped_to_not_everything_underneath (
 		found.key
 		for found in session.scalars(
 			subroutine.domain.scoping.readable_projects(
-				bounded, workspace_ids=[world.workspace.id]
+				session, bounded, workspace_ids=[world.workspace.id]
 			)
 		)
 	] != [world.public.key], "the subtree really is reachable, so the guard is not vacuous"
@@ -1159,7 +1163,7 @@ def test_the_scoping_guard_leaves_alone_a_module_that_queries_nothing (
 	(tmp_path / "quiet.py").write_text(
 		"import subroutine.domain.scoping\n"
 		"def readable (session, actor):\n"
-		"\treturn subroutine.domain.scoping.readable_tasks(session, actor)\n",
+		"\treturn subroutine.domain.scoping.readable_tasks(session, session, actor)\n",
 		encoding="utf-8",
 	)
 
@@ -1192,7 +1196,7 @@ def test_a_read_narrowed_credential_cannot_read_past_its_scope (
 	narrowed = subroutine.domain.authentication.Principal(user=world.owner, token=deleting)
 
 	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as refused:
-		subroutine.domain.scoping.readable_tasks(narrowed, workspace_ids=[world.workspace.id])
+		subroutine.domain.scoping.readable_tasks(session, narrowed, workspace_ids=[world.workspace.id])
 
 	# Named, because the operator's remedy is to reissue with the verb it lacks.
 	assert "task:read" in str(refused.value)
@@ -1240,7 +1244,7 @@ def test_a_kind_a_credential_cannot_read_names_nothing_of_that_kind (
 		)
 
 	assert subroutine.domain.scoping.readable_among(
-		narrowed, workspace_ids=[world.workspace.id], kind=journal.TASK, identifiers={task.id}
+		session, narrowed, workspace_ids=[world.workspace.id], kind=journal.TASK, identifiers={task.id}
 	) is None, "the credential can read tasks after all, so the arm below is not the one asked"
 
 	assert named(whole) == {journal.PROJECT: {world.public.id}, journal.TASK: {task.id}}
@@ -1299,13 +1303,13 @@ def test_the_change_feed_narrows_to_the_kinds_a_credential_may_read (
 	# cannot — which is the whole distinction this item turned on.
 	for token in (tasks_only, projects_only):
 		subroutine.domain.scoping.visible_events(
-			subroutine.domain.authentication.Principal(user=world.owner, token=token),
+			session, subroutine.domain.authentication.Principal(user=world.owner, token=token),
 			workspace_ids=[world.workspace.id],
 		)
 
 	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
 		subroutine.domain.scoping.visible_events(
-			subroutine.domain.authentication.Principal(user=world.owner, token=neither),
+			session, subroutine.domain.authentication.Principal(user=world.owner, token=neither),
 			workspace_ids=[world.workspace.id],
 		)
 
@@ -1466,3 +1470,67 @@ def test_a_credential_narrowed_to_a_project_reaches_only_the_workspace_holding_i
 
 	assert filed.status_code == 201, filed.text
 	assert filed.json()["project_key"] == "web", filed.text
+
+
+def test_a_listing_asks_reach_itself_and_a_list_of_workspaces_only_narrows (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#4675`, P-1 of the cold review of 2026-10-05: no caller can widen what a listing reads.
+
+	Every listing took the workspaces its caller named and believed them, so a caller handing a
+	wider list - `projects.keys_for` did (`#4556`) - read beyond reach. Handed a workspace by id,
+	somebody who is not in it reads nothing there, by any listing; with no list named, everybody
+	reads the workspaces they reach.
+	"""
+
+	stranger = subroutine.domain.authentication.Principal(
+		user=subroutine.domain.users.create(session, username=f"stranger-{uuid.uuid4().hex[:8]}")
+	)
+	owner = subroutine.domain.authentication.Principal(user=world.owner)
+	named = [world.workspace.id]
+	subroutine.domain.tags.ensure(session, workspace_id=world.workspace.id, names=["loose"])
+	session.flush()
+
+	def tags (principal: subroutine.domain.authentication.Principal) -> list[str]:
+		"""Return the names of the tags this principal sees in the world's workspace."""
+
+		model = subroutine.db.models.vocabulary.Tag
+
+		return list(
+			session.scalars(
+				sqlalchemy.select(model.name).where(
+					subroutine.domain.scoping.tags_seen_by(session, principal, workspace_ids=named)
+				)
+			)
+		)
+
+	def events (principal: subroutine.domain.authentication.Principal) -> list[object]:
+		"""Return the events this principal may be told of in the world's workspace."""
+
+		model = subroutine.db.models.activity.Event
+
+		return list(
+			session.scalars(
+				sqlalchemy.select(model.seq).where(
+					subroutine.domain.scoping.visible_events(session, principal, workspace_ids=named)
+				)
+			)
+		)
+
+	for listing in (
+		subroutine.domain.scoping.readable_tasks(session, stranger, workspace_ids=named),
+		subroutine.domain.scoping.readable_projects(session, stranger, workspace_ids=named),
+		subroutine.domain.scoping.readable_documents(session, stranger, workspace_ids=named),
+	):
+		assert list(session.scalars(listing)) == [], listing
+
+	assert tags(stranger) == []
+	assert events(stranger) == [], "the workspace's own events reached somebody not in it"
+
+	# And what a member reaches is all there, with or without a list.
+	assert tags(owner) == ["loose"]
+	assert events(owner)
+	assert sorted(
+		task.title
+		for task in session.scalars(subroutine.domain.scoping.readable_tasks(session, owner))
+	) == ["Acquire the rival company", "Ordinary work"]

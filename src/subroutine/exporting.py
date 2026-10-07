@@ -173,7 +173,7 @@ def _projects (
 	"""Return the projects the reader may see, the trash and archived ones included."""
 
 	return subroutine.domain.scoping.readable_projects(
-		reader, workspace_ids=[workspace_id], include_deleted=True, include_archived=True
+		session, reader, workspace_ids=[workspace_id], include_deleted=True, include_archived=True
 	)
 
 
@@ -183,6 +183,7 @@ def _tasks (
 	"""Return every task the reader may see: done, archived, in the trash, and templates."""
 
 	return subroutine.domain.scoping.readable_tasks(
+		session,
 		reader,
 		workspace_ids=[workspace_id],
 		include_deleted=True,
@@ -199,6 +200,7 @@ def _documents (
 	"""Return every document the reader may see, the trash and archived ones included."""
 
 	return subroutine.domain.scoping.readable_documents(
+		session,
 		reader,
 		workspace_ids=[workspace_id],
 		include_deleted=True,
@@ -208,7 +210,11 @@ def _documents (
 
 
 def _readable_end (
-	reader: Principal, workspace_id: uuid.UUID, kind: typing.Any, identifier: typing.Any
+	session: sqlalchemy.orm.Session,
+	reader: Principal,
+	workspace_id: uuid.UUID,
+	kind: typing.Any,
+	identifier: typing.Any,
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return a condition that an item named by kind and id is one the reader may know of.
 
@@ -216,7 +222,7 @@ def _readable_end (
 	row naming one is left out rather than refused - the export is of what can be read.
 	"""
 
-	readable = subroutine.domain.scoping.readable_identifiers(reader, workspace_ids=[workspace_id])
+	readable = subroutine.domain.scoping.readable_identifiers(session, reader, workspace_ids=[workspace_id])
 
 	if not readable:
 		return sqlalchemy.false()
@@ -247,7 +253,7 @@ def _comments (
 	return sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id,
 		model.deleted_at.is_(None),
-		_readable_end(reader, workspace_id, model.entity_type, model.entity_id),
+		_readable_end(session, reader, workspace_id, model.entity_type, model.entity_id),
 	)
 
 
@@ -261,8 +267,8 @@ def _links (
 	return sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id,
 		model.deleted_at.is_(None),
-		_readable_end(reader, workspace_id, model.source_type, model.source_id),
-		_readable_end(reader, workspace_id, model.target_type, model.target_id),
+		_readable_end(session, reader, workspace_id, model.source_type, model.source_id),
+		_readable_end(session, reader, workspace_id, model.target_type, model.target_id),
 	)
 
 
@@ -272,7 +278,7 @@ def _verifications (
 	"""Return what was recorded as checked, on tasks the reader may see."""
 
 	model = subroutine.db.models.work.Verification
-	readable = subroutine.domain.scoping.readable_identifiers(reader, workspace_ids=[workspace_id])
+	readable = subroutine.domain.scoping.readable_identifiers(session, reader, workspace_ids=[workspace_id])
 
 	return sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id,
@@ -302,7 +308,7 @@ def _tags (
 
 	return sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id,
-		subroutine.domain.scoping.tags_seen_by(reader, workspace_ids=[workspace_id]),
+		subroutine.domain.scoping.tags_seen_by(session, reader, workspace_ids=[workspace_id]),
 	)
 
 

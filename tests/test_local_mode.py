@@ -164,7 +164,9 @@ def test_a_pinned_token_narrows_which_workspace_local_mode_uses (
 	)
 
 	assert subroutine.domain.local.workspace_for(session, principal).id == second.id
-	assert subroutine.domain.local.readable_workspace_ids(session, principal) == [second.id]
+	assert [found.id for found in subroutine.domain.workspaces.readable(session, principal)] == [
+		second.id
+	]
 
 
 def test_the_workspace_is_the_oldest_one_you_belong_to (

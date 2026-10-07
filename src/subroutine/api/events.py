@@ -108,7 +108,7 @@ def _page (
 	# **The history's own rows, live and archived** (`#251`), so the order and the cursor are.
 	model = subroutine.domain.events.HISTORY
 	statement = subroutine.domain.events.history(
-		principal, workspace_id=workspace_id, entity_type=entity_type, entity_id=entity_id
+		session, principal, workspace_id=workspace_id, entity_type=entity_type, entity_id=entity_id
 	)
 
 	keys = subroutine.api.pagination.parse_order(

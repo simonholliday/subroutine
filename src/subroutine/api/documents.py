@@ -303,7 +303,7 @@ def listing (
 	)
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_documents(
-		actor, workspace_ids=[workspace.id], include_deleted=deleted
+		session, actor, workspace_ids=[workspace.id], include_deleted=deleted
 	)
 	collection = subroutine.api.pagination.in_workspace("documents", workspace.id)
 

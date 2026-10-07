@@ -76,6 +76,29 @@ def refuse_a_read_out_of_scope (
 	)
 
 
+def in_reach (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	column: sqlalchemy.orm.InstrumentedAttribute[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate keeping a row in a workspace this principal reaches - `#4675`.
+
+	**Asked here rather than trusted from the caller** (P-1 and A I-5 of the cold review of
+	2026-10-05): every listing took a list of workspaces and believed it, so one caller handing a
+	wider list - `projects.keys_for` did, `#4556` - read beyond reach. ``workspace_ids`` narrows
+	within reach, and ``None`` is every workspace the principal reaches. An empty list is no
+	workspace, never every one.
+	"""
+
+	reached = subroutine.domain.authorization.reaches(session, principal, column)
+
+	if workspace_ids is None:
+		return reached
+
+	return sqlalchemy.and_(reached, column.in_(workspace_ids))
+
+
 def within_project_scope (
 	principal: subroutine.domain.authentication.Principal,
 ) -> sqlalchemy.ColumnElement[bool]:
@@ -230,18 +253,20 @@ def beneath_the_trash (kind: type[typing.Any], row: typing.Any) -> sqlalchemy.Co
 
 
 def readable_projects (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 	include_deleted: bool = False,
 	include_archived: bool = False,
 	enforce_read_scope: bool = True,
 ) -> sqlalchemy.Select[subroutine.db.models.project.Project]:
 	"""Return a select over the projects this principal may see, and no others.
 
-	``workspace_ids`` is required and is never allowed to be empty-meaning-all: a listing
-	that quietly spans every workspace when handed an empty list is one refactor away from
-	spanning every workspace belonging to everybody.
+	**Only in the workspaces the principal reaches**, which this asks itself (`#4675`):
+	``workspace_ids`` narrows within them, and ``None`` is all of them. An empty list is no
+	workspace and never every one: a listing that quietly spans every workspace when handed an
+	empty list is one refactor away from spanning every workspace belonging to everybody.
 
 	``include_deleted`` did not exist until `#307`, and its absence was invisible because
 	every other parameter here has one: :func:`visible_events` asked for archived and template
@@ -264,7 +289,7 @@ def readable_projects (
 	project = subroutine.db.models.project.Project
 
 	statement = sqlalchemy.select(project).where(
-		project.workspace_id.in_(workspace_ids),
+		in_reach(session, principal, project.workspace_id, workspace_ids),
 		subroutine.domain.authorization.visible_projects(principal),
 		within_project_scope(principal),
 	)
@@ -366,7 +391,7 @@ def prioritised_projects (
 	#
 	# Simon's decision of 2026-08-22, taken over two alternatives written up on `#1065`.
 	visible = readable_projects(
-		principal, workspace_ids=workspace_ids, enforce_read_scope=False
+		session, principal, workspace_ids=workspace_ids, enforce_read_scope=False
 	).where(project.id.in_(chosen))
 
 	return {chosen[row.id]: row for row in session.scalars(visible)}
@@ -400,9 +425,10 @@ def prioritised_paths (
 
 
 def readable_documents (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 	include_deleted: bool = False,
 	include_beneath_trash: bool = False,
 	include_archived: bool = False,
@@ -432,7 +458,7 @@ def readable_documents (
 		sqlalchemy.select(document)
 		.join(project, project.id == document.project_id)
 		.where(
-			document.workspace_id.in_(workspace_ids),
+			in_reach(session, principal, document.workspace_id, workspace_ids),
 			subroutine.domain.authorization.visible_projects(principal),
 			within_project_scope(principal),
 		)
@@ -454,9 +480,10 @@ def readable_documents (
 
 
 def readable_tasks (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 	include_deleted: bool = False,
 	include_beneath_trash: bool = False,
 	include_completed: bool = True,
@@ -485,7 +512,9 @@ def readable_tasks (
 	statement = (
 		sqlalchemy.select(task)
 		.join(project, project.id == task.project_id)
-		.where(task.workspace_id.in_(workspace_ids), task_seen_by(principal))
+		.where(
+			in_reach(session, principal, task.workspace_id, workspace_ids), task_seen_by(principal)
+		)
 	)
 
 	if not include_beneath_trash:
@@ -538,9 +567,10 @@ def task_seen_by (
 
 
 def tags_seen_by (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return a predicate selecting the tags this principal may see - decision `#4094`.
 
@@ -573,12 +603,15 @@ def tags_seen_by (
 		),
 	)
 
+	# **Only in a workspace the principal reaches** (`#4675`), carried or not.
+	reached = in_reach(session, principal, tag.workspace_id, workspace_ids)
+
 	if subroutine.domain.authorization.outside_token_scope(
 		principal, subroutine.permissions.TASK_READ
 	):
-		return sqlalchemy.not_(carried)
+		return sqlalchemy.and_(reached, sqlalchemy.not_(carried))
 
-	tasks, documents = held_by_an_export(principal, workspace_ids=workspace_ids)
+	tasks, documents = held_by_an_export(session, principal, workspace_ids=workspace_ids)
 
 	seen = sqlalchemy.or_(
 		sqlalchemy.exists(
@@ -593,13 +626,14 @@ def tags_seen_by (
 		),
 	)
 
-	return sqlalchemy.or_(sqlalchemy.not_(carried), seen)
+	return sqlalchemy.and_(reached, sqlalchemy.or_(sqlalchemy.not_(carried), seen))
 
 
 def held_by_an_export (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 ) -> tuple[sqlalchemy.Select[typing.Any], sqlalchemy.Select[typing.Any]]:
 	"""Return the ids of the tasks and the documents a principal may read, as their export holds them.
 
@@ -622,6 +656,7 @@ def held_by_an_export (
 
 	return (
 		readable_tasks(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -630,6 +665,7 @@ def held_by_an_export (
 			include_beneath_trash=True,
 		).with_only_columns(task.id),
 		readable_documents(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -649,7 +685,7 @@ def tag_is_seen (
 	model = subroutine.db.models.vocabulary.Tag
 	found = session.scalar(
 		sqlalchemy.select(model.id).where(
-			model.id == tag.id, tags_seen_by(principal, workspace_ids=[tag.workspace_id])
+			model.id == tag.id, tags_seen_by(session, principal, workspace_ids=[tag.workspace_id])
 		)
 	)
 
@@ -689,6 +725,7 @@ def the_other_kind (
 	if asked_for == "task":
 		return session.scalars(
 			readable_documents(
+				session,
 				principal,
 				workspace_ids=[workspace_id],
 				include_deleted=True,
@@ -698,6 +735,7 @@ def the_other_kind (
 
 	return session.scalars(
 		readable_tasks(
+			session,
 			principal,
 			workspace_ids=[workspace_id],
 			include_deleted=True,
@@ -755,9 +793,10 @@ def readable_event_kinds (
 
 
 def readable_identifiers (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 ) -> dict[str, sqlalchemy.Select[typing.Any]]:
 	"""Return, for each kind this principal may read, a select over the ids of the rows it may see.
 
@@ -777,6 +816,7 @@ def readable_identifiers (
 	# disagree about who may see a private project.
 	builders = {
 		"task": lambda: readable_tasks(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -785,12 +825,14 @@ def readable_identifiers (
 			include_templates=True,
 		).with_only_columns(subroutine.db.models.work.Task.id),
 		"project": lambda: readable_projects(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
 			include_archived=True,
 		).with_only_columns(subroutine.db.models.project.Project.id),
 		"document": lambda: readable_documents(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -806,9 +848,10 @@ def readable_identifiers (
 
 
 def readable_among (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 	kind: str,
 	identifiers: typing.Collection[uuid.UUID],
 ) -> sqlalchemy.Select[typing.Any] | None:
@@ -820,7 +863,7 @@ def readable_among (
 	every module under ``src`` to.
 	"""
 
-	statement = readable_identifiers(principal, workspace_ids=workspace_ids).get(kind)
+	statement = readable_identifiers(session, principal, workspace_ids=workspace_ids).get(kind)
 
 	if statement is None:
 		return None
@@ -835,9 +878,10 @@ def readable_among (
 
 
 def visible_events (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	*,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return a predicate selecting the events this principal may see, and no others.
 
@@ -916,7 +960,7 @@ def visible_events (
 		# a plausible, complete, wrong answer to *may I read this*.
 		refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
 
-	identifiers = readable_identifiers(principal, workspace_ids=workspace_ids)
+	identifiers = readable_identifiers(session, principal, workspace_ids=workspace_ids)
 
 	clauses = [
 		sqlalchemy.and_(model.entity_type == kind, model.entity_id.in_(rows))
@@ -970,6 +1014,9 @@ def visible_events (
 	)
 
 	return sqlalchemy.and_(
+		# **In a workspace the principal reaches** (`#4675`), which the workspace's own events,
+		# narrowed by nothing else, were trusting the caller for.
+		in_reach(session, principal, model.workspace_id, workspace_ids),
 		sqlalchemy.or_(*clauses),
 		sqlalchemy.or_(model.subject_b_type.is_(None), stated),
 		said,

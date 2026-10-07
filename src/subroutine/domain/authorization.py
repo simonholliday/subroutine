@@ -724,19 +724,17 @@ def reaches (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	workspace_id: (
-		uuid.UUID
-		| sqlalchemy.ColumnElement[uuid.UUID]
-		| sqlalchemy.orm.InstrumentedAttribute[uuid.UUID]
+		sqlalchemy.ColumnElement[uuid.UUID] | sqlalchemy.orm.InstrumentedAttribute[uuid.UUID]
 	),
 	*,
 	include_deleted: bool = False,
 ) -> sqlalchemy.ColumnElement[bool]:
-	"""Return the predicate saying a principal reaches a workspace - `#4674`.
+	"""Return the predicate saying a principal reaches the workspace a row is in - `#4674`.
 
 	**The one answer to *which workspaces*, for listing and for checking alike** (P-1 of the cold
-	review of 2026-10-05): :func:`subroutine.domain.workspaces.readable` lists by it, and
-	:func:`_reached` asks it of the one workspace a check names. ``workspace_id`` is a value, or a
-	column of the query this goes into.
+	review of 2026-10-05): :func:`subroutine.domain.workspaces.readable` lists by it, every listing
+	in :mod:`subroutine.domain.scoping` narrows by it (`#4675`), and :func:`_reached` asks it of the
+	one workspace a check names. ``workspace_id`` is a column of the query this goes into.
 
 	Membership is what grants reach. A pin narrows it to one workspace (docs/design.md §7.3); a
 	credential narrowed to some projects reaches only the workspaces holding them (`#4555`); and an
@@ -745,28 +743,28 @@ def reaches (
 	check, which :func:`subroutine.domain.workspaces.restore` asks of a workspace in the trash;
 	every listing leaves them out (`#704`).
 
-	**Built of its own aliases**, so a query that already selects members or workspaces cannot
-	correlate it away (`#3922`).
+	**One statement of ids, asked once rather than for every row**, and built of its own aliases so
+	a query that already selects members or workspaces cannot correlate it away (`#3922`).
 	"""
 
 	member = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
 	workspace = sqlalchemy.orm.aliased(subroutine.db.models.identity.Workspace)
 
-	clauses: list[sqlalchemy.ColumnElement[bool]] = [
-		member.workspace_id == workspace_id,
-		member.user_id == principal.user.id,
-		workspace.id == member.workspace_id,
-	]
+	statement = (
+		sqlalchemy.select(member.workspace_id)
+		.join(workspace, workspace.id == member.workspace_id)
+		.where(member.user_id == principal.user.id)
+	)
 
 	if not include_deleted:
-		clauses.append(workspace.deleted_at.is_(None))
+		statement = statement.where(workspace.deleted_at.is_(None))
 
 	if principal.pinned_workspace_id is not None:
-		clauses.append(member.workspace_id == principal.pinned_workspace_id)
+		statement = statement.where(member.workspace_id == principal.pinned_workspace_id)
 
 	if principal.project_scope is not None:
 		scoped = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
-		clauses.append(
+		statement = statement.where(
 			sqlalchemy.exists().where(
 				scoped.workspace_id == member.workspace_id,
 				scoped.id.in_(_project_ids(principal.project_scope)),
@@ -779,13 +777,13 @@ def reaches (
 
 		person = subroutine.domain.accountability.answers_for(session, principal.user)
 		seated = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
-		clauses.append(
+		statement = statement.where(
 			sqlalchemy.exists().where(
 				seated.workspace_id == member.workspace_id, seated.user_id == person.id
 			)
 		)
 
-	return sqlalchemy.exists().where(*clauses)
+	return workspace_id.in_(statement)
 
 
 def _reached (
@@ -829,7 +827,7 @@ def _reached (
 		.where(
 			member.workspace_id == workspace_id,
 			member.user_id == principal.user.id,
-			reaches(session, principal, workspace_id, include_deleted=True),
+			reaches(session, principal, member.workspace_id, include_deleted=True),
 		)
 	)
 

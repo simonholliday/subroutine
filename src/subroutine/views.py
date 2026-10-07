@@ -7783,6 +7783,7 @@ def settings_in_force (
 			row.id
 			for row in session.scalars(
 				subroutine.domain.scoping.readable_projects(
+					session,
 					reader,
 					workspace_ids=sorted({workspace for _id, _title, workspace in projects}),
 					include_deleted=True,

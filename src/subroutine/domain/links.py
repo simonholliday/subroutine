@@ -2128,6 +2128,7 @@ def _ends (
 		)
 		for row in session.scalars(
 			_visible(
+				session,
 				principal,
 				workspace_id=workspace_id,
 				entity_type=entity_type,
@@ -2140,6 +2141,7 @@ def _ends (
 
 
 def _visible (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal | None,
 	*,
 	workspace_id: uuid.UUID,
@@ -2165,6 +2167,7 @@ def _visible (
 
 	if entity_type == "task":
 		return subroutine.domain.scoping.readable_tasks(
+			session,
 			principal,
 			workspace_ids=[workspace_id],
 			include_deleted=True,
@@ -2174,6 +2177,7 @@ def _visible (
 		)
 
 	return subroutine.domain.scoping.readable_documents(
+		session,
 		principal,
 		workspace_ids=[workspace_id],
 		include_deleted=True,

@@ -381,7 +381,7 @@ def list_tags (
 	# uses is not listed to them, where it was listed to everybody in the workspace.
 	statement = sqlalchemy.select(model).where(
 		model.workspace_id == workspace.id,
-		subroutine.domain.scoping.tags_seen_by(actor, workspace_ids=[workspace.id]),
+		subroutine.domain.scoping.tags_seen_by(session, actor, workspace_ids=[workspace.id]),
 	)
 
 	keys = subroutine.api.pagination.parse_order(

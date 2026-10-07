@@ -288,7 +288,7 @@ def readable_only (
 			continue
 
 		statement = subroutine.domain.scoping.readable_among(
-			principal, workspace_ids=workspace_ids, kind=lookup, identifiers=needed[lookup]
+			session, principal, workspace_ids=workspace_ids, kind=lookup, identifiers=needed[lookup]
 		)
 
 		# A kind this credential cannot read at all names nothing of that kind.

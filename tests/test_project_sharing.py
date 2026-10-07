@@ -45,7 +45,7 @@ def _can_see (
 
 	rows = session.scalars(
 		subroutine.domain.scoping.readable_projects(
-			principal, workspace_ids=[project.workspace_id]
+			session, principal, workspace_ids=[project.workspace_id]
 		)
 	)
 

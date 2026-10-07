@@ -431,7 +431,7 @@ class Client:
 			)
 
 			statement = subroutine.domain.scoping.readable_tasks(
-				actor, workspace_ids=[chosen.id], include_completed=True
+				session, actor, workspace_ids=[chosen.id], include_completed=True
 			)
 
 			if narrowed is not None:
@@ -487,7 +487,7 @@ class Client:
 			# calls, so a count and the listing it stands for cannot disagree;
 			# ``tests/test_transport_equivalence.py`` holds both transports to the listing's length.
 			statement = (
-				subroutine.domain.scoping.readable_documents(actor, workspace_ids=[chosen.id])
+				subroutine.domain.scoping.readable_documents(session, actor, workspace_ids=[chosen.id])
 				.where(
 					sqlalchemy.true()
 					if narrowed is None
@@ -645,6 +645,7 @@ class Client:
 			)
 
 			statement = subroutine.domain.scoping.readable_tasks(
+				session,
 				actor,
 				workspace_ids=[chosen.id],
 				include_completed=completion,
@@ -771,6 +772,7 @@ class Client:
 				# refusal is not a fixed one.
 				above = session.scalars(
 					subroutine.domain.scoping.readable_tasks(
+						session,
 						actor,
 						workspace_ids=[chosen.id],
 						include_completed=True,
@@ -1338,7 +1340,7 @@ class Client:
 					sqlalchemy.select(model)
 					.where(
 						model.workspace_id == chosen.id,
-						subroutine.domain.scoping.tags_seen_by(actor, workspace_ids=[chosen.id]),
+						subroutine.domain.scoping.tags_seen_by(session, actor, workspace_ids=[chosen.id]),
 					)
 					.order_by(
 						*subroutine.domain.ordering.clauses(
@@ -1535,7 +1537,7 @@ class Client:
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_documents(
-						actor, workspace_ids=[chosen.id], include_deleted=deleted
+						session, actor, workspace_ids=[chosen.id], include_deleted=deleted
 					)
 					.where(
 						sqlalchemy.true() if not deleted else model.deleted_at.is_not(None)
@@ -2005,7 +2007,7 @@ class Client:
 			).id
 
 			statement = subroutine.domain.events.history(
-				actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
+				session, actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
 			)
 			rows = session.scalars(
 				statement.order_by(
@@ -2043,7 +2045,7 @@ class Client:
 			).id
 			rows = session.scalars(
 				subroutine.domain.events.history(
-					actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
+					session, actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
 				)
 				.order_by(subroutine.domain.events.HISTORY.seq.desc())
 				.limit(size + 1)
@@ -2266,7 +2268,7 @@ class Client:
 			# and narrowing by hand is what left `subroutine ls` listing private projects to
 			# non-members in shipped code.
 			statement = subroutine.domain.scoping.readable_projects(
-				actor, workspace_ids=[chosen.id], include_archived=include_archived
+				session, actor, workspace_ids=[chosen.id], include_archived=include_archived
 			)
 
 			# Resolved through the same function `GET /v1/projects` uses, so a parent this

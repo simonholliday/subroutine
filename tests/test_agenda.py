@@ -549,7 +549,7 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	# with no selection — the page a reader flips to.
 	listed = session.scalars(
 		subroutine.domain.scoping.readable_tasks(
-			world.principal, workspace_ids=[world.workspace.id], include_completed=False
+			session, world.principal, workspace_ids=[world.workspace.id], include_completed=False
 		)
 	).all()
 

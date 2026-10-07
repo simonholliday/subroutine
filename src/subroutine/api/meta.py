@@ -725,10 +725,10 @@ def _tags (
 	tag = subroutine.db.models.vocabulary.Tag
 	joined = subroutine.db.models.work.TaskTag
 	visible = subroutine.domain.scoping.readable_tasks(
-		actor, workspace_ids=[workspace.id]
+		session, actor, workspace_ids=[workspace.id]
 	).subquery()
 
-	seen = subroutine.domain.scoping.tags_seen_by(actor, workspace_ids=[workspace.id])
+	seen = subroutine.domain.scoping.tags_seen_by(session, actor, workspace_ids=[workspace.id])
 	usage = (
 		sqlalchemy.select(tag.name, sqlalchemy.func.count(joined.task_id).label("usage"))
 		.select_from(tag)

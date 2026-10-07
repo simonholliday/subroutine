@@ -29,7 +29,6 @@ Resolution order:
 
 import dataclasses
 import typing
-import uuid
 
 import sqlalchemy
 import sqlalchemy.orm
@@ -38,7 +37,6 @@ import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.users
-import subroutine.domain.workspaces
 import subroutine.errors
 
 #: How many usernames a "which of these did you mean" message lists before it gives up and
@@ -299,25 +297,6 @@ def _count (session: sqlalchemy.orm.Session) -> int:
 			model.is_service_account.is_(False),
 		)
 	) or 0
-
-
-def readable_workspace_ids (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-) -> list[uuid.UUID]:
-	"""Return every workspace this principal may read, for a query that spans them.
-
-	The agenda spans all readable workspaces by default (§8.6). A token pinned to one
-	narrows this to that one, which is where the pin does its work.
-
-	The query itself lives in :func:`subroutine.domain.workspaces.readable`, because
-	``/v1/me`` needs the same set with the rest of each row attached, and two copies of
-	"which workspaces can this person reach" is exactly the kind of pair that drifts.
-	"""
-
-	return [
-		workspace.id for workspace in subroutine.domain.workspaces.readable(session, principal)
-	]
 
 
 def describe (principal: subroutine.domain.authentication.Principal) -> str:

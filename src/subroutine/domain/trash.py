@@ -106,6 +106,7 @@ def hidden (
 		(
 			subroutine.db.models.work.Task,
 			subroutine.domain.scoping.readable_tasks(
+				session,
 				actor,
 				workspace_ids=[workspace_id],
 				include_deleted=True,
@@ -117,6 +118,7 @@ def hidden (
 		(
 			subroutine.db.models.work.Document,
 			subroutine.domain.scoping.readable_documents(
+				session,
 				actor,
 				workspace_ids=[workspace_id],
 				include_deleted=True,

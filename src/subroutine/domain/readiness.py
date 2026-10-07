@@ -870,6 +870,7 @@ def blockers_among (
 	# as blocked by nothing.
 	statement = (
 		subroutine.domain.scoping.readable_tasks(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -946,6 +947,7 @@ def blocks_others_among (
 	# rule, for the reason written on `blockers_among`.
 	statement = (
 		subroutine.domain.scoping.readable_tasks(
+			session,
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
