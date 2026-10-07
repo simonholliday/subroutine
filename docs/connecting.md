@@ -797,11 +797,11 @@ whatever it calls *subscribe to a calendar* or *add by URL*. From then on your c
 application fetches it on its own schedule - this asks for no more often than every quarter of
 an hour, and some applications take hours - and you never touch it again.
 
-**Make it with a credential nothing narrows.** A feed reads with its owner's own sight rather
-than with the narrowing on the credential that made it, so one narrowed to a project, to some
-permissions or to one workspace is refused - *"A bounded credential cannot mint a calendar
-feed"* - and one that expires can only make a feed that stops no later than it does. Narrow the
-feed itself instead, as below.
+**Make it with a credential that reaches everything the feed reads.** A feed reads with its
+owner's own sight rather than with the narrowing on the credential that made it, so the credential
+has to read tasks across the whole of the feed's place: one narrowed to a project makes a feed of
+that project and is refused one of the whole workspace, and one that expires can only make a feed
+that stops no later than it does. Narrow the feed itself instead, as below.
 
 **Nothing comes back.** Moving an event in your calendar changes nothing here, and deleting one
 there does not complete anything. That is the trade for it working in every calendar

@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A credential acts on another only where it holds at least as much.** One pinned to a
+  workspace, or narrowed to some projects or permissions, now mints, lists and revokes the
+  calendar feeds and credentials that reach no further than it does, where it was refused all
+  of them. And one that expires can no longer give a permanent calendar feed a new address:
+  that handed it a permanent address, which went on working after the credential had stopped.
 - **A credential that could never be used is refused when it is issued, with the reason.**
   A write set on one that only reads, one narrowed to some projects whose every permission
   acts on the whole workspace or the installation, and one pinned to a workspace whose every

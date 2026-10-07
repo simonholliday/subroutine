@@ -325,11 +325,12 @@ def test_revoking_stops_it_working_on_the_next_request (world: World) -> None:
 def test_a_bounded_credential_revokes_itself_and_none_of_its_owners_others (
 	world: World,
 ) -> None:
-	"""`SR#3891`, NEW-1 of the verification of the cold review of 2026-09-28, decided by `#3914`.
+	"""`SR#3891`, NEW-1 of the verification of the cold review of 2026-09-28; dominance since `SR#4560`.
 
 	A token given only the read scopes revoked its owner's unrestricted one, which then answered
-	401. **Refused, and the other goes on working**; revoking itself still works, since a
-	credential that cannot end itself is worse.
+	401. **Not found now, and the other goes on working**: a credential acts only on one it
+	dominates (decision `#4527`), and revoking resolves through the listing, which shows only those.
+	Revoking itself still works, since a credential that cannot end itself is worse.
 	"""
 
 	main = world.call("POST", "/v1/tokens", json={"title": "The owner's own"}).json()
@@ -343,8 +344,7 @@ def test_a_bounded_credential_revokes_itself_and_none_of_its_owners_others (
 		world.application, "DELETE", f"/v1/tokens/{main['prefix']}", headers=holding
 	)
 
-	assert refused.status_code == 403, refused.text
-	assert "bounded credential" in refused.json()["detail"]
+	assert refused.status_code == 404, refused.text
 	assert api_support.call(world.application, "GET", "/v1/me", headers=owning).status_code == 200
 
 	itself = api_support.call(
@@ -360,10 +360,10 @@ def test_a_bounded_credential_cannot_revoke_an_agents_credential_its_owner_issue
 ) -> None:
 	"""`SR#4012`, M-20 of the cold review of 2026-09-30: half of `SR#3891`'s rule was untested.
 
-	A bounded credential revokes none of its owner's others, and *its owner's* means the ones
-	issued **to** the owner and the ones issued **by** them. Only the first was ever driven, so
-	dropping the second from the rule passed the whole suite. **An agent's credential its owner
-	issued is refused too**, and goes on working.
+	A bounded credential revokes none of its owner's others it does not dominate, and *its owner's*
+	means the ones issued **to** the owner and the ones issued **by** them. Only the first was ever
+	driven, so dropping the second from the rule passed the whole suite. **An agent's credential its
+	owner issued is not found either** (`SR#4560`), and goes on working.
 	"""
 
 	agent = world.call(
@@ -381,8 +381,7 @@ def test_a_bounded_credential_cannot_revoke_an_agents_credential_its_owner_issue
 		world.application, "DELETE", f"/v1/tokens/{agent['prefix']}", headers=holding
 	)
 
-	assert refused.status_code == 403, refused.text
-	assert "bounded credential" in refused.json()["detail"], refused.json()
+	assert refused.status_code == 404, refused.text
 	assert api_support.call(world.application, "GET", "/v1/me", headers=acting).status_code == 200
 
 

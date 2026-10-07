@@ -571,22 +571,188 @@ def refuse_a_read_only_session (actor: Principal | None) -> None:
 	raise subroutine.errors.Forbidden(READ_ONLY, hint=READ_ONLY_HINT)
 
 
-def refuse_a_bounded_credential (actor: Principal | None, *, act: str, hint: str) -> None:
-	"""Refuse ``act`` to a credential narrower than its owner - `#837`, `#3891`, decision `#3914`.
+@dataclasses.dataclass(frozen=True)
+class Bounds:
+	"""What a credential carries, as decision `#4527` reads it: verbs, places and expiry - `#4560`.
 
-	**One rule, asked at every door where a bounded credential would hand back more than it
-	presented or administer its owner's account**: minting a sign-in link or a calendar feed,
-	resetting, listing or revoking a feed, signing its owner out everywhere, and revoking its
-	owner's other credentials. A credential issued to read could otherwise lock its owner out.
-
-	``None`` and :attr:`Principal.is_local` are §12.1a, somebody at a terminal with the database
-	file, which no check here narrows.
+	``scopes`` empty is everything its owner holds, and ``project_scope`` and
+	``project_write_scope`` ``None`` are no narrowing; ``workspace_id`` is the pin. **A browser
+	session, and the sign-in link that buys one, carry none of those four** - only an expiry - and a
+	calendar feed is ``task:read`` at its own place (:meth:`of_feed`).
 	"""
 
-	if actor is None or actor.is_local or not actor.narrows:
+	scopes: tuple[str, ...] = ()
+	project_scope: tuple[str, ...] | None = None
+	project_write_scope: tuple[str, ...] | None = None
+	workspace_id: uuid.UUID | None = None
+	expires_at: datetime.datetime | None = None
+
+	@classmethod
+	def of_token (cls, token: subroutine.db.models.identity.ApiToken) -> "Bounds":
+		"""Return what an API token carries."""
+
+		return cls(
+			scopes=tuple(token.scopes or ()),
+			project_scope=None if token.project_scope is None else tuple(token.project_scope),
+			project_write_scope=(
+				None if token.project_write_scope is None else tuple(token.project_write_scope)
+			),
+			workspace_id=token.workspace_id,
+			expires_at=token.expires_at,
+		)
+
+	@classmethod
+	def of_feed (
+		cls,
+		*,
+		workspace_id: uuid.UUID,
+		project_id: uuid.UUID | None,
+		expires_at: datetime.datetime | None,
+	) -> "Bounds":
+		"""Return what a calendar feed carries: ``task:read`` at its workspace, or its project.
+
+		**With its owner's sight, not its maker's** (§20.1), so a presenter must reach the whole of
+		that place to dominate it: a feed of the workspace is wider than a credential narrowed to one
+		project in it.
+		"""
+
+		return cls(
+			scopes=(subroutine.permissions.TASK_READ,),
+			project_scope=None if project_id is None else (str(project_id),),
+			workspace_id=workspace_id,
+			expires_at=expires_at,
+		)
+
+
+def undominated (
+	session: sqlalchemy.orm.Session,
+	presenter: Principal,
+	target: Bounds,
+	*,
+	counting_expiry: bool,
+) -> subroutine.errors.FieldError | None:
+	"""Return the first part of ``target`` the presenter does not hold, or ``None`` where it holds it all.
+
+	**Dominance** (`#4560`, decision `#4527`): a credential acts on another - mints it, resets it,
+	lists it, stops it - only where it holds at least that one's verbs and places, and its expiry
+	when it is minting or resetting, since a credential handed back must not outlive the one that
+	asked (`#356`). Stopping does not count expiry: a fortnight's browser session revokes a
+	permanent token from the settings page.
+
+	**The places are compared as the check reads them**: the reach within the pin, and the write
+	set, else the reach (`#371`), each subtree-inclusive (`#413`). A target that changes nothing - a
+	feed, a credential that only reads - is compared on what it reads alone, since where it may
+	write is never asked.
+	"""
+
+	held = set(presenter.scopes)
+
+	if held and (not target.scopes or not set(target.scopes) <= held):
+		return subroutine.errors.FieldError(
+			field="scopes",
+			code="forbidden",
+			message=f"The credential you presented is scoped to: {', '.join(sorted(held))}.",
+		)
+
+	if presenter.project_scope is not None:
+		reach = set(presenter.project_scope)
+
+		if target.project_scope is None or _outside(
+			session, reach, _canonical_project_scope(list(target.project_scope))
+		):
+			return subroutine.errors.FieldError(
+				field="project_scope",
+				code="forbidden",
+				message=f"The credential you presented reaches: {_named(session, reach)}.",
+			)
+
+	pin = presenter.pinned_workspace_id
+
+	if pin is not None and target.workspace_id != pin:
+		return subroutine.errors.FieldError(
+			field="workspace",
+			code="forbidden",
+			message=f"The credential you presented is pinned to {pin}.",
+		)
+
+	changes = not target.scopes or bool(set(target.scopes) - subroutine.permissions.READS)
+	writes = (
+		presenter.project_write_scope
+		if presenter.project_write_scope is not None
+		else presenter.project_scope
+	)
+
+	if changes and writes is not None:
+		asked = (
+			target.project_write_scope
+			if target.project_write_scope is not None
+			else target.project_scope
+		)
+
+		if asked is None or _outside(session, set(writes), _canonical_project_scope(list(asked))):
+			return subroutine.errors.FieldError(
+				field="project_write_scope",
+				code="forbidden",
+				message=f"The credential you presented writes in: {_named(session, set(writes))}.",
+			)
+
+	until = presenter.expires_at
+
+	if counting_expiry and until is not None and (
+		target.expires_at is None or target.expires_at > until
+	):
+		# **The instant, not the day it falls on** (`#1091`): a moment has no day until somebody
+		# names a zone, and this runs below any workspace.
+		return subroutine.errors.FieldError(
+			field="expires",
+			code="forbidden",
+			message=f"The credential you presented stops working on {until.isoformat()}.",
+		)
+
+	return None
+
+
+def refuse_undominated (
+	session: sqlalchemy.orm.Session,
+	actor: Principal | None,
+	target: Bounds,
+	*,
+	counting_expiry: bool,
+	act: str,
+	hint: str,
+	outlived: str | None = None,
+) -> None:
+	"""Refuse ``act`` unless the presenting credential dominates ``target`` - `#4560`, decision `#4527`.
+
+	**One rule at every door where a credential acts on another**: minting a sign-in link or a
+	calendar feed, resetting, listing or revoking a feed, revoking a credential and signing an
+	account out everywhere. It replaces a blunt one that refused all of them to any narrowed
+	credential while never asking an expiry (`#829`, decision `#3914`): a pinned or project-narrowed
+	credential could not make a feed for its own place, yet a token expiring tomorrow reset its
+	owner's permanent feed and was handed a permanent address (S2 of the cold review of
+	2026-10-05).
+
+	``hint`` says what to do instead, and ``outlived`` replaces it where only the expiry stood in the
+	way, for an act whose usual advice cannot help there. ``None`` is an internal caller with no
+	credential at all, which nothing narrows; somebody at the terminal presents none either, so
+	holds everything their account does and dominates every credential of it.
+	"""
+
+	if actor is None:
 		return
 
-	raise subroutine.errors.Forbidden(f"A bounded credential cannot {act}.", hint=hint)
+	failure = undominated(session, actor, target, counting_expiry=counting_expiry)
+
+	if failure is None:
+		return
+
+	advice = outlived if failure.field == "expires" and outlived is not None else hint
+
+	raise subroutine.errors.Forbidden(
+		f"The credential you presented holds less than it would take to {act}.",
+		errors=[dataclasses.replace(failure, hint=advice)],
+		hint=advice,
+	)
 
 
 def refuse_an_agent_issuing_for_a_person (
@@ -682,116 +848,52 @@ def _refuse_amplification (
 
 		permits.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
 
-	held = set(actor.scopes)
+	# **Dominance, and the five clauses that were it, one axis each** (`#4560`, decision `#4527`):
+	# the scopes, the reach, the pin, the write set - else the reach, as the check falls back
+	# (`#371`) - and the expiry (`#356`), each in the sentence it was refused in. A token that only
+	# reads is compared on what it reads alone, which a write set narrower than the reach refused.
+	failure = undominated(
+		session,
+		actor,
+		Bounds(
+			scopes=tuple(scopes),
+			project_scope=None if project_scope is None else tuple(project_scope),
+			project_write_scope=None if project_write_scope is None else tuple(project_write_scope),
+			workspace_id=workspace_id,
+			expires_at=expires_at,
+		),
+		counting_expiry=True,
+	)
 
-	if held and (not scopes or not set(scopes) <= held):
-		raise subroutine.errors.Forbidden(
+	if failure is None:
+		return
+
+	# **A session participates in the expiry, and that is a decision** (`#248`): it is time-bounded
+	# so that a stolen cookie stops working, and a permanent token minted from one would end that.
+	until = None if actor.expires_at is None else actor.expires_at.isoformat()
+	refused, advice = {
+		"scopes": (
 			"A token cannot grant more than the one that asked for it.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="scopes",
-					code="forbidden",
-					message="The credential you presented is scoped to: "
-					f"{', '.join(sorted(held))}.",
-					hint="Issue a token scoped to the same permissions or fewer.",
-				)
-			],
-		)
-
-	if actor.project_scope is not None:
-		allowed = set(actor.project_scope)
-		asked_reach = (
-			None if project_scope is None else _canonical_project_scope(project_scope)
-		)
-
-		if asked_reach is None or _outside(session, allowed, asked_reach):
-			raise subroutine.errors.Forbidden(
-				"A token cannot reach more projects than the one that asked for it.",
-				errors=[
-					subroutine.errors.FieldError(
-						field="project_scope",
-						code="forbidden",
-						message="The credential you presented reaches: "
-						f"{_named(session, allowed)}.",
-						hint="Issue a token reaching the same projects or fewer - each one "
-						"named there, or filed under something that is.",
-					)
-				],
-			)
-
-	if actor.pinned_workspace_id is not None and workspace_id != actor.pinned_workspace_id:
-		raise subroutine.errors.Forbidden(
-			"A token pinned to one workspace cannot issue one that is not.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="workspace_id",
-					code="forbidden",
-					message="The credential you presented is pinned to "
-					f"{actor.pinned_workspace_id}.",
-				)
-			],
-		)
-
-	# **The write set is compared against the presenter's, falling back to its reach** (`#371`).
-	# A credential that may write only in `SUBSAMPLE` must not issue one that writes across
-	# `SR` — and where the presenter has no write set of its own, what bounds it is what it can
-	# reach, which is exactly what `_within_write_scope` falls back to at check time. The two
-	# fallbacks have to agree or the guard and the enforcement mean different things.
-	held_writes = actor.project_write_scope
-	bounds = held_writes if held_writes is not None else actor.project_scope
-
-	if bounds is not None:
-		asked = (
-			project_write_scope
-			if project_write_scope is not None
-			else project_scope
-		)
-		allowed = set(bounds)
-
-		if asked is None or _outside(session, allowed, _canonical_project_scope(asked)):
-			raise subroutine.errors.Forbidden(
-				"A token cannot write in more projects than the one that asked for it.",
-				errors=[
-					subroutine.errors.FieldError(
-						field="project_write_scope",
-						code="forbidden",
-						message="The credential you presented writes in: "
-						f"{_named(session, allowed)}.",
-						hint="Issue a token writing in the same projects or fewer - each one "
-						"named there, or filed under something that is.",
-					)
-				],
-			)
-
-	# **A browser session participates here, and that is a decision rather than a
-	# consequence** (`#248`). A session is time-bounded so that a stolen cookie stops
-	# working; a permanent API token minted from one would end that property in a single
-	# call, which is `#356`'s escalation arriving through a door `#356` could not see.
-	held_until = actor.expires_at
-
-	if held_until is not None and (expires_at is None or expires_at > held_until):
-		# **The instant, not the day it falls on** (`#1091`). A moment has no day until
-		# somebody names a zone, and there is none to name here: this runs in the domain,
-		# below any workspace, and §6.5's chain needs a session this function does not take.
-		# Saying the instant is not a way round that — it is the better answer. A caller told
-		# "expires on 2026-09-01 or sooner" who then asks for the end of that day is refused a
-		# second time, because the bound was never a day.
-		until = held_until.isoformat()
-
-		raise subroutine.errors.Forbidden(
+			"Issue a token scoped to the same permissions or fewer.",
+		),
+		"project_scope": (
+			"A token cannot reach more projects than the one that asked for it.",
+			"Issue a token reaching the same projects or fewer - each one named there, or filed "
+			"under something that is.",
+		),
+		"workspace": ("A token pinned to one workspace cannot issue one that is not.", None),
+		"project_write_scope": (
+			"A token cannot write in more projects than the one that asked for it.",
+			"Issue a token writing in the same projects or fewer - each one named there, or filed "
+			"under something that is.",
+		),
+		"expires": (
 			"A token cannot outlive the one that asked for it.",
-			errors=[
-				subroutine.errors.FieldError(
-					# `POST /v1/tokens` accepts `expires`, and so does the flag on
-					# `token create` (`#1534`).
-					field="expires",
-					code="forbidden",
-					message=f"The credential you presented stops working on {until}.",
-					hint=f"Issue one that expires on {until} or sooner.",
-				)
-			],
-		)
+			f"Issue one that expires on {until} or sooner.",
+		),
+	}[failure.field]
 
+	raise subroutine.errors.Forbidden(refused, errors=[dataclasses.replace(failure, hint=advice)])
 
 def authenticate (
 	session: sqlalchemy.orm.Session,

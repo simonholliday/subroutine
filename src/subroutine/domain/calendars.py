@@ -98,7 +98,6 @@ def create (
 	project_id: uuid.UUID | None = None,
 	item_type_ids: typing.Sequence[uuid.UUID] | None = None,
 	expires_at: datetime.datetime | None = None,
-	now: datetime.datetime | None = None,
 ) -> tuple[subroutine.db.models.identity.CalendarFeed, subroutine.auth.IssuedToken]:
 	"""Mint a feed and return it with the one readable form of its secret.
 
@@ -115,7 +114,6 @@ def create (
 
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
-	moment = now if now is not None else subroutine.db.types.utcnow()
 	owner = actor.user
 
 	# **Asked as `task:read`, because that is exactly what the feed will do** — §20.1 says a
@@ -142,7 +140,9 @@ def create (
 			],
 		)
 
-	_refuse_a_credential_that_would_be_widened(actor, expires_at=expires_at, now=moment)
+	_refuse_a_credential_that_would_be_widened(
+		session, actor, workspace_id=workspace_id, project_id=project_id, expires_at=expires_at
+	)
 
 	minted = _mint_unused_secret(session)
 	feed = subroutine.db.models.identity.CalendarFeed(
@@ -285,7 +285,6 @@ def issue (
 			),
 			now=now,
 		),
-		now=now,
 	)
 
 
@@ -381,19 +380,26 @@ def reset (
 	**Refused when the feature is off** (`#1068`), because a reset mints a working URL exactly
 	as :func:`issue` does. :func:`refuse_when_disabled` carries the whole argument.
 
-	**And refused to a bounded credential, as minting is** (`#3891`). The new URL reads with the
-	owner's own sight, so a credential narrowed to one project, or pinned to another workspace,
-	reset its owner's feed and read everything the owner can see through the address it was
-	handed.
+	**And only by a credential that dominates the feed, as minting is** (`#3891`; `#4560`,
+	decision `#4527`). The new URL reads with the owner's own sight, so a credential narrowed to one
+	project, or pinned to another workspace, reset its owner's feed and read everything the owner
+	can see through the address it was handed. **Its expiry counts**, as minting's does: a token
+	expiring tomorrow reset its owner's permanent feed and was handed a permanent address that went
+	on reading after the token had stopped (S2 of the cold review of 2026-10-05).
 	"""
 
 	refuse_when_disabled(enabled)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
-	subroutine.domain.authentication.refuse_a_bounded_credential(
+	subroutine.domain.authentication.refuse_undominated(
+		session,
 		actor,
-		act="give a calendar feed a new address",
+		_carried(feed),
+		counting_expiry=True,
+		act="give this calendar feed a new address",
 		hint="A feed reads with its owner's own sight, so a new address for one would hand back "
-		"more than you presented. Use an unrestricted credential.",
+		"more than you presented. Use a credential that reaches the feed's whole workspace, or its "
+		"project.",
+		outlived="Reset it with a credential that does not expire, or one that outlives the feed.",
 	)
 
 	minted = _mint_unused_secret(session)
@@ -413,16 +419,20 @@ def revoke (
 ) -> None:
 	"""Stop a feed for good. Repeating it is not an error and does not move the date.
 
-	**Refused to a bounded credential, as a reset is** (decision `#3914`): stopping its owner's
-	feed is an act on the owner's account, which a credential issued to read does not take.
+	**Only by a credential that dominates the feed, its expiry aside** (`#4560`, decision `#4527`,
+	which replaces `#3914`'s blunter rule): a credential narrowed to one project stops the feed of
+	that project and not one reading the whole workspace.
 	"""
 
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
-	subroutine.domain.authentication.refuse_a_bounded_credential(
+	subroutine.domain.authentication.refuse_undominated(
+		session,
 		actor,
-		act="revoke a calendar feed",
-		hint="Revoking a feed is an act on its owner's account, which a narrowed credential does not "
-		"take. Use an unrestricted credential.",
+		_carried(feed),
+		counting_expiry=False,
+		act="revoke this calendar feed",
+		hint="A feed reads with its owner's own sight, so stopping it is for a credential that "
+		"reaches as far. Use one that reaches the feed's whole workspace, or its project.",
 	)
 
 	if feed.revoked_at is None:
@@ -462,21 +472,30 @@ def listed (
 	*,
 	include_revoked: bool = False,
 ) -> list[subroutine.db.models.identity.CalendarFeed]:
-	"""Return the caller's own feeds, newest first, to a credential that may see them - `#3891`.
+	"""Return the caller's own feeds that its credential dominates, newest first - `#3891`, `#4560`.
 
-	**Refused to a bounded credential**, as minting one is: each feed names what it reads, the
-	project it follows by its title included, and a credential narrowed to one project was shown
-	the feeds for the others - and, until it was refused, could reset any of them.
+	**Each feed names what it reads**, the project it follows by its title included, and a
+	credential narrowed to one project was shown the feeds for the others - and, until it was
+	refused, could reset any of them. It was then refused the whole list; it is shown the feeds it
+	dominates now (decision `#4527`), as a token listing shows the tokens.
 	"""
 
-	subroutine.domain.authentication.refuse_a_bounded_credential(
-		actor,
-		act="list calendar feeds",
-		hint="A feed reads with its owner's own sight, so the list of them says what a narrower "
-		"credential may not see. Use an unrestricted credential.",
-	)
+	return [
+		feed
+		for feed in feeds(session, actor.user, include_revoked=include_revoked)
+		if subroutine.domain.authentication.undominated(
+			session, actor, _carried(feed), counting_expiry=False
+		)
+		is None
+	]
 
-	return feeds(session, actor.user, include_revoked=include_revoked)
+
+def _carried (feed: subroutine.db.models.identity.CalendarFeed) -> subroutine.domain.authentication.Bounds:
+	"""Return what a feed carries, to ask whether a credential dominates it."""
+
+	return subroutine.domain.authentication.Bounds.of_feed(
+		workspace_id=feed.workspace_id, project_id=feed.project_id, expires_at=feed.expires_at
+	)
 
 
 def mine (
@@ -823,55 +842,49 @@ def _unknown () -> subroutine.errors.NotFound:
 
 
 def _refuse_a_credential_that_would_be_widened (
+	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	*,
+	workspace_id: uuid.UUID,
+	project_id: uuid.UUID | None,
 	expires_at: datetime.datetime | None,
-	now: datetime.datetime,
 ) -> None:
 	"""Refuse a feed that would hand back more than the credential asking for it.
 
-	**`#837`'s rule, and `#829`'s test asked of a fourth credential**: can this be issued
-	wider than the thing asking, and can something narrower be exchanged for it. A feed
-	renders with the *owner's* visibility rather than the presenter's narrowing (§20.1), so a
-	credential scoped to one project could mint a URL reading the whole workspace — the
-	escalation `#829` found on `POST /v1/login-links`, one credential kind along.
+	**`#837`'s rule, and `#829`'s test asked of a fourth credential**: can this be issued wider than
+	the thing asking, and can something narrower be exchanged for it. A feed renders with the
+	*owner's* visibility rather than the presenter's narrowing (§20.1), so a credential scoped to
+	one project could mint a URL reading the whole workspace - the escalation `#829` found on
+	``POST /v1/login-links``, one credential kind along.
 
-	**Refused outright rather than checked against the scope**, which is `#829`'s own answer
-	and is deliberately the blunter of the two. A narrower rule — *the feed's scope must lie
-	inside the presenter's reach* — is available and is strictly more permissive; loosening
-	to it later is a deliberate act, where discovering the blunt version was needed is a leak.
-	Nothing is known to have met this wall.
+	**Dominance now, where it was refused outright** (`#4560`, decision `#4527`). This said the
+	narrower rule - *the feed's scope must lie inside the presenter's reach* - was available and
+	strictly more permissive, and that loosening to it later would be a deliberate act: this is
+	that act. A feed is ``task:read`` at its own place, so a credential pinned to the workspace, or
+	narrowed to the project the feed follows, mints it; one narrowed to a project mints no feed of
+	the whole workspace.
 
-	`is_local` is §12.1a, somebody at a terminal with the database file, which no check here
-	narrows — and is what keeps ``subroutine calendar create`` working for a self-hoster who
-	has issued themselves no token at all.
+	**`#356`'s expiry rule, only in the amplifying direction**: a credential with no expiry may mint
+	anything, and only a feed that would outlive its credential is refused - a feed's expiry is
+	*optional*, so the common mistake is a permanent URL minted by a token that stops working in a
+	month.
 	"""
 
-	if actor.is_local:
-		return
-
-	subroutine.domain.authentication.refuse_a_bounded_credential(
+	subroutine.domain.authentication.refuse_undominated(
+		session,
 		actor,
-		act="mint a calendar feed",
-		hint="A feed reads with its owner's own sight rather than with the narrowing on "
-		"the credential that made it, so this would hand back more than you presented. "
-		"Use an unrestricted credential, or run 'subroutine calendar create' at the "
-		"instance itself.",
+		subroutine.domain.authentication.Bounds.of_feed(
+			workspace_id=workspace_id, project_id=project_id, expires_at=expires_at
+		),
+		counting_expiry=True,
+		act="mint this calendar feed",
+		hint="A feed reads with its owner's own sight rather than with the narrowing on the "
+		"credential that made it, so this would hand back more than you presented. Use a "
+		"credential that reaches the feed's whole workspace, or its project, or run 'subroutine "
+		"calendar create' at the instance itself.",
+		outlived="Give the feed an expiry no later than the credential's, or mint it with a "
+		"credential that does not expire.",
 	)
-
-	# **`#356`'s rule, only in the amplifying direction.** A credential with no expiry may
-	# mint anything; one that outlives the feed is not being widened. Only a feed that would
-	# outlive its credential is refused — and a feed's expiry is *optional*, so the common
-	# mistake is a permanent URL minted by a token that stops working in a month.
-	if actor.expires_at is None:
-		return
-
-	if expires_at is None or expires_at > actor.expires_at:
-		raise subroutine.errors.Forbidden(
-			"A calendar feed would outlive the credential that asked for it.",
-			hint="Give the feed an expiry no later than the credential's, or mint it with a "
-			"credential that does not expire.",
-		)
 
 
 def _mint_unused_secret (

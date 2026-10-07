@@ -104,7 +104,7 @@ def mint_link (
 
 	moment = now if now is not None else subroutine.db.types.utcnow()
 
-	_refuse_a_credential_that_would_be_widened(actor, now=moment)
+	_refuse_a_credential_that_would_be_widened(session, actor, now=moment)
 
 	minted = subroutine.auth.generate_token(kind=subroutine.auth.LOGIN_KIND)
 
@@ -399,16 +399,19 @@ def sign_out_everywhere (
 
 	_refuse_administering_somebody_else(actor, user, doing="sign out")
 
-	# **Not by a bounded credential, of its own owner either** (decision `#3914`, M-4 (e) of the
-	# cold review of 2026-09-28): a token given only the read scopes signed its owner out of every
-	# browser, since this act names no permission a scope could leave out.
-	if actor is not None and actor.user.id == user.id:
-		subroutine.domain.authentication.refuse_a_bounded_credential(
-			actor,
-			act="sign its owner out everywhere",
-			hint="Signing out everywhere is an act on the account itself, which a narrowed credential "
-			"does not take. Use an unrestricted credential, or sign out from a signed-in browser.",
-		)
+	# **Only by a credential that dominates the sessions it stops** (`#4560`, decision `#4527`; M-4 (e)
+	# of the cold review of 2026-09-28): a session carries no narrowing, so only a credential with
+	# none stops them, its expiry aside. A token given only the read scopes signed its owner out of
+	# every browser, since this act names no permission a scope could leave out.
+	subroutine.domain.authentication.refuse_undominated(
+		session,
+		actor,
+		subroutine.domain.authentication.Bounds(),
+		counting_expiry=False,
+		act="sign its owner out everywhere",
+		hint="A browser session carries no narrowing, so only a credential with none signs one out. "
+		"Use an unrestricted credential, or sign out from a signed-in browser.",
+	)
 
 	moment = now if now is not None else subroutine.db.types.utcnow()
 
@@ -470,6 +473,7 @@ def _refuse_administering_somebody_else (
 
 
 def _refuse_a_credential_that_would_be_widened (
+	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,
 	*,
 	now: datetime.datetime,
@@ -509,26 +513,22 @@ def _refuse_a_credential_that_would_be_widened (
 	renewal is a different act from minting rather than whether this rule is too strict.
 	"""
 
-	if actor is None or actor.is_local:
-		return
-
-	subroutine.domain.authentication.refuse_a_bounded_credential(
+	# **Dominance, with the session the link buys as what is handed back** (`#4560`, decision
+	# `#4527`): it carries no narrowing and lasts a fortnight from now, so only a credential with no
+	# narrowing that outlasts it mints one.
+	subroutine.domain.authentication.refuse_undominated(
+		session,
 		actor,
+		subroutine.domain.authentication.Bounds(expires_at=now + SESSION_LIFETIME),
+		counting_expiry=True,
 		act="mint a sign-in link",
 		hint="A browser session carries no scopes, no project scope and no workspace "
 		"pin, so signing in with one would hand back more authority than the "
 		"credential you presented. Use an unrestricted credential, or run "
 		"'subroutine login link' at the instance itself.",
+		outlived=f"The session it buys lasts at least {SESSION_LIFETIME.days} days - longer "
+		f"if it keeps being used - and the credential you presented expires before that.",
 	)
-
-	expires_at = actor.expires_at
-
-	if expires_at is not None and expires_at < now + SESSION_LIFETIME:
-		raise subroutine.errors.Forbidden(
-			"A sign-in link would outlive the credential that asked for it.",
-			hint=f"The session it buys lasts at least {SESSION_LIFETIME.days} days - longer "
-			f"if it keeps being used - and the credential you presented expires before that.",
-		)
 
 
 def _refuse_an_account_that_cannot_sign_in (

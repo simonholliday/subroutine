@@ -121,9 +121,9 @@ def create (
 	would send it wherever that header pointed, every fifteen minutes, for as long as the
 	subscription lives.
 
-	A bounded credential cannot mint one. A feed reads with its owner's own sight rather than
-	with the narrowing on whatever asked for it, so issuing one from a restricted token would
-	hand back more than was presented.
+	Only a credential that reaches everything the feed reads can mint one. A feed reads with its
+	owner's own sight rather than with the narrowing on whatever asked for it, so issuing one from a
+	narrower token would hand back more than was presented.
 	"""
 
 	feed, minted = subroutine.domain.calendars.issue(

@@ -141,7 +141,6 @@ def _feed (
 		session,
 		subroutine.domain.authentication.Principal(user=owner),
 		workspace_id=workspace.id,
-		now=NOW,
 		**kwargs,
 	)
 
@@ -392,157 +391,175 @@ def test_a_feed_stops_working_when_its_workspace_is_deleted (
 		subroutine.domain.calendars.resolve(session, secret, now=NOW)
 
 
-def test_a_bounded_credential_cannot_mint_a_feed (
+def test_a_credential_mints_only_a_feed_it_dominates (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#829`'s test asked of a fourth credential — `SR#837`, and decision `SR#972`.
+	"""`SR#829`'s test asked of a fourth credential (`SR#837`), and dominance since `SR#4560`.
 
 	A feed renders with its **owner's** visibility rather than with the narrowing on whatever
-	minted it, so a credential scoped to one project could mint a URL reading the whole
-	workspace. That is the escalation `SR#829` found on `POST /v1/login-links`, one credential
-	kind along, and the answer here is the same blunt one.
+	minted it, so a credential narrowed to one project minted a URL reading the whole workspace.
+	That was refused bluntly, to every narrowed credential; **a feed is ``task:read`` at its own
+	place now** (decision `#4527`), so a credential narrowed to a project mints the feed of that
+	project and not the workspace's, one that reads tasks everywhere mints either, and one that
+	cannot read tasks mints neither.
 	"""
 
 	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	narrowed = _token(session, owner, "0", project_scope=[str(project.id)])
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.calendars.create(
+			session, narrowed, workspace_id=workspace.id, title="Wider than me",
+		)
+
+	assert refused.value.errors[0].field == "project_scope", refused.value.errors
+
+	made, _minted = subroutine.domain.calendars.create(
+		session, narrowed, workspace_id=workspace.id, project_id=project.id, title="Its project",
+	)
+
+	assert made.project_id == project.id
+
+	reading = _token(session, owner, "1", scopes=["task:read"])
+	subroutine.domain.calendars.create(
+		session, reading, workspace_id=workspace.id, title="Everything it reads",
+	)
+
+	# **One that cannot read tasks is refused before it is weighed**: minting asks ``task:read``
+	# of the workspace, as the feed itself will.
+	commenting = _token(session, owner, "2", scopes=["comment:read"])
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.calendars.create(
+			session, commenting, workspace_id=workspace.id, project_id=project.id, title="No tasks",
+		)
+
+
+def _token (
+	session: sqlalchemy.orm.Session,
+	owner: subroutine.db.models.identity.User,
+	digit: str,
+	**narrowing: typing.Any,
+) -> subroutine.domain.authentication.Principal:
+	"""Return the owner presenting a credential narrowed as asked."""
+
 	token = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="A narrow token", token_prefix="0" * 8,
-		token_hash="0" * 64, scopes=["task:read"],
+		user_id=owner.id, title=f"Token {digit}", token_prefix=digit * 8, token_hash=digit * 64,
+		**{"scopes": [], **narrowing},
 	)
 	session.add(token)
 	session.flush()
 
-	narrowed = subroutine.domain.authentication.Principal(user=owner, token=token)
-
-	assert narrowed.narrows, "the fixture is not narrowed, so this proves nothing"
-
-	with pytest.raises(subroutine.errors.Forbidden) as refused:
-		subroutine.domain.calendars.create(
-			session, narrowed, workspace_id=workspace.id, title="Wider than me", now=NOW,
-		)
-
-	assert "bounded" in str(refused.value)
-
-	# **And the unnarrowed case works**, which is what stops this being a rule that refuses
-	# everything — the shape a refusal test passes for the wrong reason in.
-	wide = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="An ordinary token", token_prefix="1" * 8,
-		token_hash="1" * 64, scopes=[],
-	)
-	session.add(wide)
-	session.flush()
-
-	made, _minted = subroutine.domain.calendars.create(
-		session,
-		subroutine.domain.authentication.Principal(user=owner, token=wide),
-		workspace_id=workspace.id, title="Fine", now=NOW,
-	)
-
-	assert made.id is not None
+	return subroutine.domain.authentication.Principal(user=owner, token=token)
 
 
-def test_a_bounded_credential_can_neither_reset_nor_list_its_owners_feeds (
+def test_a_credential_resets_and_lists_only_the_feeds_it_dominates (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#3891`, H-1 of the cold review of 2026-09-28: minting was refused, and a reset was not.
+	"""`SR#3891`, H-1 of the cold review of 2026-09-28, and dominance since `SR#4560`.
 
 	A credential narrowed to one project, or pinned to another workspace, listed its owner's feeds,
-	reset one, and read everything the owner can see through the new address. **Both are refused
-	now, as minting is**, and the unnarrowed credential does both.
+	reset one, and read everything the owner can see through the new address. Both were then
+	refused to every narrowed credential; **now to one that does not dominate the feed** (decision
+	`#4527`), which the listing leaves out rather than refusing the whole of it, while one that
+	reads tasks wherever the feed does resets and lists it.
 	"""
 
 	workspace, owner = _world(session)
 	elsewhere = subroutine.domain.workspaces.create(
 		session, slug="elsewhere", title="Elsewhere", owner=owner
 	)
-	wide = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="An ordinary token", token_prefix="1" * 8,
-		token_hash="1" * 64, scopes=[],
-	)
-	narrow = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="A narrow token", token_prefix="0" * 8,
-		token_hash="0" * 64, scopes=["task:read"],
-	)
-	pinned = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="A token for elsewhere", token_prefix="2" * 8,
-		token_hash="2" * 64, scopes=[], workspace_id=elsewhere.id,
-	)
-	session.add_all([wide, narrow, pinned])
-	session.flush()
-
-	owners = subroutine.domain.authentication.Principal(user=owner, token=wide)
+	owners = _token(session, owner, "1")
 	made, _minted = subroutine.domain.calendars.create(
-		session, owners, workspace_id=workspace.id, title="Mine", now=NOW,
+		session, owners, workspace_id=workspace.id, title="Mine",
 	)
 
-	for token in (narrow, pinned):
-		bounded = subroutine.domain.authentication.Principal(user=owner, token=token)
+	pinned = _token(session, owner, "2", workspace_id=elsewhere.id)
 
-		assert bounded.narrows, f"{token.title} is not narrowed, so this proves nothing"
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.calendars.reset(session, made, actor=pinned, enabled=True)
 
-		with pytest.raises(subroutine.errors.Forbidden, match="bounded"):
-			subroutine.domain.calendars.reset(session, made, actor=bounded, enabled=True)
+	assert refused.value.errors[0].field == "workspace", refused.value.errors
+	assert subroutine.domain.calendars.listed(session, pinned) == []
 
-		with pytest.raises(subroutine.errors.Forbidden, match="bounded"):
-			subroutine.domain.calendars.listed(session, bounded)
+	reading = _token(session, owner, "0", scopes=["task:read"])
 
-	assert [one.id for one in subroutine.domain.calendars.listed(session, owners)] == [made.id]
+	assert [one.id for one in subroutine.domain.calendars.listed(session, reading)] == [made.id]
 
 	before = made.token_hash
-	subroutine.domain.calendars.reset(session, made, actor=owners, enabled=True)
+	subroutine.domain.calendars.reset(session, made, actor=reading, enabled=True)
 
-	assert made.token_hash != before, "the owner's own credential could not reset the feed"
+	assert made.token_hash != before, "a credential reading tasks everywhere could not reset it"
 
 
-def test_a_bounded_credential_cannot_revoke_its_owners_feed (
+def test_a_credential_that_expires_gives_no_permanent_feed_a_new_address (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#3891`'s revoke half, decided by `#3914`: a credential issued to read stopped a feed.
+	"""`SR#4560`, S2 of the cold review of 2026-10-05: a reset is minting, and counts the expiry.
 
-	Revoking its owner's feed is an act on the owner's account, which a narrowed credential does
-	not take. **Refused to a scoped and a pinned credential alike, and the feed goes on working**;
-	the owner's own credential revokes it.
+	A token expiring tomorrow reset its owner's permanent feed and was handed a permanent address,
+	which went on reading the owner's work after the token had stopped. **Refused, with advice a
+	reset can take** - minting's, *give the feed an expiry*, cannot be followed here. A feed that
+	stops before the token does is reset, and the permanent one is still revoked by it, since
+	stopping counts no expiry.
+	"""
+
+	workspace, owner = _world(session)
+	owners = _token(session, owner, "1")
+	permanent, _minted = subroutine.domain.calendars.create(
+		session, owners, workspace_id=workspace.id, title="For ever",
+	)
+	brief, _brief = subroutine.domain.calendars.create(
+		session, owners, workspace_id=workspace.id, title="This week",
+		expires_at=NOW + datetime.timedelta(hours=12),
+	)
+	tomorrow = _token(session, owner, "3", expires_at=NOW + datetime.timedelta(days=1))
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.calendars.reset(session, permanent, actor=tomorrow, enabled=True)
+
+	assert refused.value.errors[0].field == "expires", refused.value.errors
+	assert "Reset it with a credential that does not expire" in str(refused.value.hint)
+
+	subroutine.domain.calendars.reset(session, brief, actor=tomorrow, enabled=True)
+	subroutine.domain.calendars.revoke(session, permanent, actor=tomorrow, now=NOW)
+
+	assert permanent.revoked_at is not None
+
+
+def test_a_credential_revokes_only_a_feed_it_dominates (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3891`'s revoke half, decided by `#3914` and by dominance since `SR#4560`.
+
+	A credential issued to read stopped its owner's feed. Every narrowed credential was then
+	refused; **one that does not dominate the feed is now** (decision `#4527`), its expiry aside, and
+	the feed goes on working - while one reading tasks wherever the feed does revokes it.
 	"""
 
 	workspace, owner = _world(session)
 	elsewhere = subroutine.domain.workspaces.create(
 		session, slug="elsewhere", title="Elsewhere", owner=owner
 	)
-	wide = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="An ordinary token", token_prefix="1" * 8,
-		token_hash="1" * 64, scopes=[],
-	)
-	narrow = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="A narrow token", token_prefix="0" * 8,
-		token_hash="0" * 64, scopes=["task:read"],
-	)
-	pinned = subroutine.db.models.identity.ApiToken(
-		user_id=owner.id, title="A token for elsewhere", token_prefix="2" * 8,
-		token_hash="2" * 64, scopes=[], workspace_id=elsewhere.id,
-	)
-	session.add_all([wide, narrow, pinned])
-	session.flush()
-
-	owners = subroutine.domain.authentication.Principal(user=owner, token=wide)
+	owners = _token(session, owner, "1")
 	made, minted = subroutine.domain.calendars.create(
-		session, owners, workspace_id=workspace.id, title="Mine", now=NOW,
+		session, owners, workspace_id=workspace.id, title="Mine",
 	)
+	pinned = _token(session, owner, "2", workspace_id=elsewhere.id)
 
-	for token in (narrow, pinned):
-		bounded = subroutine.domain.authentication.Principal(user=owner, token=token)
-
-		assert bounded.narrows, f"{token.title} is not narrowed, so this proves nothing"
-
-		with pytest.raises(subroutine.errors.Forbidden, match="bounded"):
-			subroutine.domain.calendars.revoke(session, made, actor=bounded, now=NOW)
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.calendars.revoke(session, made, actor=pinned, now=NOW)
 
 	assert made.revoked_at is None, "a refused revoke stopped the feed anyway"
 	assert subroutine.domain.calendars.resolve(
 		session, minted.value.get_secret_value(), now=NOW
 	).id == made.id
 
-	subroutine.domain.calendars.revoke(session, made, actor=owners, now=NOW)
+	reading = _token(session, owner, "0", scopes=["task:read"])
+	subroutine.domain.calendars.revoke(session, made, actor=reading, now=NOW)
 
-	assert made.revoked_at is not None, "the owner's own credential could not revoke the feed"
+	assert made.revoked_at is not None, "a credential reading tasks everywhere could not revoke it"
 
 
 def test_a_feed_may_not_outlive_the_credential_that_asked_for_it (
@@ -568,14 +585,15 @@ def test_a_feed_may_not_outlive_the_credential_that_asked_for_it (
 
 	with pytest.raises(subroutine.errors.Forbidden) as refused:
 		subroutine.domain.calendars.create(
-			session, actor, workspace_id=workspace.id, title="For ever", now=NOW,
+			session, actor, workspace_id=workspace.id, title="For ever",
 		)
 
-	assert "outlive" in str(refused.value)
+	assert refused.value.errors[0].field == "expires", refused.value.errors
+	assert "Give the feed an expiry" in str(refused.value.hint)
 
 	made, _minted = subroutine.domain.calendars.create(
 		session, actor, workspace_id=workspace.id, title="Bounded",
-		expires_at=NOW + datetime.timedelta(days=7), now=NOW,
+		expires_at=NOW + datetime.timedelta(days=7),
 	)
 
 	assert made.expires_at is not None
@@ -2067,7 +2085,7 @@ def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
 		session,
 		subroutine.domain.authentication.Principal(user=world.user),
 		workspace_id=world.workspace.id,
-		title="Mine", now=NOW,
+		title="Mine",
 	)
 	session.flush()
 
@@ -2207,7 +2225,7 @@ def test_an_address_naming_no_feed_and_a_disabled_instance_look_alike (
 		session,
 		subroutine.domain.authentication.Principal(user=world.user),
 		workspace_id=world.workspace.id,
-		title="Mine", now=NOW,
+		title="Mine",
 	)
 	session.flush()
 
@@ -2650,7 +2668,7 @@ def test_somebody_who_may_not_read_the_work_cannot_mint_a_feed_of_it (
 
 	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
 		subroutine.domain.calendars.create(
-			session, actor, workspace_id=workspace.id, title="Not mine to see", now=NOW
+			session, actor, workspace_id=workspace.id, title="Not mine to see"
 		)
 
 	# **And the same person with the ordinary role can**, or this is a rule that refuses
@@ -2662,7 +2680,7 @@ def test_somebody_who_may_not_read_the_work_cannot_mint_a_feed_of_it (
 	session.flush()
 
 	made, _minted = subroutine.domain.calendars.create(
-		session, actor, workspace_id=workspace.id, title="Mine to see", now=NOW
+		session, actor, workspace_id=workspace.id, title="Mine to see"
 	)
 
 	assert made.owner_id == quiet.id

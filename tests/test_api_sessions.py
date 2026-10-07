@@ -1609,7 +1609,7 @@ def test_a_narrowed_credential_cannot_mint_a_sign_in_link (
 	)
 
 	assert answer.status_code == 403, f"{axis} did not stop a link being minted"
-	assert "bounded credential" in answer.json()["detail"]
+	assert "holds less than it would take" in answer.json()["detail"], answer.text
 
 
 def test_a_credential_the_session_would_outlive_cannot_mint_a_link (
@@ -1637,7 +1637,8 @@ def test_a_credential_the_session_would_outlive_cannot_mint_a_link (
 	)
 
 	assert answer.status_code == 403
-	assert "outlive" in answer.json()["detail"]
+	assert answer.json()["errors"][0]["field"] == "expires", answer.text
+	assert "expires before that" in answer.json()["hint"], answer.text
 
 
 @pytest.mark.parametrize(("axis", "narrowing"), NARROWINGS, ids=[one[0] for one in NARROWINGS])
@@ -1668,7 +1669,7 @@ def test_a_narrowed_credential_cannot_sign_its_owner_out_everywhere (
 	)
 
 	assert answer.status_code == 403, f"{axis} did not stop its owner being signed out"
-	assert "bounded credential" in answer.json()["detail"]
+	assert "holds less than it would take" in answer.json()["detail"], answer.text
 	assert subroutine.domain.sessions.authenticate(session, cookie).user.id == setup.user.id
 
 	_row, wide = subroutine.domain.authentication.issue_token(

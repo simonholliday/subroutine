@@ -241,7 +241,6 @@ def test_nobody_signed_in_starts_a_check (session: sqlalchemy.orm.Session) -> No
 		subroutine.domain.authentication.Principal(user=world.user),
 		workspace_id=world.workspace.id,
 		title="Mine",
-		now=START,
 	)
 	session.flush()
 	prefix, secret = typing.cast(

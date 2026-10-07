@@ -89,7 +89,9 @@ def issued_tokens (
 
 	**Narrowed the same way revocation is**, so a listing never shows something the caller
 	could not act on — an inventory you can read and not revoke is a worse answer than one
-	that is short.
+	that is short. **Only what the presenter dominates** (`#4560`, decision `#4527`): a narrowed
+	token listed its owner's wider ones while it was refused their feeds, and could revoke none of
+	them.
 	"""
 
 	model = subroutine.db.models.identity.ApiToken
@@ -102,7 +104,17 @@ def issued_tokens (
 			)
 		)
 
-	return list(session.scalars(statement))
+	return [
+		row
+		for row in session.scalars(statement)
+		if subroutine.domain.authentication.undominated(
+			session,
+			actor,
+			subroutine.domain.authentication.Bounds.of_token(row),
+			counting_expiry=False,
+		)
+		is None
+	]
 
 
 def revoke (
@@ -136,16 +148,21 @@ def revoke (
 			"instance administrator may revoke it."
 		)
 
-	# **A bounded credential revokes itself and none of its owner's others** (decision `#3914`,
-	# the verification's NEW-1 of `#3884`): a token given only the read scopes revoked its owner's
-	# unrestricted one, which then answered 401. Other people's credentials are M-4 (a), `#3812`.
-	if actor is not None and _its_owners_other(actor, token):
-		subroutine.domain.authentication.refuse_a_bounded_credential(
-			actor,
-			act="revoke its owner's other credentials",
-			hint="A narrowed credential may revoke itself and nothing else of its owner's, since "
-			"revoking the others could lock the owner out. Use an unrestricted credential.",
-		)
+	# **Only a credential it dominates** (`#4560`, decision `#4527`, which replaces `#3914`'s blunter
+	# rule): at least its verbs and places, its expiry aside, so a fortnight's browser session still
+	# revokes a permanent token. A token given only the read scopes revoked its owner's unrestricted
+	# one, which then answered 401 (the verification's NEW-1 of `#3884`); a credential revokes
+	# itself, and a narrower one of its owner's, as it may mint one. Other people's credentials are
+	# M-4 (a), `#3812`.
+	subroutine.domain.authentication.refuse_undominated(
+		session,
+		actor,
+		subroutine.domain.authentication.Bounds.of_token(token),
+		counting_expiry=False,
+		act="revoke this credential",
+		hint="A credential revokes only one holding no more than it does, since revoking a wider one "
+		"could lock its owner out. Use a credential at least as wide as this one.",
+	)
 
 	subroutine.domain.authentication.revoke_token(token, at=now)
 	session.flush()
@@ -170,17 +187,6 @@ def _may_administer_credentials (
 		return False
 
 	return True
-
-
-def _its_owners_other (
-	actor: subroutine.domain.authentication.Principal, token: subroutine.db.models.identity.ApiToken
-) -> bool:
-	"""Whether that credential is one of this principal's owner's, other than the one presented."""
-
-	if actor.token is not None and actor.token.id == token.id:
-		return False
-
-	return token.user_id == actor.user.id or token.created_by == actor.user.id
 
 
 def _may_revoke (
