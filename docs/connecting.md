@@ -419,8 +419,10 @@ That needs 'subroutine' installed here, and uv; docs/connecting.md has the rest.
 ```
 
 - **`web`** is what the agent is called. Naming it after its project keeps the pair obvious.
-- **`--workspace`** is the workspace the project is in - `whoami` lists yours - and pins the
-  credential to it. It goes after `create`, spelled out in full.
+- **`--workspace`** is the workspace the project is in - `whoami` lists yours - and the agent
+  joins it. It does not pin the credential to it; add `--pin` for that, where the agent should
+  reach no other workspace even once it is added to one. It goes after `create`, spelled out in
+  full.
 - **`--here`** does the rest. It writes the credential into this directory's
   `.claude/settings.local.json`, under the variable Subroutine reads for this connection. Claude
   Code gives that file's `env` to everything it starts in the project - the agent's shell as well

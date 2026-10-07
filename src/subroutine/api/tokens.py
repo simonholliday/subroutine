@@ -17,11 +17,11 @@ wider than the one asking for it — wider scopes, a wider project scope, an unp
 or another user without ``instance:user_create`` — and ``tokens.revoke`` already asks whether
 this actor may. Both were written for the CLI and take an actor; what was missing was a caller.
 
-**No account is created here, deliberately.** The CLI's ``--service-account`` makes a machine
-identity as it goes because a person at a terminal is doing one thing; over HTTP,
-``POST /v1/users`` already exists and says what it does. Two calls that each name their own act
-beat one that quietly performs two — which is the reasoning `#207` applied to the flags, one
-level down.
+**An agent is made here when ``service_account`` names one that does not exist**: an account, its
+membership of its home and its credential, in one transaction, because over a network three calls
+would leave a half-made agent when the second failed. This said no account was made here, which
+was false (P10a of the cold review of 2026-10-05). ``home`` is where it joins and ``workspace`` is
+only ever the pin (`#4561`).
 """
 
 import typing
@@ -74,6 +74,11 @@ class Create(subroutine.api.schemas.RequestModel):
 	#: model.
 	workspace: str | None = None
 
+	#: Where a new agent named by ``service_account`` joins, by id or slug (`#4561`). Null is the
+	#: pin's workspace, else the one its projects are in, else the caller's only one. It does not
+	#: pin the credential: that is ``workspace``, and a pin away from the home is refused.
+	home: str | None = None
+
 	#: Narrow it to these permissions. ``[]`` and null both mean *no narrowing*, not "no
 	#: permissions" — read as literal set algebra they would mean the opposite, which is the
 	#: easiest way to issue a credential that can do nothing at all.
@@ -122,6 +127,7 @@ def create (
 		username=body.username,
 		service_account=body.service_account,
 		workspace=body.workspace,
+		home=body.home,
 		scopes=body.scopes or (),
 		projects=body.project_scope,
 		writes=body.project_write_scope,

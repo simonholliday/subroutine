@@ -2846,7 +2846,13 @@ def agent_create (
 		help="Only let it change things in this project. Must be one it can reach.",
 	),
 	workspace: str = typer.Option(
-		"", "--workspace", "-w", help="Which workspace it works in. Pins the credential to it."
+		"",
+		"--workspace",
+		"-w",
+		help="Which workspace it joins - its home. Does not pin its credential; '--pin' does.",
+	),
+	pin: bool = typer.Option(
+		False, "--pin", help="Pin its credential to that workspace, so it reaches no other."
 	),
 	scope: list[str] = typer.Option(
 		None, "--scope", help="Narrow it to these permissions. Repeatable."
@@ -2909,6 +2915,11 @@ def agent_create (
 	in a process the agent started and as you everywhere else - including in 'git' hooks, which
 	are the highest-volume writer here.
 
+	'--workspace' is where it joins, its home: on an instance with several workspaces, the one it
+	works in. It does not pin the credential, so the agent reaches whatever it is later added to;
+	'--pin' pins it to its home. Without '--workspace' it joins the workspace its projects are in,
+	or your only one.
+
 	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
 	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
 	and changes nothing. A combination that means two things at once is refused rather than
@@ -2937,6 +2948,14 @@ def agent_create (
 	# **Two hand-overs are two decisions** (`#3286`). The machine's agent and one directory's
 	# are different names on the record, so a credential given to both would leave which one
 	# acted a guess.
+	# **A pin is to the home, so it needs the home named** (`#4561`): the instance would otherwise
+	# choose the home, and this cannot say beforehand which one it would pin to.
+	if pin and not workspace.strip():
+		_stop(
+			"'--pin' pins it to the workspace '--workspace' names, so it needs one.",
+			"For example: subroutine agent create claude --workspace metacortex --pin",
+		)
+
 	if store and here:
 		_stop(
 			"'--store' and '--here' hand the credential to two different places.",
@@ -2980,7 +2999,8 @@ def agent_create (
 			minted = client.issue_token(
 				service_account=wanted,
 				title=title.strip() or f"{wanted} agent",
-				workspace=workspace.strip() or None,
+				workspace=(workspace.strip() or None) if pin else None,
+				home=workspace.strip() or None,
 				scopes=shaped.scopes,
 				projects=shaped.projects,
 				writes=shaped.writes,

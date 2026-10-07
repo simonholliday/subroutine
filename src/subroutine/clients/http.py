@@ -1211,6 +1211,7 @@ class Client:
 		username: str | None = None,
 		service_account: str | None = None,
 		workspace: str | None = None,
+		home: str | None = None,
 		scopes: typing.Sequence[str] = (),
 		projects: typing.Sequence[str] | None = None,
 		writes: typing.Sequence[str] | None = None,
@@ -1228,6 +1229,7 @@ class Client:
 					username=username,
 					service_account=service_account,
 					workspace=workspace,
+					home=home,
 					# **Sent only when they narrow something.** `[]` and null both mean "no
 					# narrowing" for scopes, and an empty `project_scope` is refused outright
 					# rather than guessed at — so a client that sent either would be asking a

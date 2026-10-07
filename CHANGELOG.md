@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`agent create --workspace` names where the agent joins, and no longer pins its credential
+  there.** `--pin` pins it. On an instance with several workspaces every new agent was pinned,
+  though nothing else pins a credential unasked; and without `--workspace` an agent joins the
+  workspace its projects are in. Over the API, `POST /v1/tokens` takes `home` for where a new
+  agent joins, and `workspace` is only ever the pin.
 - **A credential acts on another only where it holds at least as much.** One pinned to a
   workspace, or narrowed to some projects or permissions, now mints, lists and revokes the
   calendar feeds and credentials that reach no further than it does, where it was refused all

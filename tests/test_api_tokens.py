@@ -22,6 +22,7 @@ import api_support
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.permissions
@@ -463,3 +464,121 @@ def test_a_credential_that_could_never_be_used_is_refused_by_a_field_the_request
 		assert refused.status_code == 422, (body, refused.text)
 		assert refused.json()["errors"][0]["field"] == field, refused.text
 		assert field in body, f"the refusal names {field!r}, which the request did not send"
+
+
+def _second_workspace (world: World) -> subroutine.db.models.identity.Workspace:
+	"""Give the founder a second workspace, so a new agent's home is a question."""
+
+	return subroutine.domain.workspaces.create(
+		world.session,
+		slug=f"zion-{uuid.uuid4().hex[:6]}",
+		title="Zion",
+		owner=world.founder,
+	)
+
+
+def _joined (world: World, username: str) -> set[uuid.UUID]:
+	"""Return the workspaces an account belongs to."""
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	account = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User).where(
+			subroutine.db.models.identity.User.username == username
+		)
+	).one()
+
+	return set(
+		world.session.scalars(
+			sqlalchemy.select(member.workspace_id).where(member.user_id == account.id)
+		)
+	)
+
+
+def test_a_new_agent_joins_its_home_and_is_pinned_only_when_asked (world: World) -> None:
+	"""`SR#4561`, P10 of the cold review of 2026-10-05: one argument was both home and pin.
+
+	On an instance with two workspaces a new agent was refused until a workspace was named, and
+	naming one pinned its credential - while nothing else pins a credential unasked (§7.4).
+	**``home`` is where it joins and ``workspace`` only the pin**, and a pin away from the home is
+	refused, since that credential could never be used.
+	"""
+
+	zion = _second_workspace(world)
+	home = world.call(
+		"POST", "/v1/tokens", json={"title": "Smith's", "service_account": "smith", "home": zion.slug}
+	)
+
+	assert home.status_code == 201, home.text
+	assert home.json()["workspace_id"] is None, "a home pinned the credential"
+	assert _joined(world, "smith") == {zion.id}
+
+	pinned = world.call(
+		"POST",
+		"/v1/tokens",
+		json={"title": "Jones's", "service_account": "jones", "home": zion.slug, "workspace": zion.slug},
+	)
+
+	assert pinned.status_code == 201, pinned.text
+	assert pinned.json()["workspace_id"] == str(zion.id)
+
+	elsewhere = world.call("GET", "/v1/me").json()["workspaces"]
+	other = next(row["slug"] for row in elsewhere if row["slug"] != zion.slug)
+	away = world.call(
+		"POST",
+		"/v1/tokens",
+		json={"title": "Brown's", "service_account": "brown", "home": zion.slug, "workspace": other},
+	)
+
+	assert away.status_code == 422, away.text
+	assert away.json()["errors"][0]["field"] == "workspace", away.text
+
+
+def test_a_home_goes_with_a_new_agent (world: World) -> None:
+	"""`SR#4561`: a home without an agent, or one an existing agent is not in, is refused by name.
+
+	A home is where a new agent joins, so on a person's own credential it would be a field that
+	changed nothing; and nothing here adds an existing agent to a workspace, so naming one it is
+	not in would be the same.
+	"""
+
+	zion = _second_workspace(world)
+	alone = world.call("POST", "/v1/tokens", json={"title": "Mine", "home": zion.slug})
+
+	assert alone.status_code == 422, alone.text
+	assert alone.json()["errors"][0]["field"] == "home", alone.text
+
+	first = world.call("GET", "/v1/me").json()["workspaces"]
+	other = next(row["slug"] for row in first if row["slug"] != zion.slug)
+
+	assert world.call(
+		"POST", "/v1/tokens", json={"title": "Smith's", "service_account": "smith", "home": other}
+	).status_code == 201
+
+	again = world.call(
+		"POST", "/v1/tokens", json={"title": "Smith's too", "service_account": "smith", "home": zion.slug}
+	)
+
+	assert again.status_code == 422, again.text
+	assert again.json()["errors"][0]["field"] == "home", again.text
+
+
+def test_a_new_agent_with_no_home_named_joins_where_its_projects_are (world: World) -> None:
+	"""`SR#4561`, row 21 of the cold review of 2026-10-05: its places say where it works.
+
+	On an instance with two workspaces a new agent named no workspace was refused as ambiguous,
+	though its projects were all in one. It joins that one now, unpinned.
+	"""
+
+	zion = _second_workspace(world)
+	web = subroutine.domain.projects.create(
+		world.session, workspace_id=zion.id, key="web", title="Website rebuild"
+	)
+	made = world.call(
+		"POST",
+		"/v1/tokens",
+		json={"title": "Smith's", "service_account": "smith", "project_scope": [str(web.id)]},
+	)
+
+	assert made.status_code == 201, made.text
+	assert made.json()["workspace_id"] is None
+	assert _joined(world, "smith") == {zion.id}

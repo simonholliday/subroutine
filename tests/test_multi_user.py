@@ -1640,3 +1640,38 @@ def test_an_owner_or_the_operator_makes_and_removes_owners (
 	assert "hugo" not in {
 		holder.username for _found, holder, _held in workspaces.members(session, workspace)
 	}
+
+
+def test_agent_create_names_a_home_and_pins_only_with_pin (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4561`, P10 of the cold review of 2026-10-05: one flag was both the home and the pin.
+
+	On an instance with two workspaces a new agent was pinned to the one named, while nothing else
+	pins a credential unasked. **``--workspace`` is where it joins, and ``--pin`` pins it there**;
+	``--pin`` alone is refused, since the instance would choose the home and this could not say
+	which.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "dojo", "The Dojo")
+
+	home = run("agent", "create", "spar-bot", "--workspace", "dojo").output
+
+	assert "spar-bot (agent), unnarrowed, in dojo (" in home, home
+
+	pinned = run("agent", "create", "deploy-bot", "--workspace", "dojo", "--pin").output
+
+	assert "deploy-bot (agent), in dojo (" in pinned, pinned
+
+	rows = run("token", "list").output.splitlines()
+	described = {
+		rows[at].split()[1]: rows[at + 1] for at in range(len(rows) - 1) if rows[at].split()[1:2]
+	}
+
+	assert "in dojo only" in described["deploy-bot"], rows
+	assert "in dojo only" not in described["spar-bot"], rows
+
+	alone = run("agent", "create", "lone-bot", "--pin", expect=1).output
+
+	assert "'--pin' pins it to the workspace '--workspace' names, so it needs one." in alone, alone

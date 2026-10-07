@@ -1173,6 +1173,7 @@ class Client(typing.Protocol):
 		username: str | None = None,
 		service_account: str | None = None,
 		workspace: str | None = None,
+		home: str | None = None,
 		scopes: typing.Sequence[str] = (),
 		projects: typing.Sequence[str] | None = None,
 		writes: typing.Sequence[str] | None = None,

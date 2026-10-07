@@ -208,6 +208,7 @@ def issue (
 	username: str | None = None,
 	service_account: str | None = None,
 	workspace: str | None = None,
+	home: str | None = None,
 	scopes: typing.Sequence[str] = (),
 	projects: typing.Sequence[str] | None = None,
 	writes: typing.Sequence[str] | None = None,
@@ -246,24 +247,55 @@ def issue (
 
 	The fourth element of the return says whether an account had to be made, because "created
 	service account claude" is worth printing and cannot be inferred afterwards without a race.
+
+	**``workspace`` pins the credential and ``home`` is where a new agent joins** (`#4561`, decision
+	`#4527` as revised on 2026-10-07): one argument was both, so on an instance with two workspaces
+	a new agent was always pinned, against §7.4's *never pinned by default*. Its home is ``home``,
+	else the workspace it is pinned to, else the one its projects are in, else the operator's only
+	one; a pin away from the home is refused, since that credential could never be used.
 	"""
 
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
-	owner, created = _owner_for(
-		session,
-		actor,
-		username=username,
-		service_account=service_account,
-		workspace=workspace,
-	)
+	if home is not None and not (service_account or "").strip():
+		raise subroutine.errors.ValidationError(
+			"A home is where a new agent joins, so it goes with a service account.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="home",
+					code="invalid_field_value",
+					message="home names the workspace a new agent becomes a member of.",
+					hint="Name the agent with service_account, or leave home out.",
+				)
+			],
+		)
+
 	pinned = (
 		None
 		if workspace is None
 		else subroutine.domain.selection.workspace(session, actor, requested=workspace)
 	)
+	named = (
+		None if home is None else subroutine.domain.selection.workspace(session, actor, requested=home)
+	)
+
+	if pinned is not None and named is not None and pinned.id != named.id:
+		raise subroutine.errors.ValidationError(
+			"A credential pinned away from its agent's home could never be used.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="workspace",
+					code="invalid_field_value",
+					message=f"The agent joins {named.slug!r}, and the credential would reach only "
+					f"{pinned.slug!r}.",
+					hint="Pin it to its home, or leave the pin out.",
+				)
+			],
+		)
+
+	within = pinned or named
 	restricted = subroutine.domain.selection.token_projects(
-		session, actor, projects, workspace=pinned
+		session, actor, projects, workspace=within
 	)
 
 	# **Resolved the same way, so `--project SR --write SR` cannot mean two different SRs**
@@ -271,7 +303,20 @@ def issue (
 	# ambiguous one; the *relationship* between the two lists — that a write set is inside
 	# the reach — is checked by `issue_token`, where the ids are canonical.
 	writable = subroutine.domain.selection.token_projects(
-		session, actor, writes, workspace=pinned
+		session, actor, writes, workspace=within
+	)
+	owner, created = _owner_for(
+		session,
+		actor,
+		username=username,
+		service_account=service_account,
+		home=lambda: within
+		or _where_its_places_are(
+			session,
+			actor,
+			{place.workspace_id for place in [*(restricted or ()), *(writable or ())]},
+		),
+		named=named,
 	)
 
 	row, issued = subroutine.domain.authentication.issue_token(
@@ -305,9 +350,13 @@ def _owner_for (
 	*,
 	username: str | None,
 	service_account: str | None,
-	workspace: str | None,
+	home: typing.Callable[[], subroutine.db.models.identity.Workspace],
+	named: subroutine.db.models.identity.Workspace | None,
 ) -> tuple[subroutine.db.models.identity.User, bool]:
 	"""Return whose credential this is, and whether an account had to be made for it.
+
+	``home`` says where a new agent joins, asked only when one is made; ``named`` is the home the
+	caller named, which an agent that already exists must belong to (`#4561`).
 
 	**Two arguments, because these are two decisions** (`#207`). ``username`` says *who*;
 	``service_account`` says who *and* that a machine identity may be created for the name. One
@@ -427,20 +476,67 @@ def _owner_for (
 				],
 			)
 
+		# **A home named for an agent that already exists is one it must already belong to**
+		# (`#4561`): nothing here adds an existing account to a workspace, so a home it is not in
+		# would be a field that changed nothing.
+		member = subroutine.db.models.identity.WorkspaceMember
+
+		if named is not None and session.scalar(
+			sqlalchemy.select(member.user_id).where(
+				member.workspace_id == named.id, member.user_id == existing.id
+			)
+		) is None:
+			raise subroutine.errors.ValidationError(
+				f"{existing.username!r} already exists, and is not a member of {named.slug!r}.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="home",
+						code="invalid_field_value",
+						message=f"{existing.username!r} does not belong to {named.slug!r}.",
+						hint=f"Add it there first - 'subroutine user add {existing.username} "
+						f"--workspace {named.slug}' - or name a workspace it belongs to.",
+					)
+				],
+			)
+
 		return existing, False
 
 	account = subroutine.domain.users.create(
 		session, username=machine, is_service_account=True, actor=actor
 	)
-	home = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+	joined = home()
 
 	# An account with no role can authenticate and do nothing, which reads as a broken token
 	# rather than as a missing membership. Given the narrowest role that can actually work.
 	subroutine.domain.workspaces.add_member(
-		session, home, account, role_key=SERVICE_ACCOUNT_ROLE, actor=actor
+		session, joined, account, role_key=SERVICE_ACCOUNT_ROLE, actor=actor
 	)
 
 	return account, True
+
+
+def _where_its_places_are (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	holding: set[uuid.UUID],
+) -> subroutine.db.models.identity.Workspace:
+	"""Return the workspace a new agent's projects are all in, else the operator's only one - `#4561`.
+
+	**A credential confined to one workspace by its places defaults to it** (row 21 of the cold
+	review of 2026-10-05): an agent narrowed to ``web`` joins the workspace ``web`` is in, with no
+	question about which. Projects in several workspaces, or none named, leave the choice to
+	:func:`subroutine.domain.selection.workspace`, which takes the operator's only workspace and
+	asks which where there are more. ``holding`` is the workspaces its projects are in, already
+	resolved through what the operator may name.
+	"""
+
+	if len(holding) == 1:
+		found = session.get(subroutine.db.models.identity.Workspace, holding.pop())
+
+		if found is not None:
+			return found
+
+	return subroutine.domain.selection.workspace(session, actor, requested=None)
 
 
 def _any_account (
