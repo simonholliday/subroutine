@@ -23,6 +23,7 @@ import sys
 import tomllib
 import traceback
 import typing
+import uuid
 
 import pydantic
 import rich.text
@@ -2604,6 +2605,10 @@ def token_create (
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
+		# **The day it stops, as `token list` will say it** (`SR#4564`): in the zone this account
+		# reads days in, asked only where there is a day to say.
+		until = None if minted.expires_at is None else _reading(client).day(minted.expires_at)
+
 	secret = minted.token
 
 	# Printed before it is stored. If the write fails now, the secret is at least on screen.
@@ -2613,13 +2618,16 @@ def token_create (
 			f"{subroutine.domain.tokens.SERVICE_ACCOUNT_ROLE} role."
 		)
 
-	# **Said back, because the subtree is the part nobody would guess.** A restriction to `SR`
-	# also reaches `SR/WEB` and everything under it (§7.3), which is what makes it usable on a
-	# tree deeper than one level and is not visible in what was typed.
-	restricted = subroutine.views.reach(minted)
+	# **What it may do, in every surface's words** (`SR#4564`, decision `#4527`). This said the
+	# projects and nothing else, so a credential pinned to a workspace, narrowed to some
+	# permissions, writing in one project or stopping on a day was described by what it reached.
+	_say(f"This credential may do {subroutine.views.narrowing(minted, until=until)}.")
 
-	if restricted:
-		_say(f"Restricted to {', '.join(restricted)} and anything filed underneath.")
+	# **And the subtree, because it is the part nobody would guess.** A restriction to `SR` also
+	# reaches `SR/WEB` and everything under it (§7.3), which is what makes it usable on a tree
+	# deeper than one level and is not visible in what was typed.
+	if subroutine.views.reach(minted):
+		_say("Each of its projects includes anything filed underneath it.")
 
 	_say("")
 	_say(secret)
@@ -2709,13 +2717,11 @@ def token_list () -> None:
 	width = max(len(row.prefix) for row in listed)
 
 	for row in listed:
-		pin = None if row.workspace_id is None else places.get(row.workspace_id)
-
 		_say(
 			f"  {row.prefix.ljust(width)}  {row.username}  {row.title}  "
 			f"{_credential_state(row, reading)}"
 		)
-		_say(f"  {' ' * width}  {_credential_reach(row, pin, reading)}")
+		_say(f"  {' ' * width}  {_credential_reach(row, places, reading)}")
 
 	_say_the_zone(reading)
 
@@ -2784,7 +2790,7 @@ def _say_the_zone (reading: Reading) -> None:
 
 
 def _credential_reach (
-	token: subroutine.views.Token, pinned: str | None, reading: Reading
+	token: subroutine.views.Token, places: dict[uuid.UUID, str], reading: Reading
 ) -> str:
 	"""Say what a credential can reach, and when it was last used.
 
@@ -2797,19 +2803,20 @@ def _credential_reach (
 	revoke something. It is spelled out.
 	"""
 
-	# **The compact row's description too** (`#4020`), which said less than this.
-	parts = subroutine.views.may_do(token, pinned=pinned)
-
+	# **Every surface's words** (`SR#4564`, decision `#4527`), without the expiry, which the line
+	# above says. A pin it could not name was left out, which described the credential as reaching
+	# every workspace its owner does.
+	#
 	# A credential issued and never presented is the interesting case here — it is either
 	# unused or was pasted somewhere that has not run yet — so it is stated rather than left
 	# as a blank the reader has to interpret.
-	parts.append(
+	used = (
 		"never used"
 		if token.last_used_at is None
 		else f"last used {reading.day(token.last_used_at)}"
 	)
 
-	return " · ".join(parts)
+	return f"{subroutine.views.narrowing(token, places=places)} · {used}"
 
 
 def _credential_state (token: subroutine.views.Token, reading: Reading) -> str:
@@ -3222,24 +3229,16 @@ def _what_the_credential_can_do (answer: subroutine.views.Me) -> str:
 		# nothing reads, from every other command, as an instance with no work in it.
 		return f"{answer.user.username} ({kind}), and it can read no workspace at all"
 
-	if credential is None or not credential.narrows:
-		return f"{answer.user.username} ({kind}), unnarrowed, in {where}"
+	# **What the instance says it may do in each workspace, then what the credential is, in every
+	# surface's words** (`SR#4564`, decision `#4527`). This said the projects and the write set in
+	# words of its own, and *unnarrowed* where every other surface said *everything its owner can
+	# do*. A credential the instance does not describe - an older one - is described by its name.
+	said = f"{answer.user.username} ({kind}), in {where}."
 
-	# **The project restriction is stated separately because it is the only real boundary.**
-	# A scope decides which verbs; a workspace pin decides where — a project decides which
-	# *items* exist at all for this credential, which is what `#216` exists for and what makes
-	# an agent bounded rather than merely named.
-	#
-	# Not `views.narrowing()`, deliberately: this sentence already carries the workspace and
-	# the effective permissions in `where`, so that renderer would say both twice. The *rule*
-	# it shares — reach and write set are two answers and both get named (`#403`) — is what
-	# has to stay in step, and a test drives this command to check it.
-	named = subroutine.views.reach(credential)
-	within = f", and only within {', '.join(named)}" if named else ""
-	changing = subroutine.views.writable(credential)
-	writes = f", writing only in {', '.join(changing)}" if changing else ""
+	if credential is None:
+		return said
 
-	return f"{answer.user.username} ({kind}), in {where}{within}{writes}"
+	return f"{said} This credential may do {subroutine.views.credential_in_words(credential, answer)}."
 
 
 def _say_whom_it_answers_to (user: subroutine.views.Caller) -> None:

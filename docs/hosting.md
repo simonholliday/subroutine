@@ -1021,7 +1021,7 @@ who did what if the screen is ever used to write, and turning it off does not lo
 
   That is the only time the credential is shown. Nothing recovers it afterwards.
 
-  Checked, by presenting it: claude (agent), in projects (comment:read, comment:write, task:read, task:write), and only within web
+  Checked, by presenting it: claude (agent), in projects (comment:read, comment:write, task:read, task:write). This credential may do comment:read, comment:write, task:read, task:write; projects web.
   Account parent: laurence.
 
   Nothing here will use it yet. For one project on this machine, it goes in
@@ -1162,7 +1162,8 @@ reach at all:
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine token create --service-account web --workspace projects --project web
   Created service account web, with the contributor role.
-  Restricted to web and anything filed underneath.
+  This credential may do everything its owner can do; in projects only; projects web.
+  Each of its projects includes anything filed underneath it.
 ```
 
 **It brings the sub-projects with it**, which is why the command says so rather than echoing
@@ -1247,7 +1248,7 @@ project](connecting.md#a-different-agent-in-each-project) is the whole of it.
 $ subroutine whoami
   claude (agent), via token 'web agent' (c4d60eea…).
   Account parent: laurence.
-  Narrowed to workspace 'projects'; projects web; scopes task:read, task:write.
+  This credential may do task:read, task:write; in projects only; projects web.
 
     projects  Contributor  may: task:read (tasks and documents), task:write (tasks and documents)
   …
@@ -1766,7 +1767,7 @@ there is nothing in that listing to leak, and the prefix is what revoking takes:
   a1b2c3d4  laurence  My laptop        no expiry
             everything its owner can do · last used 2026-07-31
   e5f6a7b8  claude    claude's token   until 2026-08-30
-            task:read, task:write · in acme only · never used
+            task:read, task:write; in acme only · never used
 
 # sudo -u subroutine env \
     XDG_CONFIG_HOME=/var/lib/subroutine/config \

@@ -2589,11 +2589,10 @@ def _whoami_lines (me: subroutine.views.Me, *, agent_because: str | None = None)
 	if accountable := subroutine.views.accountable_in_words(me.user):
 		lines.append(accountable)
 
-	if credential is not None and credential.narrows:
-		lines.append(
-			f"Narrowed to "
-			f"{subroutine.views.narrowing(credential, me.workspaces)}."
-		)
+	# **In every surface's words** (`SR#4564`, decision `#4527`), and its expiry with them: a
+	# credential that stops working says so, though nothing else narrows it.
+	if credential is not None and (credential.narrows or credential.expires_at is not None):
+		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
 
 	if me.instance_permissions:
 		lines.append(f"Over the installation itself: {', '.join(me.instance_permissions)}.")

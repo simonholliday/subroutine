@@ -269,38 +269,60 @@ export function Holdings ({ username, credentials, onRevoke, onIssue, busy = fal
 
 
 /*
-	**What a credential may do, in the words the terminal already uses.**
+	**What a credential may do, then where, then until when, in every surface's words** (`SR#4564`,
+	decision `#4527`).
 
-	`views.Token.columns` renders *everything its owner can do* for an unnarrowed credential, and
-	this says it identically. Two surfaces describing one fact in two vocabularies is `#1266`'s
-	subject, and `tests/test_web.py` holds the two strings to each other so neither can be
-	reworded alone.
+	`views.narrowing` says it for the terminal and the agent tools, and this is its twin, word for
+	word: `tests/test_narrowing.py` renders both from one set of credentials, so neither can be
+	reworded alone. This said *within* where every other surface said *projects*, and left out a
+	pin, so a credential pinned to one workspace read as reaching every workspace its owner does.
 
-	**Read from `narrows` rather than from `scopes.length`**, which is the field's whole reason
-	for existing: `scopes: []` means *no narrowing* and reading it as *no permissions* is the
-	fastest way to a wrong conclusion about what a leaked credential could do. Its own docstring
-	says so — *"spelled out so that reading `scopes: []` the wrong way round is not the only
-	thing between a caller and a wrong conclusion"*.
+	**An empty `scopes` is everything its owner can do** rather than nothing, which is the reversal
+	nobody should have to remember while deciding whether to revoke something. A list of keys is
+	asked for its length, as Python asks it: an empty one is true here and false there.
 */
 export const UNNARROWED = "everything its owner can do";
 
-export function reachOf (credential) {
-	/* What one credential may do and where, as a sentence a reader can act on. */
-	const may = credential.narrows && credential.scopes.length > 0
-		? credential.scopes.join(", ")
-		: UNNARROWED;
-	const within = credential.project_scope_keys && credential.project_scope_keys.length > 0
-		? `, within ${credential.project_scope_keys.join(", ")}`
-		: "";
-	/* **And where it may change things** (`#3944`), which a credential narrows on its own: one
-	   writing only in one project still reads everything its owner can, and was described as
-	   unnarrowed. Keys where the instance could resolve them, as `views.writable` gives them. */
-	const changing = credential.project_write_scope == null
-		? []
-		: (credential.project_write_scope_keys || credential.project_write_scope);
-	const writing = changing.length > 0 ? `, writing only in ${changing.join(", ")}` : "";
+function keyed (keys, ids) {
+	/* Keys where the instance could resolve them, ids where it could not, as `views.reach` gives them. */
+	return keys && keys.length > 0 ? keys : ids;
+}
 
-	return `${may}${within}${writing}`;
+export function reachOf (credential, until = null) {
+	/* One credential as a sentence a reader can act on. `until` is the day it stops, as this page
+	   says days, and is left out where nothing is to be said. Its permissions are sorted, as
+	   Python sorts them: the names are plain ASCII, so the two orders agree. */
+	const parts = [
+		credential.scopes && credential.scopes.length > 0
+			? [...credential.scopes].sort().join(", ")
+			: UNNARROWED,
+	];
+
+	if (credential.workspace_id != null) {
+		parts.push(`in ${credential.workspace || credential.workspace_id} only`);
+	}
+
+	if (credential.project_scope != null) {
+		const within = keyed(credential.project_scope_keys, credential.project_scope);
+
+		parts.push(within.length > 0 ? `projects ${within.join(", ")}` : "no project at all");
+	}
+
+	/* **Where it may change things is the second answer** (`#3944`): a credential writing only in
+	   one project still reads everything it reaches, and was described as unnarrowed. */
+	if (credential.project_write_scope != null) {
+		const changing = keyed(credential.project_write_scope_keys, credential.project_write_scope);
+
+		parts.push(
+			changing.length > 0 ? `writing only in ${changing.join(", ")}` : "writing nowhere at all"
+		);
+	}
+
+	if (until != null) {
+		parts.push(`until ${until}`);
+	}
+
+	return parts.join("; ");
 }
 
 export function Credential ({ credential, onRevoke, busy = false }) {
@@ -323,7 +345,10 @@ export function Credential ({ credential, onRevoke, busy = false }) {
 				<strong>${credential.title}</strong>
 				<span class="prefix">${credential.prefix}</span>
 			</span>
-			<span class="reach">${reachOf(credential)}</span>
+			<span class="reach">${reachOf(
+				credential,
+				credential.usable && credential.expires_at ? day(credential.expires_at, here()) : null,
+			)}</span>
 			${credential.usable
 				? html`
 					<button type="button" class="action" disabled=${busy}

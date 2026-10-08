@@ -7,7 +7,6 @@ the posture §14.12 warns about — and it would be an easy thing to leave until
 where it would then have to be retrofitted into a path that had never had it.
 """
 
-import typing
 import uuid
 
 import pytest
@@ -340,33 +339,6 @@ def test_structured_fields_win_over_parsed_ones (session: sqlalchemy.orm.Session
 
 	assert task.importance == 5
 	assert task.title == "Write the report"
-
-
-@pytest.mark.parametrize(
-	"description", ["a token principal", "a plain principal"]
-)
-def test_describe_says_who_is_acting_without_printing_the_token (
-	session: sqlalchemy.orm.Session, description: str
-) -> None:
-	"""``doctor`` and ``--verbose`` need this, and neither may leak the credential."""
-
-	installed = _installed(session)
-	principal: typing.Any = subroutine.domain.authentication.Principal(user=installed.user)
-
-	if description == "a token principal":
-		_token, issued = subroutine.domain.authentication.issue_token(
-			session,
-			user=installed.user,
-			title="Agent",
-			scopes=[subroutine.permissions.TASK_READ],
-		)
-		principal = subroutine.domain.local.principal(
-			session, token=issued.value.get_secret_value()
-		)
-
-		assert issued.value.get_secret_value() not in subroutine.domain.local.describe(principal)
-
-	assert installed.user.username in subroutine.domain.local.describe(principal)
 
 
 def test_a_deactivated_account_cannot_be_named_by_local_user (

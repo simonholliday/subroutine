@@ -4215,11 +4215,47 @@ def test_asking_who_you_are_says_what_a_narrow_credential_cannot_do (
 
 	assert not failed
 	assert "the agent" in text, "named by its title, which is what `token list` shows"
-	assert "Narrowed to" in text
-	assert subroutine.permissions.TASK_READ in text
+	assert f"This credential may do {subroutine.permissions.TASK_READ}" in text, text
 
 	# The secret never appears, in any form — the same rule every other surface keeps.
 	assert issued.value.get_secret_value() not in text
+
+
+def test_asking_who_you_are_says_when_a_credential_stops_working (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4564`, decision `#4527`: a credential nothing narrows but its expiry said nothing of it.
+
+	The line was printed only for a credential that narrows, and expiry is not narrowing, so an
+	agent on a credential stopping next week was told nothing about when it would stop.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="the agent",
+		expires_at=datetime.datetime(2030, 1, 15, 12, tzinfo=datetime.UTC),
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_whoami")
+
+	assert not failed
+	assert "This credential may do everything its owner can do; until 2030-01-15." in text, text
 
 
 def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (

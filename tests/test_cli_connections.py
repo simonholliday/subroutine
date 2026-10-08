@@ -2704,7 +2704,7 @@ def test_one_command_sets_an_agent_up_and_what_it_records_works (
 
 	assert "Created service account claude" in made
 	assert "claude (agent)" in made, "checked by presenting it, not by describing it"
-	assert "only within web" in made
+	assert "This credential may do task:read; projects web." in made, made
 	assert "as the agent on connection 'local'" in made
 
 	# **Do what it says and see what happens** — the only version of this check worth anything.
@@ -2944,7 +2944,8 @@ def test_a_credential_can_be_restricted_to_one_project_from_the_command_line (
 
 	issued = run("token", "create", "--service-account", "web", "--project", "web")
 
-	assert "Restricted to web and anything filed underneath" in issued.output, (
+	assert "This credential may do everything its owner can do; projects web." in issued.output
+	assert "Each of its projects includes anything filed underneath it." in issued.output, (
 		"the subtree is the part nobody would guess from what they typed"
 	)
 
@@ -3006,7 +3007,7 @@ def test_a_restricted_credential_reads_back_the_key_that_was_typed (
 		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
 	)
 
-	assert "Narrowed to projects web" in run("whoami").output
+	assert "This credential may do everything its owner can do; projects web." in run("whoami").output
 
 	scoped = json.loads(run("whoami", "--json").output)[0]["credential"]
 
@@ -3036,7 +3037,7 @@ def test_a_project_named_in_two_workspaces_is_refused_rather_than_picked (
 	assert "--workspace" in refused.output, "and it says how to settle it"
 
 	# Named, it resolves — and the two are different projects, so this is the whole fix.
-	assert "Restricted to web" in run(
+	assert "in acme only; projects web" in run(
 		"token", "create", "--username", "si", "--workspace", "acme", "--project", "web"
 	).output
 
@@ -3159,9 +3160,7 @@ def test_whoami_says_what_a_narrowed_credential_is_limited_to (
 
 	answer = run("whoami").output
 
-	assert "Narrowed to" in answer
-	assert "workspace 'personal'" in answer
-	assert "scopes task:read" in answer
+	assert "This credential may do task:read; in personal only." in answer, answer
 	assert "may: task:read" in answer
 
 
@@ -3917,7 +3916,7 @@ def test_a_worker_profile_bounds_an_agent_to_one_project (
 
 	made = run("agent", "create", "claude", "--profile", "worker", "--project", "web").output
 
-	assert "only within web" in made
+	assert "; projects web." in made, made
 	assert "writing only in" not in made, "a worker writes everywhere it reaches"
 
 
@@ -3942,8 +3941,7 @@ def test_a_collaborator_reads_a_tree_and_writes_one_part_of_it (
 		"--write", "api",
 	).output
 
-	assert "only within web, api" in made
-	assert "writing only in api" in made
+	assert "; projects web, api; writing only in api." in made, made
 
 
 def test_an_observer_can_read_and_is_refused_a_write (
@@ -4026,7 +4024,7 @@ def test_whoami_names_a_credentials_write_set (
 
 	answer = run("whoami").output
 
-	assert "Narrowed to writing in api." in answer
+	assert "This credential may do everything its owner can do; writing only in api." in answer
 
 
 #: ``--here`` asks git what a repository ignores, so these need the program; CI always has it.

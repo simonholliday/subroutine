@@ -21316,37 +21316,6 @@ def test_the_browser_and_the_terminal_say_the_same_thing_about_an_unnarrowed_cre
 	)
 
 
-def test_a_credential_that_narrows_nothing_is_read_off_narrows_not_off_the_list (
-	tmp_path: pathlib.Path
-) -> None:
-	"""The field exists because the list is ambiguous, so the list must not be what is read.
-
-	A credential carrying scopes it does not narrow with, or narrowing with an empty list, are
-	both states this model permits — and reading `scopes.length` would describe the first as
-	narrowed and the second as unnarrowed, which is backwards for exactly the case somebody is
-	worried about when they ask what a leaked credential could do.
-	"""
-
-	said = _ran(tmp_path, f"""
-		import * as app from "{_staged(tmp_path).as_uri()}";
-
-		process.stdout.write(JSON.stringify({{
-			narrowed: app.reachOf({{ narrows: true, scopes: ["task:read"] }}),
-			empty: app.reachOf({{ narrows: true, scopes: [] }}),
-			wide: app.reachOf({{ narrows: false, scopes: ["task:read"] }}),
-		}}));
-	""")
-
-	assert said["narrowed"] == "task:read"
-	assert said["empty"] == app_unnarrowed(said), (
-		"a credential that says it narrows and names nothing must not be described as bounded"
-	)
-	assert said["wide"] == app_unnarrowed(said), (
-		f"scopes were read instead of `narrows`, so an unnarrowed credential is described as "
-		f"bounded: {said['wide']!r}"
-	)
-
-
 def test_a_credential_s_write_set_is_named_on_the_settings_page (tmp_path: pathlib.Path) -> None:
 	"""`SR#3944`, L-12 of the cold review of 2026-09-28: the page called it unnarrowed.
 
@@ -21369,8 +21338,8 @@ def test_a_credential_s_write_set_is_named_on_the_settings_page (tmp_path: pathl
 		}}));
 	""")
 
-	assert said["keyed"] == "everything its owner can do, writing only in web", said
-	assert said["unkeyed"] == "everything its owner can do, writing only in p1", said
+	assert said["keyed"] == "everything its owner can do; writing only in web", said
+	assert said["unkeyed"] == "everything its owner can do; writing only in p1", said
 	assert said["whole"] == "everything its owner can do", said
 
 
@@ -21412,12 +21381,6 @@ def test_an_items_comments_are_followed_past_the_first_page (tmp_path: pathlib.P
 		(True, False), (False, True)
 	], said
 	assert said["first"].startswith("/tasks/42/comments?limit=") and "cursor" not in said["first"], said
-
-
-def app_unnarrowed (said: dict[str, str]) -> str:
-	"""The phrase both branches above fall back to, named once rather than written twice."""
-
-	return "everything its owner can do"
 
 
 def test_the_scopes_offered_are_the_operators_own_and_come_from_the_instance (

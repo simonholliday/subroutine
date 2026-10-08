@@ -383,11 +383,11 @@ def test_one_renderer_says_what_a_credential_is_narrowed_to (
 			session, principal, setup.workspace, prioritised=None
 		)
 	]
-	said = subroutine.views.narrowing(credential, places)
+	said = subroutine.views.narrowing(credential, places={one.id: one.slug for one in places})
 
 	assert said == (
-		f"workspace {setup.workspace.slug!r}; projects {setup.inbox.key}; "
-		f"scopes {subroutine.permissions.TASK_READ}"
+		f"{subroutine.permissions.TASK_READ}; in {setup.workspace.slug} only; "
+		f"projects {setup.inbox.key}"
 	)
 
 	# With no workspaces to resolve the pin through — which is the caller that has not fetched
@@ -551,7 +551,7 @@ def test_a_credentials_project_scope_is_listed_by_name (
 
 	assert rendered.project_scope_keys == [setup.inbox.key, str(gone)]
 	assert f"projects {setup.inbox.key}" in subroutine.cli.main._credential_reach(
-		rendered, None, subroutine.cli.main.Reading("UTC", assumed=False)
+		rendered, {}, subroutine.cli.main.Reading("UTC", assumed=False)
 	)
 
 
@@ -595,7 +595,8 @@ def test_the_narrowing_sentence_names_a_write_set (
 
 	assert credential is not None
 	assert subroutine.views.narrowing(credential) == (
-		f"projects {setup.inbox.key}, {inside.key}; writing in {inside.key}"
+		f"everything its owner can do; projects {setup.inbox.key}, {inside.key}; "
+		f"writing only in {inside.key}"
 	)
 
 
@@ -639,11 +640,11 @@ def test_a_credential_listing_names_its_write_set_too (
 		principal=subroutine.domain.authentication.Principal(user=setup.user),
 	)
 	line = subroutine.cli.main._credential_reach(
-		rendered, None, subroutine.cli.main.Reading("UTC", assumed=False)
+		rendered, {}, subroutine.cli.main.Reading("UTC", assumed=False)
 	)
 
 	assert "writing only in web" in line, line
-	assert rendered.columns(None)[-1] == "everything its owner can do, writing only in web", (
+	assert rendered.columns(None)[-1] == "everything its owner can do; writing only in web", (
 		rendered.columns(None)
 	)
 
@@ -678,7 +679,9 @@ def test_a_credential_narrowed_only_by_a_write_set_still_says_something (
 
 	assert credential is not None
 	assert credential.narrows, "the flag has always counted the write set"
-	assert subroutine.views.narrowing(credential) == f"writing in {setup.inbox.key}"
+	assert subroutine.views.narrowing(credential) == (
+		f"everything its owner can do; writing only in {setup.inbox.key}"
+	)
 
 
 def _tree (

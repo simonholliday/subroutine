@@ -404,7 +404,7 @@ $ subroutine agent create web --workspace acme --here
 Added .claude/settings.local.json to …/web/.gitignore, so git keeps the credential out of the repository. Commit that.
 Created service account web, with the contributor role.
 
-Checked, by presenting it: web (agent), in acme (comment:read, comment:write, project:read, task:read, task:write, workspace:read)
+Checked, by presenting it: web (agent), in acme (comment:read, comment:write, project:read, task:read, task:write, workspace:read). This credential may do everything its owner can do.
 Account parent: jo.
 
 Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by your account on this machine.
@@ -500,7 +500,6 @@ on their first line - the tools only where they come from the `subroutine` plugi
 $ subroutine whoami
 web (agent), via token 'web agent' (11117b8a…).
 Account parent: jo.
-Narrowed to workspace 'acme'.
 ```
 
 **Both, because they are separate.** The shell and the plugin's server each find a credential on

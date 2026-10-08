@@ -2511,16 +2511,15 @@ class Token(pydantic.BaseModel):
 		)
 
 	def _may (self) -> str:
-		"""Say what this credential may do, as ``token list`` says it - :func:`may_do`.
+		"""Say what this credential may do, in every surface's words - :func:`narrowing`.
 
 		**The write set is the second answer** (`#3944`, `#403`'s rule), and **the pin and the
 		projects it reaches the third and fourth** (`#4020`, L-2 (5) of the cold review of
 		2026-09-30): the row called a credential narrowed to ``web`` *everything its owner can do*.
+		Its expiry is not here, because the row carries no zone to say a day in.
 		"""
 
-		pinned = self.workspace or (None if self.workspace_id is None else str(self.workspace_id))
-
-		return ", ".join(may_do(self, pinned=pinned))
+		return narrowing(self)
 
 
 class IssuedToken(Token):
@@ -5774,39 +5773,6 @@ def comments_saying (recorded: typing.Sequence[Comment], words: str) -> list[Com
 	return [one for one in recorded if folded in one.body.casefold()]
 
 
-def may_do (credential: Token, *, pinned: str | None) -> list[str]:
-	"""Say what a credential may do, a part at a time: its permissions, its workspace, its projects.
-
-	`#4020`, L-2 (5) of the cold review of 2026-09-30: **one description for the compact row and
-	``token list``**, each joining the parts in its own way. The row said only the permissions and
-	the write set, so a credential pinned to one workspace, or narrowed to ``web``, read as
-	*everything its owner can do*. ``pinned`` is the workspace as the reader knows it.
-
-	An empty ``scopes`` means no narrowing rather than no permission (§12.1a), and that reversal is
-	exactly what nobody should have to remember while deciding whether to revoke something.
-	"""
-
-	parts = ["everything its owner can do" if not credential.scopes else ", ".join(credential.scopes)]
-
-	if pinned is not None:
-		parts.append(f"in {pinned} only")
-
-	named = reach(credential)
-
-	if named:
-		parts.append(f"projects {', '.join(named)}")
-
-	# **And where it may change things, which is a second answer** (`#3944`, `#403`'s rule, in the
-	# words `agent create`'s check line uses). A credential narrowed only in where it writes still
-	# reads everything its owner can, and saying only that described it as unnarrowed.
-	changing = writable(credential)
-
-	if changing:
-		parts.append(f"writing only in {', '.join(changing)}")
-
-	return parts
-
-
 def reach (credential: Credential | Token) -> list[str]:
 	"""Name the projects a credential is restricted to, as somebody would type them.
 
@@ -5825,66 +5791,86 @@ def reach (credential: Credential | Token) -> list[str]:
 	return list(credential.project_scope_keys or credential.project_scope)
 
 
+#: What a credential nothing narrows may do, in the words every surface says it in (decision `#4527`,
+#: `SR#4564`). The browser's settings page says it as ``people.js``'s ``UNNARROWED``.
+UNNARROWED = "everything its owner can do"
+
+
 def narrowing (
-	credential: Credential,
-	workspaces: typing.Sequence[WorkspaceAccess] = (),
+	credential: Credential | Token,
+	*,
+	places: typing.Mapping[uuid.UUID, str] | None = None,
+	until: str | None = None,
 ) -> str:
-	"""Say what a credential has been limited to, in the words it was limited with.
+	"""Say what a credential may do, then where, then until when - decision `#4527`, `SR#4564`.
 
-	**One renderer, because there were three** (`#357`). The CLI's `whoami`, the MCP tool of
-	the same name and `agent create`'s closing check each built this sentence themselves, from
-	the same three clauses in the same order with the same comment above them — and they had
-	already parted company: where a workspace pin names a workspace the credential cannot read,
-	one printed the raw id and another printed "one workspace". Both are defensible and only
-	one can be right, and nothing would ever have noticed they disagreed. That is this
-	codebase's signature defect, arriving divergent rather than drifting into it.
+	**One set of words wherever a credential is described**: ``whoami`` and the agent tools,
+	``token list`` and its compact row, ``token create``, and ``agent create``'s check. There were
+	five renderers (B section 1.3 of the review of 2026-10-05), after this one had been written
+	because there were three (`#357`), and they disagreed: ``token create`` named the projects
+	alone, and ``token list`` left out a pin it could not name. The browser's settings page keeps a
+	twin, ``people.js``'s ``reachOf``, which ``tests/test_narrowing.py`` holds to this word for word.
 
-	**The id wins**, which was the CLI's answer. A pin the caller cannot resolve is exactly
-	when they need something to go and look up; "one workspace" tells them a fact they can
-	already see in the word "pinned".
+	**What it may do comes first, and an empty ``scopes`` is everything its owner can do** rather
+	than nothing (§12.1a), which is the reversal nobody should have to remember while deciding
+	whether to revoke something. Then the pin, the projects it reaches and where it may change
+	things - two answers, since a credential reading a tree may write in one project of it
+	(`#403`) - and then when it stops working.
 
-	``workspaces`` is what a slug is resolved through, and defaults to none — a caller that has
-	not got the list gets the id rather than a second query.
+	``places`` names workspaces by id; a pin it cannot name is given as its id, because a pin the
+	reader cannot resolve is exactly when they need something to go and look up, and leaving it
+	out describes a credential as reaching further than it does. ``until`` is the day it stops
+	working, as the caller renders days, and is left out where the surface says it elsewhere.
 	"""
 
-	parts = []
+	# **In one order**, since ``/v1/me`` reports a credential's permissions sorted and ``/v1/tokens``
+	# as they were stored, and one credential read in two orders on two surfaces.
+	parts = [UNNARROWED if not credential.scopes else ", ".join(sorted(credential.scopes))]
 
 	if credential.workspace_id is not None:
-		named = [
-			workspace.slug
-			for workspace in workspaces
-			if workspace.id == credential.workspace_id
-		]
-
-		parts.append(
-			f"workspace {named[0]!r}" if named else f"workspace {credential.workspace_id}"
+		pinned = (places or {}).get(credential.workspace_id) or (
+			credential.workspace if isinstance(credential, Token) else None
 		)
+		parts.append(f"in {pinned or credential.workspace_id} only")
 
 	if credential.project_scope is not None:
 		within = reach(credential)
 
 		parts.append(f"projects {', '.join(within)}" if within else "no project at all")
 
-	# **The clause `#371` shipped without, found by `#372` driving the command** (`#403`).
-	# A credential that reads a tree and writes one project reported only the tree, so the
-	# whole of what `#370` was decided for was invisible on the three surfaces that describe
-	# a credential — and a credential narrowed *only* this way printed "Narrowed to ." with
-	# nothing in it, which claims a boundary and refuses to name it.
-	#
-	# Said as "writing in …" rather than as a second list of projects, because the two lists
-	# are answers to different questions and a reader seeing two comma-separated sets of keys
-	# has to work out which is which.
+	# **Where it may change things is the second answer** (`#403`): a credential that reads a tree
+	# and writes one project was described by the tree alone, so what `#370` was decided for could
+	# not be seen.
 	if credential.project_write_scope is not None:
 		changing = writable(credential)
 
 		parts.append(
-			f"writing in {', '.join(changing)}" if changing else "writing nowhere at all"
+			f"writing only in {', '.join(changing)}" if changing else "writing nowhere at all"
 		)
 
-	if credential.scopes:
-		parts.append(f"scopes {', '.join(credential.scopes)}")
+	if until is not None:
+		parts.append(f"until {until}")
 
 	return "; ".join(parts)
+
+
+def credential_in_words (credential: Credential, me: Me) -> str:
+	"""Describe the credential ``/v1/me`` was answered for - :func:`narrowing`, `SR#4564`.
+
+	Its pin named through the workspaces the same answer lists, and the day it stops working in
+	the reader's zone, as ``token list`` says it - so ``whoami``, the agent tools and ``agent
+	create``'s check, which each hold that answer, cannot say it differently.
+	"""
+
+	return narrowing(
+		credential,
+		places={workspace.id: workspace.slug for workspace in me.workspaces},
+		until=(
+			None
+			if credential.expires_at is None
+			else moment_day(credential.expires_at, me.reader_timezone)
+		),
+	)
 
 
 def _same_clock (one: str, other: str) -> bool:

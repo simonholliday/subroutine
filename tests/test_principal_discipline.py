@@ -42,11 +42,6 @@ ASKING: dict[str, str] = {
 		"here, so this read means *an API token specifically* — which is what the branch "
 		"below it renders. `#248`."
 	),
-	"domain/local.py": (
-		"`describe` says how somebody is acting, for `doctor` and `--verbose`. Three "
-		"credentials, three sentences, and this is the first of three branches rather than "
-		"an absence standing in for one. `#248`."
-	),
 	"domain/events.py": (
 		"`actor_token_id` is a foreign key to `api_token`, so this is asking for a row in "
 		"that table and null is the honest answer for anything else. That a browser "

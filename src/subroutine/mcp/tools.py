@@ -1875,8 +1875,9 @@ def _whoami (
 	write, which is when it matters.
 
 	Terse like everything else in this module: the fields are the ones that change what an
-	agent should do, and the permissions are printed only where the credential narrowed them,
-	because an unnarrowed owner would otherwise be handed twenty keys it already holds.
+	agent should do. A workspace's permissions are listed short of everything
+	(:func:`subroutine.permissions.worth_listing`), and the credential is described in every
+	surface's words where it narrows or stops (:func:`subroutine.views.narrowing`, `SR#4564`).
 	"""
 
 	me = client.me()
@@ -1949,10 +1950,8 @@ def _whoami (
 				"credential it prints."
 			)
 
-	if credential is not None and credential.narrows:
-		lines.append(
-			f"Narrowed to {subroutine.views.narrowing(credential, me.workspaces)}."
-		)
+	if credential is not None and (credential.narrows or credential.expires_at is not None):
+		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
 
 	if me.instance_permissions:
 		lines.append(f"Over the installation: {', '.join(me.instance_permissions)}.")

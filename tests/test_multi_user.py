@@ -1658,7 +1658,8 @@ def test_agent_create_names_a_home_and_pins_only_with_pin (
 
 	home = run("agent", "create", "spar-bot", "--workspace", "dojo").output
 
-	assert "spar-bot (agent), unnarrowed, in dojo (" in home, home
+	assert "spar-bot (agent), in dojo (" in home, home
+	assert "This credential may do everything its owner can do." in home, home
 
 	pinned = run("agent", "create", "deploy-bot", "--workspace", "dojo", "--pin").output
 
@@ -1675,3 +1676,31 @@ def test_agent_create_names_a_home_and_pins_only_with_pin (
 	alone = run("agent", "create", "lone-bot", "--pin", expect=1).output
 
 	assert "'--pin' pins it to the workspace '--workspace' names, so it needs one." in alone, alone
+
+
+def test_a_new_credential_says_what_it_may_do_and_until_when (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4564`, decision `#4527`: ``token create`` named the projects and nothing else.
+
+	A credential nothing narrows was described by nothing at all, and one that stops working
+	said so only in ``token list``. **What it may do, then where, then until when**, on the
+	command that makes it and on ``whoami`` presenting it - which said nothing of a credential that
+	only expires.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	made = run("token", "create", "--title", "Laptop", "--expires", "2030-01-15").output
+
+	assert "This credential may do everything its owner can do; until 2030-01-1" in made, made
+	assert "anything filed underneath" not in made, "it names no project"
+
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in made.split() if word.startswith("sr_"))
+	)
+	answered = run("whoami").output
+
+	assert "This credential may do everything its owner can do; until 2030-01-1" in answered, (
+		answered
+	)
