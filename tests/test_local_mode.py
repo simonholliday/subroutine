@@ -20,6 +20,7 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.local
 import subroutine.domain.projects
+import subroutine.domain.sessions
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -91,6 +92,50 @@ def test_a_local_user_that_does_not_exist_says_who_does (
 
 	assert raised.value.hint is not None
 	assert installed.user.username in raised.value.hint
+
+
+def test_a_local_user_is_held_to_its_own_account_as_over_http (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4567`, decision `#4514`: S8 of the cold review of 2026-10-05, as it was measured.
+
+	With ``local_user`` naming a viewer, the terminal minted the superuser a credential, a sign-in
+	link and a sign-out - and the credential's ``whoami`` read *superuser*. **Each is refused now, as
+	over HTTP**; and the controls, which are the recovery path: the viewer still acts on its own
+	account, and a superuser named as the local user does all three for anybody.
+	"""
+
+	installed = _installed(session)
+	viewer = subroutine.domain.users.create(session, username=f"mouse-{uuid.uuid4().hex[:8]}")
+	session.flush()
+
+	at_the_terminal = subroutine.domain.local.principal(session, local_user=viewer.username)
+	boss = installed.user
+
+	assert at_the_terminal.user.id == viewer.id and at_the_terminal.is_local
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.authentication.issue_token(
+			session, user=boss, title="As them", actor=at_the_terminal
+		)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.sessions.mint_link(session, user=boss, actor=at_the_terminal)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=at_the_terminal)
+
+	subroutine.domain.authentication.issue_token(
+		session, user=viewer, title="Its own", actor=at_the_terminal
+	)
+
+	recovering = subroutine.domain.local.principal(session, local_user=boss.username)
+
+	subroutine.domain.authentication.issue_token(
+		session, user=viewer, title="For them", actor=recovering
+	)
+	subroutine.domain.sessions.mint_link(session, user=viewer, actor=recovering)
+	subroutine.domain.sessions.sign_out_everywhere(session, user=viewer, actor=recovering)
 
 
 def test_a_token_narrows_local_mode (session: sqlalchemy.orm.Session) -> None:

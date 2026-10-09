@@ -128,7 +128,7 @@ def _feed (
 	owner: subroutine.db.models.identity.User,
 	**kwargs: typing.Any,
 ) -> tuple[subroutine.db.models.identity.CalendarFeed, subroutine.auth.IssuedToken]:
-	"""Mint a feed as somebody at a terminal, which no check narrows (§12.1a).
+	"""Mint a feed as somebody at a terminal, who presents no credential to narrow it (§12.1a).
 
 	**The owner is the actor and there is no way to say otherwise**, which is why this takes
 	one argument where it used to take two: a feed renders with its owner's sight, so an owner

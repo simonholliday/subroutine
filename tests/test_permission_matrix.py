@@ -1216,16 +1216,11 @@ NOT_AN_ACT: dict[str, str] = {
 #: Cells known to disagree today, by act and principal, each naming the item whose build makes it
 #: agree. A principal of ``"*"`` stands for every principal driving that act. Deleting an entry is
 #: what closes it, and an entry whose cell agrees fails as stale.
-KNOWN: dict[tuple[str, str], str] = {
-	# `#4567`: the terminal's exemptions for its local principal (S8 and D6 of `#4506`).
-	("sign somebody out", "local member"): "#4567: S8, a local principal acts on another account.",
-	("issue token for somebody", "local member"): (
-		"#4567: S8, a local principal mints another account's credential."
-	),
-	("sign-in link for somebody", "local member"): (
-		"#4567: S8, a local principal mints another account's sign-in link."
-	),
-}
+#:
+#: **Empty since `SR#4567`**, whose build closed the last three: the terminal's exemptions for its
+#: local principal (S8 and D6 of `#4506`), which signed another account out and minted its
+#: credential and sign-in link where the same account over HTTP was refused.
+KNOWN: dict[tuple[str, str], str] = {}
 
 
 # --- The decision, written down ----------------------------------------------------------------

@@ -374,9 +374,9 @@ def test_the_terminals_own_person_is_held_to_the_ceiling_through_the_agent_tools
 ) -> None:
 	"""`subroutine mcp` on this machine acts as its person with no credential, and is held too.
 
-	Signing somebody else out everywhere excused a person at the terminal from the instance verb it
-	asks (decision `#4567` is whether it should). Through the agent tools that excuse let an
-	instance administrator's tools sign a colleague out, which the ceiling exists to stop.
+	Signing somebody else out everywhere asks an instance verb, which a person at the terminal is
+	asked as over HTTP (`SR#4567`, decision `#4514`), so an instance administrator there holds it -
+	and through the agent tools does not, which is what the ceiling exists to stop.
 	"""
 
 	colleague = subroutine.domain.users.create(session, username=f"tank-{uuid.uuid4().hex[:8]}")

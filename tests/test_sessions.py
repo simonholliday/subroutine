@@ -358,14 +358,15 @@ def test_signing_out_everywhere_spends_unused_links_too (
 		subroutine.domain.sessions.redeem(session, unspent)
 
 
-def test_a_local_agent_cannot_sign_somebody_else_out_everywhere (
+def test_somebody_at_the_terminal_signs_another_account_out_only_as_over_http (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#4430`, R2-L33 of the cold review of 2026-10-04: any local caller was exempt.
+	"""`SR#4567`, decision `#4514`: local mode is the named account, with no exemptions.
 
-	With ``local_user`` naming an agent, the terminal acted as it, and signed a superuser out
-	everywhere - which the same agent presenting a credential is refused. **Only a local person is
-	exempt now**, as issuing a credential already was, and a local person still signs anybody out.
+	`SR#4430` exempted a person at the terminal and not an agent, so a ``local_user`` who was only
+	a viewer signed a superuser out everywhere (S8 of the cold review of 2026-10-05). **Now each is
+	asked as over HTTP**: the agent and the ordinary person are refused, and a superuser at the
+	terminal, holding ``instance:user_create``, signs anybody out - the recovery path.
 	"""
 
 	boss = _make_user(session, is_superuser=True)
@@ -373,18 +374,26 @@ def test_a_local_agent_cannot_sign_somebody_else_out_everywhere (
 	agent = subroutine.domain.authentication.Principal(
 		user=_make_user(session, is_service_account=True)
 	)
+	person = subroutine.domain.authentication.Principal(user=_make_user(session))
 
 	assert agent.is_local
+	assert person.is_local
 
-	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
-		subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=agent)
+	for local in (agent, person):
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+			subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=local)
 
 	# Still signed in.
 	subroutine.domain.sessions.authenticate(session, cookie)
 
-	person = subroutine.domain.authentication.Principal(user=_make_user(session))
+	administrator = subroutine.domain.authentication.Principal(
+		user=_make_user(session, is_superuser=True)
+	)
 
-	assert subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=person) == 1
+	assert (
+		subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=administrator)
+		== 1
+	)
 
 
 def test_one_kind_of_credential_never_parses_as_another () -> None:

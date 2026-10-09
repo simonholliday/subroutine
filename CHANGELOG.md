@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Somebody at the terminal is held to their own account, as over HTTP.** Where `local_user`
+  names somebody who does not administer the installation, the terminal no longer issues a
+  credential or a sign-in link for another account, or signs one out: a viewer there could mint
+  a superuser's credential and act as them. An agent behind `subroutine mcp` on a local
+  connection is held the same way. Every recovery step in docs/hosting.md works as before, run
+  as a superuser.
 - **`whoami` and `doctor` say when a project's Claude Code settings give a credential its
   tools do not use**: one named after a connection that is no longer configured - as every
   project given an agent with `agent create --here` meets after promoting your own database

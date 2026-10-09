@@ -362,8 +362,8 @@ class LoginLink(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 		subroutine.db.types.UtcDateTime(), nullable=True
 	)
 
-	# Who asked for it. NULL is somebody at a terminal with the database file, which §12.1a
-	# says is the one caller no check narrows.
+	# Who asked for it. NULL is an internal caller with no principal at all; somebody at a terminal
+	# is the local user, and is recorded as them (decision `#4514`).
 	created_by: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.uuid_column(),
 		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),

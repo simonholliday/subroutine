@@ -811,13 +811,12 @@ def refuse_an_agent_issuing_for_a_person (
 	in two calls. So an agent issues only for itself or for another agent, which is what making a
 	sub-agent and its credential needs, and a person issues for anybody their permissions allow.
 
-	``None`` and :attr:`Principal.is_local` are §12.1a, somebody at a terminal with the database
-	file, which no check here narrows - **a person** (`#4277`, L-AA-2 of the cold review of
-	2026-10-03). Naming an agent as the local user is how its narrowing is checked without a server,
-	§12.1 says, so an agent at the terminal is asked as it would be anywhere else.
+	``None`` is an internal caller with no principal at all. **Somebody at a terminal is asked as
+	they would be over HTTP** (`#4567`, decision `#4514`): local mode is the named account holding no
+	credential, so an agent named as the local user is asked here as it would be anywhere else.
 	"""
 
-	if actor is None or (actor.is_local and not actor.user.is_service_account):
+	if actor is None:
 		return
 
 	if not actor.user.is_service_account or user.is_service_account:
@@ -866,23 +865,14 @@ def _refuse_amplification (
 	issue any expiry, because issuing something *narrower* than yourself is the whole point.
 	Only the absent-or-later direction is amplification.
 
-	A presenter with no credential at all — a person at a terminal with the database file — is
-	not narrowed by any of this, which is §12.1a's position: the filesystem permission is the
-	authentication, and a check inside a process that already holds the file handle is a lock
-	on a door in a field.
-
-	**That exemption is asked for by name** (`#248`). It used to be spelled ``token is None``,
-	which a browser session would have satisfied — and the early return skips more than the
-	scope comparison it looks like it skips: it also skips the check above requiring
-	``instance:user_create`` to issue for somebody else. A signed-in browser inheriting it
-	could have issued a credential **for any account on the instance**, from the one screen
-	where issuing credentials belongs.
+	**A presenter with no credential at all - somebody at a terminal - is asked as it would be over
+	HTTP** (`#4567`, decision `#4514`). It presents nothing to narrow, so it dominates every
+	credential of its own account; issuing for somebody else still needs ``instance:user_create``.
+	It was exempt from all of this, which let a ``local_user`` who was only a viewer mint a
+	credential for a superuser and act as them (S8 of the cold review of 2026-10-05). **The file
+	still decides who you may be, never what that account may do**: whoever holds it can name any
+	account that can act as the local user.
 	"""
-
-	# **A person at the terminal, not an agent named as the local user** (`#4277`): one issued a
-	# superuser person a credential locally that it was refused over HTTP.
-	if actor.is_local and not actor.user.is_service_account:
-		return
 
 	if user.id != actor.user.id:
 		# Imported here, not at the top: `domain.authorization` imports *this* module for

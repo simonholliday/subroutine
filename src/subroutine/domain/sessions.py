@@ -70,8 +70,8 @@ def mint_link (
 	The secret is readable exactly once, here, and is returned rather than stored: what is
 	kept is a hash, so nothing — including this program — can produce it again afterwards.
 
-	``actor`` is who asked, recorded for the audit trail. ``None`` is somebody at a terminal
-	with the database file, which §12.1a says is a caller no check narrows.
+	``actor`` is who asked, recorded for the audit trail. ``None`` is an internal caller with no
+	principal at all; somebody at a terminal is the local user, asked as over HTTP (decision `#4514`).
 	"""
 
 	# A read-only session changes nothing, whoever the link would be for (decision `#4510`), and a
@@ -454,23 +454,13 @@ def _refuse_administering_somebody_else (
 	acts on another person's access rather than on their work. A caller acting on their own
 	needs nothing — you may always sign yourself out.
 
-	``None`` is §12.1a, a person at a terminal holding the database file, and is not narrowed.
-	**Nor is a local person, and only a person** (`#4430`, R2-L33 of the cold review of 2026-10-04):
-	with ``local_user`` naming an agent, the terminal acting as it signed a superuser out everywhere,
-	which the same agent presenting a credential is refused - as issuing a credential already
-	decided for a local agent. **Nor through the agent tools** (decision `#4520`, `SR#4563`): a local
-	person working through them holds no instance verb, which is what this asks.
+	``None`` is an internal caller with no principal at all. **Somebody at a terminal is asked as
+	they would be over HTTP** (`#4567`, decision `#4514`): a ``local_user`` who was only a viewer
+	signed a superuser out and minted them a sign-in link, which the same account presenting a
+	credential is refused (S8 of the cold review of 2026-10-05).
 	"""
 
-	if (
-		actor is None
-		or (
-			actor.is_local
-			and not actor.user.is_service_account
-			and not actor.through_the_agent_tools
-		)
-		or actor.user.id == user.id
-	):
+	if actor is None or actor.user.id == user.id:
 		return
 
 	# Imported here rather than at the top: `domain.authorization` imports
@@ -509,9 +499,10 @@ def _refuse_a_credential_that_would_be_widened (
 	credential with no expiry may mint anything; one that outlives the session it would buy is
 	not being widened, so it passes. Only a credential the session would outlive is refused.
 
-	``None`` is §12.1a, somebody at a terminal with the database file, and is not narrowed by
-	any of this — which is also what keeps `#248`'s recovery path working, since a locked-out
-	self-hoster mints from the console rather than over HTTP.
+	``None`` is an internal caller with no principal at all. **Somebody at a terminal presents no
+	credential, so nothing here narrows them** (decision `#4514`): a credential with no narrowing and
+	no expiry dominates the session a link buys. That is what keeps `#248`'s recovery path working,
+	since a locked-out self-hoster mints from the console as a superuser rather than over HTTP.
 
 	**A signed-in browser is refused by the expiry rule, and that is a decision rather than a
 	side effect.** A session always expires sooner than the fortnight a fresh one would buy, so

@@ -55,8 +55,23 @@ ASKING: dict[str, str] = {
 }
 
 
-def _asking (root: pathlib.Path) -> dict[str, list[int]]:
-	"""Return every module that reads a principal's token, with the lines it does it on.
+#: Every module that asks whether a principal presented no credential at all, and why that is
+#: not deciding what it may do (`SR#4567`, decision `#4514`). **Local mode is the named account
+#: holding no credential, checked exactly as over HTTP**, so the question may describe a credential
+#: and never grant anything: six sites read it as an exemption, and two of them let a
+#: ``local_user`` who was only a viewer mint a superuser's credential (S8 of the cold review of
+#: 2026-10-05). **Deleting an entry is what closes it**, and a new one is a decision.
+LOCAL_ASKED: dict[str, str] = {
+	"views.py": (
+		"`views.credential` describes the credential presented, and none is the honest answer "
+		"for somebody at a terminal - a description, which grants nothing. `#248`, decision "
+		"`#4514`."
+	),
+}
+
+
+def _asking (root: pathlib.Path, attribute: str = "token") -> dict[str, list[int]]:
+	"""Return every module that reads ``attribute`` of a principal, with the lines it does it on.
 
 	Takes the tree as an argument so that a synthetic offender goes through this function
 	rather than through a second copy of its rule — `#405`, whose lesson is that a guard
@@ -69,7 +84,9 @@ def _asking (root: pathlib.Path) -> dict[str, list[int]]:
 	for path in sorted(root.rglob("*.py")):
 		where = path.relative_to(root).as_posix()
 
-		if where == DEFINITION:
+		# **The definition's own reads are the answer for a token, and not for this** (`SR#4567`): two of
+		# the six exemptions lived in the module that defines ``is_local``.
+		if where == DEFINITION and attribute == "token":
 			continue
 
 		tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -77,7 +94,7 @@ def _asking (root: pathlib.Path) -> dict[str, list[int]]:
 		for node in ast.walk(tree):
 			if (
 				isinstance(node, ast.Attribute)
-				and node.attr == "token"
+				and node.attr == attribute
 				and isinstance(node.value, ast.Name)
 				and node.value.id in PRINCIPAL_NAMES
 			):
@@ -179,3 +196,54 @@ def test_each_named_module_exists (name: str) -> None:
 	"""An entry naming a module that has been renamed is an exemption nobody notices."""
 
 	assert (SOURCE / name).is_file(), f"ASKING names {name!r}, which is not a module"
+
+
+def test_nothing_but_a_description_asks_whether_a_principal_is_local () -> None:
+	"""`SR#4567`, decision `#4514`: nothing branches on the terminal to decide what it may do.
+
+	Local mode is the configured account presenting no credential, so every check runs for it as
+	for that account over HTTP. A read of ``is_local`` anywhere but a description is an exemption
+	coming back.
+	"""
+
+	unexplained = sorted(set(_asking(SOURCE, "is_local")) - set(LOCAL_ASKED))
+
+	assert not unexplained, (
+		f"{unexplained} ask whether a principal presented no credential. Local mode is checked "
+		f"as over HTTP (decision `#4514`), so decide by the account's permissions instead, or "
+		f"add a reason to LOCAL_ASKED if this only describes the credential."
+	)
+
+
+def test_the_local_list_names_only_modules_that_still_ask () -> None:
+	"""The stale direction, as for :data:`ASKING`: a reason whose site has gone is a fossil."""
+
+	asking = _asking(SOURCE, "is_local")
+	gone = sorted(name for name in LOCAL_ASKED if name not in asking)
+
+	assert not gone, f"{gone} no longer ask whether a principal is local. Delete them."
+
+
+def test_the_local_scan_reads_the_module_that_defines_it (tmp_path: pathlib.Path) -> None:
+	"""Two of the six exemptions were in ``domain/authentication.py``, so the scan does not skip it."""
+
+	defining = tmp_path / "domain"
+	defining.mkdir()
+	(defining / "authentication.py").write_text(
+		"def issue (actor):\n\tif actor.is_local:\n\t\treturn\n", encoding="utf-8"
+	)
+
+	assert _asking(tmp_path, "is_local") == {"domain/authentication.py": [2]}
+
+
+def test_the_local_scan_finds_the_exemption_it_was_written_for (tmp_path: pathlib.Path) -> None:
+	"""Fed the shape the six exemptions had, through the real scanner, it reports it."""
+
+	offender = tmp_path / "somewhere.py"
+	offender.write_text(
+		"def check (actor):\n\tif actor.is_local and not actor.user.is_service_account:\n"
+		"\t\treturn\n",
+		encoding="utf-8",
+	)
+
+	assert _asking(tmp_path, "is_local") == {"somewhere.py": [2]}
