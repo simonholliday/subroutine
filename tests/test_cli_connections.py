@@ -3080,6 +3080,28 @@ def test_whoami_names_the_account_and_where_its_authority_comes_from (
 	assert "personal" in answer, "and where that authority reaches"
 
 
+def test_whoami_says_what_each_permission_over_the_installation_covers (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4568`, decision `#4524`: ``instance:user_create`` gated eight acts and said none of them.
+
+	Its name says *create*, and it lets its holder mark people as having left and act for them, so
+	a holder is told that in the line naming it - as ``task:write`` says it covers documents
+	(`#703`). Both permissions over the installation say what they cover.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	answer = run("whoami").output
+	line = next(one for one in answer.splitlines() if "Over the installation itself" in one)
+
+	assert (
+		"instance:user_create (accounts - making them, marking them as having left, and issuing "
+		"and revoking their credentials)" in " ".join(answer.split())
+	), answer
+	assert "instance:admin (this installation - " in line, line
+
+
 def test_whoami_tells_two_principals_on_one_machine_apart (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

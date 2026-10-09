@@ -14,12 +14,18 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `4b82edddbc80`.
+> **This release changes the database schema**, to `a5e890283615`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`token:admin` is deleted, and the two permissions over the installation say what they
+  cover.** It was seeded into the owner and administrator roles and checked nowhere: the upgrade
+  takes it out of every role, and naming it in a scope or a role is refused. `whoami` and a
+  refusal naming either now say that `instance:user_create` covers accounts - making them,
+  marking them as having left, and issuing and revoking their credentials - and `instance:admin`
+  this installation - its settings, its backups and every workspace on it.
 - **An agent acts on accounts only within its own agents, and a person's acts are refused to it
   in one sentence.** Whatever it holds - administering the installation included - an agent no
   longer creates a person, makes a superuser, hands an agent over, chooses who answers for one,

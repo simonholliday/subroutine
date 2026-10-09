@@ -856,8 +856,8 @@ def add_member (
 		# workspace"; this checked `workspace:admin`, so the verb named for the job gated
 		# nothing and the verb named for something else did it.
 		#
-		# **A no-op for every role and not for a token.** Measured: `workspace:admin`,
-		# `user:admin` and `token:admin` are held by owner and admin and by nobody else, so
+		# **A no-op for every role and not for a token.** Measured: `workspace:admin` and
+		# `user:admin` are held by owner and admin and by nobody else, so
 		# no seeded role changes hands here — but a token scoped `user:admin` could not
 		# administer membership and one scoped `workspace:admin` could, which is backwards
 		# from what an operator reading either description would expect.

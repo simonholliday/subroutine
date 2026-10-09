@@ -2902,3 +2902,74 @@ def test_an_inbox_that_breaks_the_rule_holds_the_upgrade_back_and_says_how (
 
 	finally:
 		engine.dispose()
+
+
+#: The revision before ``token:admin`` was deleted from every role (`SR#4568`).
+_BEFORE_TOKEN_ADMIN_WENT = "4b82edddbc80"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_token_admin_leaves_every_role_and_nothing_else (migrated_url: str) -> None:
+	"""`SR#4568`, decision `#4524`: the name goes from every role that held it, and only the name.
+
+	Run with rows in the table, `#1689`'s rule for a migration touching one: the seeded roles, and a
+	role a workspace made that held it without ``user:admin``. **Going back puts it on the roles
+	holding ``user:admin``**, where the seed put it, and not on the one made by hand, since nothing
+	records that it held it; the upgrade then takes it off every role again and leaves the rest of
+	each list as it was.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+	model = subroutine.db.models.identity.Role
+	retired = "token:admin"
+
+	def _held (workspace_id: uuid.UUID) -> dict[str, list[str]]:
+		"""Return each of the workspace's roles with the permissions it holds."""
+
+		with sqlalchemy.orm.Session(engine) as session:
+			return {
+				row.key: list(row.permissions)
+				for row in session.scalars(sqlalchemy.select(model).where(model.workspace_id == workspace_id))
+			}
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.add(
+				model(
+					workspace_id=workspace.id,
+					key="auditor",
+					title="Auditor",
+					permissions=["task:read", retired],
+				)
+			)
+			session.commit()
+			workspace_id = workspace.id
+
+		before = _held(workspace_id)
+
+		assert retired not in before["owner"] and retired not in before["admin"], (
+			"a workspace seeded at the head is seeded without it"
+		)
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_TOKEN_ADMIN_WENT)
+		back = _held(workspace_id)
+
+		assert retired in back["owner"] and retired in back["admin"]
+		assert retired not in back["member"]
+		assert back["auditor"] == ["task:read", retired]
+
+		subroutine.db.migrate.upgrade(migrated_url)
+		after = _held(workspace_id)
+
+		assert not [key for key, held in after.items() if retired in held]
+		assert after["auditor"] == ["task:read"]
+		assert {key: held for key, held in after.items() if key != "auditor"} == {
+			key: held for key, held in before.items() if key != "auditor"
+		}, "the upgrade changed something besides the one name"
+
+	finally:
+		engine.dispose()

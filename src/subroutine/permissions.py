@@ -53,8 +53,12 @@ LINK_TYPE_WRITE = "link_type:write"
 #: Managing who belongs to *this workspace* and what they may do here — inviting,
 #: removing, changing a member's role. Not the same thing as creating an account, which is
 #: :data:`INSTANCE_USER_CREATE` and belongs to the tier below (docs/design.md §7.1).
+#:
+#: **``token:admin`` was beside it and is deleted** (`SR#4568`, decision `#4524`): seeded into the
+#: owner and administrator roles and checked nowhere, while acting on another account's
+#: credentials is ``instance:user_create``'s. Migration ``a5e890283615`` takes it out of every
+#: role, and naming it in a scope or a role is refused as any unknown name is.
 USER_ADMIN = "user:admin"
-TOKEN_ADMIN = "token:admin"
 
 #: Every permission that is granted by a role and checked against a workspace.
 WORKSPACE_LEVEL: frozenset[str] = frozenset(
@@ -75,7 +79,6 @@ WORKSPACE_LEVEL: frozenset[str] = frozenset(
 		STATUS_WRITE,
 		LINK_TYPE_WRITE,
 		USER_ADMIN,
-		TOKEN_ADMIN,
 	}
 )
 
@@ -120,7 +123,6 @@ WORKSPACE_WIDE: frozenset[str] = frozenset(
 		STATUS_WRITE,
 		LINK_TYPE_WRITE,
 		USER_ADMIN,
-		TOKEN_ADMIN,
 	}
 )
 
@@ -143,10 +145,18 @@ ABOVE_THE_AGENT_TOOLS: frozenset[str] = frozenset({WORKSPACE_ADMIN, WORKSPACE_DE
 #: role permission, and without their own verbs the only way to do either is to skip the
 #: check (docs/design.md §7.1).
 INSTANCE_WORKSPACE_CREATE = "instance:workspace_create"
+
+#: **Accounts** (`SR#4568`, decision `#4524`): everything done to another account - making it,
+#: marking it as having left and bringing it back, handing an agent over, and issuing, listing and
+#: revoking its credentials, sign-in links, sessions and calendar feeds. Making an account and
+#: issuing its credential are one authority, so ``agent create`` asks this alone. The name says
+#: *create* and gates far more, which :data:`COVERAGE` says wherever a holder is told.
 INSTANCE_USER_CREATE = "instance:user_create"
 
-#: The installation's own identity and settings, and anything that reads across every
-#: workspace at once.
+#: **The installation** (decision `#4524`): its name and timezone, its backups, the listing of
+#: every workspace, administering any workspace's membership and deleting it (decision `#4519`),
+#: and rescuing a project nobody can reach. "Instance administrator" was spelled two ways, so a
+#: credential scoped to one of these could do half of each (`#4507`, area A).
 INSTANCE_ADMIN = "instance:admin"
 
 #: Every permission held by superusers and by nobody else. A role may not carry one of
@@ -271,6 +281,13 @@ COVERAGE: dict[str, str] = {
 	# Not instance-wide account administration, which is `instance:user_create` and is a tier
 	# up. This is membership of *this* workspace: inviting, removing, changing a role.
 	USER_ADMIN: "who belongs to this workspace",
+	# **The two instance verbs, each a kind of administration** (`SR#4568`, decision `#4524`): one
+	# gated eight acts on accounts under a name that says *create*, with no description at all.
+	INSTANCE_USER_CREATE: (
+		"accounts - making them, marking them as having left, and issuing and revoking their "
+		"credentials"
+	),
+	INSTANCE_ADMIN: "this installation - its settings, its backups and every workspace on it",
 }
 
 
@@ -338,11 +355,8 @@ NOT_ENFORCED: dict[str, str] = {
 	# every observable way while it stayed unbuilt — a distinction the product published,
 	# seeded and could not honour. `domain/workspaces.delete` and `.restore` check it now, and
 	# the roles mean what their descriptions say.
-	TOKEN_ADMIN: (
-		"`api/tokens.py` contains no authorisation call at all: issuing is bounded by "
-		"`_refuse_amplification`, which compares a request against the presenter's own reach, "
-		"and issuing *for somebody else* needs `instance:user_create`. Delete this when "
-		"administering another person's credentials is a capability distinct from issuing "
-		"your own."
-	),
+	#
+	# **`token:admin`, the last, was deleted rather than built** (`SR#4568`, decision `#4524`):
+	# administering another account's credentials is `instance:user_create`'s, so a workspace verb
+	# for it had nothing to gate. Nothing is published and unchecked now.
 }

@@ -2595,8 +2595,13 @@ def _whoami_lines (me: subroutine.views.Me, *, agent_because: str | None = None)
 	if credential is not None and (credential.narrows or credential.expires_at is not None):
 		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
 
+	# **Each with what it covers** (`SR#4568`, decision `#4524`): ``instance:user_create`` gated eight
+	# acts on accounts under a name that says *create*, and nothing said so to its holder.
 	if me.instance_permissions:
-		lines.append(f"Over the installation itself: {', '.join(me.instance_permissions)}.")
+		lines.append(
+			"Over the installation itself: "
+			f"{', '.join(subroutine.permissions.described(me.instance_permissions))}."
+		)
 
 	if not me.workspaces:
 		# **The failure this command exists to make legible.** A credential pinned to a

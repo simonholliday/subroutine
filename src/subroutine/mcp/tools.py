@@ -1953,8 +1953,12 @@ def _whoami (
 	if credential is not None and (credential.narrows or credential.expires_at is not None):
 		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
 
+	# **Each with what it covers** (`SR#4568`, decision `#4524`), as the terminal's ``whoami`` says it.
 	if me.instance_permissions:
-		lines.append(f"Over the installation: {', '.join(me.instance_permissions)}.")
+		lines.append(
+			"Over the installation: "
+			f"{', '.join(subroutine.permissions.described(me.instance_permissions))}."
+		)
 
 	if not me.workspaces:
 		# The failure worth naming rather than rendering as an empty list: every other tool
