@@ -200,20 +200,22 @@ def unadministered_workspaces (
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
-	"""List the workspaces that nobody who can act may administer.
+	"""List the workspaces that no person who can act may administer.
 
 	Needs ``instance:admin``, which no role carries and only a superuser holds, and a credential
 	that is not pinned to one workspace.
 
-	An administrator here is somebody whose role in the workspace may administer it and who can
-	still act: not deactivated, and not an agent whose person has been. A workspace with none still
+	An administrator here is a person whose role in the workspace may administer it and who can
+	still act: not deactivated. An agent is not counted, since it stops when its person goes, so a
+	workspace only an agent administers is listed. A workspace with none still
 	works for its members, and none of them can add, regrade or remove a member, or delete it. An
 	administrator of this installation can make somebody its administrator again, themselves
 	included, with ``POST /v1/workspaces/{id_or_slug}/members`` or by changing a member's role,
 	whether or not they belong to it.
 
 	With ``leaving``, it answers the question to ask before deactivating somebody instead: which
-	workspaces somebody can administer now would nobody be able to administer afterwards.
+	workspaces would be left with no person to administer them, where they or an agent of theirs
+	administers it now.
 	"""
 
 	shape = subroutine.api.shaping.wanted(
@@ -224,6 +226,55 @@ def unadministered_workspaces (
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	rows = subroutine.domain.workspaces.unadministered(
+		session,
+		actor=actor,
+		leaving=None if leaving is None else subroutine.domain.users.by_username(session, leaving),
+	)
+
+	return subroutine.api.shaping.response(
+		[subroutine.views.workspace_on_instance(row) for row in rows],
+		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		shape,
+	)
+
+
+@router.get(
+	"/unowned-workspaces",
+	summary="Workspaces with no owner who can act",
+	response_model=subroutine.views.Collection[subroutine.views.WorkspaceOnInstance],
+)
+def unowned_workspaces (
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	leaving: str | None = fastapi.Query(
+		None,
+		description="Instead, the ones that would be left with no owner who can act if this "
+		"person left.",
+	),
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
+	"""List the workspaces with no owner who can act.
+
+	Needs ``instance:admin``, which no role carries and only a superuser holds, and a credential
+	that is not pinned to one workspace.
+
+	An owner here is a person whose role in the workspace may delete it and who can still act. A
+	workspace with none still works for its members, and nobody in it can make an owner or delete
+	it - until a person who administers it makes somebody its owner, which is allowed only then.
+
+	With ``leaving``, it answers the question to ask before deactivating somebody instead: which
+	workspaces would be left with no owner who can act, where they or an agent of theirs owns it.
+	"""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format,
+		fields=fields,
+		available=ON_INSTANCE_FIELDS,
+		entity="workspace",
+		timezone=subroutine.views.reader_zone(session, actor),
+	)
+	rows = subroutine.domain.workspaces.unowned(
 		session,
 		actor=actor,
 		leaving=None if leaving is None else subroutine.domain.users.by_username(session, leaving),

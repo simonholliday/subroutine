@@ -285,9 +285,9 @@ NOT_DECIDING: dict[str, str] = {
 		"Only an agent has somebody answering for it, so handing over a person is refused as a "
 		"request that means nothing. `#478`."
 	),
-	"users.py:_refuse_deactivating_the_last_administrator": (
-		"The installation's administrators are people (decision `#4526`), so the count leaves "
-		"agents out - who could repair it, not what the actor may do."
+	"repair.py:repairers": (
+		"Who could repair a scope is people, not agents (decision `#4526`): whom a last-one "
+		"refusal counts, never what the actor may do."
 	),
 	"users.py:set_password": "An agent authenticates with a token and has no password. `#487`.",
 }

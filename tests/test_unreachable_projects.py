@@ -16,6 +16,7 @@ Every test names at least two principals, because one account cannot tell *what 
 import typing
 import uuid
 
+import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
@@ -27,6 +28,7 @@ import subroutine.domain.authentication
 import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.errors
 import test_api_tasks
 
 
@@ -129,10 +131,16 @@ def test_a_project_whose_last_member_left_is_found_by_an_administrator (
 	assert found[0]["member_of_workspace"] is True
 
 
-def test_an_agent_whose_person_left_reaches_nothing_either (
+def test_a_project_only_an_agent_can_see_is_listed (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The second door: an agent keeps its rows, and stops acting when its person leaves."""
+	"""`SR#4569`, decision `#4526` and Simon's answer of 2026-10-09: an agent repairs nothing.
+
+	The second door was an agent whose person left, which keeps its rows and stops acting. **Who
+	could repair a private project is a person who can act and see it**, so one only an agent can
+	see is listed while the agent works in it - an agent's own included - and still is once its
+	person has left.
+	"""
 
 	world = test_api_tasks._world(session)
 	thomas, _theirs = _somebody(session, world)
@@ -145,14 +153,14 @@ def test_an_agent_whose_person_left_reaches_nothing_either (
 	subroutine.domain.workspaces.add_member(session, world.workspace, agent, role_key="admin")
 	project = _private(session, world, agent)
 
-	assert _listed(world) == []
+	assert [row["project"] for row in _listed(world)] == [project.key], (
+		"an agent was counted as somebody who could repair it"
+	)
 
 	subroutine.domain.users.set_active(session, thomas, active=False)
 	session.flush()
 
-	assert [row["project"] for row in _listed(world)] == [project.key], (
-		"an agent whose person has left was counted as somebody who can see it"
-	)
+	assert [row["project"] for row in _listed(world)] == [project.key]
 
 
 def test_leaving_names_what_a_departure_would_strand_before_it_happens (
@@ -585,6 +593,10 @@ def test_a_member_removed_from_the_workspace_no_longer_counts_as_somebody_who_ca
 
 	**Thomas still belongs to another workspace**, as most people do: belonging *somewhere* is not
 	belonging to the workspace the project is in, and a member of none would not tell the two apart.
+
+	**Taking him out is refused now** (`SR#4569`, Simon's answer of 2026-10-09), since he is the last
+	person who can see it; an earlier release did it without a word, so that state is written here
+	as it left it, and is still found and still rescued.
 	"""
 
 	world = test_api_tasks._world(session)
@@ -599,7 +611,17 @@ def test_a_member_removed_from_the_workspace_no_longer_counts_as_somebody_who_ca
 	assert _listed(world) == []
 	assert theirs.call("GET", f"/v1/projects/{project.key}", params=here).status_code == 200
 
-	subroutine.domain.workspaces.remove_member(session, world.workspace, thomas)
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.workspaces.remove_member(session, world.workspace, thomas)
+
+	assert f"the only person who can see {project.key}" in refused.value.detail
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	session.execute(
+		sqlalchemy.delete(member).where(
+			member.workspace_id == world.workspace.id, member.user_id == thomas.id
+		)
+	)
 	session.flush()
 
 	assert theirs.call("GET", f"/v1/projects/{project.key}", params=here).status_code == 404

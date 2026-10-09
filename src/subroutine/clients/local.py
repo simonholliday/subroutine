@@ -2847,6 +2847,25 @@ class Client:
 				)
 			]
 
+	def unowned_workspaces (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List the workspaces with no owner who can act."""
+
+		with self._opened() as (session, actor):
+			return [
+				subroutine.views.workspace_on_instance(row)
+				for row in subroutine.domain.workspaces.unowned(
+					session,
+					actor=actor,
+					leaving=(
+						None
+						if leaving is None
+						else subroutine.domain.users.by_username(session, leaving)
+					),
+				)
+			]
+
 	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
 		"""List every workspace on this installation, member or not."""
 

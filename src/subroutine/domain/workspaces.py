@@ -15,7 +15,6 @@ import sqlalchemy.orm
 import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.models.project
-import subroutine.db.models.saved
 import subroutine.db.seed
 import subroutine.db.types
 import subroutine.domain.accountability
@@ -25,6 +24,7 @@ import subroutine.domain.dates
 import subroutine.domain.events
 import subroutine.domain.patch
 import subroutine.domain.projects
+import subroutine.domain.repair
 import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.domain.versions
@@ -743,9 +743,10 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	rename and a key would stop naming its owners the day it did.
 
 	**Unless no owner can act, when an administrator may make one** (`#4004`, decision `#3808` as
-	revised on 2026-09-30). The only owner could demote or remove themselves while an administrator
-	remained, or be deactivated, and then nobody in the workspace could make an owner or delete it.
-	``making`` is the role being granted, so demoting and removing an owner stay an owner's.
+	revised on 2026-09-30). The only owner could be deactivated, and then nobody in the workspace
+	could make an owner or delete it. ``making`` is the role being granted, so demoting and removing
+	an owner stay an owner's. **No owner who can act is the one predicate's answer** (`SR#4569`,
+	decision `#4526`): people only, so a workspace only an agent owns is one a person may repair.
 	"""
 
 	if actor is None:
@@ -759,7 +760,9 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 		making is not None
 		and _deletes(making)
 		and not any(_deletes(role) for role in taking)
-		and not _an_owner_can_act(session, workspace)
+		and not subroutine.domain.repair.repairers(
+			session, subroutine.domain.repair.Ownership(workspace.id)
+		)
 	)
 
 	# **A person's act, asked before the permission and the superuser's way past it** (`SR#4565`,
@@ -800,32 +803,6 @@ def _deletes (role: subroutine.db.models.identity.Role) -> bool:
 	"""Report whether a role may delete its workspace, which is what makes it an owner's."""
 
 	return subroutine.permissions.WORKSPACE_DELETE in (role.permissions or [])
-
-
-def _an_owner_can_act (
-	session: sqlalchemy.orm.Session, workspace: subroutine.db.models.identity.Workspace
-) -> bool:
-	"""Report whether anybody holding an owner's role in a workspace can still act - `#4004`.
-
-	By the rule authentication uses, :func:`~subroutine.domain.accountability.can_act`, so an owner
-	who has been deactivated, or an agent whose person has left, is not counted.
-	"""
-
-	member = subroutine.db.models.identity.WorkspaceMember
-	role = subroutine.db.models.identity.Role
-	user = subroutine.db.models.identity.User
-	rows = session.execute(
-		sqlalchemy.select(user, role.permissions)
-		.join(member, member.user_id == user.id)
-		.join(role, role.id == member.role_id)
-		.where(member.workspace_id == workspace.id)
-	).all()
-
-	return any(
-		subroutine.domain.accountability.can_act(session, holder)
-		for holder, permissions in rows
-		if subroutine.permissions.WORKSPACE_DELETE in (permissions or [])
-	)
 
 
 def add_member (
@@ -980,11 +957,17 @@ def set_member_role (
 
 	# **The guard is reached from here too, and it was written for removals only** — a
 	# demotion strands a workspace exactly as a removal does, by a different verb, and the
-	# rule could not see it because it takes the membership being deleted. Consulted only
-	# when the role being granted does not administer: moving one administrator to another
-	# administering role takes nothing away.
-	if subroutine.permissions.WORKSPACE_ADMIN not in (wanted.permissions or []):
-		_refuse_leaving_nobody_who_can_administer(session, workspace, found)
+	# rule could not see it because it takes the membership being deleted. Asked only of what
+	# the role being granted gives up: moving one administrator to another administering role
+	# takes nothing away. **Ownership too** (`SR#4569`, decision `#4526`): the only owner who can
+	# act no longer demotes themselves, and makes somebody else an owner first.
+	_refuse_leaving_nobody_to_repair(
+		session,
+		workspace,
+		found,
+		administering=subroutine.permissions.WORKSPACE_ADMIN not in (wanted.permissions or []),
+		owning=subroutine.permissions.WORKSPACE_DELETE not in (wanted.permissions or []),
+	)
 
 	found.role_id = wanted.id
 	session.flush()
@@ -1064,13 +1047,14 @@ def remove_member (
 
 	**The last administrator cannot be removed.** A workspace nobody can administer is one where
 	the remedy for every later mistake — including this one — has been thrown away, and it
-	cannot be undone from inside. Refused with the count, so the operator can see what they are
-	being told rather than only that they were told something.
+	cannot be undone from inside. **Nor the last owner who can act, nor the last person who can
+	see a private project here** (`SR#4569`, decision `#4526` and Simon's answer of 2026-10-09):
+	one predicate, people only, holds every last one, and each refusal says what to do first.
 
-	**Their private views here go with them** (`#3142`, Simon's decision of 2026-09-22). Nobody
-	else could see them and now neither can they, and each held its name in the workspace for
-	good. Their shared ones stay, for the workspace they were shared with, and an administrator
-	may forget one.
+	**Their private views here stay** (`SR#4569`, decision `#4526`, reversing `#3142`), as
+	deactivating them keeps them: out of reach while they are not a member, and theirs again if
+	they are added back. Their shared ones stay too, for the workspace they were shared with, and
+	an administrator may forget one.
 	"""
 
 	if actor is not None:
@@ -1109,7 +1093,8 @@ def remove_member (
 	if held is not None:
 		_refuse_an_owner_to_anybody_but_an_owner(session, workspace, held, actor=actor)
 
-	_refuse_leaving_nobody_who_can_administer(session, workspace, found)
+	_refuse_leaving_nobody_to_repair(session, workspace, found, administering=True, owning=True)
+	_refuse_stranding_a_private_project(session, workspace, user)
 
 	subroutine.domain.events.record(
 		session,
@@ -1121,42 +1106,41 @@ def remove_member (
 		actor=actor,
 	)
 
-	saved = subroutine.db.models.saved.SavedView
-
-	session.execute(
-		sqlalchemy.delete(saved).where(
-			saved.workspace_id == workspace.id,
-			saved.owner_id == user.id,
-			saved.shared.is_(False),
-		)
-	)
 	session.delete(found)
 	session.flush()
 
 
-def _refuse_leaving_nobody_who_can_administer (
+def _refuse_leaving_nobody_to_repair (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
 	losing: subroutine.db.models.identity.WorkspaceMember,
+	*,
+	administering: bool,
+	owning: bool,
 ) -> None:
-	"""Refuse an act that would leave a workspace with nobody able to administer it.
+	"""Refuse an act that would leave a workspace with nobody to administer it, or no owner.
 
-	``losing`` is the membership about to stop administering — removed outright, or moved to a
-	role that does not carry ``workspace:admin``. **It was named ``going`` and read as being
-	about removals**, which is why `#1440`'s demotion went past it: the hazard is the same and
-	only the verb differs. A workspace with no administrator cannot be repaired from inside,
-	including by granting somebody the role that would repair it.
+	``losing`` is the membership about to stop administering or owning — removed outright, or moved
+	to a role that does not carry what it did. **It was named ``going`` and read as being about
+	removals**, which is why `#1440`'s demotion went past it: the hazard is the same and only the
+	verb differs. A workspace with no administrator cannot be repaired from inside, including by
+	granting somebody the role that would repair it.
+
+	**Counted by the one predicate** (`SR#4569`, decision `#4526`): people who can act, so an agent
+	administering it no longer counts (reversing `#4020`), and **ownership too**, which had no rule
+	at all (G10 of the cold review of 2026-10-05) - the only owner who can act makes somebody else
+	an owner before leaving or stepping down. Refusing only a change from somebody to nobody: a scope
+	nobody could repair already is not this act's to refuse.
 	"""
 
 	place = subroutine.db.models.identity.Workspace
 
-	# **The workspace is locked before its administrators are counted** (`#1178`), so two
-	# callers each removing or demoting one of the last two cannot each count the other as
-	# staying: the second waits for the first, then counts what it left. **By a write that
-	# changes nothing** (`#3899`), which takes SQLite's one writer's lock where a read takes none,
-	# and on PostgreSQL the lock ``FOR NO KEY UPDATE`` takes: ``FOR UPDATE`` waited on the check a
-	# foreign key makes on the workspace, so a promotion recording its event beside a removal
-	# deadlocked with it.
+	# **The workspace is locked before anybody is counted** (`#1178`), so two callers each removing
+	# or demoting one of the last two cannot each count the other as staying: the second waits for
+	# the first, then counts what it left. **By a write that changes nothing** (`#3899`), which
+	# takes SQLite's one writer's lock where a read takes none, and on PostgreSQL the lock ``FOR NO
+	# KEY UPDATE`` takes: ``FOR UPDATE`` waited on the check a foreign key makes on the workspace, so
+	# a promotion recording its event beside a removal deadlocked with it.
 	session.execute(
 		sqlalchemy.update(place)
 		.where(place.id == workspace.id)
@@ -1164,60 +1148,71 @@ def _refuse_leaving_nobody_who_can_administer (
 		.execution_options(synchronize_session=False)
 	)
 
-	administrators = _administrators(session, workspace)
+	if administering and _strands(
+		session, subroutine.domain.repair.Administration(workspace.id), losing.user_id
+	):
+		raise subroutine.errors.ValidationError(
+			f"{workspace.slug} would be left with nobody who can administer it.",
+			hint=(
+				"Give somebody else an administrator's role there first. A workspace with no "
+				"administrator cannot be repaired from inside it."
+			),
+		)
 
-	if losing.id not in administrators or administrators - {losing.id}:
-		return
-
-	raise subroutine.errors.ValidationError(
-		f"{workspace.slug} would be left with nobody who can administer it.",
-		hint=(
-			"Give somebody else an administrator's role there first. A workspace with no "
-			"administrator cannot be repaired from inside it."
-		),
-	)
+	if owning and _strands(
+		session, subroutine.domain.repair.Ownership(workspace.id), losing.user_id
+	):
+		raise subroutine.errors.ValidationError(
+			f"{workspace.slug} would be left with no owner who can act.",
+			hint="Make somebody else an owner there first.",
+		)
 
 
-def _administrators (
+def _strands (
+	session: sqlalchemy.orm.Session, scope: subroutine.domain.repair.Scope, account: uuid.UUID
+) -> bool:
+	"""Report whether taking this one account out of a scope leaves nobody who could repair it."""
+
+	could = subroutine.domain.repair.repairers(session, scope)
+
+	return account in could and not could - {account}
+
+
+def _refuse_stranding_a_private_project (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
-	*,
-	leaving: typing.Collection[uuid.UUID] = (),
-) -> set[uuid.UUID]:
-	"""Return the memberships of everybody who may administer a workspace and can act.
+	user: subroutine.db.models.identity.User,
+) -> None:
+	"""Refuse taking somebody out of a workspace where they are the last person to see a project.
 
-	**One rule for both its readers**: refusing to remove or demote the last of them, and naming
-	the workspaces a deactivation would leave with none (`#4154`). ``leaving`` asks the second
-	question of a future in which those accounts have gone.
+	**As unsharing them is refused** (`SR#4569`, Simon's answer of 2026-10-09): belonging to the
+	workspace is what grants reach at all (`#1860`), so taking them out of it strands every private
+	project only they could see, as surely as taking their row away. Asked of the projects they
+	hold a row on, since only those can they be the last to see.
 	"""
 
-	member = subroutine.db.models.identity.WorkspaceMember
-	role = subroutine.db.models.identity.Role
-	user = subroutine.db.models.identity.User
-
-	# One query for every membership's permissions, not one per membership. The obvious
-	# version of this asks the database once per row and is `#39`'s N+1 on the path of a
-	# command somebody runs while tidying up a team.
-	# **Only an account that can still act is counted as staying** (`#3942`). A deactivated or
-	# deleted administrator was, so the only active one could be removed or demoted while the
-	# other had left, and the workspace had nobody able to administer it. **As authentication
-	# decides it** (`#4020`, L-2 (6) of the cold review of 2026-09-30): an agent whose person has
-	# left cannot act, and was counted, so the last person could leave it to that agent.
-	rows = session.execute(
-		sqlalchemy.select(member.id, role.permissions, user)
-		.join(role, role.id == member.role_id)
-		.join(user, user.id == member.user_id)
+	project = subroutine.db.models.project.Project
+	membership = subroutine.db.models.project.ProjectMember
+	held = session.scalars(
+		sqlalchemy.select(project)
+		.join(membership, membership.project_id == project.id)
 		.where(
-			member.workspace_id == workspace.id, subroutine.domain.accountability.live(user)
+			membership.user_id == user.id,
+			project.workspace_id == workspace.id,
+			project.visibility == "private",
+			project.deleted_at.is_(None),
 		)
-	).all()
+		.order_by(project.key)
+	)
+	stranded = [one.key for one in held if _strands(session, one, user.id)]
 
-	return {
-		found
-		for found, permissions, holder in rows
-		if subroutine.permissions.WORKSPACE_ADMIN in (permissions or [])
-		and subroutine.domain.accountability.can_act(session, holder, leaving=leaving)
-	}
+	if stranded:
+		raise subroutine.errors.ValidationError(
+			f"{user.username} is the only person who can see {', '.join(stranded)}, so taking them "
+			f"out of {workspace.slug} would leave no person able to reach "
+			f"{'it' if len(stranded) == 1 else 'them'}.",
+			hint="Share each with somebody else first, or make it public.",
+		)
 
 
 def readable (
@@ -1525,27 +1520,65 @@ def unadministered (
 	actor: subroutine.domain.authentication.Principal | None = None,
 	leaving: subroutine.db.models.identity.User | None = None,
 ) -> list[OnInstance]:
-	"""Return the workspaces nobody who can act may administer - `#4154`.
+	"""Return the workspaces no person who can act may administer - `#4154`.
 
 	**Decided on `#3950`**: deactivating a workspace's last administrator who can act is allowed,
 	and never silent, as a private project's last member is (`#1453`). Such a workspace still works
 	for its members, and nobody in it can add, regrade or remove a member or delete it, so only an
 	administrator of the installation can make somebody its administrator again.
 
-	**``leaving`` asks what one person's departure would leave so**: workspaces somebody can
-	administer now that nobody could once they, and every agent answering to them, had stopped.
-	That is what ``user deactivate`` names before it acts. Without it, the ones that are so
-	already, which ``instance workspaces`` marks. Counted as authentication decides who can act,
-	so the person an administering agent answers to is caught too.
+	**``leaving`` asks what one person's departure would leave so**: workspaces nobody could
+	administer once they, and every agent answering to them, had stopped, where they or one of those
+	agents administers it now. That is what ``user deactivate`` names before it acts. Without it,
+	the ones that are so already, which ``instance workspaces`` marks.
+
+	**People only** (`SR#4569`, decision `#4526`): a workspace only an agent administers is marked,
+	and still named when the agent's person leaves.
 
 	Needs what :func:`on_instance` needs, and asks it there.
 	"""
 
-	gone = () if leaving is None else (leaving.id,)
+	return _left_with_nobody(session, subroutine.domain.repair.Administration, actor, leaving)
+
+
+def unowned (
+	session: sqlalchemy.orm.Session,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+	leaving: subroutine.db.models.identity.User | None = None,
+) -> list[OnInstance]:
+	"""Return the workspaces with no owner who can act, as :func:`unadministered` asks - `SR#4569`.
+
+	**Each scope a deactivation leaves without anybody is named with its repair** (decision
+	`#4526`): where no owner can act, an administrator there who is a person makes one (`#3808`), so
+	a departure that leaves one so is said before and after, as a workspace left with no
+	administrator is. People only, so a workspace only an agent owns is counted.
+	"""
+
+	return _left_with_nobody(session, subroutine.domain.repair.Ownership, actor, leaving)
+
+
+def _left_with_nobody (
+	session: sqlalchemy.orm.Session,
+	kind: type[subroutine.domain.repair.Administration] | type[subroutine.domain.repair.Ownership],
+	actor: subroutine.domain.authentication.Principal | None,
+	leaving: subroutine.db.models.identity.User | None,
+) -> list[OnInstance]:
+	"""Return the workspaces this scope leaves with nobody, now or once ``leaving`` has gone."""
+
+	gone: tuple[uuid.UUID, ...] = ()
+	theirs: set[uuid.UUID] = set()
+
+	if leaving is not None:
+		gone = (leaving.id,)
+		theirs = subroutine.domain.repair.departing(session, leaving)
 
 	return [
 		one
 		for one in on_instance(session, actor=actor)
-		if not _administrators(session, one.workspace, leaving=gone)
-		and (leaving is None or _administrators(session, one.workspace))
+		if not subroutine.domain.repair.repairers(session, kind(one.workspace.id), leaving=gone)
+		and (
+			leaving is None
+			or subroutine.domain.repair.takes_part(session, kind(one.workspace.id), theirs)
+		)
 	]

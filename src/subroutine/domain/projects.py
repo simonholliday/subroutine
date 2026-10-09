@@ -21,12 +21,12 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.types
-import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.patch
+import subroutine.domain.repair
 import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.text
@@ -1216,55 +1216,13 @@ class Unreachable(typing.NamedTuple):
 	member_of_workspace: bool
 
 
-def reachable_by_anybody (
-	session: sqlalchemy.orm.Session,
-	project: subroutine.db.models.project.Project,
-	*,
-	leaving: typing.Collection[uuid.UUID] = (),
-) -> bool:
-	"""Report whether somebody who can act here can see this project - `#1453`.
-
-	**A member who can act, who still belongs to the workspace, and whom nothing hides it from.**
-	A row alone is not enough: an account that has left keeps its memberships, which is right, and
-	an agent whose person has left keeps its rows and can no longer act - so both are counted as
-	nobody. **So is somebody taken out of the workspace** (`#2626`): ``workspaces.remove_member``
-	leaves their project rows as well, and belonging to the workspace is what grants reach at all
-	(`#1860`). And privacy inherits down the tree, so a member of a private project inside another
-	one they are not a member of cannot see it either; :func:`hidden_by` is that rule, and it is
-	asked rather than restated.
-	"""
-
-	model = subroutine.db.models.project.ProjectMember
-	member = subroutine.db.models.identity.User
-	belongs = subroutine.db.models.identity.WorkspaceMember
-
-	for account in session.scalars(
-		sqlalchemy.select(member)
-		.join(model, model.user_id == member.id)
-		.join(
-			belongs,
-			sqlalchemy.and_(
-				belongs.user_id == member.id, belongs.workspace_id == project.workspace_id
-			),
-		)
-		.where(model.project_id == project.id)
-	):
-		if not subroutine.domain.accountability.can_act(session, account, leaving=leaving):
-			continue
-
-		if hidden_by(session, project, account.id) is None:
-			return True
-
-	return False
-
-
 def unreachable (
 	session: sqlalchemy.orm.Session,
 	*,
 	actor: subroutine.domain.authentication.Principal | None = None,
 	leaving: subroutine.db.models.identity.User | None = None,
 ) -> list[Unreachable]:
-	"""Return the private projects nobody who can act here is able to see - item `#1453`.
+	"""Return the private projects no person who can act here is able to see - item `#1453`.
 
 	**Decided by Simon on 2026-09-14, and it is `#1418`'s answer one level down**: membership is
 	reach, and an administrator may *discover* what nobody can reach and *join* it, and joining
@@ -1276,9 +1234,14 @@ def unreachable (
 	how many memberships it holds. A private project somebody can still see is not listed at all,
 	so its existence stays that somebody's to disclose.
 
-	**``leaving`` asks what one person's departure would strand**: projects reachable now that
-	would not be once they and every agent answering to them have stopped. That is the question
-	`user deactivate` puts before it acts, which is the other half of the decision.
+	**``leaving`` asks what one person's departure would strand**: projects no person could see once
+	they and every agent answering to them have stopped, where they or one of those agents can see
+	it now. That is the question `user deactivate` puts before it acts, which is the other half of
+	the decision.
+
+	**People only** (`SR#4569`, decision `#4526` and Simon's answer of 2026-10-09): who could repair
+	a private project is a person who can act and see it, so one only an agent can see is listed -
+	an agent's own included - and is named when the agent's person leaves.
 
 	Needs ``instance:admin``, and a credential pinned to one workspace or narrowed to some projects
 	is refused: this answers for every project on the installation (`#2619`). Both are refused by
@@ -1308,18 +1271,22 @@ def unreachable (
 		.order_by(workspace.slug, project.key, project.id)
 	).all()
 
-	gone = () if leaving is None else (leaving.id,)
+	gone: tuple[uuid.UUID, ...] = ()
+	theirs: set[uuid.UUID] = set()
 
-	# **Twice per private project when somebody is leaving** (`#2638`): once without them and once
-	# with, because a project nobody could reach before they left is not theirs to strand. Each
-	# walk is a members query and a climb of the project's chain, so `user deactivate`, which asks
-	# with `leaving`, pays both for every private project on the installation. Bounded, as above,
+	if leaving is not None:
+		gone = (leaving.id,)
+		theirs = subroutine.domain.repair.departing(session, leaving)
+
+	# **Once per private project, and a membership lookup where somebody is leaving** (`#2638`,
+	# `SR#4569`): a project is theirs to strand where they, or an agent answering to them, holds a
+	# row on it. Each walk is a members query and a climb of the project's chain, bounded, as above,
 	# by how many private projects exist - which is the number to watch if this grows slow.
 	stranded = [
 		(row, place)
 		for row, place in candidates
-		if not reachable_by_anybody(session, row, leaving=gone)
-		and (leaving is None or reachable_by_anybody(session, row))
+		if not subroutine.domain.repair.repairers(session, row, leaving=gone)
+		and (leaving is None or subroutine.domain.repair.takes_part(session, row, theirs))
 	]
 
 	if not stranded:
@@ -1561,15 +1528,15 @@ def rescuable (
 ) -> bool:
 	"""Report whether this caller may let somebody into a project nobody can reach - `#1453`.
 
-	A credential :func:`may_rescue` admits, and a private project with no member who can act and
-	see it. Both, every time: the first is who may repair the state, and the second is the state,
-	so neither widens anything while the project is reachable.
+	A credential :func:`may_rescue` admits, and a private project with no person who can act and
+	see it (`SR#4569`, decision `#4526`). Both, every time: the first is who may repair the state,
+	and the second is the state, so neither widens anything while a person can reach the project.
 	"""
 
 	if project.visibility != "private" or not may_rescue(actor):
 		return False
 
-	return not reachable_by_anybody(session, project)
+	return not subroutine.domain.repair.repairers(session, project)
 
 
 def unshare (
@@ -1585,9 +1552,12 @@ def unshare (
 
 	**Two refusals, and both protect against a project nobody can reach.** The owner's own row
 	is not removable — :func:`create` writes it *"so that making a project private later does
-	not lock its owner out"*, and this is that same sentence one command along. Neither is the
-	last row, whoever holds it: `#1453` is the state this avoids, where a private project has
-	no member and no surface can see it or make it public again.
+	not lock its owner out"*, and this is that same sentence one command along. Nor is the row of
+	the last person who can see it: `#1453` is the state this avoids, where a private project has
+	nobody who can see it or make it public again. **A person who can act, by the one predicate**
+	(`SR#4569`, decision `#4526`): this counted rows, those of people who had left included, so the
+	last member who could act could strand it (G11 of the cold review of 2026-10-05). **And every
+	private project inside a private one**, which the row being taken away is what lets them see.
 
 	**It works whatever the project's visibility is**, unlike :func:`share`. A row on a public
 	project grants nothing today and everything the day somebody makes it private, so leaving
@@ -1622,25 +1592,26 @@ def unshare (
 			],
 		)
 
-	model = subroutine.db.models.project.ProjectMember
+	# Refusing only a change from somebody to nobody: a project no person could see already is not
+	# this act's to refuse, and an instance administrator's rescue is what brings one back.
+	for one in _losing_sight(session, project):
+		could = subroutine.domain.repair.repairers(session, one)
 
-	remaining = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.count())
-		.select_from(model)
-		.where(model.project_id == project.id)
-	)
+		if user.id not in could or could - {user.id}:
+			continue
 
-	if remaining is not None and remaining <= 1:
+		inside = "," if one.id == project.id else f", inside {project.key},"
+
 		raise subroutine.errors.ValidationError(
-			f"{user.username} is the only person who can see {project.key}, so removing them "
-			f"would leave it reachable by nobody.",
-			hint=f"'subroutine project update {project.key} --public' first, or share it with "
+			f"{user.username} is the only person who can see {one.key}{inside} so removing them "
+			f"would leave no person able to reach it.",
+			hint=f"'subroutine project update {one.key} --public' first, or share it with "
 			f"somebody else.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="username",
 					code="invalid_field_value",
-					message=f"{project.key} has one member.",
+					message=f"{user.username} is the last person who can see {one.key}.",
 				)
 			],
 		)
@@ -1661,6 +1632,37 @@ def unshare (
 		changes={"user_id": {"from": user.id, "to": None}},
 		actor=actor,
 	)
+
+
+def _losing_sight (
+	session: sqlalchemy.orm.Session, project: subroutine.db.models.project.Project
+) -> list[subroutine.db.models.project.Project]:
+	"""Return what somebody's row on this project lets them see: it, and if private, what is inside.
+
+	Privacy inherits down the tree, so a private project's row is what lets its member see every
+	project beneath it; a public one's lets them see nothing beyond itself. The private ones are
+	those a person could be the last to see.
+	"""
+
+	if project.visibility != "private":
+		return [project]
+
+	model = subroutine.db.models.project.Project
+
+	return [
+		project,
+		*session.scalars(
+			sqlalchemy.select(model)
+			.where(
+				model.workspace_id == project.workspace_id,
+				model.path.like(f"{project.path}%"),
+				model.id != project.id,
+				model.visibility == "private",
+				model.deleted_at.is_(None),
+			)
+			.order_by(model.path)
+		),
+	]
 
 
 def members (

@@ -20,6 +20,17 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Every "last one" is counted the same way: people who can act, never agents.** The last
+  person who administers a workspace, its last owner who can act, and the last person who can
+  see a private project are refused leaving, stepping down or being unshared, each saying what
+  to do first - including the last person who can see a project inside a private one. A
+  workspace's founding owner could be removed while only an agent administered it, the only
+  owner could step down, and `unshare` counted the rows of people who had left. Deactivating
+  somebody stays allowed, and `user deactivate` and `instance workspaces` now name a workspace
+  left with no owner who can act, as well as one left with nobody to administer it.
+  `instance projects` lists a private project only an agent can see.
+- **Removing somebody from a workspace keeps their private views**, as deactivating them does:
+  out of reach while they are not a member, and theirs again if they are added back.
 - **`token:admin` is deleted, and the two permissions over the installation say what they
   cover.** It was seeded into the owner and administrator roles and checked nowhere: the upgrade
   takes it out of every role, and naming it in a scope or a role is refused. `whoami` and a

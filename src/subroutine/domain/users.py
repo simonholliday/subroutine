@@ -17,6 +17,7 @@ import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.dates
+import subroutine.domain.repair
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
@@ -454,14 +455,19 @@ def _refuse_deactivating_the_last_administrator (
 ) -> None:
 	"""Refuse a deactivation that would leave the instance with nobody able to administer it.
 
-	The same argument as ``workspaces._refuse_removing_the_last_administrator`` one tier up: an
-	instance with no active superuser cannot be repaired from inside, and under decision
-	`#473` it would stop every agent as well — because every chain terminates at a person, and
-	an inactive person ends it. §12.4's direct-database recovery exists so that is survivable,
-	not so that it is the plan.
+	The same argument as ``workspaces._refuse_leaving_nobody_who_can_administer`` one tier up: an
+	instance with no active superuser cannot be repaired from inside, and under decision `#473` it
+	would stop every agent as well — because every chain terminates at a person, and an inactive
+	person ends it. §12.4's direct-database recovery exists so that is survivable, not so that it
+	is the plan.
+
+	**Counted by the one predicate for every last one** (`SR#4569`, decision `#4526`): superusers
+	who are people and can act. **Refused here, where every other scope is named instead** (Simon,
+	2026-10-09): deactivating is the only way an installation loses a superuser, since none can be
+	demoted, and local mode's recovery relies on one existing (decision `#4514`).
 	"""
 
-	if not going.is_superuser or not subroutine.domain.accountability.can_act(session, going):
+	if going.id not in subroutine.domain.repair.repairers(session, subroutine.domain.repair.INSTALLATION):
 		return
 
 	model = subroutine.db.models.identity.User
@@ -473,25 +479,14 @@ def _refuse_deactivating_the_last_administrator (
 	# and ``FOR UPDATE`` waited on a foreign key's check where this lock does not.
 	session.execute(
 		sqlalchemy.update(model)
-		.where(
-			model.is_superuser.is_(True),
-			subroutine.domain.accountability.live(model),
-			model.is_service_account.is_(False),
-		)
+		.where(model.is_superuser.is_(True), subroutine.domain.accountability.live(model))
 		.values(updated_at=model.updated_at)
 		.execution_options(synchronize_session=False)
 	)
 
-	others = session.scalars(
-		sqlalchemy.select(model.id).where(
-			model.is_superuser.is_(True),
-			subroutine.domain.accountability.live(model),
-			model.is_service_account.is_(False),
-			model.id != going.id,
-		)
-	).first()
-
-	if others is not None:
+	if subroutine.domain.repair.repairers(
+		session, subroutine.domain.repair.INSTALLATION, leaving=(going.id,)
+	):
 		return
 
 	raise subroutine.errors.ValidationError(

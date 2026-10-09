@@ -220,6 +220,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/instance/workspaces"): "instance_workspaces",
 	("GET", "/v1/instance/unreachable-projects"): "unreachable_projects",
 	("GET", "/v1/instance/unadministered-workspaces"): "unadministered_workspaces",
+	("GET", "/v1/instance/unowned-workspaces"): "unowned_workspaces",
 }
 
 #: Routes no client reaches, and why. **Deleting an entry is what closes it.**
@@ -540,7 +541,11 @@ NOT_IN_MCP: dict[str, Excuse] = {
 	),
 	"unadministered_workspaces": (
 		"budget",
-		"`SR#4154`. *Which workspaces can nobody administer* is the question `user deactivate` asks before it acts, gated by `instance:admin`, which no role carries and only a superuser holds, and deactivating somebody is an act an agent is refused outright. `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",
+		"`SR#4154`. *Which workspaces can nobody administer* is the question `user deactivate` asks before it acts, gated by `instance:admin`, which no role carries and only a superuser holds, and which a session through the agent tools never holds (decision `#4520`). `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",
+	),
+	"unowned_workspaces": (
+		"budget",
+		"`SR#4569`. *Which workspaces have no owner who can act* is the other question `user deactivate` asks before it acts, gated as the one above is by `instance:admin`, which a session through the agent tools never holds (decision `#4520`). `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",
 	),
 	"instance_workspaces": (
 		"budget",

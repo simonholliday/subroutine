@@ -115,6 +115,10 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"domain/occurrences.py": "reads the one open occurrence of a series by the series' id; the "
 	"series was resolved and authorized one caller up, and nothing here is a listing",
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",
+	"domain/repair.py": "who could repair a scope (`SR#4569`, decision `#4526`): the project "
+	"memberships of a private project, read to count the people who can see it, and never "
+	"returned. **Narrowing would answer wrongly**: the count is about everybody who could repair "
+	"it, which a caller who cannot see the project must not be able to change by not seeing it",
 	"domain/settings.py": "resolves a setting upwards through a project's ancestors and its "
 	"workspace (`#1026`), for projects a caller already holds — so the rows are vetted before "
 	"this sees them. **Narrowing here would disclose nothing and would render a wrong answer**: "

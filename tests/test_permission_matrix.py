@@ -492,6 +492,13 @@ ACTS: tuple[Act, ...] = (
 		"instance",
 		lambda c, s: c.unadministered_workspaces(),
 	),
+	_read(
+		"unowned workspaces",
+		"List the workspaces with no owner who can act",
+		(P.INSTANCE_ADMIN,),
+		"instance",
+		lambda c, s: c.unowned_workspaces(),
+	),
 	# --- Reading a workspace ---------------------------------------------------------------------
 	_read(
 		"workspace settings",

@@ -104,7 +104,13 @@ def test_a_superuser_leaving_names_the_workspace_only_they_administer (
 def test_the_person_an_administering_agent_answers_to_is_caught (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""An agent whose person leaves cannot act, so a workspace only it administers is named."""
+	"""An agent whose person leaves cannot act, so a workspace only it administers is named.
+
+	**And it is marked before anybody leaves** (`SR#4569`, decision `#4526`, reversing `#4020`): who
+	could repair a workspace's administration is a person, so one only an agent administers has
+	nobody already. Its person's departure still names it, which counting people alone would have
+	stopped (G9 of the cold review of 2026-10-05).
+	"""
 
 	world = test_api_tasks._world(session)
 	thomas = _person(session, "thomas")
@@ -119,6 +125,7 @@ def test_the_person_an_administering_agent_answers_to_is_caught (
 	session.flush()
 
 	assert subroutine.domain.accountability.chain(session, agent)[-1] is thomas
+	assert _asked(world) == [zion.slug], "an agent was counted as somebody who could repair it"
 	assert _asked(world, leaving=thomas.username) == [zion.slug]
 
 

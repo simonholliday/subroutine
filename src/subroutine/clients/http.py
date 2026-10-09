@@ -1478,6 +1478,18 @@ class Client:
 			for row in body.get("items", [])
 		]
 
+	def unowned_workspaces (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List the workspaces with no owner who can act."""
+
+		body = self._json("GET", "/v1/instance/unowned-workspaces", params=_given(leaving=leaving))
+
+		return [
+			self._parsed(subroutine.views.WorkspaceOnInstance, row)
+			for row in body.get("items", [])
+		]
+
 	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
 		"""List every workspace on this installation, member or not."""
 

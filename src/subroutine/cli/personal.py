@@ -155,6 +155,11 @@ JOIN_A_WORKSPACE = "subroutine user add <you> --workspace <workspace> --role <ro
 #: How an administrator of the installation repairs a workspace nobody can administer - `#4154`.
 ADMINISTER_A_WORKSPACE = "subroutine user add <you> --role admin -w <workspace>"
 
+#: How a workspace with no owner who can act is given one - `SR#4569`, decision `#4526`: by a person
+#: who administers it, which is allowed only then (`#3808`), or by an administrator of the
+#: installation, who administers any workspace's membership.
+OWN_A_WORKSPACE = "subroutine user role <somebody> owner -w <workspace>"
+
 
 #: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
 #: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
@@ -6242,6 +6247,17 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 			orphaned = set()
 			unasked = refused.detail
 
+		# **And where no owner can act** (`SR#4569`, decision `#4526`): nobody there can make an owner
+		# or delete it until somebody administering it makes one. Asked the same way, and not said
+		# twice where both went unasked for the same reason.
+		try:
+			unowned = {one.slug for one in where.client.unowned_workspaces()}
+			unowned_unasked = None
+
+		except subroutine.errors.SubroutineError as refused:
+			unowned = set()
+			unowned_unasked = None if refused.detail == unasked else refused.detail
+
 		# **The mark in each row, and null where it was not checked** (`#4314`): the rows alone left
 		# it out of the one form a script reads.
 		if json_output:
@@ -6251,6 +6267,9 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 						{
 							**one.model_dump(mode="json"),
 							"unadministered": None if unasked else one.slug in orphaned,
+							"unowned": (
+								None if unasked or unowned_unasked else one.slug in unowned
+							),
 						}
 						for one in found
 					],
@@ -6266,6 +6285,9 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 
 			if one.slug in orphaned:
 				mark += "  - nobody can administer it"
+
+			if one.slug in unowned:
+				mark += "  - no owner can act"
 
 			program.say(f"  {one.slug}  {one.title}  ({people}){mark}")
 
@@ -6287,10 +6309,23 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 				"somebody its administrator, you included."
 			)
 
+		if unowned:
+			program.say("")
+			program.say(
+				f"{len(unowned)} of these have no owner who can act. '{OWN_A_WORKSPACE}' makes one, "
+				"by somebody who administers it."
+			)
+
 		if unasked:
 			program.say("")
 			program.say(
 				f"Whether any of these has nobody to administer it was not checked: {unasked}"
+			)
+
+		if unowned_unasked:
+			program.say("")
+			program.say(
+				f"Whether any of these has no owner who can act was not checked: {unowned_unasked}"
 			)
 
 
@@ -6346,11 +6381,22 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 			orphaned = []
 			unasked = refused.detail
 
+		# **And the workspaces left with no owner who can act** (`SR#4569`, decision `#4526`): each
+		# scope a deactivation leaves without anybody is named with its repair. Not said twice where
+		# both went unasked for the same reason.
+		try:
+			unowned = [one.slug for one in where.client.unowned_workspaces(leaving=username)]
+			unowned_unasked = None
+
+		except subroutine.errors.SubroutineError as refused:
+			unowned = []
+			unowned_unasked = None if refused.detail == unasked else refused.detail
+
 		# Who would repair them, asked before the deactivation, since somebody deactivating
 		# themselves cannot ask afterwards and could not repair anything if they did.
 		repairer = "<you>"
 
-		if orphaned:
+		if orphaned or unowned:
 			with contextlib.suppress(subroutine.errors.SubroutineError):
 				repairer = where.client.me().user.username
 
@@ -6360,7 +6406,9 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		# **Named before it happens, not counted** - `project rename`'s rule. A deactivation that
 		# silently stops a shared agent is how somebody learns to stop deactivating leavers, which
 		# costs more than the thing it was protecting.
-		if (stopping or stranding or unchecked or orphaned or unasked) and not yes:
+		if (
+			stopping or stranding or unchecked or orphaned or unasked or unowned or unowned_unasked
+		) and not yes:
 			# **"And" only after a line** (`#4314`, of the cold review of 2026-10-03): with no agents
 			# to name, the warning opened *And nobody will be able to...*.
 			nobody = "And nobody" if stopping else "Nobody"
@@ -6391,6 +6439,18 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 					f"{unasked}"
 				)
 
+			if unowned:
+				program.say(
+					f"No owner who can act will be left in {len(unowned)} workspace(s): "
+					f"{', '.join(unowned)}"
+				)
+
+			if unowned_unasked:
+				program.say(
+					f"Whether this leaves a workspace with no owner who can act was not checked: "
+					f"{unowned_unasked}"
+				)
+
 			if not typer.confirm(f"Mark {username} as having left?"):
 				program.say("Left as they were.")
 
@@ -6410,6 +6470,12 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 			program.say(
 				f"  {slug} has nobody who can administer it - 'subroutine user add {repairer} --role "
 				f"admin -w {slug}' makes one"
+			)
+
+		for slug in unowned:
+			program.say(
+				f"  {slug} has no owner who can act - 'subroutine user role <somebody> owner -w "
+				f"{slug}', by somebody who administers it, makes one"
 			)
 
 		# **Joining comes first where the operator is outside** (`#2626`): somebody is let back in
@@ -6440,16 +6506,16 @@ def _register_unreachable (instance_app: typer.Typer, program: Program) -> None:
 	def instance_projects (
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
 	) -> None:
-		"""Show the private projects nobody here can see any more.
+		"""Show the private projects no person here can see any more.
 
 		Examples:
 
 		  subroutine instance projects
 
-		A private project is visible only to the people shared into it. When none of them can see
-		it any more - they have left, or answer to somebody who has, or are no longer in its
-		workspace, or a private project above hides it - nothing can make it public or share it
-		again. This lists those, and nothing inside them.
+		A private project is visible only to the people shared into it. When no person among them
+		can see it any more - they have left, or are no longer in its workspace, or a private
+		project above hides it, or only an agent was shared into it - nobody can make it public or
+		share it again. This lists those, and nothing inside them.
 
 		'subroutine -w <workspace> project share <project> <username>' lets somebody back in,
 		and joining one is recorded. In a workspace you do not belong to, 'subroutine user add
@@ -9731,8 +9797,8 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		The last person who can administer this instance cannot leave: an instance nobody can
 		administer cannot be repaired from inside, and it would stop every agent at once. A
-		workspace with nobody left to administer it is named before and after, with the command
-		that makes somebody its administrator again.
+		workspace left with nobody to administer it, or with no owner who can act, is named before
+		and after, with the command that repairs it.
 		"""
 
 		_deactivated(program, username=username, yes=yes)

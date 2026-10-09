@@ -254,13 +254,14 @@ def test_an_account_in_no_workspace_is_told_so_rather_than_handed_a_crash_report
 	"""`SR#2953`: the refusal that was to say *no workspace* indexed an empty list and crashed.
 
 	Two ordinary routes lead here - taking a server's own account out of the team's workspace once
-	somebody else administers it, and removing yourself - and both ended in *Something went wrong
+	somebody else owns it, and removing yourself - and both ended in *Something went wrong
 	that should not have*, with a crash file to attach. **A crash exits 1 as well**, so what is
-	held is the sentence, and that no crash file was written.
+	held is the sentence, and that no crash file was written. Somebody else *owns* it first, since
+	the only owner who can act no longer leaves (`SR#4569`, decision `#4526`).
 	"""
 
 	run("init", "--workspace", "Metacortex", "--username", "laurence")
-	run("user", "create", "keanu", "--role", "admin")
+	run("user", "create", "keanu", "--role", "owner")
 	run("user", "remove", "laurence")
 
 	refused = run(*command, expect=1)
@@ -441,13 +442,17 @@ def test_an_administrator_may_move_between_roles_that_still_administer (
 
 	**The counterpart to the test above, and it is what stops that guard being over-broad.**
 	Asking the question on every move would refuse a lone administrator changing to any other
-	administering role, which takes nothing away from anybody.
+	administering role, which takes nothing away from anybody. **Another owner first**, since the
+	only owner who can act no longer steps down (`SR#4569`, decision `#4526`) - which is the other
+	guard, and is not what this holds.
 	"""
 
 	founder = subroutine.domain.users.create(session, username="founder")
 	workspace = subroutine.domain.workspaces.create(
 		session, slug="acme", title="Acme", owner=founder, timezone="UTC"
 	)
+	successor = subroutine.domain.users.create(session, username="successor")
+	subroutine.domain.workspaces.add_member(session, workspace, successor, role_key="owner")
 
 	held = subroutine.domain.workspaces.set_member_role(
 		session, workspace, founder, role_key="admin"
@@ -1185,6 +1190,15 @@ def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after
 			f"admin -w {slug}' makes one"
 		) in warned, warned
 
+	# **And its ownership, the other scope it leaves with nobody** (`SR#4569`, decision `#4526`).
+	assert "No owner who can act will be left in 2 workspace(s): zion, hammer" in warned, warned
+
+	for slug in ("hammer", "zion"):
+		assert (
+			f"  {slug} has no owner who can act - 'subroutine user role <somebody> owner -w "
+			f"{slug}', by somebody who administers it, makes one"
+		) in warned, warned
+
 	listed = run("instance", "workspaces").output
 
 	assert [line for line in listed.splitlines() if "nobody can administer it" in line] == [
@@ -1200,6 +1214,12 @@ def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after
 		"zion": True,
 		"hammer": True,
 	}, rows
+	assert {row["slug"]: row["unowned"] for row in rows} == {
+		"acme": False,
+		"zion": True,
+		"hammer": True,
+	}, rows
+	assert "2 of these have no owner who can act." in listed, listed
 
 	run("user", "add", operator, "--role", "admin", "-w", "zion")
 	repaired = run("instance", "workspaces").output
@@ -1207,6 +1227,15 @@ def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after
 	assert [line for line in repaired.splitlines() if "nobody can administer it" in line] == [
 		line for line in repaired.splitlines() if line.strip().startswith("hammer ")
 	], repaired
+
+	# **The printed repair, run as printed**: an administrator there makes an owner, which is allowed
+	# only because none can act.
+	run("user", "role", operator, "owner", "-w", "zion")
+	owned = run("instance", "workspaces").output
+
+	assert [line for line in owned.splitlines() if "no owner can act" in line] == [
+		line for line in owned.splitlines() if line.strip().startswith("hammer ")
+	], owned
 
 
 def test_deactivating_with_yes_still_names_what_it_left (
@@ -1565,16 +1594,18 @@ def test_an_agent_cannot_make_an_owner_where_no_owner_can_act (
 	)
 
 
-@pytest.mark.parametrize("gone", ["demoted", "removed", "deactivated"])
+@pytest.mark.parametrize("gone", ["deactivated", "only an agent owns it"])
 def test_an_administrator_makes_an_owner_where_no_owner_can_act (
 	session: sqlalchemy.orm.Session, gone: str
 ) -> None:
 	"""`SR#4004`, M-7 of the cold review of 2026-09-30, and decision `#3808` as revised.
 
-	The only owner could demote or remove themselves while an administrator remained, or be
-	deactivated, and then every member was refused making an owner and nobody could delete the
-	workspace. **An administrator may make an owner once no owner can act**, themselves or
-	anybody else, and not before.
+	The only owner could be deactivated, and then every member was refused making an owner and
+	nobody could delete the workspace. **An administrator may make an owner once no owner can
+	act**, themselves or anybody else, and not before. **No owner who can act is the one
+	predicate's answer** (`SR#4569`, decision `#4526`): an agent owning it is not counted, so a
+	workspace left to one - as one could be before the only owner was refused stepping down - is
+	repaired the same way.
 	"""
 
 	workspace, keanu, carrie_anne, hugo = _metacortex(session)
@@ -1586,16 +1617,22 @@ def test_an_administrator_makes_an_owner_where_no_owner_can_act (
 			session, workspace, carrie_anne, role_key="owner", actor=administering
 		)
 
-	owning = subroutine.domain.authentication.Principal(user=keanu)
-
-	if gone == "demoted":
-		workspaces.set_member_role(session, workspace, keanu, role_key="member", actor=owning)
-
-	elif gone == "removed":
-		workspaces.remove_member(session, workspace, keanu, actor=owning)
+	if gone == "deactivated":
+		keanu.is_active = False
 
 	else:
-		keanu.is_active = False
+		dozer = subroutine.domain.users.create(
+			session, username="dozer", is_service_account=True, responsible_user_id=keanu.id
+		)
+		workspaces.add_member(session, workspace, dozer, role_key="owner")
+
+		# Written as an earlier release could leave it, with the founder stepped down past the
+		# rule that now refuses it.
+		seated = next(
+			found for found, holder, _held in workspaces.members(session, workspace)
+			if holder.id == keanu.id
+		)
+		seated.role_id = workspaces.find_role(session, workspace.id, "member").id
 
 	session.flush()
 

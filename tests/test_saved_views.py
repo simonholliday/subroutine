@@ -402,14 +402,16 @@ def test_an_administrator_may_forget_a_shared_view_and_may_not_change_it (
 	assert world.call("GET", "/v1/views/keanu-s-queue").status_code == 404
 
 
-def test_a_members_private_views_leave_with_them_and_their_shared_ones_stay (
+def test_a_members_private_views_stay_while_they_are_away (
 	world: test_api_tasks.World,
 ) -> None:
-	"""`SR#3142`: removing somebody deleted the membership and nothing else.
+	"""`SR#4569`, decision `#4526` (Q13), reversing `SR#3142`'s delete on removal.
 
-	**Their private views go**: nobody else could see them and now neither can they, and each
-	held its name in the workspace for good. **Their shared ones stay**, for the workspace they
-	were shared with, and an administrator may forget one.
+	Removing somebody deleted their private views, while deactivating them kept everything: two
+	answers to one departure, and the one destructive side effect of removal. **Their private views
+	stay**, out of reach while they are not a member, as a deactivated person's are, and are theirs
+	again when they are added back. **Their shared ones stay too**, for the workspace they were
+	shared with, and an administrator may forget one.
 	"""
 
 	keanu = _somebody_else(world)
@@ -434,10 +436,17 @@ def test_a_members_private_views_leave_with_them_and_their_shared_ones_stay (
 		)
 	)
 
-	assert kept == {"team-queue"}, kept
+	assert kept == {"scratch", "team-queue"}, kept
 
-	# And the private one's name is free for somebody else.
-	_saved(world, title="Scratch", arrangement="list")
+	subroutine.domain.workspaces.add_member(
+		world.session, world.workspace, person, role_key="member"
+	)
+	world.session.flush()
+
+	theirs = _as(world, keanu, "GET", "/v1/views")
+
+	assert theirs.status_code == 200, theirs.text
+	assert "scratch" in {one["key"] for one in theirs.json()["items"]}, "theirs again"
 
 
 def test_an_agenda_cannot_be_saved_narrowed_by_a_search_line (

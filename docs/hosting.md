@@ -959,13 +959,16 @@ the pair each name the other, so whichever you reach for first tells you the oth
 
 Somebody added by mistake can be removed with `subroutine user remove`. That takes away the
 membership and not the account: what they wrote stays, and stays attributed to them. Their
-membership of any project inside the workspace survives too, so removing and re-adding somebody
-does not silently take a private project away from them.
+membership of any project inside the workspace survives too, and so do their private views, so
+removing and re-adding somebody does not silently take a private project or a view away from them.
 
-**The last account able to administer a workspace cannot be removed from it, or moved out of an
+**The last person able to administer a workspace cannot be removed from it, or moved out of an
 administering role** - a workspace nobody can administer has thrown away the remedy for every
-later mistake, including that one, and cannot be repaired from inside. The two commands are
-refused for the same reason and by the same rule.
+later mistake, including that one, and cannot be repaired from inside. **Nor can its last owner
+who can act, or the last person who can see a private project in it**: make somebody else an
+owner, or share the project, first. An agent is not counted, since it stops when its person
+leaves. Deactivating somebody is still allowed, and `user deactivate` names each workspace and
+project it would leave with nobody, before and after, with the command that repairs it.
 
 On a single-person instance, adding the second account would leave the CLI unable to tell whose
 to-do list to show. It does not: `user create` pins `local_user` to the account that was already

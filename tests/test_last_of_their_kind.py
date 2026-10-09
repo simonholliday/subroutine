@@ -237,7 +237,11 @@ def test_two_callers_cannot_delete_the_last_two_workspaces (committed: Committed
 def test_two_callers_cannot_remove_a_workspace_s_last_two_administrators (
 	committed: Committed,
 ) -> None:
-	"""The owner and one administrator, each removed by a different caller at the same moment."""
+	"""Its two owners, each removed by a different caller at the same moment.
+
+	**Two owners rather than an owner and an administrator** (`SR#4569`, decision `#4526`): the only
+	owner who can act is refused leaving on their own now, which would answer before the race did.
+	"""
 
 	with committed.factory() as setup:
 		founder = subroutine.domain.users.create(setup, username=_named("founder"))
@@ -245,7 +249,7 @@ def test_two_callers_cannot_remove_a_workspace_s_last_two_administrators (
 		workspace = subroutine.domain.workspaces.create(
 			setup, slug=_named("team"), title="Team", owner=founder
 		)
-		subroutine.domain.workspaces.add_member(setup, workspace, other, role_key="admin")
+		subroutine.domain.workspaces.add_member(setup, workspace, other, role_key="owner")
 		setup.commit()
 
 	committed.users += [founder.id, other.id]
@@ -343,8 +347,12 @@ def test_a_removal_beside_a_promotion_does_not_deadlock (committed: Committed) -
 				member.workspace_id == workspace.id, member.user_id == promoted.id
 			)
 		).one()
-		subroutine.domain.workspaces._refuse_leaving_nobody_who_can_administer(
-			removing, removing.get_one(Workspace, workspace.id), losing
+		subroutine.domain.workspaces._refuse_leaving_nobody_to_repair(
+			removing,
+			removing.get_one(Workspace, workspace.id),
+			losing,
+			administering=True,
+			owning=True,
 		)
 
 		def promotion_records_its_event () -> None:
