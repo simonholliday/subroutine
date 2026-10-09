@@ -1925,8 +1925,8 @@ def _whoami (
 				# One literal per command, so `tests/test_plugin.py` reads each one whole.
 				"'claude plugin enable subroutine@subroutine --scope local' and "
 				"'claude plugin disable subroutine-remote@subroutine --scope local', then "
-				"reload. That plugin runs uvx, and with its options blank uses this machine's "
-				"default connection."
+				"reload. That plugin runs uvx, and with its options blank reaches the connection "
+				"'--here' was run against."
 			)
 
 		elif me.user.is_superuser and _here_reaches(caller):

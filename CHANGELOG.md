@@ -20,6 +20,13 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`agent create --here` gives a project's tools the instance its credential is for.** Where
+  that connection is not this machine's default, it also writes `SUBROUTINE_DEFAULT_CONNECTION`
+  into the project's `.claude/settings.local.json`, so the `subroutine` plugin's tools act as
+  the agent on that instance, where until now they reached this machine's default, as you. On
+  the default it writes the credential alone, as before, and takes out a name an earlier run
+  left. A `SUBROUTINE_DEFAULT_CONNECTION` naming no connection is refused by that name, rather
+  than as a fault in `config.toml`.
 - **A credential is described in one set of words everywhere**: what it may do, then where,
   then until when - *task:read, task:write; in metacortex only; projects web; writing only in
   web; until 2026-10-14*, or *everything its owner can do* where nothing narrows it - in

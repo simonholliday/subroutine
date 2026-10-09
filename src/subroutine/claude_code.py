@@ -36,6 +36,7 @@ import tempfile
 import typing
 
 import subroutine.auth
+import subroutine.config
 import subroutine.errors
 
 #: Where Claude Code keeps a checkout's own settings: the half meant for this machine alone.
@@ -88,6 +89,14 @@ class Written:
 	#: drive may present every file as readable by everyone and ignore any attempt to change it,
 	#: which is a fact about the drive that nothing here can put right.
 	private: bool
+
+	#: The connection the settings now name as the project's own, or ``None`` where they name
+	#: none and the project follows this machine's default (`#4772`).
+	named: str | None = None
+
+	#: The connection they named before, where that differs from what they name now: the
+	#: instance this project's tools reached until now.
+	named_before: str | None = None
 
 
 def prepare (directory: pathlib.Path) -> Handover:
@@ -181,8 +190,17 @@ def ensure_ignored (handover: Handover) -> pathlib.Path | None:
 	return gitignore
 
 
-def write (handover: Handover, variable: str, token: str) -> Written:
+def write (
+	handover: Handover, variable: str, token: str, *, connection: str | None = None
+) -> Written:
 	"""Put ``token`` into the directory's settings as ``variable``, and say what happened.
+
+	**``connection`` names the project's instance there too, where it is not this machine's
+	default** (`#4772`, decision `#4774`): the ``subroutine`` plugin's tools follow the default,
+	so a credential for another instance reached the shell alone. ``None`` takes out a name
+	left by an earlier run, since it would keep the tools on an instance this credential is not
+	for - and on a machine with one connection, which is most people's, the settings hold the
+	credential alone, as they always did.
 
 	**A new file and a rename, never a truncating write.** A session starting while this runs
 	reads the old file or the new one and never half of either - and on the CIFS mount this
@@ -195,6 +213,12 @@ def write (handover: Handover, variable: str, token: str) -> Written:
 	environment = dict(held.get("env", {}))
 	before = environment.get(variable)
 	environment[variable] = token
+	naming = subroutine.config.DEFAULT_CONNECTION_VARIABLE
+	named_before = environment.pop(naming, None)
+
+	if connection is not None:
+		environment[naming] = connection
+
 	held["env"] = environment
 
 	# **Through a link, never over it** (`#3583`). :func:`prepare` asked git about the file a link
@@ -242,6 +266,10 @@ def write (handover: Handover, variable: str, token: str) -> Written:
 		path=handover.settings,
 		replaced=parsed[0] if parsed is not None and before != token else None,
 		private=not mode & (stat.S_IRWXG | stat.S_IRWXO),
+		named=connection,
+		named_before=(
+			named_before if isinstance(named_before, str) and named_before != connection else None
+		),
 	)
 
 

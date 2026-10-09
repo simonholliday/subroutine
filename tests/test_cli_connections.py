@@ -4134,6 +4134,10 @@ def test_here_gives_the_directory_its_agent_without_printing_the_credential (
 		"starts none - promising both halves there is #3407"
 	)
 	assert "both name" not in made
+	assert "SUBROUTINE_DEFAULT_CONNECTION" not in _settings_of(checkout)["env"], (
+		"one connection, so the settings hold the credential alone, as they always did (#4774)"
+	)
+	assert "It names" not in made
 
 	# **And the switch that closes the gap, in Claude Code's own words** (`#3454`). '--scope
 	# local' is the half that matters: without it, 'enable' and 'disable' change every project
@@ -4728,29 +4732,228 @@ def test_here_stages_the_credential_where_git_cannot_see_it (
 	assert ignored, "git would add the staged file"
 
 
+#: What an agent's client asks the tools first, as one line of standard input: who am I here.
+WHOAMI = (
+	'{"jsonrpc": "2.0", "id": 2, "method": "tools/call", '
+	'"params": {"name": "subroutine_whoami", "arguments": {}}}\n'
+)
+
+
+def _the_tools_answer (
+	run: typing.Callable[..., typer.testing.Result],
+	environment: dict[str, str],
+	monkeypatch: pytest.MonkeyPatch,
+) -> str:
+	"""Return what ``subroutine_whoami`` says through ``subroutine mcp`` as the plugin starts it.
+
+	**Its options blank, as the plugin passes them**, and ``environment`` set as Claude Code hands
+	a project's ``env`` to the process it starts there (`#3407`).
+	"""
+
+	for name, value in environment.items():
+		monkeypatch.setenv(name, value)
+
+	answers = answered(
+		run("mcp", "--connection", "", "--workspace", "", input=INITIALIZE + WHOAMI)
+	)
+	called = next(answer for answer in answers if answer.get("id") == 2)
+
+	return " ".join(part.get("text", "") for part in called["result"]["content"])
+
+
 @requires_git
-def test_here_says_when_the_tools_reach_another_connection (
+def test_here_names_the_project_s_connection_where_it_is_not_this_machine_s_default (
 	two: Remote,
 	run: typing.Callable[..., typer.testing.Result],
 	tmp_path: pathlib.Path,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""`SR#3585`: named after the connection a write goes to, and promised to the tools.
+	"""`SR#4772`, decision `#4774`: the tools follow the default, so the project names its own.
 
-	The plugin's server binds the configured default unless the plugin names a connection
-	(`#276`), so a credential for ``work`` reached the shell alone while this said
-	``subroutine_whoami`` would name the agent.
+	`#3585` found a credential for ``work`` reaching the shell alone: the plugin's server binds the
+	default unless the plugin names a connection (`#276`), and the plugin's settings are every
+	project's. **Asserted by driving ``subroutine mcp`` as the plugin starts it**, in the
+	environment the project's settings give it - and without the new line first, so the line is
+	shown to be what moves the tools.
 	"""
 
 	checkout = _checkout(tmp_path, monkeypatch)
 
 	made = " ".join(run("-c", "work", "agent", "create", "web", "--here").output.split())
+	environment = _settings_of(checkout)["env"]
 
-	assert "SUBROUTINE_TOKEN_WORK" in _settings_of(checkout)["env"], made
-	assert "'subroutine_whoami' does too only where the 'subroutine' plugin runs the tools" in made
-	assert "with 'work' named as its connection" in made, made
-	assert "it reaches 'local', this machine's default" in made, made
-	assert "and 'subroutine_whoami' does too" not in made, "promised only where the tools reach it"
+	assert environment["SUBROUTINE_DEFAULT_CONNECTION"] == "work", environment
+	assert "SUBROUTINE_TOKEN_WORK" in environment, environment
+	assert (
+		"It names 'work' there as this project's connection too, as SUBROUTINE_DEFAULT_CONNECTION, "
+		"since this machine's default is 'local'." in made
+	), made
+	assert "Then 'subroutine whoami' names web, and 'subroutine_whoami' does too" in made, made
+
+	credential_alone = {"SUBROUTINE_TOKEN_WORK": environment["SUBROUTINE_TOKEN_WORK"]}
+
+	assert "web (agent)" not in _the_tools_answer(run, credential_alone, monkeypatch), (
+		"without the line the tools reach this machine's default, as #3585 found"
+	)
+	assert "web (agent)" in _the_tools_answer(run, environment, monkeypatch)
+
+
+@requires_git
+def test_here_on_this_machine_s_default_names_none_and_takes_out_an_old_name (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4772`: on the default the settings hold the credential alone, as they always did.
+
+	**A name an earlier run left is taken out**, since it would keep the tools on an instance this
+	credential is not for. **And run where the project's own variable is already set**, as it is in
+	a session Claude Code started there: this machine's default is the configuration's, never the
+	one the project named.
+	"""
+
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text(
+		json.dumps({"env": {"SUBROUTINE_DEFAULT_CONNECTION": "work"}}), encoding="utf-8"
+	)
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_CONNECTION", "work")
+
+	made = " ".join(run("-c", "local", "agent", "create", "web", "--here").output.split())
+	environment = _settings_of(checkout)["env"]
+
+	assert "SUBROUTINE_TOKEN_LOCAL" in environment, environment
+	assert "SUBROUTINE_DEFAULT_CONNECTION" not in environment, environment
+	assert (
+		"It took out SUBROUTINE_DEFAULT_CONNECTION, which named 'work', so this project's tools now "
+		"reach 'local', this machine's default." in made
+	), made
+	assert "It names" not in made, made
+
+
+@requires_git
+def test_here_run_again_keeps_the_name_and_says_nothing_new_about_it (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4772`: a second run on the same connection names it again, and nothing it replaced."""
+
+	checkout = _checkout(tmp_path, monkeypatch)
+
+	run("-c", "work", "agent", "create", "web", "--here")
+	made = " ".join(run("-c", "work", "agent", "create", "web", "--here").output.split())
+
+	assert _settings_of(checkout)["env"]["SUBROUTINE_DEFAULT_CONNECTION"] == "work"
+	assert "since this machine's default is 'local'." in made, made
+	assert "in place of" not in made, made
+	assert "It took out" not in made, made
+
+
+@requires_git
+@pytest.mark.parametrize(
+	("before", "said"),
+	[
+		pytest.param(
+			"elsewhere",
+			"It names 'work' there as this project's connection too, as "
+			"SUBROUTINE_DEFAULT_CONNECTION, in place of 'elsewhere', since this machine's default is "
+			"'local'.",
+			id="another",
+		),
+		pytest.param("work", "since this machine's default is 'local'.", id="the-same"),
+	],
+)
+def test_here_says_which_connection_its_name_replaced (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	before: str,
+	said: str,
+) -> None:
+	"""`SR#4772`: where the settings named another connection, that is where the tools were."""
+
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text(
+		json.dumps({"env": {"SUBROUTINE_DEFAULT_CONNECTION": before}}), encoding="utf-8"
+	)
+
+	made = " ".join(run("-c", "work", "agent", "create", "web", "--here").output.split())
+
+	assert _settings_of(checkout)["env"]["SUBROUTINE_DEFAULT_CONNECTION"] == "work"
+	assert said in made, made
+	assert ("in place of" in made) == (before != "work"), made
+
+
+@requires_git
+def test_here_takes_out_a_name_for_its_own_connection_without_a_word (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4772`: a name for the connection this run is for moves nothing, so nothing is said."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text(
+		json.dumps({"env": {"SUBROUTINE_DEFAULT_CONNECTION": "local"}}), encoding="utf-8"
+	)
+
+	made = " ".join(run("agent", "create", "web", "--here").output.split())
+
+	assert "SUBROUTINE_DEFAULT_CONNECTION" not in _settings_of(checkout)["env"]
+	assert "It took out" not in made, made
+	assert "It names" not in made, made
+
+
+def test_the_variable_here_writes_is_the_one_the_settings_read (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4772`: the name is the settings' own, read through their prefix rather than by hand."""
+
+	monkeypatch.setenv(subroutine.config.DEFAULT_CONNECTION_VARIABLE, "work")
+
+	assert subroutine.config.load_settings().default_connection == "work"
+
+
+def test_a_default_connection_the_environment_names_is_refused_by_that_name (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4772`: a project's settings name its connection in the environment.
+
+	So a refusal sending the reader to the configuration file sent them where nothing is wrong.
+	**And `local` is not taken as unsaid there**: a file that turned `local` off has said where the
+	work is, and a project naming `local` has said the opposite.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_CONNECTION", "home")
+	refused = " ".join(run("list", expect=1).output.split())
+
+	assert "SUBROUTINE_DEFAULT_CONNECTION is set to 'home', which is not a connection here." in (
+		refused
+	), refused
+	assert "config.toml cannot be used" not in refused, refused
+	assert "run that again here against the connection this project uses" in refused, refused
+
+	declare(home, "\n[connections.local]\nenabled = false\n")
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_CONNECTION", "local")
+	refused = " ".join(run("list", expect=1).output.split())
+
+	assert "SUBROUTINE_DEFAULT_CONNECTION is set to 'local', which is not a connection here." in (
+		refused
+	), refused
+
+	monkeypatch.delenv("SUBROUTINE_DEFAULT_CONNECTION")
+
+	assert "Fix the deploy script" in run("list").output, "the file's own fallback is unchanged"
 
 
 def _a_git (directory: pathlib.Path, script: str | None) -> str:

@@ -2910,9 +2910,9 @@ def agent_create (
 	Run it in the directory Claude Code is opened in: it writes the credential into that
 	directory's .claude/settings.local.json, under this connection's variable, makes the
 	repository ignore that file, and prints nothing secret - so an agent can run it for you
-	without ever seeing the credential. A session started there afterwards acts as the agent -
-	in its tools too where they reach this connection, and a plugin naming none reaches this
-	machine's default.
+	without ever seeing the credential. A session started there afterwards acts as the agent,
+	in its tools too: where this connection is not the machine's default, it is named there as
+	the project's own, as SUBROUTINE_DEFAULT_CONNECTION.
 	Under 'subroutine-remote' it covers the shell only: that plugin's tools present its one
 	token in every project, until the directory is switched to the 'subroutine' plugin, which
 	it says how to do.
@@ -2977,6 +2977,7 @@ def agent_create (
 		_refuse_unusable_credentials_file(wanted)
 
 	handover: subroutine.claude_code.Handover | None = None
+	machine: str | None = None
 
 	if here:
 		try:
@@ -2995,6 +2996,10 @@ def agent_create (
 			# **The ignore rule goes in before the credential exists** (Simon, 2026-09-23), and
 			# is said at once, so that a refusal of the mint below cannot leave it unsaid.
 			if handover is not None:
+				# **Which instance the project's tools fall back to, settled before minting**
+				# (`#4772`), for the reason everything here is: a refusal after the mint
+				# strands a live credential.
+				machine = subroutine.connections.machine_default(_settings())
 				ignoring = subroutine.claude_code.ensure_ignored(handover)
 
 				if ignoring is not None:
@@ -3050,7 +3055,12 @@ def agent_create (
 
 	if handover is not None:
 		try:
-			placed = subroutine.claude_code.write(handover, variable, minted.token)
+			placed = subroutine.claude_code.write(
+				handover,
+				variable,
+				minted.token,
+				connection=None if connection.name == machine else connection.name,
+			)
 
 		# **Whatever stopped it** (`#3585`). Only a failure of the disk was caught, so any other -
 		# the settings' own text, say - left a live credential that was recorded nowhere and shown
@@ -3114,6 +3124,25 @@ def agent_create (
 				f"'subroutine token revoke {placed.replaced}'."
 			)
 
+		# **The instance named beside the credential, and why** (`#4772`, decision `#4774`). The
+		# 'subroutine' plugin's tools follow the default, so a credential for another instance
+		# reached the shell alone; and a name an earlier run left would keep them on an instance
+		# this credential is not for.
+		naming = subroutine.config.DEFAULT_CONNECTION_VARIABLE
+
+		if placed.named is not None:
+			_say(
+				f"It names {placed.named!r} there as this project's connection too, as {naming}"
+				+ (f", in place of {placed.named_before!r}" if placed.named_before else "")
+				+ f", since this machine's default is {machine!r}."
+			)
+
+		elif placed.named_before is not None and placed.named_before.lower() != connection.name:
+			_say(
+				f"It took out {naming}, which named {placed.named_before!r}, so this project's tools "
+				f"now reach {connection.name!r}, this machine's default."
+			)
+
 		# **Before anything else, and why** (`#3310`, measured on `#3309`). Claude Code can hand a
 		# running session's shell the new file straight away while its tools keep the credential
 		# they started with, so a session already open is two names at once until it reloads -
@@ -3133,27 +3162,14 @@ def agent_create (
 		# here writes those settings: whether the plugin is installed is not ours to see, and
 		# switching 'subroutine-remote' off without it would leave the project with no tools.
 		#
-		# **And only where they reach this connection** (`#3585`). A plugin naming none binds the
-		# configured default (`#276`), while the variable is named after the connection a write goes
-		# to, which `use` and a `.subroutine` marker move: where the two differed, the tools went
-		# on as before and this said they would not.
-		bound = subroutine.connections.roster(_settings()).default
-
-		if connection.name == bound:
-			_say(
-				f"Then 'subroutine whoami' names {minted.username}, and 'subroutine_whoami' does too"
-			)
-			_say("where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs")
-			_say("them, switch this directory to 'subroutine', then reload:")
-
-		else:
-			_say(
-				f"Then 'subroutine whoami' names {minted.username}. 'subroutine_whoami' does too only"
-			)
-			_say(f"where the 'subroutine' plugin runs the tools with '{connection.name}' named as its")
-			_say(f"connection: naming none, it reaches '{bound}', this machine's default, and")
-			_say("acts there as before. Where 'subroutine-remote' runs them, switch this")
-			_say("directory to 'subroutine', then reload:")
+		# **And this connection is the one they reach** (`#3585`, then `#4772`). A plugin naming
+		# none binds the default (`#276`), which the line above names where this connection is not
+		# this machine's: until it did, the tools went on as before there, and this said so.
+		_say(
+			f"Then 'subroutine whoami' names {minted.username}, and 'subroutine_whoami' does too"
+		)
+		_say("where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs")
+		_say("them, switch this directory to 'subroutine', then reload:")
 
 		_say("  claude plugin enable subroutine@subroutine --scope local")
 		_say("  claude plugin disable subroutine-remote@subroutine --scope local")

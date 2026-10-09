@@ -26,6 +26,7 @@ one of five places implying otherwise (`#831`).
 """
 
 import dataclasses
+import os
 import re
 import typing
 import urllib.parse
@@ -249,6 +250,24 @@ def roster (settings: subroutine.config.Settings | None = None) -> Roster:
 	ordered = sorted(live, key=lambda connection: 0 if connection.name == default else 1)
 
 	return Roster(connections=tuple(ordered), default=default)
+
+
+def machine_default (settings: subroutine.config.Settings) -> str:
+	"""Return the connection this machine's configuration names as its default (`#4772`).
+
+	**The file's answer, not the environment's.** A project's own settings name its connection
+	in :data:`subroutine.config.DEFAULT_CONNECTION_VARIABLE`, and everything Claude Code starts
+	there inherits it - ``agent create --here`` run in that project's own session included. So
+	asking the settings would answer with the project's choice, where ``--here`` needs what the
+	project falls back to without one.
+	"""
+
+	configured = subroutine.config.read_config_file().get("default_connection")
+	fallback = subroutine.config.Settings.model_fields["default_connection"].default
+
+	return roster(
+		settings.model_copy(update={"default_connection": configured or fallback})
+	).default
 
 
 def _declared_tables () -> dict[str, dict[str, typing.Any]]:
@@ -593,6 +612,37 @@ def _default_name (
 		)
 
 	wanted = (settings.default_connection if settings is not None else None) or LOCAL_NAME
+
+	# **Named where it was set** (`#4772`): a project's own settings name its connection in the
+	# environment, and a refusal sending the reader to the file would send them where nothing is
+	# wrong. **And `local` is not taken as unsaid there**: below, a file that turned `local` off
+	# and named nothing else has said where the work is, while a project naming `local` has said
+	# the opposite, and its credential is for that one instance.
+	variable = subroutine.config.DEFAULT_CONNECTION_VARIABLE
+	said = os.environ.get(variable)
+
+	if (
+		settings is not None
+		and said is not None
+		and said.strip()
+		and settings.default_connection == said
+		and said.strip().lower() not in names
+	):
+		raise subroutine.errors.ValidationError(
+			f"{variable} is set to {said.strip()!r}, which is not a connection here. Configured: "
+			f"{', '.join(sorted(names))}.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field=variable,
+					code="invalid_field_value",
+					message=f"{said.strip()!r} is not a connection here.",
+				)
+			],
+			hint="If 'subroutine agent create --here' wrote it into this project's "
+			".claude/settings.local.json, run that again here against the connection this "
+			"project uses. Otherwise unset it.",
+		)
 
 	# **Folded as every other connection name is** (`#3936`), which `find` and `check_name`
 	# already do: ``default_connection = "Work"`` beside ``[connections.work]`` was refused.

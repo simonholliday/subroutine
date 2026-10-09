@@ -4469,6 +4469,12 @@ def test_the_here_hint_says_it_cannot_reach_subroutine_remotes_tools (
 		assert command in said["remote"], said
 		assert command not in said["stdio"], said
 
+	# **And which instance the switched tools reach** (`#4772`): the one '--here' was run against,
+	# which it names in the project's settings where it is not this machine's default.
+	assert "with its options blank reaches the connection '--here' was run against" in " ".join(
+		said["remote"].split()
+	), said
+
 
 def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:
 	"""`#2789`. The terminal's line, through the tools an agent actually asks with.

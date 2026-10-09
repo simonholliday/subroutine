@@ -428,7 +428,9 @@ That needs 'subroutine' installed here, and uv; docs/connecting.md has the rest.
   Code gives that file's `env` to everything it starts in the project - the agent's shell as well
   as the `subroutine` plugin's server - so one line covers both of the ways an agent reaches an
   instance, and [an agent that can also run a shell](hosting.md#an-agent-that-can-also-run-a-shell)
-  is why both matter. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
+  is why both matter. **Where this connection is not this machine's default**, it names it there
+  too, as `SUBROUTINE_DEFAULT_CONNECTION`, so the plugin's tools reach the instance the credential
+  is for. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
   one, and prints nothing secret. **If it cannot finish, it refuses before a credential is made** -
   a settings file that is not valid JSON, say, or one the repository already tracks - leaving at
   most the line it added to `.gitignore`. If the settings file cannot be written once the
@@ -483,9 +485,9 @@ or, with that left blank, the program's credential for the connection, which is 
 projects as they were, and ask `subroutine_whoami` in one of them afterwards.
 
 **The `subroutine` plugin needs uv**, since it starts the program with `uvx` - [An agent, on the
-machine holding the work](#an-agent-on-the-machine-holding-the-work) has the rest. With its
-options left blank it uses this machine's default connection, so run `--here` against that one:
-`subroutine connections` says which it is.
+machine holding the work](#an-agent-on-the-machine-holding-the-work) has the rest. Leave its
+options blank: `--here` names the project's connection in the project's own settings wherever it
+is not this machine's default, while an option filled in applies to every project.
 
 ### Check it
 

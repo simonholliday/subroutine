@@ -63,6 +63,13 @@ MAX_LEASE_MINUTES = 60 * 24
 #: reloading the module.
 PROFILE_VARIABLE = "SUBROUTINE_PROFILE"
 
+#: The environment variable that names the default connection, read as ``default_connection``
+#: through the settings' prefix (`#4772`, decision `#4774`). ``agent create --here`` writes it
+#: into a project's own Claude Code settings where the project's instance is not this machine's
+#: default, so the ``subroutine`` plugin's tools reach the instance the project's credential is
+#: for, with the plugin's own settings left as they are.
+DEFAULT_CONNECTION_VARIABLE = "SUBROUTINE_DEFAULT_CONNECTION"
+
 #: The directory level a profile inserts under each XDG root. A literal rather than part of
 #: the name, so the default instance's paths are untouched and nobody is migrated.
 PROFILES_DIRECTORY = "profiles"
