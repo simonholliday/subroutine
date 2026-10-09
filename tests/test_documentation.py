@@ -3029,6 +3029,11 @@ NOT_IN_THE_DOCTOR_TRANSCRIPT = {
 		"the failure case of looking for data a restore set aside: a database address that "
 		"cannot be used at all, which a server answering requests from it does not have"
 	),
+	"claude code": (
+		"reported only where the directory doctor runs in has Claude Code settings giving a "
+		"credential the plugin's tools there do not use, and the service's account runs it in "
+		"its own directory, which has none"
+	),
 }
 
 

@@ -30,6 +30,7 @@ import pathlib
 import sys
 import typing
 
+import subroutine.claude_code
 import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
@@ -80,6 +81,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 		*_the_signing_key(resolved),
 		*_the_settings(resolved),
 		*connections,
+		*_the_handovers(resolved),
 		*_the_backups(resolved),
 		*_the_set_aside(resolved, connections),
 	]
@@ -369,6 +371,38 @@ def _the_connections (settings: subroutine.config.Settings) -> list[Finding]:
 			)
 
 	return found
+
+
+def _the_handovers (settings: subroutine.config.Settings) -> list[Finding]:
+	"""Report a credential this directory's Claude Code settings give and nothing uses (`#4775`).
+
+	Promoting a local instance to a service under another name leaves every project's agent
+	named after the old one, and its shell and tools then act as the person. **Nothing to say
+	where nothing is given**, which is the service's own account in its own directory.
+	"""
+
+	try:
+		roster = subroutine.connections.roster(settings)
+		machine = subroutine.connections.machine_default(settings)
+
+	# **Reported by `_the_connections` already**, as the one line about a roster that does not
+	# load.
+	except subroutine.errors.SubroutineError:
+		return []
+
+	return [
+		Finding(
+			area="claude code",
+			detail=(
+				f"{one.settings} gives {one.variable}, which names no connection here"
+				if one.connection is None
+				else f"{one.settings} gives a credential for {one.connection!r}, and the plugin's "
+				f"tools there reach {one.reached!r}"
+			),
+			ok=False,
+		)
+		for one in subroutine.claude_code.unused(roster, machine, pathlib.Path.cwd())
+	]
 
 
 def _one_connection (

@@ -4911,6 +4911,162 @@ def test_here_takes_out_a_name_for_its_own_connection_without_a_word (
 	assert "It names" not in made, made
 
 
+def _project_gives (checkout: pathlib.Path, environment: dict[str, str]) -> pathlib.Path:
+	"""Write a project's Claude Code settings as ``--here`` leaves them, and return their path."""
+
+	settings = checkout / ".claude" / "settings.local.json"
+	settings.parent.mkdir(exist_ok=True)
+	settings.write_text(json.dumps({"env": environment}), encoding="utf-8")
+
+	return settings
+
+
+def _default_is (home: pathlib.Path, name: str) -> None:
+	"""Make ``name`` this machine's default connection, ahead of every table in the file."""
+
+	config = home / "xdg_config_home" / "subroutine" / "config.toml"
+	config.write_text(
+		f'default_connection = "{name}"\n' + config.read_text(encoding="utf-8"), encoding="utf-8"
+	)
+
+
+def _doctor_says (run: typing.Callable[..., typer.testing.Result]) -> list[str]:
+	"""Return doctor's lines about this directory's Claude Code settings, whatever else it finds."""
+
+	said = run("doctor", expect=1).output.splitlines()
+
+	return [" ".join(line.split()) for line in said if line.strip().startswith("claude code")]
+
+
+def test_a_credential_for_a_connection_that_has_gone_is_named (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4775`: a local instance promoted to a service leaves each project's agent unread.
+
+	``--here`` names the variable after the connection, and the documented promotion reaches the
+	copy through a new connection with ``local`` turned off. The project's shell and tools then act
+	as the person, with nothing saying so.
+	"""
+
+	checkout = _checkout(tmp_path, monkeypatch, repository=False)
+	settings = _project_gives(checkout, {"SUBROUTINE_TOKEN_LOCAL": "sr_00000000_left"})
+	declare(home, "\n[connections.local]\nenabled = false\n")
+
+	said = run("whoami").output
+
+	assert str(settings) in said, said
+	assert (
+		"gives Claude Code SUBROUTINE_TOKEN_LOCAL here, and no connection is called that, so nothing "
+		"uses it." in " ".join(said.split())
+	), said
+	assert (
+		"against the connection that project uses now, and take SUBROUTINE_TOKEN_LOCAL out of the "
+		"file." in " ".join(said.split())
+	), said
+	assert "sr_00000000_left" not in said, "a name, never a value"
+	assert _doctor_says(run) == [
+		f"claude code {settings} gives SUBROUTINE_TOKEN_LOCAL, which names no connection here - "
+		"needs attention"
+	]
+
+
+@pytest.mark.parametrize(
+	"moved", [pytest.param(True, id="default-moved"), pytest.param(False, id="named")]
+)
+def test_a_credential_for_a_connection_the_tools_no_longer_reach_is_named (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	moved: bool,
+) -> None:
+	"""`SR#4775`, decision `#4774`: a project on the default follows it when the default moves.
+
+	**Or where its own settings name another connection** than the one its credential is for, which
+	is where the tools go whatever this machine's default is.
+	"""
+
+	checkout = _checkout(tmp_path, monkeypatch, repository=False)
+	given = {"SUBROUTINE_TOKEN_LOCAL": "sr_00000000_left"}
+
+	if moved:
+		_default_is(home, "work")
+
+	else:
+		given["SUBROUTINE_DEFAULT_CONNECTION"] = "work"
+
+	settings = _project_gives(checkout, given)
+
+	said = " ".join(run("whoami").output.split())
+
+	assert (
+		f"{settings} gives Claude Code a credential for 'local', while the 'subroutine' plugin's "
+		"tools there reach 'work', so they do not use it. Run 'subroutine -c local agent create "
+		"<name> --here' there again, and it names 'local' as that project's connection." in said
+	), said
+	assert _doctor_says(run) == [
+		f"claude code {settings} gives a credential for 'local', and the plugin's tools there "
+		"reach 'work' - needs attention"
+	]
+
+
+@pytest.mark.parametrize(
+	"given",
+	[
+		pytest.param({}, id="nothing"),
+		pytest.param({"SUBROUTINE_TOKEN_LOCAL": "sr_00000000_here"}, id="the-default"),
+		pytest.param(
+			{
+				"SUBROUTINE_TOKEN_WORK": "sr_00000000_here",
+				"SUBROUTINE_DEFAULT_CONNECTION": "work",
+				"SUBROUTINE_TOKEN_LOCAL": "sr_00000000_also",
+			},
+			id="named-and-another",
+		),
+	],
+)
+def test_a_project_whose_tools_use_its_credential_is_not_named (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	given: dict[str, str],
+) -> None:
+	"""`SR#4775`: a file giving the reached connection a credential is in order, whatever else.
+
+	**Named-and-another** is a project whose shell writes to a second connection: the tools have
+	their credential, so the other is the shell's and says nothing wrong.
+	"""
+
+	checkout = _checkout(tmp_path, monkeypatch, repository=False)
+	_project_gives(checkout, given)
+
+	assert "gives Claude Code" not in run("whoami").output
+	examined = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["doctor"]).output
+
+	assert "claude code" not in examined, examined
+
+
+def test_the_home_directory_s_claude_settings_are_never_a_project_s (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#4775`: ``~/.claude`` holds Claude Code's own settings, which ``--here`` never writes."""
+
+	monkeypatch.setenv("HOME", str(tmp_path))
+	_checkout(tmp_path, monkeypatch, repository=False)
+	_project_gives(tmp_path, {"SUBROUTINE_TOKEN_GONE": "sr_00000000_left"})
+
+	assert "gives Claude Code" not in run("whoami").output
+
+
 def test_the_variable_here_writes_is_the_one_the_settings_read (
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:

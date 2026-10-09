@@ -37,6 +37,8 @@ import typing
 
 import subroutine.auth
 import subroutine.config
+import subroutine.connections
+import subroutine.credentials
 import subroutine.errors
 
 #: Where Claude Code keeps a checkout's own settings: the half meant for this machine alone.
@@ -271,6 +273,119 @@ def write (
 			named_before if isinstance(named_before, str) and named_before != connection else None
 		),
 	)
+
+
+@dataclasses.dataclass(frozen=True)
+class Unused:
+	"""A credential a directory's settings give Claude Code that the plugin's tools there do not use."""
+
+	#: The settings file that gives it.
+	settings: pathlib.Path
+
+	#: The variable it is given as.
+	variable: str
+
+	#: The connection that variable is for, or ``None`` where no connection is called that.
+	connection: str | None
+
+	#: The connection the ``subroutine`` plugin's tools there reach.
+	reached: str
+
+
+def unused (
+	roster: subroutine.connections.Roster, machine: str, directory: pathlib.Path
+) -> list[Unused]:
+	"""Return the credentials ``directory``'s Claude Code settings give that its tools do not use.
+
+	`#4775`: a credential ``--here`` wrote is named after its connection, so promoting a local
+	instance to a service under another name left every project's agent unread, and its shell and
+	tools acting as the person, with nothing saying so. A project on this machine's default meets
+	the same when the default moves (decision `#4774`). ``machine`` is the default as this
+	machine's configuration names it, which a project's settings may override.
+
+	**Read from the file ``--here`` writes, never from the environment.** A variable somebody
+	exported in a shell for another connection reaches no tools and is theirs, so naming it would
+	put a line on every ``whoami`` that says nothing; the file is the handover itself. **Names
+	only**: no value is read out of it. **And a file giving a credential for the connection the
+	tools reach is in order**, whatever else it gives, since a project's shell may write to
+	another.
+	"""
+
+	settings = _settings_above(directory)
+
+	if settings is None:
+		return []
+
+	# **Refused where it is written, not here**: ``--here`` will not write back a file it could
+	# not parse, and a question about who answers is no place to refuse one.
+	try:
+		environment: dict[str, typing.Any] = _held(settings).get("env", {})
+
+	except subroutine.errors.SubroutineError:
+		return []
+
+	prefix = f"{subroutine.credentials.DEFAULT_VARIABLE}_"
+	live = {subroutine.credentials.variable_for(one.name): one.name for one in roster.connections}
+	named = environment.get(subroutine.config.DEFAULT_CONNECTION_VARIABLE)
+	reached = named.strip().lower() if isinstance(named, str) and named.strip() else machine
+	given = sorted(name for name in environment if name.startswith(prefix))
+	found = [
+		Unused(settings=settings, variable=variable, connection=None, reached=reached)
+		for variable in given
+		if variable not in live
+	]
+
+	if subroutine.credentials.variable_for(reached) in given:
+		return found
+
+	return [
+		*found,
+		*(
+			Unused(settings=settings, variable=variable, connection=live[variable], reached=reached)
+			for variable in given
+			if variable in live
+		),
+	]
+
+
+def unused_in_words (one: Unused) -> str:
+	"""Say what one unused credential means, and how ``--here`` puts it right."""
+
+	if one.connection is None:
+		return (
+			f"{one.settings} gives Claude Code {one.variable} here, and no connection is called "
+			"that, so nothing uses it. If 'subroutine agent create --here' put it there, run that "
+			"again in that directory against the connection that project uses now, and take "
+			f"{one.variable} out of the file."
+		)
+
+	return (
+		f"{one.settings} gives Claude Code a credential for {one.connection!r}, while the "
+		f"'subroutine' plugin's tools there reach {one.reached!r}, so they do not use it. Run "
+		f"'subroutine -c {one.connection} agent create <name> --here' there again, and it names "
+		f"{one.connection!r} as that project's connection."
+	)
+
+
+def _settings_above (directory: pathlib.Path) -> pathlib.Path | None:
+	"""Return the nearest Claude Code project settings at or above ``directory``, or ``None``.
+
+	**Never the home directory's**: there ``.claude`` holds Claude Code's own settings for every
+	project, which ``--here`` never writes.
+	"""
+
+	home = pathlib.Path.home()
+
+	for place in (directory, *directory.parents):
+		if place == home:
+			return None
+
+		candidate = place / SETTINGS
+
+		if candidate.is_file():
+			return candidate
+
+	return None
 
 
 def _held (settings: pathlib.Path) -> dict[str, typing.Any]:

@@ -544,6 +544,12 @@ adding it as a connection while your old local database is still configured is t
 name. Keep the old database as your rollback by all means - just do not point a second
 connection at what is now the same work.
 
+**Each project you gave an agent with `agent create --here` needs it again.** Its credential
+is named after the connection it was made on, `local` until now, so once the copy is reached
+under another name nothing reads it, and that project's shell and tools act as you.
+`subroutine whoami` and `subroutine doctor`, run in the project, say so. Run `subroutine agent
+create <name> --here` there again, then take the old line out of `.claude/settings.local.json`.
+
 ## TLS, and why `serve` refuses without it
 
 Ask for a public bind with nothing in front of it and you get this:

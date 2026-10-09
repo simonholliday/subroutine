@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`whoami` and `doctor` say when a project's Claude Code settings give a credential its
+  tools do not use**: one named after a connection that is no longer configured - as every
+  project given an agent with `agent create --here` meets after promoting your own database
+  to a service - or one for a connection other than the one the `subroutine` plugin's tools
+  there reach. That project's shell and tools acted as you, with nothing saying so.
 - **`agent create --here` gives a project's tools the instance its credential is for.** Where
   that connection is not this machine's default, it also writes `SUBROUTINE_DEFAULT_CONNECTION`
   into the project's `.claude/settings.local.json`, so the `subroutine` plugin's tools act as

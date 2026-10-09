@@ -45,6 +45,7 @@ import typer
 import typer.core
 
 import subroutine.addressing
+import subroutine.claude_code
 import subroutine.cli.output
 import subroutine.clients.base
 import subroutine.clients.local
@@ -7644,6 +7645,17 @@ def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
 				answer.value, machine=subroutine.config.system_timezone()
 			):
 				program.console.print(line)
+
+		# **Once, after every connection** (`#4775`): a credential this directory's Claude Code
+		# settings give and the plugin's tools there do not use. The shell, which reads the same
+		# settings, answers above as somebody else and cannot say why.
+		for one in subroutine.claude_code.unused(
+			world.roster,
+			subroutine.connections.machine_default(program.settings()),
+			pathlib.Path.cwd(),
+		):
+			program.say("")
+			program.console.print(subroutine.claude_code.unused_in_words(one))
 
 
 def _connections_listed (program: Program) -> None:
