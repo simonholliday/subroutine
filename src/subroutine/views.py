@@ -2559,6 +2559,14 @@ class Calendar(pydantic.BaseModel):
 	title: str
 	prefix: str
 
+	#: Whose feed it is, and so whose sight it reads with (`SR#4566`). A caller may be looking at
+	#: the feeds of the agents that answer to them, or as an instance administrator at anybody's
+	#: (decision `#4524` as revised on 2026-10-09), so the name is here rather than only the id.
+	#: **Defaulted**, so a client can read a response from an instance that predates the fields
+	#: (`#345`).
+	owner_id: uuid.UUID | None = None
+	owner: str | None = None
+
 	#: Which workspace's work it shows. A feed is pinned to one, and that is the column's own
 	#: reason as well as this field's: an address that spanned workspaces could collide on refs.
 	workspace_id: uuid.UUID
@@ -2606,6 +2614,7 @@ class Calendar(pydantic.BaseModel):
 
 		return (
 			self.prefix,
+			self.owner or "",
 			self.title,
 			self.project_key or "everything",
 			self.audience,
@@ -6614,10 +6623,11 @@ def token (
 
 
 class CalendarNames(typing.NamedTuple):
-	"""What a page of calendar feeds shares: project addresses and item-type keys, by id."""
+	"""What a page of calendar feeds shares: project addresses, item-type keys and owners, by id."""
 
 	projects: dict[str, str]
 	types: dict[uuid.UUID, str]
+	owners: dict[uuid.UUID, str]
 
 
 def _named_for (
@@ -6673,7 +6683,18 @@ def _named_for (
 				)
 			}
 
-	return CalendarNames(projects=projects, types=types)
+	owners: dict[uuid.UUID, str] = {}
+
+	if session is not None and rows:
+		account = subroutine.db.models.identity.User
+		owners = {
+			one.id: one.username
+			for one in session.scalars(
+				sqlalchemy.select(account).where(account.id.in_({row.owner_id for row in rows}))
+			)
+		}
+
+	return CalendarNames(projects=projects, types=types, owners=owners)
 
 
 def calendars (
@@ -6724,6 +6745,8 @@ def calendar (
 		"id": row.id,
 		"title": row.title,
 		"prefix": row.token_prefix,
+		"owner_id": row.owner_id,
+		"owner": found.owners.get(row.owner_id),
 		"workspace_id": row.workspace_id,
 		"audience": row.audience,
 		"project_id": row.project_id,

@@ -74,18 +74,26 @@ def mint_link (
 	principal at all; somebody at a terminal is the local user, asked as over HTTP (decision `#4514`).
 	"""
 
+	# **Two person's acts, asked first** (`SR#4565`, decision `#4515`): they are the final answer, so
+	# holding whatever is asked after changes nothing. An agent issues only for its own agents, and
+	# no agent holds a browser session, whoever asks for one.
+	subroutine.domain.accountability.refuse_a_person_act(
+		session,
+		subroutine.permissions.ISSUING,
+		by=None if actor is None else actor.user,
+		on=user,
+	)
+	subroutine.domain.accountability.refuse_a_person_act(
+		session, subroutine.permissions.HOLDING_A_BROWSER_SESSION, by=user
+	)
+
 	# A read-only session changes nothing, whoever the link would be for (decision `#4510`), and a
 	# session through the agent tools is handed no secret, whatever it holds (decision `#4520`).
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 	subroutine.domain.authentication.refuse_handing_the_agent_tools_a_secret(
 		actor, what="a sign-in link", command="subroutine login link"
 	)
-
-	# Asked next, because it is the final answer: holding the permission asked after changes nothing.
-	subroutine.domain.authentication.refuse_an_agent_issuing_for_a_person(
-		actor, user, what="a sign-in link"
-	)
-	_refuse_administering_somebody_else(actor, user, doing="issue a sign-in link for")
+	_refuse_acting_on_the_account(session, actor, user, stopping=False)
 
 	# **An account that has left is refused by name as the link is made** (`#3944`), as ``token
 	# create`` refuses one. The check below speaks as authentication does - a credential refused -
@@ -399,9 +407,20 @@ def sign_out_everywhere (
 	and is not.
 	"""
 
+	# **A person's act, asked first** (`SR#4565`, decision `#4515`): an agent stops only itself and the
+	# agents that answer to it, where it signed a person out everywhere (G2 of the cold review of
+	# 2026-10-05).
+	subroutine.domain.accountability.refuse_a_person_act(
+		session,
+		subroutine.permissions.STOPPING,
+		by=None if actor is None else actor.user,
+		on=user,
+	)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
-	_refuse_administering_somebody_else(actor, user, doing="sign out")
+	# **Whoever the account answers to may sign it out** (`SR#4566`, decision `#4516`), as may the
+	# account itself and the instance tier.
+	_refuse_acting_on_the_account(session, actor, user, stopping=True)
 
 	# **Only by a credential that dominates the sessions it stops** (`#4560`, decision `#4527`; M-4 (e)
 	# of the cold review of 2026-09-28): a session carries no narrowing, so only a credential with
@@ -441,34 +460,25 @@ def sign_out_everywhere (
 	return int(stopped.rowcount)
 
 
-def _refuse_administering_somebody_else (
+def _refuse_acting_on_the_account (
+	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,
 	user: subroutine.db.models.identity.User,
 	*,
-	doing: str,
+	stopping: bool,
 ) -> None:
-	"""Refuse acting on another person's sign-in unless the caller may administer accounts.
+	"""Ask the one rule for acts on an account - `SR#4566`, decisions `#4516` and `#4524`.
 
-	**The same gate as issuing a credential for somebody else**, and deliberately so: handing
-	out a link that signs in as them, and revoking the sessions they are working in, are both
-	acts on another person's access rather than on their work. A caller acting on their own
-	needs nothing — you may always sign yourself out.
-
-	``None`` is an internal caller with no principal at all. **Somebody at a terminal is asked as
-	they would be over HTTP** (`#4567`, decision `#4514`): a ``local_user`` who was only a viewer
-	signed a superuser out and minted them a sign-in link, which the same account presenting a
-	credential is refused (S8 of the cold review of 2026-10-05).
+	**Handing out a link that signs in as somebody, and ending the sessions they are working in, are
+	acts on their access** rather than on their work, so they are asked what every act on an account
+	is asked: your own is yours, whoever it answers to may stop it, and starting anything for it is
+	the instance tier's. Here only for the import, which ``domain.authorization`` makes a cycle at
+	the top of this module; the alias keeps ``subroutine`` from being rebound as a local name.
 	"""
 
-	if actor is None or actor.user.id == user.id:
-		return
-
-	# Imported here rather than at the top: `domain.authorization` imports
-	# `domain.authentication`, so a module-level import here would be a cycle. The alias is
-	# what stops `subroutine` being rebound as a local name for the rest of this function.
 	from subroutine.domain import authorization as permits
 
-	permits.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
+	permits.refuse_acting_on_an_account(session, actor, user, stopping=stopping)
 
 
 def _refuse_a_credential_that_would_be_widened (
@@ -552,10 +562,8 @@ def _refuse_an_account_that_cannot_sign_in (
 			prefix=prefix,
 		)
 
-	if user.is_service_account:
-		raise subroutine.errors.Forbidden(
-			f"{user.username!r} is a service account, which cannot sign in to a browser.",
-			hint="Service accounts work through API tokens, which carry the scope and "
-			"reach a session does not. Create one with 'subroutine token create "
-			f"--service-account {user.username}'.",
-		)
+	# **A person's act, asked of the account that would hold the session** (`SR#4565`, decision
+	# `#4515`), in the sentence every person's act is refused in.
+	subroutine.domain.accountability.refuse_a_person_act(
+		session, subroutine.permissions.HOLDING_A_BROWSER_SESSION, by=user
+	)

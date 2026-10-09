@@ -1040,7 +1040,10 @@ The secret is the one thing masked on this page. Everything else is what the com
 
 **The agent answers to whoever ran the command** - `laurence` here. For it to answer to somebody
 else, `subroutine user transfer claude --to keanu` hands it over; only a person who may make
-accounts can run that.
+accounts can run that. **Whoever it answers to may stop it**: `token list` and `calendar list`
+show its credentials and feeds to revoke, and `subroutine user deactivate claude` marks it as
+having left. Issuing it a credential, or bringing it back, stays with somebody who administers
+the installation.
 
 **Add `--store` and the second half is done too**, which is what you want on the machine the
 agent runs on:

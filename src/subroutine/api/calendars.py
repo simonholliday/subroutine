@@ -162,12 +162,12 @@ def listing (
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
-	"""Your own feeds, newest first. Never the secret, which cannot be recovered.
+	"""The feeds you may stop, newest first. Never the secret, which cannot be recovered.
 
-	**Yours and nobody else's, including an instance administrator's** - which is where this
-	differs from ``GET /v1/tokens``. A list of somebody's feeds says which projects they watch
-	and from how many devices, and a feed URL is already accepted as a bearer credential
-	nobody can audit; an inventory of them is the map that makes one worth stealing.
+	**As ``GET /v1/tokens`` lists credentials**: your own, those of the agents that answer to you,
+	and for an instance administrator everybody's - each with whose it is. Only what your
+	credential reaches at least as far as is listed, and an address is never shown, only what it
+	reads.
 
 	Not paginated, for the reason ``GET /v1/users`` gives: how many exist is bounded by how
 	many somebody made.
@@ -241,7 +241,7 @@ def revoke (
 	a repeat call is distinguishable from a first one.
 	"""
 
-	found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
+	found = subroutine.domain.calendars.mine(session, actor, id_or_prefix, stopping=True)
 
 	subroutine.domain.calendars.revoke(session, found, actor=actor)
 

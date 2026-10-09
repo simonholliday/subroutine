@@ -2446,14 +2446,17 @@ def test_a_feed_cannot_be_made_for_somebody_else (
 	assert feed.owner_id == world.user.id
 
 
-def test_a_feed_is_not_something_anybody_else_can_read_or_act_on (
+def test_feeds_follow_tokens_for_everybody_else (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""§20.6: an inventory of somebody's feeds is the map that makes one worth stealing.
+	"""`SR#4566`, decision `#4524` as revised on 2026-10-09: an administrator lists and revokes.
 
-	So a second person — a **superuser**, which is the strongest credential this instance
-	issues — sees none of them and cannot reset or revoke one. That is deliberately narrower
-	than `GET /v1/tokens`, where an administrator sees everything.
+	§20.6 called an inventory of somebody's feeds the map that makes one worth stealing, and offered
+	nobody another person's - a superuser included, where ``GET /v1/tokens`` showed them everything.
+	That never held against somebody who can sign in as anybody, so feeds follow tokens: **a
+	superuser sees whose each is and may revoke it**, and never gives it a new address, which would
+	hand back a secret reading with its owner's sight. **Anybody else sees none of them**, and acting
+	on one is absent rather than forbidden, which is ``tokens.mine``'s rule.
 	"""
 
 	world = test_api_tasks._world(session)
@@ -2464,32 +2467,51 @@ def test_a_feed_is_not_something_anybody_else_can_read_or_act_on (
 
 	assert made.status_code == 201, made.text
 
-	stranger = subroutine.domain.users.create(
-		session, username=f"other-{uuid.uuid4().hex[:8]}", is_superuser=True
-	)
-	subroutine.domain.workspaces.add_member(
-		session, workspace=world.workspace, user=stranger, role_key="owner"
-	)
-	_row, issued = subroutine.domain.authentication.issue_token(
-		session, user=stranger, title="Theirs"
-	)
-	session.flush()
+	def _holding (**kwargs: typing.Any) -> dict[str, str]:
+		"""Make a member of the workspace, and return its credential as a header."""
 
-	theirs = {"authorization": f"Bearer {issued.value.get_secret_value()}"}
-	listed = api_support.call(world.application, "GET", "/v1/calendars", headers=theirs)
+		someone = subroutine.domain.users.create(
+			session, username=f"other-{uuid.uuid4().hex[:8]}", **kwargs
+		)
+		subroutine.domain.workspaces.add_member(
+			session, workspace=world.workspace, user=someone, role_key="owner"
+		)
+		_row, issued = subroutine.domain.authentication.issue_token(
+			session, user=someone, title="Theirs"
+		)
+		session.flush()
+
+		return {"authorization": f"Bearer {issued.value.get_secret_value()}"}
+
+	stranger = _holding()
+	administrator = _holding(is_superuser=True)
+	reset = f"/v1/calendars/{made.json()['prefix']}/reset"
+	revoke = f"/v1/calendars/{made.json()['prefix']}"
+
+	listed = api_support.call(world.application, "GET", "/v1/calendars", headers=stranger)
 
 	assert listed.status_code == 200, listed.text
 	assert listed.json()["items"] == [], "somebody else's feeds appeared in this listing"
 
-	# **Absent rather than forbidden**, which is `tokens.mine`'s rule: acting on one discloses
-	# no more than the listing does, so refusing with a 403 would confirm it exists.
-	for method, address in (
-		("POST", f"/v1/calendars/{made.json()['prefix']}/reset"),
-		("DELETE", f"/v1/calendars/{made.json()['prefix']}"),
-	):
-		refused = api_support.call(world.application, method, address, headers=theirs)
+	for method, address in (("POST", reset), ("DELETE", revoke)):
+		refused = api_support.call(world.application, method, address, headers=stranger)
 
 		assert refused.status_code == 404, f"{method} {address}: {refused.text}"
+
+	listed = api_support.call(world.application, "GET", "/v1/calendars", headers=administrator)
+
+	assert [(one["prefix"], one["owner"]) for one in listed.json()["items"]] == [
+		(made.json()["prefix"], world.user.username)
+	]
+
+	refused = api_support.call(world.application, "POST", reset, headers=administrator)
+
+	assert refused.status_code == 404, refused.text
+
+	revoked = api_support.call(world.application, "DELETE", revoke, headers=administrator)
+
+	assert revoked.status_code == 200, revoked.text
+	assert revoked.json()["revoked_at"] is not None
 
 
 def test_a_page_of_feeds_costs_what_one_costs (

@@ -21,9 +21,11 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
+import subroutine.domain.calendars
 import subroutine.domain.sessions
 import subroutine.domain.tokens
 import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 
 
@@ -259,16 +261,16 @@ def test_an_agent_may_be_handed_to_another_agent (session: sqlalchemy.orm.Sessio
 	assert subroutine.domain.accountability.chain(session, loose) == [loose, senior, person]
 
 
-def test_an_agent_that_cannot_make_agents_may_hold_one_and_gains_nothing_over_it (
+def test_an_agent_that_cannot_make_agents_may_hold_one_and_may_stop_it_but_never_start_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#4158`, decided on `#3953`: the holder need not be able to make agents.
+	"""`SR#4158`, decided on `#3953`; then `SR#4566`, decision `#4516`, which takes it again.
 
-	**That is safe because holding grants nothing**, so the holder's own credential is refused
-	every act on what it holds: a credential or a sign-in link for it, an agent beneath it,
-	revoking its credential, deactivating it, handing it on, setting its timezone and signing it
-	out. The test above passed whichever way this was decided, since its holder may make agents.
-	The day holding grants any of these, the decision is taken again, and this is where it shows.
+	**The holder need not be able to make agents, because holding grants stopping and never
+	starting.** It was safe while holding granted nothing; this is where the day it grants any of it
+	shows, as the test promised. Whoever an account answers to may revoke its credentials, sign it
+	out and mark it as having left, and starting anything for it - a credential or a sign-in link,
+	an agent beneath it, handing it on, its timezone - stays with the instance tier.
 	"""
 
 	person = _person(session)
@@ -289,7 +291,7 @@ def test_an_agent_that_cannot_make_agents_may_hold_one_and_gains_nothing_over_it
 
 	assert subroutine.domain.accountability.chain(session, held) == [held, holder, person]
 
-	acts: dict[str, typing.Callable[[], object]] = {
+	starting: dict[str, typing.Callable[[], object]] = {
 		"a credential for it": lambda: subroutine.domain.authentication.issue_token(
 			session, user=held, title="taken", actor=as_holder
 		),
@@ -303,30 +305,136 @@ def test_an_agent_that_cannot_make_agents_may_hold_one_and_gains_nothing_over_it
 			responsible_user_id=held.id,
 			actor=as_holder,
 		),
-		"revoking its credential": lambda: subroutine.domain.tokens.revoke(
-			session, its_own, actor=as_holder
-		),
-		"deactivating it": lambda: subroutine.domain.users.set_active(
-			session, held, active=False, actor=as_holder
-		),
 		"handing it on": lambda: subroutine.domain.users.transfer(
 			session, held, to=person, actor=as_holder
 		),
 		"its timezone": lambda: subroutine.domain.users.set_timezone(
 			session, held, timezone="Europe/London", actor=as_holder
 		),
-		"signing it out": lambda: subroutine.domain.sessions.sign_out_everywhere(
-			session, user=held, actor=as_holder
-		),
 	}
 
-	for what, act in acts.items():
+	for what, act in starting.items():
 		with pytest.raises(subroutine.errors.Forbidden):
 			act()
 
 		assert held.is_active, what
 		assert held.responsible_user_id == holder.id, what
 		assert its_own.revoked_at is None, what
+
+	assert {
+		row.id for row in subroutine.domain.tokens.issued_tokens(session, actor=as_holder)
+	} == {its_own.id, _row.id}, "it lists what it may stop: its own, and the held agent's"
+
+	subroutine.domain.tokens.revoke(session, its_own, actor=as_holder)
+	subroutine.domain.sessions.sign_out_everywhere(session, user=held, actor=as_holder)
+	subroutine.domain.users.set_active(session, held, active=False, actor=as_holder)
+
+	assert its_own.revoked_at is not None
+	assert not held.is_active
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.users.set_active(session, held, active=True, actor=as_holder)
+
+	assert not held.is_active, "bringing it back is starting it"
+
+
+def test_whoever_an_agent_answers_to_may_stop_it_and_nobody_else (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#4566`, decision `#4516`: G5 of the cold review of 2026-10-05, as it was measured.
+
+	After ``user transfer worker --to keanu``, Keanu answered for ``worker`` and could not list or
+	revoke its credential, or mark it as having left; only a superuser could act on an agent at all.
+	**Now its person lists and stops it** - its credential, its calendar feed, its sessions and its
+	standing - and still cannot start it: issue it a credential or bring it back. Somebody it does
+	not answer to can do none of it, and a narrowed credential of its person does not mark it as
+	having left, since that stops every credential it holds.
+	"""
+
+	laurence = _person(session, "laurence")
+	keanu = subroutine.domain.users.create(session, username=f"keanu-{uuid.uuid4().hex[:8]}")
+	carrie_anne = subroutine.domain.users.create(
+		session, username=f"carrie-anne-{uuid.uuid4().hex[:8]}"
+	)
+	workspace = subroutine.domain.workspaces.create(
+		session, slug=f"w{uuid.uuid4().hex[:8]}", title="Metacortex", owner=keanu, timezone="UTC"
+	)
+	worker = _agent(session, laurence, "worker")
+
+	for member in (worker, carrie_anne):
+		subroutine.domain.workspaces.add_member(session, workspace, member, role_key="member")
+
+	subroutine.domain.users.transfer(session, worker, to=keanu, actor=_acting(laurence))
+	its_token, _secret = subroutine.domain.authentication.issue_token(
+		session, user=worker, title="worker's own"
+	)
+	its_feed, _address = subroutine.domain.calendars.create(
+		session, _acting(worker), workspace_id=workspace.id, title="worker's agenda"
+	)
+	session.flush()
+
+	answering, stranger = _acting(keanu), _acting(carrie_anne)
+
+	assert its_token.id in {
+		row.id for row in subroutine.domain.tokens.issued_tokens(session, actor=answering)
+	}
+	assert its_feed.id in {row.id for row in subroutine.domain.calendars.listed(session, answering)}
+	assert its_token.id not in {
+		row.id for row in subroutine.domain.tokens.issued_tokens(session, actor=stranger)
+	}
+	assert subroutine.domain.calendars.listed(session, stranger) == []
+
+	stopping: dict[str, typing.Callable[[subroutine.domain.authentication.Principal], object]] = {
+		"revoking its credential": lambda actor: subroutine.domain.tokens.revoke(
+			session, its_token, actor=actor
+		),
+		"revoking its feed": lambda actor: subroutine.domain.calendars.revoke(
+			session, its_feed, actor=actor
+		),
+		"signing it out": lambda actor: subroutine.domain.sessions.sign_out_everywhere(
+			session, user=worker, actor=actor
+		),
+		"marking it as having left": lambda actor: subroutine.domain.users.set_active(
+			session, worker, active=False, actor=actor
+		),
+	}
+
+	for what, act in stopping.items():
+		with pytest.raises(subroutine.errors.Forbidden):
+			act(stranger)
+
+		assert its_token.revoked_at is None and its_feed.revoked_at is None, what
+		assert worker.is_active, what
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.authentication.issue_token(
+			session, user=worker, title="started", actor=answering
+		)
+
+	_row, narrow = subroutine.domain.authentication.issue_token(
+		session, user=keanu, title="Reading", scopes=["task:read"]
+	)
+	session.flush()
+	reading = subroutine.domain.authentication.authenticate(
+		session, narrow.value.get_secret_value(), record_use=False
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.users.set_active(session, worker, active=False, actor=reading)
+
+	assert subroutine.domain.accountability.can_act(session, worker), "and it still acts"
+
+	for act in stopping.values():
+		act(answering)
+
+	assert its_token.revoked_at is not None
+	assert its_feed.revoked_at is not None
+	assert not worker.is_active
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.users.set_active(session, worker, active=True, actor=answering)
+
+	assert not worker.is_active, "bringing it back is starting it, the instance tier's"
 
 
 def test_an_agent_is_not_handed_to_somebody_who_cannot_act (

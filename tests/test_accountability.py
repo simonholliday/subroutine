@@ -177,7 +177,8 @@ def test_an_agent_cannot_name_someone_else_as_answerable (
 	"""The laundering case, refused. `#473`, and the shape `#356` found one layer over.
 
 	Without this an agent creates a sub-agent answerable to somebody who never authorised it,
-	the sub-agent does something wrong, and every row involved resolves perfectly.
+	the sub-agent does something wrong, and every row involved resolves perfectly. **A person's
+	act, refused 403 as every one is** (`SR#4565`, decision `#4515`), where it was a 422.
 	"""
 
 	person = _person(session, "authorised")
@@ -188,13 +189,14 @@ def test_an_agent_cannot_name_someone_else_as_answerable (
 		is_service_account=True, is_superuser=True, actor=_acting(person),
 	)
 
-	with pytest.raises(subroutine.errors.ValidationError) as refusal:
+	with pytest.raises(subroutine.errors.Forbidden) as refusal:
 		subroutine.domain.users.create(
 			session, username=f"sub-{uuid.uuid4().hex[:8]}", is_service_account=True,
 			responsible_user_id=stranger.id, actor=_acting(agent),
 		)
 
-	assert "cannot choose" in str(refusal.value)
+	assert "choosing who answers for an agent is a person's act" in str(refusal.value)
+	assert refusal.value.status == 403
 
 
 def test_a_person_may_name_someone_else (session: sqlalchemy.orm.Session) -> None:

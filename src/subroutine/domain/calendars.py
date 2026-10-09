@@ -428,9 +428,26 @@ def revoke (
 	**Only by a credential that dominates the feed, its expiry aside** (`#4560`, decision `#4527`,
 	which replaces `#3914`'s blunter rule): a credential narrowed to one project stops the feed of
 	that project and not one reading the whole workspace.
+
+	**By its owner, whoever the owner answers to, or the instance tier** (`SR#4566`, decisions
+	`#4516` and `#4524`): the one rule for stopping an account, which a feed is a credential of.
 	"""
 
+	owner = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User).where(
+			subroutine.db.models.identity.User.id == feed.owner_id
+		)
+	).one()
+
+	# **A person's act, asked first** (`SR#4565`, decision `#4515`): an agent stops only its own feeds
+	# and its agents'.
+	subroutine.domain.accountability.refuse_a_person_act(
+		session, subroutine.permissions.STOPPING, by=actor.user, on=owner
+	)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+	subroutine.domain.authorization.refuse_acting_on_an_account(
+		session, actor, owner, stopping=True
+	)
 	subroutine.domain.authentication.refuse_undominated(
 		session,
 		actor,
@@ -454,10 +471,10 @@ def feeds (
 ) -> list[subroutine.db.models.identity.CalendarFeed]:
 	"""Return this person's feeds, newest first.
 
-	**Their own and nobody else's.** A list of somebody's feeds says which projects they
-	watch and from how many devices, and §20.6 already accepts that a feed URL is a bearer
-	credential nobody can audit — an inventory of them is the map that makes one worth
-	stealing. Reading another person's is not a permission this offers to anybody.
+	**Theirs and nobody else's**: whose feeds a caller may list is :func:`listed`'s question.
+	§20.6 called an inventory of them the map that makes one worth stealing and offered nobody
+	another person's; they follow tokens now (`SR#4566`, decision `#4524` as revised on
+	2026-10-09), since that line never held against an administrator, who can sign in as anybody.
 	"""
 
 	model = subroutine.db.models.identity.CalendarFeed
@@ -478,22 +495,46 @@ def listed (
 	*,
 	include_revoked: bool = False,
 ) -> list[subroutine.db.models.identity.CalendarFeed]:
-	"""Return the caller's own feeds that its credential dominates, newest first - `#3891`, `#4560`.
+	"""Return the feeds the caller may act on that its credential dominates, newest first.
 
 	**Each feed names what it reads**, the project it follows by its title included, and a
 	credential narrowed to one project was shown the feeds for the others - and, until it was
 	refused, could reset any of them. It was then refused the whole list; it is shown the feeds it
-	dominates now (decision `#4527`), as a token listing shows the tokens.
+	dominates now (decision `#4527`, `#3891`, `#4560`), as a token listing shows the tokens.
+
+	**Its own, its agents', or with ``instance:user_create`` everybody's** (`SR#4566`, decisions
+	`#4516` and `#4524`): feeds follow tokens, as the one rule for stopping an account says.
 	"""
 
 	return [
 		feed
-		for feed in feeds(session, actor.user, include_revoked=include_revoked)
+		for feed in _acted_on(session, actor, include_revoked=include_revoked)
 		if subroutine.domain.authentication.undominated(
 			session, actor, _carried(feed), counting_expiry=False
 		)
 		is None
 	]
+
+
+def _acted_on (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	*,
+	include_revoked: bool,
+) -> list[subroutine.db.models.identity.CalendarFeed]:
+	"""Return the feeds of every account this caller may act on, newest first - `SR#4566`."""
+
+	model = subroutine.db.models.identity.CalendarFeed
+	statement = sqlalchemy.select(model)
+	reached = subroutine.domain.authorization.accounts_acted_on(session, actor)
+
+	if reached is not None:
+		statement = statement.where(model.owner_id.in_(reached))
+
+	if not include_revoked:
+		statement = statement.where(model.revoked_at.is_(None))
+
+	return list(session.scalars(statement.order_by(model.created_at.desc())))
 
 
 def _carried (feed: subroutine.db.models.identity.CalendarFeed) -> subroutine.domain.authentication.Bounds:
@@ -508,12 +549,19 @@ def mine (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	id_or_prefix: str,
+	*,
+	stopping: bool = False,
 ) -> subroutine.db.models.identity.CalendarFeed:
 	"""Find a feed this caller may act on, or report that there is no such thing.
 
-	Resolved out of :func:`feeds`, which is the set they may already read — so somebody
-	else's feed is *absent* rather than forbidden, and resetting discloses nothing a listing
-	would not. `tokens.mine` one credential kind along, and the same reasoning.
+	Resolved out of the set they may already read — so somebody else's feed is *absent* rather
+	than forbidden, and acting on it discloses nothing a listing would not. `tokens.mine` one
+	credential kind along, and the same reasoning.
+
+	**``stopping`` searches every feed the caller may stop** (`SR#4566`): its agents', and with
+	``instance:user_create`` everybody's. Otherwise only its own, since giving a feed a new address
+	hands back a secret reading with its owner's sight, and starting anything for another account
+	is the instance tier's - which has no reason to reset somebody's feed rather than revoke it.
 
 	**Revoked feeds are searched too**, unlike the listing's default. Revoking twice should
 	say *already revoked* rather than *no such thing*, and somebody reading a revoked feed's
@@ -522,7 +570,13 @@ def mine (
 
 	wanted = id_or_prefix.strip()
 
-	for candidate in feeds(session, actor.user, include_revoked=True):
+	searched = (
+		_acted_on(session, actor, include_revoked=True)
+		if stopping
+		else feeds(session, actor.user, include_revoked=True)
+	)
+
+	for candidate in searched:
 		if candidate.token_prefix == wanted or str(candidate.id) == wanted:
 			return candidate
 

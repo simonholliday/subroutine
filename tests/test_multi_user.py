@@ -1551,7 +1551,10 @@ def test_an_agent_cannot_make_an_owner_where_no_owner_can_act (
 			actor=subroutine.domain.authentication.Principal(user=dozer),
 		)
 
-	assert "Only a person" in refused.value.detail, refused.value.detail
+	assert (
+		"making an owner of a workspace where no owner can act is a person's act"
+		in refused.value.detail
+	), refused.value.detail
 
 	workspaces.set_member_role(
 		session,

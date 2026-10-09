@@ -34,6 +34,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.errors
+import subroutine.permissions
 
 #: How long a chain may be before it is treated as broken rather than long. A real one is one or
 #: two links; anything approaching this is a cycle the write-time guard failed to stop, or a
@@ -201,6 +202,113 @@ def answers_for (
 	"""Return the person accountable for ``user``, which is ``user`` itself for a person."""
 
 	return chain(session, user)[-1]
+
+
+def answers_to (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	account: subroutine.db.models.identity.User,
+) -> bool:
+	"""Report whether ``user`` answers to ``account``, directly or through other agents - `#4566`.
+
+	**Strictly above it**: an account does not answer to itself. Decision `#4516` is that whoever an
+	account answers to may stop it and stands in for it as owner, so this is the one predicate both
+	of those ask; :func:`answering_to` is its form for a query. A chain that cannot be walked answers
+	to nobody, which refuses rather than grants.
+	"""
+
+	if user.id == account.id or not user.is_service_account:
+		return False
+
+	try:
+		walked = chain(session, user)
+
+	except subroutine.errors.ValidationError:
+		return False
+
+	return any(entry.id == account.id for entry in walked[1:])
+
+
+def answering_to (
+	session: sqlalchemy.orm.Session, account: subroutine.db.models.identity.User
+) -> set[uuid.UUID]:
+	"""Return the ids of every account that answers to ``account`` - :func:`answers_to` for a query.
+
+	For a listing narrowed to what somebody may act on - their agents' credentials and calendar
+	feeds (`#4566`) - as ``model.user_id.in_(...)``. Walked by level, as
+	:func:`agents_answering_to` is.
+	"""
+
+	return {one.id for one in agents_answering_to(session, account)}
+
+
+def refuse_a_person_act (
+	session: sqlalchemy.orm.Session,
+	act: str,
+	*,
+	by: subroutine.db.models.identity.User | None,
+	on: subroutine.db.models.identity.User | None = None,
+) -> None:
+	"""Refuse an agent one of :data:`subroutine.permissions.PERSON_ACTS` - `SR#4565`, decision `#4515`.
+
+	**The one place an account being an agent decides what it may do.** Called first, before any
+	role, any superuser bypass and any other check, so a superuser agent is refused as any agent is
+	and every refusal is the same sentence with the same status, 403. It lived in seven inline checks
+	with two statuses and two orders, and an administering agent issued a working credential for
+	another person's agent, signed a person out everywhere, and made itself owner where no owner
+	could act, because the agent check ran after the superuser bypass (S6 and S7 of the cold review
+	of 2026-10-05).
+
+	``by`` is whoever would take the act - the actor, or for a browser session the account that
+	would hold it - and ``None`` an internal caller, which nothing here narrows. ``on`` is the
+	account acted on, for the acts an agent may take on itself and the agents that answer to it
+	(:data:`subroutine.permissions.WITHIN_ITS_OWN_AGENTS`) and those that are a person's only when
+	they name a person (:data:`subroutine.permissions.NAMING_A_PERSON`).
+	"""
+
+	if by is None or not by.is_service_account:
+		return
+
+	if (
+		act in subroutine.permissions.WITHIN_ITS_OWN_AGENTS
+		and on is not None
+		and (on.id == by.id or answers_to(session, on, by))
+	):
+		return
+
+	if act in subroutine.permissions.NAMING_A_PERSON and on is not None and on.is_service_account:
+		return
+
+	if act == subroutine.permissions.HOLDING_A_BROWSER_SESSION:
+		hint = (
+			"An agent works through a credential, which carries a scope and a reach a session does "
+			f"not: 'subroutine token create --service-account {by.username}'."
+		)
+
+	else:
+		try:
+			person = answers_for(session, by).username
+
+		except subroutine.errors.ValidationError:
+			person = None
+
+		hint = (
+			"Ask the person it answers to."
+			if person is None
+			else f"Ask {person!r}, who answers for {by.username!r}."
+		)
+
+	unless = (
+		f" unless that account answers to it, as {on.username!r} does not"
+		if act in subroutine.permissions.WITHIN_ITS_OWN_AGENTS and on is not None
+		else ""
+	)
+
+	raise subroutine.errors.Forbidden(
+		f"{by.username!r} is an agent, and {subroutine.permissions.PERSON_ACTS[act]} is a person's "
+		f"act{unless}.",
+		hint=hint,
+	)
 
 
 def agents_answering_to (
@@ -464,8 +572,9 @@ def refuse_an_unaccountable_agent (
 	**There is deliberately no permission check.** Creating any account already requires
 	``instance:user_create``, so a caller who has reached this has it, and a second check against
 	the same verb would be a branch nothing could ever take — which is the defect this repository
-	keeps finding rather than a belt beside a brace. What remains is the rule a permission cannot
-	express: an *agent* may not choose, however privileged its credential.
+	keeps finding rather than a belt beside a brace. The rule a permission cannot express - that an
+	*agent* may not choose, however privileged its credential - is a person's act, refused before
+	anything else by :func:`refuse_a_person_act` (`SR#4565`, decision `#4515`).
 	"""
 
 	if not is_service_account:
@@ -486,12 +595,6 @@ def refuse_an_unaccountable_agent (
 			)
 
 		wanted = inherited(actor)
-
-	elif actor is not None and actor.is_service_account and wanted != inherited(actor):
-		raise subroutine.errors.ValidationError(
-			f"An agent cannot choose who answers for the agents it creates. "
-			f"'{actor.username}' answers to somebody, and so does anything it makes."
-		)
 
 	named = session.get(subroutine.db.models.identity.User, wanted)
 

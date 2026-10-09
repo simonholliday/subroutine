@@ -59,6 +59,32 @@ def create (
 	:mod:`subroutine.domain.accountability` for why an agent may never do it.
 	"""
 
+	# **A person's acts, asked first** (`SR#4565`, decision `#4515`), whatever the agent holds: making
+	# an administrator of the installation (`#701`), which an administering agent could otherwise do
+	# again and again with no person agreeing; creating a person, which `#701` allowed and the
+	# decision does not; and choosing who answers for an agent, where the creator is the link and an
+	# agent naming anybody else would launder the chain (decision `#473`).
+	creator = None if actor is None else actor.user
+
+	if is_superuser:
+		subroutine.domain.accountability.refuse_a_person_act(
+			session, subroutine.permissions.MAKING_A_SUPERUSER, by=creator
+		)
+
+	if not is_service_account:
+		subroutine.domain.accountability.refuse_a_person_act(
+			session, subroutine.permissions.CREATING_A_PERSON, by=creator
+		)
+
+	elif (
+		creator is not None
+		and responsible_user_id is not None
+		and responsible_user_id != subroutine.domain.accountability.inherited(creator)
+	):
+		subroutine.domain.accountability.refuse_a_person_act(
+			session, subroutine.permissions.NAMING_AN_ANSWERER, by=creator
+		)
+
 	# The instance tier (docs/design.md §7.1). This act happens outside every workspace, so it is
 	# checked against the installation rather than against one — and `authorize_instance`
 	# honours a token's scopes even for a superuser, which is what makes it safe to hand an
@@ -67,22 +93,6 @@ def create (
 		subroutine.domain.authorization.authorize_instance(
 			actor, subroutine.permissions.INSTANCE_USER_CREATE
 		)
-
-		# **An agent may not grant administration of the installation** (`#701`), which is the
-		# same rule as :func:`set_active` and :func:`transfer` one field along: those say an
-		# agent cannot decide somebody's standing or who answers for them, and this is deciding
-		# who administers the instance they all run on.
-		#
-		# It is what closes the loop the other way too. `authorize_instance` already requires
-		# the actor to be a superuser, so only an administrator reaches here at all — and
-		# without this an administering *agent* could make a second, and a third, none of which
-		# any person agreed to. `#356`'s rule for credentials, at the tier above them.
-		if is_superuser and actor.user.is_service_account:
-			raise subroutine.errors.Forbidden(
-				"An agent cannot make an account an administrator of this installation. "
-				"Handing out administration is a person's act.",
-				hint="Ask the person accountable for this agent to create it.",
-			)
 
 	name = subroutine.domain.text.fit(
 		subroutine.domain.text.require(username, field="username"),
@@ -212,30 +222,44 @@ def set_active (
 	before doing it — `project rename`'s precedent. A deactivation that silently stops a shared
 	agent is how a control like this comes to be worked around.
 
-	**Only a person may do it** (`#487`), which is :func:`transfer`'s rule one function down and
-	is written to read as the same one. It checked only ``instance:user_create`` until
-	2026-08-04, so an agent holding that could mark a person as having left — and under `#473`
-	every agent answers to a person, so it could revoke itself and its siblings in a single call
-	nothing undoes.
+	**An agent changes the standing only of its own agents** (`SR#4565`, decision `#4515`): it
+	checked only ``instance:user_create`` until 2026-08-04 (`#487`), so an agent holding that could
+	mark a person as having left - and under `#473` every agent answers to a person, so it could
+	stop itself and its siblings in a single call nothing undoes. That is a person's act now, asked
+	first, and retiring a sub-agent that answers to it is not.
 
-	**Any service account is refused, not only one acting on a person.** The narrower rule would
-	still let an agent stop its siblings, which is the same harm by a shorter route, and it would
-	make the refusal depend on the target where :func:`transfer`'s depends on the caller — two
-	rules that happen to agree rather than one rule. An agent retiring a sub-agent it answers for
-	is the plausible thing this forbids; it has no caller today, and it wants a decision about
-	authority rather than an exception inherited from this one.
+	**Whoever an account answers to may mark it as having left** (`SR#4566`, decision `#4516`), with
+	a credential nothing narrows, since it stops every credential the account holds. **Bringing one
+	back is starting it**, and stays with ``instance:user_create``: a person who stops their own
+	agent and does not administer the installation asks somebody who does to start it again. Doing
+	either to your own account is the instance tier's too.
 	"""
 
+	subroutine.domain.accountability.refuse_a_person_act(
+		session,
+		subroutine.permissions.CHANGING_STANDING,
+		by=None if actor is None else actor.user,
+		on=user,
+	)
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+
 	if actor is not None:
-		subroutine.domain.authorization.authorize_instance(
-			actor, subroutine.permissions.INSTANCE_USER_CREATE
+		subroutine.domain.authorization.refuse_acting_on_an_account(
+			session, actor, user, stopping=not active, its_own=False
 		)
 
-		if actor.user.is_service_account:
-			raise subroutine.errors.Forbidden(
-				"An agent cannot mark an account as having left, or bring one back. "
-				"Somebody's standing here is a person's act.",
-				hint="Ask the person accountable for this agent to do it.",
+		if not subroutine.domain.authorization.may_instance(
+			actor, subroutine.permissions.INSTANCE_USER_CREATE
+		):
+			subroutine.domain.authentication.refuse_undominated(
+				session,
+				actor,
+				subroutine.domain.authentication.Bounds(),
+				counting_expiry=False,
+				act="mark an account as having left",
+				hint="Marking an account as having left stops every credential it holds, so only a "
+				"credential with no narrowing does it. Use an unrestricted credential, or the "
+				"browser.",
 			)
 
 	if not active:
@@ -352,16 +376,17 @@ def transfer (
 	can perform on their behalf.
 	"""
 
+	# **A person's act, asked first** (`SR#4565`, decision `#4515`).
+	subroutine.domain.accountability.refuse_a_person_act(
+		session,
+		subroutine.permissions.HANDING_AN_AGENT_OVER,
+		by=None if actor is None else actor.user,
+	)
+
 	if actor is not None:
 		subroutine.domain.authorization.authorize_instance(
 			actor, subroutine.permissions.INSTANCE_USER_CREATE
 		)
-
-		if actor.user.is_service_account:
-			raise subroutine.errors.Forbidden(
-				"An agent cannot decide who answers for another agent. Somebody has to agree "
-				"to be accountable, and that is a person's act."
-			)
 
 	if not agent.is_service_account:
 		raise subroutine.errors.ValidationError(

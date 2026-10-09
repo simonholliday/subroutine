@@ -92,17 +92,19 @@ def issued_tokens (
 	that is short. **Only what the presenter dominates** (`#4560`, decision `#4527`): a narrowed
 	token listed its owner's wider ones while it was refused their feeds, and could revoke none of
 	them.
+
+	**Its own account's, its agents', or with ``instance:user_create`` everybody's** (`SR#4566`,
+	decision `#4516`): a person sees what their agents hold, never a secret, since stopping them
+	needs it. Whoever issued a credential is no longer a reason on its own: a person issuing for
+	another account holds the instance tier, and an agent's issuing ends at its own agents.
 	"""
 
 	model = subroutine.db.models.identity.ApiToken
 	statement = sqlalchemy.select(model).order_by(model.created_at.desc())
+	reached = subroutine.domain.authorization.accounts_acted_on(session, actor)
 
-	if not _may_administer_credentials(actor, reading=True):
-		statement = statement.where(
-			sqlalchemy.or_(
-				model.user_id == actor.user.id, model.created_by == actor.user.id
-			)
-		)
+	if reached is not None:
+		statement = statement.where(model.user_id.in_(reached))
 
 	return [
 		row
@@ -134,19 +136,31 @@ def revoke (
 	The first version of this module *did* repeat it, having been written without looking. It
 	is the ordinary way a second implementation of something arrives.
 
-	**Who may**: the person the token was issued *for*, the person who issued it, or an
-	instance administrator. The first two are what the case this was built for needs — a
-	month's work on somebody else's instance, where the issuer has to be able to take access
-	back without anybody's help, and the holder has to be able to burn their own if it leaks.
+	**Who may** (`SR#4566`, decisions `#4516` and `#4524`): the account it was issued *for*, whoever
+	that account answers to, or an instance administrator - the one rule for stopping an account.
+	The holder can burn their own if it leaks, a person can stop their agent, and an administrator
+	takes back what a month's work on somebody else's instance was given. **Whoever issued it is not
+	a reason on its own**: a person issuing for another account holds the instance tier anyway, and
+	an agent that issued for another person's agent was laundering (S6 of the cold review of
+	2026-10-05).
 	"""
 
-	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+	# A credential goes with its account (the foreign key cascades), so there is always one.
+	model = subroutine.db.models.identity.User
+	owner = session.scalars(sqlalchemy.select(model).where(model.id == token.user_id)).one()
 
-	if actor is not None and not _may_revoke(actor, token):
-		raise subroutine.errors.Forbidden(
-			"Only the person a credential was issued for, the person who issued it, or an "
-			"instance administrator may revoke it."
-		)
+	# **A person's act, asked first** (`SR#4565`, decision `#4515`): an agent revokes only its own
+	# credentials and its agents'.
+	subroutine.domain.accountability.refuse_a_person_act(
+		session,
+		subroutine.permissions.STOPPING,
+		by=None if actor is None else actor.user,
+		on=owner,
+	)
+	subroutine.domain.authentication.refuse_a_read_only_session(actor)
+	subroutine.domain.authorization.refuse_acting_on_an_account(
+		session, actor, owner, stopping=True
+	)
 
 	# **Only a credential it dominates** (`#4560`, decision `#4527`, which replaces `#3914`'s blunter
 	# rule): at least its verbs and places, its expiry aside, so a fortnight's browser session still
@@ -168,36 +182,6 @@ def revoke (
 	session.flush()
 
 	return token
-
-
-def _may_administer_credentials (
-	actor: subroutine.domain.authentication.Principal, *, reading: bool = False
-) -> bool:
-	"""Whether this principal may act on credentials that are nothing to do with them.
-
-	``reading`` is the listing's question rather than revoking's, which a read-only session may ask.
-	"""
-
-	try:
-		subroutine.domain.authorization.authorize_instance(
-			actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=reading
-		)
-
-	except subroutine.errors.SubroutineError:
-		return False
-
-	return True
-
-
-def _may_revoke (
-	actor: subroutine.domain.authentication.Principal, token: subroutine.db.models.identity.ApiToken
-) -> bool:
-	"""Whether this principal may revoke that credential."""
-
-	if token.user_id == actor.user.id or token.created_by == actor.user.id:
-		return True
-
-	return _may_administer_credentials(actor)
 
 
 def issue (

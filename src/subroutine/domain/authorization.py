@@ -535,6 +535,64 @@ def authorize_instance (
 	raise AuthorizationError(failure, permission=permission)
 
 
+def refuse_acting_on_an_account (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	account: subroutine.db.models.identity.User,
+	*,
+	stopping: bool,
+	its_own: bool = True,
+	reading: bool = False,
+) -> None:
+	"""Refuse acting on ``account`` unless this actor may - `SR#4566`, decisions `#4516` and `#4524`.
+
+	**One rule for every act on an account**, R4 of the cold review of 2026-10-05, where three
+	helpers each asked part of it:
+
+	* **Your own account is yours** (``its_own``): issuing for yourself, revoking your own
+	  credentials, signing yourself out. Marking yourself as having left is not, and says so.
+	* **Whoever an account answers to may stop it** (``stopping``): revoke its credentials, sign it
+	  out, mark it as having left. Stopping only removes, so it takes nothing from anybody but the
+	  account stopped. Holding an agent granted nothing over it (`#4159`), so its person could not
+	  even revoke a credential of its they had not issued.
+	* **Starting anything for another account is the instance tier's**, ``instance:user_create``,
+	  described as *accounts* (decision `#4524`): issuing for it, bringing it back, and every act on
+	  an account that does not answer to the actor. An answerer issuing for its agent would escalate
+	  wherever the agent's role is wider than its person's.
+
+	**An agent is held to its own agents before this is asked**, by
+	:func:`subroutine.domain.accountability.refuse_a_person_act`, so nothing here asks what kind of
+	account the actor is. ``reading`` is a listing's question, which a read-only session may ask.
+	"""
+
+	if actor is None:
+		return
+
+	if its_own and account.id == actor.user.id:
+		return
+
+	if stopping and subroutine.domain.accountability.answers_to(session, account, actor.user):
+		return
+
+	authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=reading)
+
+
+def accounts_acted_on (
+	session: sqlalchemy.orm.Session, actor: subroutine.domain.authentication.Principal
+) -> set[uuid.UUID] | None:
+	"""Return the accounts whose credentials this actor may list, or ``None`` for every account.
+
+	**What :func:`refuse_acting_on_an_account` admits, for a listing** (`SR#4566`): its own, the
+	accounts answering to it, and with ``instance:user_create`` everybody's. A listing shows what its
+	reader could act on, so an inventory never offers what revoking would refuse.
+	"""
+
+	if may_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=True):
+		return None
+
+	return {actor.user.id} | subroutine.domain.accountability.answering_to(session, actor.user)
+
+
 def write_places (
 	principal: subroutine.domain.authentication.Principal,
 ) -> typing.Sequence[str] | None:

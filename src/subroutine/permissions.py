@@ -164,6 +164,49 @@ INSTANCE_LEVEL: frozenset[str] = frozenset(
 #: outside it. A *role* is narrower still — see :data:`WORKSPACE_LEVEL`.
 ALL: frozenset[str] = WORKSPACE_LEVEL | INSTANCE_LEVEL
 
+MAKING_A_SUPERUSER = "making_a_superuser"
+CHANGING_STANDING = "changing_standing"
+HANDING_AN_AGENT_OVER = "handing_an_agent_over"
+NAMING_AN_ANSWERER = "naming_an_answerer"
+CREATING_A_PERSON = "creating_a_person"
+ISSUING = "issuing"
+STOPPING = "stopping"
+MAKING_AN_OWNER_WHERE_NONE_CAN_ACT = "making_an_owner_where_none_can_act"
+NAMING_A_MAINTAINER = "naming_a_maintainer"
+HOLDING_A_BROWSER_SESSION = "holding_a_browser_session"
+
+#: **A person's acts** (`SR#4565`, decision `#4515`): refused to an agent whatever it holds, before
+#: any role, any superuser bypass and any other check, in one sentence with one status. Each says
+#: what the act is in the words of that sentence.
+#:
+#: **Not permissions**: no role or credential grants one, and a person still needs whatever the
+#: act asks besides - ``instance:user_create`` to make an account, say. This is the rule that an
+#: agent may not take them however much it holds, which lived in seven inline checks with two status
+#: codes and two orders, each of 0.10.0's four fixes patching one of them (A I-10 of the cold review
+#: of 2026-10-05). ``accountability.refuse_a_person_act`` is the one guard that reads it.
+PERSON_ACTS: dict[str, str] = {
+	MAKING_A_SUPERUSER: "making an account an administrator of this installation",
+	CHANGING_STANDING: "marking another account as having left or bringing one back",
+	HANDING_AN_AGENT_OVER: "handing an agent to somebody else",
+	NAMING_AN_ANSWERER: "choosing who answers for an agent",
+	CREATING_A_PERSON: "creating an account for a person",
+	ISSUING: "issuing a credential or a sign-in link for another account",
+	STOPPING: "revoking another account's credentials or signing it out",
+	MAKING_AN_OWNER_WHERE_NONE_CAN_ACT: "making an owner of a workspace where no owner can act",
+	NAMING_A_MAINTAINER: "naming a person as a document's maintainer",
+	HOLDING_A_BROWSER_SESSION: "signing in to a browser",
+}
+
+#: The person's acts an agent may take on its own account and the agents that answer to it,
+#: directly or through others (decision `#4515`): **an agent acts on accounts only within its own
+#: subtree**, and what it may do there is still asked of its permissions as anybody's is. Refused,
+#: they name the account, which does not answer to the agent.
+WITHIN_ITS_OWN_AGENTS: frozenset[str] = frozenset({CHANGING_STANDING, ISSUING, STOPPING})
+
+#: The person's acts that are one only when the account they name is a person: an agent names
+#: itself or another agent as a document's maintainer freely (`#4523`).
+NAMING_A_PERSON: frozenset[str] = frozenset({NAMING_A_MAINTAINER})
+
 
 def unknown (
 	candidates: typing.Iterable[str], *, within: frozenset[str] = ALL

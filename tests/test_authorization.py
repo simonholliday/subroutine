@@ -881,10 +881,12 @@ def _document_permissions () -> set[str]:
 	source = pathlib.Path(subroutine.domain.documents.__file__).read_text(encoding="utf-8")
 	names = set(re.findall(r"subroutine\.permissions\.([A-Z_]+)", source))
 
+	# **Permissions only** (`SR#4565`): a person's act is named in the same module and is not a
+	# verb anybody holds, so a document refusing an agent one is not a grant to describe.
 	return {
 		getattr(subroutine.permissions, name)
 		for name in names
-		if isinstance(getattr(subroutine.permissions, name, None), str)
+		if getattr(subroutine.permissions, name, None) in subroutine.permissions.ALL
 	}
 
 

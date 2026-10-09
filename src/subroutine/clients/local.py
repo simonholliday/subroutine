@@ -2562,7 +2562,9 @@ class Client:
 		"""Stop a calendar feed for good, now (`#916`)."""
 
 		with self._writing() as (session, actor):
-			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
+			found = subroutine.domain.calendars.mine(
+				session, actor, id_or_prefix, stopping=True
+			)
 
 			subroutine.domain.calendars.revoke(session, found, actor=actor)
 

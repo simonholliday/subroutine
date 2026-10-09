@@ -427,12 +427,18 @@ def test_a_corrupt_version_is_treated_as_unseeded (session: sqlalchemy.orm.Sessi
 
 
 def test_every_permission_constant_is_listed () -> None:
-	"""``ALL`` cannot fall behind the constants above it."""
+	"""``ALL`` cannot fall behind the constants above it.
+
+	**A person's act is named there too and is not a permission** (`SR#4565`): no role or credential
+	holds one, so the acts in ``PERSON_ACTS`` are left out of what ``ALL`` must hold.
+	"""
 
 	declared = {
 		value
 		for name, value in vars(subroutine.permissions).items()
-		if name.isupper() and isinstance(value, str)
+		if name.isupper()
+		and isinstance(value, str)
+		and value not in subroutine.permissions.PERSON_ACTS
 	}
 
 	assert declared == set(subroutine.permissions.ALL)

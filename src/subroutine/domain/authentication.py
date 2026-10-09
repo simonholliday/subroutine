@@ -441,6 +441,14 @@ def issue_token (
 	means ``subroutine init`` and a script holding the database file.
 	"""
 
+	# **A person's act, asked first** (`SR#4565`, decision `#4515`): an agent issues only for itself
+	# and the agents that answer to it, whatever it holds.
+	subroutine.domain.accountability.refuse_a_person_act(
+		session,
+		subroutine.permissions.ISSUING,
+		by=None if actor is None else actor.user,
+		on=user,
+	)
 	refuse_a_read_only_session(actor)
 	refuse_handing_the_agent_tools_a_secret(
 		actor, what="a credential", command="subroutine token create"
@@ -449,7 +457,6 @@ def issue_token (
 	title = subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH)
 
 	if actor is not None:
-		refuse_an_agent_issuing_for_a_person(actor, user, what="a credential")
 		_refuse_amplification(
 			session,
 			actor,
@@ -800,35 +807,6 @@ def refuse_undominated (
 	)
 
 
-def refuse_an_agent_issuing_for_a_person (
-	actor: Principal | None, user: subroutine.db.models.identity.User, *, what: str
-) -> None:
-	"""Refuse an agent issuing ``what`` for a person - decision `#4235`, on `#4142`.
-
-	**Acting for a person is a person's act.** A credential or a sign-in link for somebody is the
-	power to act as them, with the record naming them: an agent holding ``instance:user_create``,
-	refused ``user transfer``, issued its person a credential and, as them, handed itself an agent
-	in two calls. So an agent issues only for itself or for another agent, which is what making a
-	sub-agent and its credential needs, and a person issues for anybody their permissions allow.
-
-	``None`` is an internal caller with no principal at all. **Somebody at a terminal is asked as
-	they would be over HTTP** (`#4567`, decision `#4514`): local mode is the named account holding no
-	credential, so an agent named as the local user is asked here as it would be anywhere else.
-	"""
-
-	if actor is None:
-		return
-
-	if not actor.user.is_service_account or user.is_service_account:
-		return
-
-	raise subroutine.errors.Forbidden(
-		f"An agent cannot issue {what} for {user.username!r}, who is a person. Acting as somebody "
-		"is a person's act.",
-		hint=f"Ask {user.username!r}, or a person who administers this installation, to issue it.",
-	)
-
-
 def _refuse_amplification (
 	session: sqlalchemy.orm.Session,
 	actor: Principal,
@@ -846,7 +824,8 @@ def _refuse_amplification (
 
 	* **Issuing for somebody else.** That is minting authority you do not hold, and it needs
 	  the instance permission that creating an account needs — the same authority, since a
-	  service account plus a token for it is one act in two steps.
+	  service account plus a token for it is one act in two steps. Starting anything for another
+	  account is the instance tier's, by the one rule for acts on accounts (`SR#4566`).
 	* **Widening the scopes.** ``[]`` means *no narrowing* (§7.3), so a presenter with any
 	  scopes at all may only issue a subset of them. Getting this backwards — treating the
 	  empty list as "no permissions" — would refuse every ordinary case, which is why the
@@ -874,14 +853,14 @@ def _refuse_amplification (
 	account that can act as the local user.
 	"""
 
-	if user.id != actor.user.id:
-		# Imported here, not at the top: `domain.authorization` imports *this* module for
-		# `Principal`, so a module-level import is the circular-import trap CLAUDE.md records.
-		# The house style's documented exception for a nested `from X import Y as alias` exists
-		# for exactly this, and the alias keeps `subroutine` from being rebound as a local.
-		from subroutine.domain import authorization as permits
+	# **Starting anything for another account is the instance tier's** (`SR#4566`, decision `#4516`),
+	# asked by the one rule for acts on accounts. Imported here, not at the top: `domain.authorization`
+	# imports *this* module for `Principal`, so a module-level import is the circular-import trap
+	# CLAUDE.md records. The house style's documented exception for a nested `from X import Y as
+	# alias` exists for exactly this, and the alias keeps `subroutine` from being rebound as a local.
+	from subroutine.domain import authorization as permits
 
-		permits.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
+	permits.refuse_acting_on_an_account(session, actor, user, stopping=False)
 
 	# **Dominance, and the five clauses that were it, one axis each** (`#4560`, decision `#4527`):
 	# the scopes, the reach, the pin, the write set - else the reach, as the check falls back

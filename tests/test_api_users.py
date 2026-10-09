@@ -339,15 +339,26 @@ def test_an_agent_cannot_make_an_administrator (session: sqlalchemy.orm.Session)
 
 	acting = subroutine.domain.authentication.Principal(user=agent, token=None)
 
-	# It may create an ordinary account: the refusal is about administration, not about agents.
-	subroutine.domain.users.create(session, username="fine", actor=acting)
-
 	with pytest.raises(subroutine.errors.Forbidden) as refused:
 		subroutine.domain.users.create(
 			session, username="another-admin", is_superuser=True, actor=acting
 		)
 
 	assert "person's act" in str(refused.value.detail)
+
+	# **Nor an ordinary person** (`SR#4565`, decision `#4515`): `#701` allowed it, reading the refusal
+	# as about administration rather than about agents, and creating a person is a person's act now.
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.users.create(session, username="ordinary", actor=acting)
+
+	assert "creating an account for a person is a person's act" in str(refused.value.detail)
+
+	# It still makes an agent, which answers to it.
+	made = subroutine.domain.users.create(
+		session, username="beneath", is_service_account=True, actor=acting
+	)
+
+	assert made.responsible_user_id == agent.id
 
 
 def _administering_agent (

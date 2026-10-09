@@ -380,7 +380,7 @@ def test_somebody_at_the_terminal_signs_another_account_out_only_as_over_http (
 	assert person.is_local
 
 	for local in (agent, person):
-		with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		with pytest.raises(subroutine.errors.Forbidden):
 			subroutine.domain.sessions.sign_out_everywhere(session, user=boss, actor=local)
 
 	# Still signed in.

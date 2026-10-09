@@ -2777,7 +2777,7 @@ def test_an_agent_made_by_an_agent_says_how_its_person_takes_it_on (
 	# As the line says, the agent cannot take this step for the person.
 	refused = run(*command.split()[1:], expect=1).output
 
-	assert "An agent cannot decide" in refused, refused
+	assert "handing an agent to somebody else is a person's act" in refused, refused
 
 	# And the person can, exactly as printed.
 	web = next(word for word in made.split() if word.startswith("sr_"))
@@ -6046,6 +6046,41 @@ def test_a_terminal_is_refused_a_new_feed_when_the_feature_is_off (
 	assert "turned off" not in run("calendar", "revoke", prefix).output, (
 		"turning the feature off must not trap a credential already in the world"
 	)
+
+
+def test_calendar_list_names_whose_each_feed_is_where_any_is_not_yours (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4566`, decision `#4524` as revised on 2026-10-09: feeds follow tokens.
+
+	An agent's feed is listed to the person it answers to, so the listing names whose each is -
+	and only then, since the reader's own name on every row says nothing. Driven through the real
+	terminal, as the agent makes its feed and as its person reads both, and revokes the agent's.
+	"""
+
+	run("init", "--username", "jo", "--workspace", "Acme")
+	run("calendar", "create", "My work")
+
+	alone = run("calendar", "list").output
+
+	assert "jo" not in alone.split(), alone
+
+	made = run("agent", "create", "scribe", "--workspace", "acme").output
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in made.split() if word.startswith("sr_"))
+	)
+	run("calendar", "create", "Its agenda")
+	monkeypatch.delenv("SUBROUTINE_TOKEN")
+
+	listed = run("calendar", "list").output
+	rows = {line.split()[2]: line.split()[1] for line in listed.splitlines() if "polled" in line}
+
+	assert rows == {"My": "jo", "Its": "scribe"}, listed
+
+	theirs = next(line.split()[0] for line in listed.splitlines() if "Its agenda" in line)
+	run("calendar", "revoke", theirs)
+
+	assert "revoked" in run("calendar", "list", "--revoked").output
 
 
 def test_a_reset_says_the_reference_it_leaves (

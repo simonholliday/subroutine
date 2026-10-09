@@ -20,6 +20,24 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An agent acts on accounts only within its own agents, and a person's acts are refused to it
+  in one sentence.** Whatever it holds - administering the installation included - an agent no
+  longer creates a person, makes a superuser, hands an agent over, chooses who answers for one,
+  makes an owner where no owner can act, names a person as a document's maintainer, or issues
+  for, revokes the credentials of, signs out or marks as having left any account but itself and
+  the agents that answer to it. An administering agent could issue a working credential for
+  another person's agent, sign a person out everywhere, and make itself owner of a workspace
+  whose owners had left. Choosing who answers for a new agent is refused with 403, where it was
+  422.
+- **Whoever an agent answers to may stop it.** A person lists their agents' credentials and
+  calendar feeds and revokes them, signs the agent out, and marks it as having left with
+  `user deactivate`, where only an administrator of the installation could act on an agent at
+  all. Starting one stays with an administrator - issuing it a credential, or bringing it back -
+  so a person who stops their own agent asks one to start it again.
+- **Calendar feeds follow credentials.** `calendar list` and `GET /v1/calendars` list the feeds
+  of the agents that answer to you, and an administrator of the installation sees everybody's,
+  each with whose it is. Any of them can be revoked, and only your own given a new address.
+  Nobody could list or stop another account's feed before.
 - **Somebody at the terminal is held to their own account, as over HTTP.** Where `local_user`
   names somebody who does not administer the installation, the terminal no longer issues a
   credential or a sign-in link for another account, or signs one out: a viewer there could mint

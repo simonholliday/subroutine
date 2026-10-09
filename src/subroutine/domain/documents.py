@@ -30,6 +30,7 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.seed
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
@@ -287,8 +288,17 @@ def create (
 		# The same question, and this path asked nothing at all: an id naming nobody reached
 		# the foreign key and left as an unhandled `IntegrityError`, which is a 500 for a
 		# field a caller sent, and a real account outside the workspace was accepted.
-		subroutine.domain.users.member(
+		named = subroutine.domain.users.member(
 			session, project.workspace_id, str(owner_id), field="owner_id"
+		)
+
+		# **A person's act** (`SR#4565`, decision `#4515`, with `#4523`): an agent names itself or
+		# another agent as a document's maintainer, never a person.
+		subroutine.domain.accountability.refuse_a_person_act(
+			session,
+			subroutine.permissions.NAMING_A_MAINTAINER,
+			by=None if actor is None else actor.user,
+			on=named,
 		)
 
 	# **Nothing is filed under a document in the trash** (decision `#4096`), for the reason
@@ -509,9 +519,20 @@ def update (
 		# could be handed to an account that is not in this workspace and cannot see it, and
 		# the request was answered 201. `users.member` is the same question `assignee_for`
 		# already asked properly about a task.
-		subroutine.domain.users.member(
+		named = subroutine.domain.users.member(
 			session, document.workspace_id, str(owner_id), field="owner_id"
 		)
+
+		# **A person's act** (`SR#4565`, decision `#4515`, with `#4523`): an agent hands a document
+		# to itself or another agent, never to a person. Asked of a change only, so an agent may
+		# still edit a person's document and send its maintainer back as it was.
+		if named.id != document.owner_id:
+			subroutine.domain.accountability.refuse_a_person_act(
+				session,
+				subroutine.permissions.NAMING_A_MAINTAINER,
+				by=None if actor is None else actor.user,
+				on=named,
+			)
 
 	# **Whom it binds, in both directions** (`#4133`, decision `#4134`): setting a mark back
 	# retires a rule for everybody, which is as much an act on the workspace as making one.

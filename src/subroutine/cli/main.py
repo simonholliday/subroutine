@@ -2740,6 +2740,10 @@ class Reading(typing.NamedTuple):
 	timezone: str
 	assumed: bool
 
+	#: Who is reading, where the instance said - so a listing can name whose each row is only where
+	#: it is not the reader's own (`SR#4566`).
+	reader: str | None = None
+
 	def day (self, instant: datetime.datetime) -> str:
 		"""Render one stored moment as the day it fell on where this reader is."""
 
@@ -2760,15 +2764,18 @@ def _reading (client: subroutine.clients.base.Client) -> Reading:
 	"""
 
 	try:
-		said = client.me().reader_timezone
+		me = client.me()
 
 	except subroutine.errors.SubroutineError:
-		said = None
+		me = None
+
+	said = None if me is None else me.reader_timezone
+	reader = None if me is None else me.user.username
 
 	if said is not None:
-		return Reading(said, assumed=False)
+		return Reading(said, assumed=False, reader=reader)
 
-	return Reading(subroutine.config.system_timezone(), assumed=True)
+	return Reading(subroutine.config.system_timezone(), assumed=True, reader=reader)
 
 
 def _say_the_zone (reading: Reading) -> None:
@@ -3547,14 +3554,15 @@ def calendar_list (
 		False, "--revoked", help="Include the ones that have been stopped."
 	),
 ) -> None:
-	"""Show your calendar subscriptions.
+	"""Show your calendar subscriptions, and those you may revoke.
 
 	Examples:
 
 	  subroutine calendar list
 
 	Never the address, which cannot be recovered - what is printed is the short reference
-	'reset' and 'revoke' take.
+	'reset' and 'revoke' take. The feeds of the agents that answer to you are listed too, and
+	an administrator of this instance sees everybody's, each with whose it is.
 
 	'last polled' is the one worth reading. A calendar application fetches every quarter of
 	an hour or so, so one that has not asked for months is a subscription nobody is using,
@@ -3577,9 +3585,20 @@ def calendar_list (
 
 	width = max(len(row.prefix) for row in listed)
 
+	# **Whose, where any is not yours** (`SR#4566`): an agent's feed is listed to the person it
+	# answers to, and everybody's to an instance administrator, and a column saying the reader's own
+	# name on every row says nothing.
+	owners = {row.owner for row in listed}
+	whose = owners != {reading.reader} and owners != {None}
+	named = max((len(row.owner or "") for row in listed), default=0) if whose else 0
+
 	for row in listed:
-		_say(f"  {row.prefix.ljust(width)}  {row.title}  {_calendar_state(row, reading)}")
-		_say(f"  {' ' * width}  {_calendar_covers(row)}")
+		owner = f"{(row.owner or '').ljust(named)}  " if whose else ""
+
+		_say(
+			f"  {row.prefix.ljust(width)}  {owner}{row.title}  {_calendar_state(row, reading)}"
+		)
+		_say(f"  {' ' * width}  {' ' * (named + 2) if whose else ''}{_calendar_covers(row)}")
 
 	_say_the_zone(reading)
 
