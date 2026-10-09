@@ -1,6 +1,6 @@
 {
   "name": "subroutine",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects. Wires this session to a Subroutine instance and carries the working practice for using it well. Nothing to install first: it starts Subroutine through 'uvx', which fetches and caches it on first use — so you need uv on your machine (astral.sh/uv) and nothing else. If you have already run 'uv tool install subroutine', that copy is used instead. It starts a program on your own machine, so it works in Claude Code; a desktop app that can start one is untested, and it does not work on the web.",
   "author": {
     "name": "Simon Holliday",
@@ -18,7 +18,7 @@
     "connection": {
       "type": "string",
       "title": "Which instance (optional)",
-      "description": "The name of a connection you have already configured, such as 'work'. Leave this empty for your default connection — the database on this machine, unless you have set 'default_connection' to something else. Run 'subroutine connections' to see the names and which one that is. Note that one session reaches one instance, so if you keep work and personal instances separately, name the one this project belongs to. Connections are set up with 'subroutine' itself, not here.",
+      "description": "The name of a connection you have already configured, such as 'work'. It applies to every project. Leave it empty for your default connection - the database on this machine, unless you have set 'default_connection' to something else - or for the one a project names for itself: 'subroutine agent create <name> --here', run in a project's directory, names that project's connection wherever it is not your default, and a connection named here outranks it. Run 'subroutine connections' to see the names and which one is the default. Connections are set up with 'subroutine' itself, not here.",
       "default": ""
     },
     "workspace": {

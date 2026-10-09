@@ -362,8 +362,11 @@ the credential never passes through this conversation.
     `claude plugin disable subroutine-remote@subroutine --scope local`, then a reload.
 
   `--scope local` installs nothing, so the plugin is still updated once per machine. It runs
-  `uvx`, so the machine needs uv, and with its options blank it uses the machine's default
-  connection, which has to be the one `--here` was run against.
+  `uvx`, so the machine needs uv. Leave its options blank: `--here` names this project's
+  connection in the project's own settings where it is not the machine's default.
+- **Never install a plugin for one project.** A project-only install shares every setting with
+  the machine's copy and is one more to update, so a project's own credential and connection
+  come from `--here`, never from a plugin of its own.
 - **It needs the program on this machine.** Without it there is no shell to give a name to and
   nothing to run here.
 
@@ -735,9 +738,8 @@ document for anything you decided, and mark done what is done. `subroutine_done(
 ## When the tools do not cover it
 
 `subroutine_call_api(method="PATCH", path="/v1/documents/42", body={"title": "…"})` reaches any
-route your credential already allows but the five below. Use it for the thing you cannot
-otherwise do — and reach
-for a named tool first, every time you have one.
+route your credential already allows, within the three limits below. Use it for the thing you
+cannot otherwise do — and reach for a named tool first, every time you have one.
 
 **That is not politeness, it is the difference between a call that works and a call that is
 right.** The tools carry conventions the API does not enforce. `subroutine_add` reads a whole
@@ -760,12 +762,13 @@ renameable, so `done` may be called something else here and guessing is how you 
 `subroutine://docs/examples` is a worked request for each common act, every one of them executed
 by the project's own test suite.
 
-**Seven routes are deliberately out of reach.** Creating a workspace, renaming one and moving a
-project are consequential, none can be undone, and the command line counts what will change and
-asks first - which a tool call cannot do here yet. Issuing a token, making a sign-in link, and
-making a calendar feed or giving one a new address each answer with a credential, which would
-pass through your context and stay in it. Each refusal says which of the two it is, and names
-the command to run.
+**These tools hold less than your credential, in three ways, whichever tool you call.** You are
+never handed a secret - a token, a sign-in link, or a calendar feed's address, new or reset -
+since it would pass through your context and stay in it. You hold no permission over the
+installation. And you neither administer nor delete a workspace: its settings, somebody else's
+comment or shared view, and who owns a project that is not yours or whether it is private. The
+instance refuses each, `subroutine_call_api` included, and the refusal says where it can be done
+instead.
 
 ## Things worth knowing
 
