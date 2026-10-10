@@ -519,8 +519,9 @@ def _render_events (
 	"""Render a page of events as the change feed does, described in one batch."""
 
 	described = subroutine.domain.events.descriptions(session, rows)
+	unseen = subroutine.domain.events.unseen_ends(session, reader, rows)
 
-	return [subroutine.views.event(row, described) for row in rows]
+	return [subroutine.views.event(row, described, unseen=unseen) for row in rows]
 
 
 def _render_saved_views (

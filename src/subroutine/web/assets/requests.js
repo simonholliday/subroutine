@@ -299,7 +299,10 @@ export function touching (events, open, page = null, links = []) {
 
 	if (page && page.has_more) return true;
 
-	const watched = new Set([open.ref, ...links.map((one) => one.other.ref)]);
+	/* An end the reader cannot see has no ref to watch (`SR#4575`). */
+	const watched = new Set([open.ref, ...links
+		.filter((one) => one.other.visible !== false)
+		.map((one) => one.other.ref)]);
 
 	return events.some((one) => one.entity_type === "link"
 		|| (watched.has(one.item_ref) && one.workspace_id === open.workspace_id));

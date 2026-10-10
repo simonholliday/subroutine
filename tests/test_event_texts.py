@@ -198,8 +198,8 @@ def test_an_event_shown_without_its_texts_is_refused_rather_than_published (
 
 	vocabulary = subroutine.views.Vocabulary(world.session)
 	renders: tuple[typing.Callable[[], typing.Any], ...] = (
-		lambda: subroutine.views.event(rows[0]),
-		lambda: subroutine.views.journal_entry(rows[0], vocabulary=vocabulary),
+		lambda: subroutine.views.event(rows[0], None, unseen={}),
+		lambda: subroutine.views.journal_entry(rows[0], vocabulary=vocabulary, unseen={}),
 	)
 
 	for render in renders:
@@ -207,7 +207,7 @@ def test_an_event_shown_without_its_texts_is_refused_rather_than_published (
 			render()
 
 	described = subroutine.domain.events.descriptions(world.session, rows)
-	shown = subroutine.views.event(rows[0], described)
+	shown = subroutine.views.event(rows[0], described, unseen={})
 
 	assert shown.changes is not None and shown.changes["description"]["to"] == FIRST
 

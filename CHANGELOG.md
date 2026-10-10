@@ -20,6 +20,13 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A link to something you cannot see is shown, as unseen.** An item's links, `show`, the agent
+  tools, the browser and the feed list a link whose other end is out of your sight with
+  `{"visible": false}` in its place, so an item said to be blocked shows what blocks it, and say
+  nothing of what is at that end. Counts of blockers and of what a milestone includes are of what
+  you can see. Withdrawing such a link is refused, saying its other end is out of your sight, where
+  it answered that there was no such link. A client older than this release cannot read an item
+  holding one until it is upgraded.
 - **A refusal no longer names a document or a task you cannot see.** Superseding a decision that
   a private document already supersedes, restoring a document whose place a private one took, and
   closing a ring of links through private work each named the hidden item's number, and sometimes

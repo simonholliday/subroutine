@@ -14514,3 +14514,46 @@ def test_a_document_marked_to_bind_the_whole_workspace_says_so (
 	refused = run("doc", "edit", ref, "--binds", "everyone", expect=1)
 
 	assert "project, workspace" in refused.output, refused.output
+
+
+def test_show_says_a_link_to_something_hidden_as_unseen_and_counts_what_it_sees (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4575`, decision `#4521`: a link whose other end the reader cannot see is shown, as unseen.
+
+	**The instance's answer is held elsewhere** (`tests/test_links_unseen.py`): one account cannot be
+	hidden from itself, so this hands the terminal that answer and holds what it makes of it - the
+	line said as unseen, and the count of what it can see, as the row counts.
+	"""
+
+	run("init")
+	run("add", "Book the venue")
+	run("add", "Choose the date")
+	run("link", "2", "blocks", "1")
+	run("done", "2")
+
+	listed = subroutine.clients.local.Client.links
+
+	def with_one_unseen (
+		client: subroutine.clients.local.Client, **arguments: typing.Any
+	) -> list[subroutine.views.Link]:
+		"""List as the client does, and add one blocker the reader cannot see."""
+
+		return [
+			*listed(client, **arguments),
+			subroutine.views.Link(
+				id=uuid.uuid4(),
+				link_type="blocks",
+				link_category="gating",
+				label="Blocked by",
+				direction="incoming",
+				other=subroutine.views.Unseen(),
+			),
+		]
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "links", with_one_unseen)
+
+	shown = run("show", "1").output
+
+	assert "something you cannot see" in shown, shown
+	assert "(1 of 1 blockers done)" in shown, shown

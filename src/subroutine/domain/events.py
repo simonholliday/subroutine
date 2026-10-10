@@ -1218,6 +1218,94 @@ class Described(typing.NamedTuple):
 	recurrence_anchor: str | None = None
 
 
+#: What a link's end its reader cannot see is said as, in place of its ref (`SR#4575`) - the shape a
+#: link listing gives it, docs/design.md §7.3a.
+UNSEEN_END = {"visible": False}
+
+
+def unseen_ends (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal | None,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+) -> dict[uuid.UUID, str]:
+	"""Return, for each link event whose other end this reader cannot see, the field that names it.
+
+	**A link to something hidden is shown as unseen, in the feed as everywhere** (`SR#4575`, decision
+	`#4521`). :func:`subroutine.domain.scoping.visible_events` shows a link's event wherever the item
+	it was made on is visible, and the ref of the other end, which ``changes`` holds as ``source`` or
+	``target``, is what this says to leave out. Every renderer of an event asks it, and the view
+	requires the answer, so none can forget. ``None`` is an internal caller, who sees everything.
+	"""
+
+	asked = [
+		row
+		for row in rows
+		if row.entity_type == "link" and row.subject_b_type is not None and row.subject_b_id is not None
+	]
+
+	if principal is None or not asked:
+		return {}
+
+	models: dict[str, typing.Any] = {
+		"task": subroutine.db.models.work.Task,
+		"document": subroutine.db.models.work.Document,
+	}
+	readable = subroutine.domain.scoping.readable_identifiers(
+		session, principal, workspace_ids=sorted({row.workspace_id for row in asked})
+	)
+	seen: set[uuid.UUID] = set()
+
+	for kind in {row.subject_b_type for row in asked}:
+		if kind not in readable or kind not in models:
+			continue
+
+		seen |= set(
+			session.scalars(
+				readable[kind].where(
+					models[kind].id.in_({row.subject_b_id for row in asked if row.subject_b_type == kind})
+				)
+			)
+		)
+
+	hidden = [row for row in asked if row.subject_b_id not in seen]
+
+	if not hidden:
+		return {}
+
+	link = subroutine.db.models.work.Link
+	sources = dict(
+		session.execute(
+			sqlalchemy.select(link.id, link.source_id).where(link.id.in_({row.entity_id for row in hidden}))
+		).all()
+	)
+
+	return {
+		row.id: "source" if sources.get(row.entity_id) == row.subject_b_id else "target" for row in hidden
+	}
+
+
+def shown (
+	changes: dict[str, typing.Any] | None, unseen: str | None
+) -> dict[str, typing.Any] | None:
+	"""Return a copy of an event's ``changes`` with the end named by ``unseen`` said as unseen.
+
+	A copy, never the row's own: the row is in the session, and a change to it would be written back.
+	"""
+
+	if changes is None:
+		return None
+
+	copied = dict(changes)
+	change = copied.get(unseen) if unseen is not None else None
+
+	if unseen is not None and isinstance(change, dict):
+		copied[unseen] = {
+			side: None if value is None else dict(UNSEEN_END) for side, value in change.items()
+		}
+
+	return copied
+
+
 def descriptions (
 	session: sqlalchemy.orm.Session,
 	rows: typing.Sequence[subroutine.db.models.activity.Event],

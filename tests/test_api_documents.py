@@ -374,13 +374,14 @@ def test_a_link_can_be_withdrawn (world: test_api_tasks.World) -> None:
 	assert world.call("GET", f"/v1/tasks/{two['ref']}").status_code == 200
 
 
-def test_a_link_to_something_invisible_is_not_reported (
+def test_a_link_to_something_invisible_is_reported_as_unseen (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A link is only as visible as the thing at the other end of it.
+	"""A link to something the reader cannot see is listed with ``{"visible": false}`` in its place.
 
-	Reporting "there is a link to something you may not see" would disclose exactly what
-	§7.3a's existence rule protects.
+	**docs/design.md §7.3a's shape, which nothing produced** (`SR#4575`, decision `#4521`): it was left
+	out, so a reader told an item is blocked was shown nothing that blocks it. Nothing of the other end
+	is said, neither its title nor its ref.
 	"""
 
 	world = test_api_tasks._world(session)
@@ -410,7 +411,13 @@ def test_a_link_to_something_invisible_is_not_reported (
 
 	nosy = world._replace(secret=issued.value.get_secret_value())
 
-	assert nosy.call("GET", f"/v1/tasks/{public['ref']}/links").json()["items"] == []
+	shown = nosy.call("GET", f"/v1/tasks/{public['ref']}/links")
+	(link,) = shown.json()["items"]
+
+	assert link["other"] == {"visible": False}, shown.text
+	assert link["link_type"] == "relates_to", shown.text
+	assert "Secret work" not in shown.text, shown.text
+	assert f'"ref":{secret["ref"]}' not in shown.text.replace(" ", ""), shown.text
 
 
 def test_a_link_whose_far_end_moved_out_of_sight_is_not_the_reader_s_to_remove (
@@ -420,8 +427,9 @@ def test_a_link_whose_far_end_moved_out_of_sight_is_not_the_reader_s_to_remove (
 
 	One task blocked another in a public project and was then moved into a private one. A member
 	who could not see it listed no links on the other, and removing the link anyway answered 204:
-	the owner's task lost its blocker. **Not theirs to see, so not theirs to remove**: 404, and the
-	link stays. And its owner still removes a link whose far end is beneath a project in the trash.
+	the owner's task lost its blocker. **Not theirs to see, so not theirs to remove**, and the link
+	stays - refused honestly since `SR#4575`, which lists it as unseen, where it answered 404. And
+	its owner still removes a link whose far end is beneath a project in the trash.
 	"""
 
 	world = test_api_tasks._world(session)
@@ -451,11 +459,12 @@ def test_a_link_whose_far_end_moved_out_of_sight_is_not_the_reader_s_to_remove (
 	member = world._replace(secret=issued.value.get_secret_value())
 	path = f"/v1/tasks/{launch['ref']}/links"
 
-	assert member.call("GET", path).json()["items"] == []
+	assert [one["other"] for one in member.call("GET", path).json()["items"]] == [{"visible": False}]
 
 	refused = member.call("DELETE", f"{path}/{link['id']}")
 
-	assert refused.status_code == 404, refused.text
+	assert refused.status_code == 403, refused.text
+	assert "out of your sight" in refused.json()["detail"], refused.text
 	assert len(world.call("GET", path).json()["items"]) == 1, "the link went anyway"
 
 	trashed = world.call("DELETE", "/v1/projects/ops")

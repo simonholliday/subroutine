@@ -2015,10 +2015,11 @@ class Client:
 				).limit(size + 1)
 			).all()
 			described = subroutine.domain.events.descriptions(session, rows)
+			unseen = subroutine.domain.events.unseen_ends(session, actor, rows)
 
 			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
 			return subroutine.clients.base.Listing(
-				[subroutine.views.event(row, described) for row in rows[:size]],
+				[subroutine.views.event(row, described, unseen=unseen) for row in rows[:size]],
 				has_more=len(rows) > size,
 			)
 
@@ -2228,6 +2229,7 @@ class Client:
 				shown=rows,
 			)
 			described = subroutine.domain.events.descriptions(session, rows)
+			unseen = subroutine.domain.events.unseen_ends(session, actor, rows)
 
 			# **The feed's own answer, which this was already being given and threw away**
 			# (`#1037`). `events.page` returns `(rows, more)` and the second was bound to
@@ -2236,7 +2238,7 @@ class Client:
 			# return value, and using the row count instead would be a second computation of
 			# something already correct.
 			return subroutine.clients.base.Listing(
-				[subroutine.views.event(row, described) for row in rows],
+				[subroutine.views.event(row, described, unseen=unseen) for row in rows],
 				has_more=more,
 				# The same function the route answers with, so the two transports cannot say
 				# different things about one credential (`#1085`).

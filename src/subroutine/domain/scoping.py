@@ -988,19 +988,14 @@ def visible_events (
 	item is.
 
 	**A link is matched through its subject too**, since ``#252`` gave link events one: a link
-	on a task in a private project is exactly as visible as that task. **And through a second
-	subject, because one of them could only ever express one end** (`#302`): a link's
-	visibility is the conjunction of two items', so an event whose source was visible reported
-	the *ref* of a target that may not be — a number rather than a title, and refs are close
-	to guessable, but what genuinely escaped was the *relationship* to that particular hidden
-	item.
-
-	**The conjunction is a separate ``AND`` and it names no kind.** The clauses below are a
-	disjunction — any of them makes an event readable — so a rule requiring something *as
-	well* cannot be one of them. It reads *if a second subject is set it must be visible too*,
-	which knows nothing about links, and that is deliberate: this module's property is that a
-	kind is narrowed through its own identity rather than by a special case, and one clause
-	naming a kind is the precedent for the next.
+	on a task in a private project is exactly as visible as that task. **Its other end no longer
+	hides it** (`SR#4575`, decision `#4521`): from `#302` an event whose second subject the reader
+	could not see was left out, because it named that end's ref. A link to something hidden is now
+	shown as unseen everywhere, the feed included, so the event is readable wherever the item it was
+	made on is, and :func:`subroutine.domain.events.unseen_ends` says which end each renderer is to
+	say as unseen. **Any other kind's second subject still has to be visible**, which is `#302`'s
+	conjunction kept for every kind but a link: only a link's ``changes`` is known to hold the other
+	end and where, so another kind is hidden by it rather than shown unredacted.
 
 	**Everything unlisted is excluded, and the clauses below are the whole of that rule**
 	(`#303`). A kind nobody wrote a clause for matches none of them and is invisible — to
@@ -1053,20 +1048,22 @@ def visible_events (
 	# so the conjunction cannot be another clause in it. It is a separate `AND`: whatever made
 	# the row reachable, a stated second subject still has to be one this caller may see.
 	#
-	# **Nothing here knows what a link is**, deliberately. The rule is *if a second subject is
-	# set it must be visible*, never *if this is a link check the other end*, because the
-	# moment one clause in this module names a kind the next one has a precedent — and this
-	# module's whole property is that a kind is narrowed by its identity rather than by a
-	# special case. Anything that later happens to two items gets the conjunction for free.
+	# **Bar a link's, whose other end is said as unseen instead** (`SR#4575`, decision `#4521`): a
+	# link to something hidden is shown as unseen in the feed as on every surface that lists links,
+	# so its event is readable wherever the item it was made on is, and every renderer says the
+	# other end as unseen through :func:`subroutine.domain.events.unseen_ends`, which the view
+	# requires. **Named, because the redaction is**: only a link's ``changes`` is known to hold the
+	# other end and where, so any other kind that ever sets a second subject is still hidden by it,
+	# failing closed rather than open.
 	#
 	# **A kind this credential cannot read at all matches no clause and so fails the test.**
-	# That is the answer we want: an agent scoped to tasks alone, looking at a task linked to
-	# a document, is not told the document exists.
 	stated = sqlalchemy.or_(
+		model.subject_b_type.is_(None),
+		model.entity_type == "link",
 		*[
 			sqlalchemy.and_(model.subject_b_type == kind, model.subject_b_id.in_(rows))
 			for kind, rows in identifiers.items()
-		]
+		],
 	)
 
 	# **And a comment's events take ``comment:read``** (`#4553`, S3): what a comment said, before and
@@ -1083,6 +1080,6 @@ def visible_events (
 		# narrowed by nothing else, were trusting the caller for.
 		in_reach(session, principal, model.workspace_id, workspace_ids),
 		sqlalchemy.or_(*clauses),
-		sqlalchemy.or_(model.subject_b_type.is_(None), stated),
+		stated,
 		said,
 	)

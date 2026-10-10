@@ -455,6 +455,9 @@ export function blockersDone (links) {
 			   blocker since it was written; this is the count catching up with the rule, on
 			   the third of the three surfaces that keep one. */
 			&& !(link.other || {}).deleted_at
+			/* **Nor one the reader cannot see** (`SR#4575`): it is listed as unseen, and whether
+			   it is over is not this reader's to know - the row counts the same way. */
+			&& (link.other || {}).visible !== false
 	);
 
 	if (held.length === 0) return "";
@@ -478,8 +481,10 @@ export function includedDone (links, unseen) {
 		(link) =>
 			link.link_category === "counting"
 			&& link.direction === "outgoing"
-			/* In the trash is out of the count, as it is for a blocker (`#1403`). */
+			/* In the trash is out of the count, as it is for a blocker (`#1403`), and so is
+			   unseen, which `unseen` says instead. */
 			&& !(link.other || {}).deleted_at
+			&& (link.other || {}).visible !== false
 	);
 
 	if (included.length === 0) return unseen ? "  (includes work you cannot see)" : "";

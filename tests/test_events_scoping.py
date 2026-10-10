@@ -483,18 +483,16 @@ def test_an_event_of_an_unknown_kind_reaches_nobody (
 	assert not _reaches(session, world, world.outsider, event.seq)
 
 
-def test_an_event_on_two_things_reaches_only_somebody_who_may_see_both (
+def test_a_link_event_reaches_whoever_sees_the_item_it_was_made_on (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
-	"""`SR#302`. One subject expresses one item's visibility, and some writes touch two.
+	"""`SR#302` hid it from anybody who could not see both ends; `SR#4575` shows it, as unseen.
 
-	The event here is about a **visible** task, so every clause above lets it through — and its
-	second subject is inside the private project. Before the conjunction the outsider was told
-	that something they can see is joined to something they cannot, and `changes` carried the
-	hidden item's ref: a number rather than a title, but the *relationship* is new information
-	and refs are close to guessable already.
-
-	**The owner still sees it**, which is the half that stops the fix being "hide link events".
+	The event here is about a **visible** task, and its second subject is inside the private
+	project. Decision `#4521`: a link to something hidden is shown as unseen in the feed as on every
+	surface that lists links, so a reader told an item is blocked sees the link that blocks it. The
+	hidden end's ref is said as unseen, which the real link below holds; a kind other than a link is
+	still hidden by its second subject.
 	"""
 
 	event = subroutine.domain.events.record(
@@ -513,15 +511,15 @@ def test_an_event_on_two_things_reaches_only_somebody_who_may_see_both (
 	assert _reaches(session, world, world.owner, event.seq), (
 		"the owner may see both ends and is told about neither"
 	)
-	assert not _reaches(session, world, world.outsider, event.seq), (
-		"an event joining a visible item to a private one reached somebody who may see one end"
+	assert _reaches(session, world, world.outsider, event.seq), (
+		"a link from an item somebody sees to one they cannot was left out of their feed"
 	)
 
 
 def test_the_second_subject_narrows_a_kind_that_is_not_a_link (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
-	"""The rule must be *a second subject must be visible*, never *a link's far end must be*.
+	"""The rule is *a second subject must be visible*, for every kind but a link (`SR#4575`).
 
 	``scoping.visible_events`` is built so that no clause in it knows about any particular
 	kind — a kind is narrowed through its own identity, and the moment one clause names one the
@@ -602,10 +600,12 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	(made,) = sorted(after - before)
 
 	assert _reaches(session, world, world.owner, made), "the author was not told about their own link"
-	assert not _reaches(session, world, world.outsider, made), (
-		"a link from a visible task to a private one reached somebody who may see only the "
-		"visible end — so the write path is not recording the second subject"
+	assert _reaches(session, world, world.outsider, made), (
+		"a link from a visible task to a private one was left out for somebody who sees the "
+		"visible end, where it is shown as unseen (SR#4575)"
 	)
+
+	_said_unseen(session, world, made, side="to")
 
 	# **And the withdrawal, which since `#3131` discloses exactly what the creation does.**
 	# ``links.remove`` recorded no ``changes`` at all and was narrowed anyway, on the argument
@@ -622,9 +622,11 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	(gone,) = sorted(withdrawn)
 
 	assert _reaches(session, world, world.owner, gone)
-	assert not _reaches(session, world, world.outsider, gone), (
-		"the unlink reached somebody the link itself was hidden from"
+	assert _reaches(session, world, world.outsider, gone), (
+		"the unlink was left out for somebody who was shown the link"
 	)
+
+	_said_unseen(session, world, gone, side="from")
 
 	# **The payload and the second subject are set together, or the payload is a disclosure**
 	# (`#3131`, `#302`). ``changes`` now names both refs and ``visible_events`` shows the event
@@ -649,19 +651,59 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	)
 
 
-def test_one_items_history_carries_a_link_only_where_both_ends_can_be_seen (
+def _said_unseen (
+	session: sqlalchemy.orm.Session, world: World, seq: int, *, side: str
+) -> None:
+	"""Hold a link event's private end to being said as unseen to the outsider, and named to the owner.
+
+	``side`` is ``to`` for a creation and ``from`` for a withdrawal, which is where ``changes`` keeps
+	the value. **And the row itself is never touched**: what is said is a copy.
+	"""
+
+	row = session.scalars(
+		sqlalchemy.select(subroutine.db.models.activity.Event).where(
+			subroutine.db.models.activity.Event.seq == seq
+		)
+	).one()
+
+	def said (user: typing.Any) -> dict[str, typing.Any]:
+		"""Return the event's changes as this person is shown them."""
+
+		reader = subroutine.domain.authentication.Principal(user=user)
+		shown = subroutine.views.event(
+			row, None, unseen=subroutine.domain.events.unseen_ends(session, reader, [row])
+		)
+
+		assert shown.changes is not None
+
+		return shown.changes
+
+	assert said(world.outsider)["target"][side] == {"visible": False}, said(world.outsider)
+	assert said(world.outsider)["source"][side] == world.visible.ref
+	assert said(world.owner)["target"][side] == world.task.ref
+
+	# **Through the journal too**, which hands the row's own changes to be copied rather than a copy.
+	outsider = subroutine.domain.authentication.Principal(user=world.outsider)
+	subroutine.views.journal_entry(
+		row,
+		vocabulary=subroutine.views.Vocabulary(session),
+		unseen=subroutine.domain.events.unseen_ends(session, outsider, [row]),
+	)
+
+	assert row.changes is not None and row.changes["target"][side] == world.task.ref, (
+		"the stored row was rewritten"
+	)
+
+
+def test_one_items_history_carries_a_link_with_its_hidden_end_unseen (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
 	"""`SR#2769`. **`SR#302` narrowed the feed and not the history, which reads the same rows.**
 
-	A history resolved its item and then returned every event on it, on the argument that
-	resolving the item was the permission check. A link from the visible task to the private one
-	is an event on the visible task, so its history handed the outsider the link, with the private
-	task's ref in ``changes``, while the feed and the journal withheld it. Driven before it was
-	fixed, on both backends, through the route.
-
-	**Both transports, each reading as a named person**, and the owner still sees the link, so
-	this is a narrowing and not a history that has stopped carrying links.
+	A history resolved its item and then returned every event on it, so it handed the outsider a
+	link with the private task's ref in ``changes`` while the feed withheld it. **Since `SR#4575`
+	both carry it with the private end unseen** (decision `#4521`), and this holds the history to
+	the feed: over HTTP, as a journal, and through the local client, each reading as a named person.
 	"""
 
 	acting = subroutine.domain.authentication.Principal(user=world.owner)
@@ -737,17 +779,19 @@ def test_one_items_history_carries_a_link_only_where_both_ends_can_be_seen (
 	assert len(over_http(world.owner)) == 1 and len(locally(world.owner)) == 1, (
 		"the owner, who may see both ends, was not shown the link, so nothing below is tested"
 	)
-	assert over_http(world.outsider) == [], (
-		"an item's history over HTTP handed somebody a link to an item they may not see"
-	)
+	assert over_http(world.owner)[0]["changes"]["target"]["to"] == world.task.ref
+
+	(heard,) = over_http(world.outsider)
+	(read,) = locally(world.outsider)
+	(journal,) = over_http(world.outsider, "journal")
+
+	assert heard["changes"]["target"] == {"from": None, "to": {"visible": False}}, heard
+	assert read.changes is not None and read.changes["target"]["to"] == {"visible": False}, read
 	assert len(over_http(world.owner, "journal")) == 1, "the owner's item journal lost the link"
-	assert over_http(world.outsider, "journal") == [], (
-		"an item's journal handed somebody a link to an item they may not see"
-	)
-	assert locally(world.outsider) == [], (
-		"an item's history through the local client handed somebody a link to an item they may "
-		"not see"
-	)
+
+	# **Nowhere in what they read**, as a number or a title: the whole entry, not one field of it.
+	for said in (heard, journal, read.model_dump(mode="json")):
+		assert f"#{world.task.ref}" not in str(said) and world.task.title not in str(said), said
 
 
 def test_nothing_outside_the_events_module_builds_an_event_statement_of_its_own () -> None:

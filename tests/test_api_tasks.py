@@ -1539,16 +1539,13 @@ def test_an_unknown_include_is_refused_and_says_what_it_accepts (world: World) -
 	assert "links" in body["errors"][0]["hint"]
 
 
-def test_a_link_to_something_the_caller_cannot_see_is_not_reported (
+def test_a_link_to_something_the_caller_cannot_see_is_reported_as_unseen (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A link is only as visible as *both* the things it joins (docs/design.md §7.3a).
+	"""A link to something hidden is shown, as ``{"visible": false}`` (docs/design.md §7.3a).
 
-	Sharper here than for the sub-resource. There, one end is the item that was asked about
-	and so is known-visible, and only the far end needs checking. In a listing **neither end
-	is guaranteed to be one of the items asked about** — the page may hold a task whose link
-	points into a private project. Reporting that edge would disclose the existence and the
-	title of something §7.3a hides.
+	It was left out (`SR#4575`, decision `#4521`), so a reader told an item is blocked was shown
+	nothing that blocks it. **Nothing of the hidden end is said**: not its title, and not its ref.
 	"""
 
 	world = _world(session)
@@ -1590,10 +1587,11 @@ def test_a_link_to_something_the_caller_cannot_see_is_not_reported (
 	)
 	body = nosy.call("GET", "/v1/tasks?include=links&limit=50").json()
 
-	titles = [end["title"] for edge in body["links"] for end in (edge["source"], edge["target"])]
+	ends = [end for edge in body["links"] for end in (edge["source"], edge["target"])]
 
-	assert "Confidential" not in titles
-	assert body["links"] == [], "the only link on this page points into a private project"
+	assert {"visible": False} in ends, "the link into a private project was left out of the page"
+	assert "Confidential" not in str(body), "a private task's title reached somebody it is hidden from"
+	assert hidden.ref not in [end.get("ref") for end in ends], "a private task's ref was said"
 
 
 def test_including_links_costs_the_same_number_of_queries_whatever_the_page_holds (

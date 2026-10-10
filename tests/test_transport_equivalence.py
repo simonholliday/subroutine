@@ -1960,7 +1960,7 @@ def test_both_join_two_items_the_same_way (pair: Pair) -> None:
 	local, remote = pair.both()
 	made = local.link(ref=first.ref, link_type="blocks", target=second.ref)
 
-	assert made.other.ref == second.ref
+	assert isinstance(made.other, subroutine.views.LinkEnd) and made.other.ref == second.ref
 	assert made.direction == "outgoing"
 
 	# The whole point: the link is what `ready` reads, on both transports.

@@ -2849,6 +2849,7 @@ def test_an_items_links_are_read_in_an_order_the_row_itself_explains (
 	# as correctly ordered while being incomplete.
 	assert len(read) == 8, "not every link came back, so the order below proves nothing"
 
-	assert [one.other.ref for one in read] == [
+	# Every end here is one this reader sees, so none is unseen (`SR#4575`).
+	assert [None if one.other is None else one.other.ref for one in read] == [
 		b_first.ref, b_second.ref, d1.ref, g2.ref, df1.ref, g1.ref, r1.ref, b_done.ref
 	]

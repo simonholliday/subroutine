@@ -74,6 +74,7 @@ import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.settings
 import subroutine.domain.tasks
@@ -13676,10 +13677,15 @@ def _joined (
 			# **Both ends named once there is more than one source** (`#1190`'s argument at
 			# width): `Blocks: Tag it` is unambiguous from one item and says nothing about
 			# which of six it came from.
+			far_end = made.other
+
+			# The caller named this end, so it is one they see; said as unseen otherwise.
 			program.say(
-				f"{made.label}: {made.other.title}"
+				f"{made.label}: {subroutine.domain.scoping.UNSEEN}"
+				if isinstance(far_end, subroutine.views.Unseen)
+				else f"{made.label}: {far_end.title}"
 				if len(near) == 1
-				else f"#{source.ref} {made.label} #{made.other.ref}  {made.other.title}"
+				else f"#{source.ref} {made.label} #{far_end.ref}  {far_end.title}"
 			)
 
 	_suggest(
@@ -13792,7 +13798,12 @@ def _unjoined (
 		ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
 	)
 	joins = {
-		target.ref: [one for one in held if one.other.ref == target.ref] for target in far
+		target.ref: [
+			one
+			for one in held
+			if isinstance(one.other, subroutine.views.LinkEnd) and one.other.ref == target.ref
+		]
+		for target in far
 	}
 	missing = [target for target in far if not joins[target.ref]]
 
@@ -13883,9 +13894,14 @@ def _unjoined (
 		# **The relation, not only the title.** The old line was the same sentence whether it
 		# removed one edge or five and named the item rather than what was withdrawn, so there
 		# was no reading of it that revealed a loss.
-		program.say(
-			f"Unlinked: {joins[target.ref][0].label} {joins[target.ref][0].other.title}"
+		withdrawn = joins[target.ref][0]
+		title = (
+			subroutine.domain.scoping.UNSEEN
+			if isinstance(withdrawn.other, subroutine.views.Unseen)
+			else withdrawn.other.title
 		)
+
+		program.say(f"Unlinked: {withdrawn.label} {title}")
 
 	_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
 
@@ -14144,9 +14160,16 @@ def _render_item (
 			# with one of the six deleted, so the milestone could never reach 6 of 6 and
 			# nothing on the page said why. `readiness.unblocked` has excluded a deleted
 			# blocker since it was written; this is the count catching up with the rule.
+			# **Nor one the reader cannot see** (`SR#4575`): it is listed below as unseen, and
+			# whether it is over is not this reader's to know - the row counts the same way.
+			and isinstance(link.other, subroutine.views.LinkEnd)
 			and link.other.deleted_at is None
 		]
-		done = sum(1 for link in blockers if link.other.is_complete)
+		done = sum(
+			1
+			for link in blockers
+			if isinstance(link.other, subroutine.views.LinkEnd) and link.other.is_complete
+		)
 		rollup = f"  ({done} of {len(blockers)} blockers done)" if blockers else ""
 
 		# **A milestone counts what it includes instead** (`#3395`, decision `#3391`): the link
@@ -14158,10 +14181,15 @@ def _render_item (
 				for link in links
 				if link.link_category == subroutine.domain.milestones.COUNTING
 				and link.direction == "outgoing"
-				# In the trash is out of the count, for `#1403`'s reason above.
+				# In the trash is out of the count, for `#1403`'s reason above, and so is unseen.
+				and isinstance(link.other, subroutine.views.LinkEnd)
 				and link.other.deleted_at is None
 			]
-			done = sum(1 for link in included if link.other.is_complete)
+			done = sum(
+				1
+				for link in included
+				if isinstance(link.other, subroutine.views.LinkEnd) and link.other.is_complete
+			)
 			# **And that it includes more than these** (`#3597`): the links are the ones this reader
 			# can see, which is what the row counts too, so the heading says there is more to it.
 			unseen = isinstance(item, subroutine.views.Task) and item.included_unseen
@@ -14176,6 +14204,14 @@ def _render_item (
 		for link in links:
 			line = rich.text.Text()
 			line.append(f"  {link.label:<{width}}  ", style=DETAIL)
+
+			# **Shown, never named** (`SR#4575`, decision `#4521`): a reader told this is blocked
+			# sees the link that blocks it, and nothing of what is at the other end.
+			if isinstance(link.other, subroutine.views.Unseen):
+				line.append(f"{'':>4}  {subroutine.domain.scoping.UNSEEN}", style=DETAIL)
+				console.print(line)
+				continue
+
 			line.append(
 				f"{subroutine.domain.refs.format_ref(link.other.ref):>4}  ", style=POSITION
 			)

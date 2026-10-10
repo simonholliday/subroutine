@@ -235,14 +235,17 @@ def reading_order (link: "Related") -> tuple[int, int, int, str, int]:
 	``governing`` above ``gating`` fixes `#1377` only because that document is live; where the
 	document is the finished one it puts dead work above live work, which is the same
 	complaint one case along.
+
+	**An end the reader cannot see is outstanding, and last of its run** (`SR#4575`): nothing says
+	it is over, and it has no number to be read by.
 	"""
 
 	return (
-		1 if settled(link.other) else 0,
+		1 if link.other is not None and settled(link.other) else 0,
 		binds(link.link_category),
 		0 if link.direction == "incoming" else 1,
 		link.label,
-		link.other.ref,
+		subroutine.domain.refs.MAX_REF + 1 if link.other is None else link.other.ref,
 	)
 
 
@@ -357,7 +360,10 @@ class Related:
 	link_category: str
 	label: str
 	direction: str
-	other: End
+
+	#: **``None`` where the reader cannot see it** (`SR#4575`, decision `#4521`): the link is shown,
+	#: as unseen, so a reader told an item is blocked sees the link that blocks it. It was left out.
+	other: End | None
 	created_at: datetime.datetime
 
 	#: Who made it, or ``None`` where a system action did (`#4051`). Carried for the same reason
@@ -390,8 +396,11 @@ class Edge:
 	link_type: str
 	category: str
 	label: str
-	source: End
-	target: End
+
+	#: ``None`` where the reader cannot see that end, as :attr:`Related.other` is (`SR#4575`). An edge
+	#: is found from an item at one of its ends, so one end is always seen.
+	source: End | None
+	target: End | None
 	created_at: datetime.datetime
 
 	#: Who made it, or ``None`` where a system action did - as :class:`Related` carries it (`#4052`).
@@ -1056,6 +1065,7 @@ def remove (
 	#: check the caller may touch each end; their refs are what the deletion event has to record,
 	#: and resolving a second time below would re-run two queries for facts already in hand.
 	withdrawn_ends: dict[str, End] = {}
+	out_of_sight = 0
 
 	for side, entity_type, identifier in (
 		("source", link.source_type, link.source_id),
@@ -1070,18 +1080,14 @@ def remove (
 			beneath_trash=True,
 		)
 
-		# **An end out of the caller's sight makes a link they cannot see, so not one to remove**
-		# (`#4429`, R2-L32 of the cold review of 2026-10-04). Only an end that resolved was checked, so
-		# a member who listed no links on an item removed one whose far end had moved into a private
-		# project, and the owner's item lost its blocker; comments refuse the same with a 404. Resolved
-		# beneath the trash as well, so a link to work in a trashed project is still the owner's to remove.
+		# **An end out of the caller's sight makes a link not theirs to remove** (`#4429`, R2-L32 of the
+		# cold review of 2026-10-04). Only an end that resolved was checked, so a member who listed no
+		# links on an item removed one whose far end had moved into a private project, and the owner's
+		# item lost its blocker. Resolved beneath the trash as well, so a link to work in a trashed
+		# project is still the owner's to remove.
 		if end is None and actor is not None and entity_type in LINKABLE:
-			raise subroutine.errors.NotFound(
-				"There is no such link"
-				+ ("" if acted_on is None else f" on {subroutine.domain.refs.format_ref(acted_on.ref)}")
-				+ ".",
-				hint="List the item's links to see the ones there are.",
-			)
+			out_of_sight += 1
+			continue
 
 		# **In or beneath the trash too** - one of the three withdrawals ``trash`` names, and an
 		# end is not an item to the permission check's gate, so nothing here asks it.
@@ -1090,6 +1096,24 @@ def remove (
 				session, actor, subroutine.permissions.TASK_WRITE, end
 			)
 			withdrawn_ends[side] = end
+
+	# **One end out of sight is an honest refusal, and both is no link at all** (`SR#4575`, decision
+	# `#4521`): a link whose other end the caller cannot see is shown to them as unseen, so "there is
+	# no such link" was false of one they had just been shown. With neither end in sight it is shown
+	# nowhere, which is the answer comments give too.
+	if out_of_sight == 2:
+		raise subroutine.errors.NotFound(
+			"There is no such link"
+			+ ("" if acted_on is None else f" on {subroutine.domain.refs.format_ref(acted_on.ref)}")
+			+ ".",
+			hint="List the item's links to see the ones there are.",
+		)
+
+	if out_of_sight:
+		raise subroutine.errors.Forbidden(
+			"The other end of this link is out of your sight, so it is not yours to withdraw.",
+			hint="Somebody who can see both of its ends may withdraw it.",
+		)
 
 	link.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 	session.flush()
@@ -1167,14 +1191,16 @@ def around (
 	"""Return every link touching one item, from that item's point of view.
 
 	Both directions in one list, each already labelled the way round the caller is looking
-	at it. **An end the caller cannot see is dropped**, not reported as hidden: a link is
-	only as visible as the thing at the other end of it.
+	at it. **An end the caller cannot see is shown as unseen**, with ``other`` set to ``None``
+	(`SR#4575`, decision `#4521`): it was dropped, so a reader told an item is blocked was shown
+	nothing that blocks it. An end beneath the trash is still left out, as before.
 	"""
 
 	rows = _touching(
 		session, workspace_id=workspace_id, entity_type=entity_type, identifiers=[identifier]
 	)
 	ends = _ends_by_key(session, principal, workspace_id=workspace_id, rows=rows)
+	unseen = _unseen(session, principal, workspace_id=workspace_id, rows=rows, seen=ends)
 	found: list[Related] = []
 
 	for link, kind in rows:
@@ -1183,7 +1209,7 @@ def around (
 		other_id = link.target_id if outgoing else link.source_id
 		other = ends.get((other_type, other_id))
 
-		if other is None:
+		if other is None and (other_type, other_id) not in unseen:
 			continue
 
 		found.append(
@@ -1260,7 +1286,7 @@ def edges_of (
 	workspace_id: uuid.UUID,
 	links: typing.Sequence[subroutine.db.models.work.Link],
 ) -> list[Edge]:
-	"""Return link rows already in hand as edges, leaving out any with an end this caller cannot see.
+	"""Return link rows already in hand as edges, an end this caller cannot see shown as unseen.
 
 	**For a caller that holds the rows rather than the items** - an export pages through a
 	workspace's links itself (`#4052`) - where :func:`edges` finds them from the items they
@@ -1296,15 +1322,23 @@ def _as_edges (
 	"""Return links and their types as edges, each named by both its ends, in the order given."""
 
 	ends = _ends_by_key(session, principal, workspace_id=workspace_id, rows=rows)
+	unseen = _unseen(session, principal, workspace_id=workspace_id, rows=rows, seen=ends)
 	found: list[Edge] = []
 
 	for link, kind in rows:
 		source = ends.get((link.source_type, link.source_id))
 		target = ends.get((link.target_type, link.target_id))
 
-		# **Both ends, not just the far one.** A link is only as visible as the things it
-		# joins, and here neither end is guaranteed to be one of the items asked about.
-		if source is None or target is None:
+		# **One end seen, the other seen or unseen** (`SR#4575`, decision `#4521`). Neither end is
+		# guaranteed to be one of the items asked about here, and a link with no end the reader
+		# can see is one they have no item to be shown it on; an end beneath the trash is left out.
+		if (source is None and target is None) or any(
+			found_end is None and key not in unseen
+			for found_end, key in (
+				(source, (link.source_type, link.source_id)),
+				(target, (link.target_type, link.target_id)),
+			)
+		):
 			continue
 
 		found.append(
@@ -1443,6 +1477,11 @@ def beneath (
 		under: dict[uuid.UUID, list[End]] = {one: [] for one in frontier}
 
 		for edge in links:
+			# **A walk draws items, and an end it cannot see is not one to draw beneath anything**
+			# (`SR#4575`): it is not a listing of links, where such an end is shown as unseen.
+			if edge.source is None or edge.target is None:
+				continue
+
 			if edge.category in SEQUENCING and edge.target.id in under:
 				under[edge.target.id].append(edge.source)
 			# **And what a milestone includes, from the milestone down** (decision `#3391`). That
@@ -2110,6 +2149,57 @@ def _ends_by_key (
 			session, principal, workspace_id=workspace_id, entity_type=kind, identifiers=of_kind
 		)
 	}
+
+
+def _unseen (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+	rows: typing.Sequence[tuple[typing.Any, typing.Any]],
+	seen: typing.Mapping[tuple[str, uuid.UUID], End],
+) -> frozenset[tuple[str, uuid.UUID]]:
+	"""Return the ends of these links the caller cannot see at all - `SR#4575`, decision `#4521`.
+
+	**Out of sight, as against beneath the trash.** :func:`_ends_by_key` leaves out both, and an end
+	beneath a project or a document in the trash is the trash's to hide (decision `#4091`) rather
+	than something the reader may not know of. So only the ends missing there are asked again, the
+	trash taken in, and what is still missing is unseen. Only a kind a link joins, and nothing for an
+	internal caller, who sees everything.
+	"""
+
+	missing: dict[str, set[uuid.UUID]] = {}
+
+	for link, _kind in rows:
+		for kind, identifier in (
+			(link.source_type, link.source_id),
+			(link.target_type, link.target_id),
+		):
+			if (kind, identifier) not in seen and kind in LINKABLE:
+				missing.setdefault(kind, set()).add(identifier)
+
+	if principal is None or not missing:
+		return frozenset()
+
+	reached = {
+		(end.entity_type, end.id)
+		for kind, identifiers in missing.items()
+		for end in _ends(
+			session,
+			principal,
+			workspace_id=workspace_id,
+			entity_type=kind,
+			identifiers=identifiers,
+			beneath_trash=True,
+		)
+	}
+
+	return frozenset(
+		(kind, identifier)
+		for kind, identifiers in missing.items()
+		for identifier in identifiers
+		if (kind, identifier) not in reached
+	)
 
 
 def _ends (

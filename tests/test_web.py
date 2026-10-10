@@ -22418,3 +22418,31 @@ def test_the_document_page_says_when_a_document_binds_the_whole_workspace (
 
 	assert "<dt>Binds<dd>the whole workspace" in marked, marked
 	assert "<dt>Binds" not in plain, plain
+
+
+def test_a_link_to_something_hidden_is_shown_as_unseen_and_not_offered_for_removal (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#4575`, decision `#4521`: ``{"visible": false}`` in place of an end the reader cannot see.
+
+	**Shown, never named**, so a reader told an item is blocked sees the link that blocks it. No
+	``Remove``, which only somebody who can see both ends may do, and the count is of what is seen.
+	"""
+
+	shared = {"item": {"ref": 42, "title": "Book the venue", "status": "open", "kind": "task"},
+		"comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+	links = [
+		{"id": "l-1", "link_type": "blocks", "link_category": "gating", "label": "Blocked by",
+			"direction": "incoming", "other": {"visible": False}},
+		{"id": "l-2", "link_type": "blocks", "link_category": "gating", "label": "Blocked by",
+			"direction": "incoming", "other": {"entity_type": "task", "ref": 9,
+				"title": "Choose the date", "is_complete": True}},
+	]
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "links": links}})["Detail"]
+
+	assert "something you cannot see" in shown, shown
+	assert shown.count("Remove") == 1, "an unseen link is offered for removal"
+	assert "(1 of 1 blockers done)" in shown, shown
+	assert "undefined" not in shown, shown

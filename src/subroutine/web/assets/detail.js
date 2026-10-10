@@ -502,6 +502,21 @@ export function Detail ({
 				     one. */ null}
 				<ul class="linked links" id=${`section-${LINKS_SECTION}`}>
 					${linksShown.map((link) => {
+						/*
+							**Shown, never named** (`SR#4575`, decision `#4521`): `{"visible": false}`
+							in place of an end the reader cannot see, so a reader told an item is
+							blocked sees the link that blocks it. No address, no marks and no
+							`Remove`, which only somebody who can see both ends may do.
+						*/
+						if (link.other.visible === false) {
+							return html`
+								<li key=${link.id}>
+									<span class="label">${link.label}</span>${" "}
+									<span>something you cannot see</span>
+								</li>
+							`;
+						}
+
 						const going = { ref: link.other.ref, kind: link.other.entity_type };
 						const to = workspace ? addressOf(going, workspace) : null;
 						const follow = (event) =>

@@ -161,13 +161,16 @@ def _page (
 
 
 def _as_events (
-	session: sqlalchemy.orm.Session, rows: list[subroutine.db.models.activity.Event]
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	rows: list[subroutine.db.models.activity.Event],
 ) -> list[subroutine.views.Event]:
 	"""Render a page of an item's history as the audit log reports it."""
 
 	described = subroutine.domain.events.descriptions(session, rows)
+	unseen = subroutine.domain.events.unseen_ends(session, actor, rows)
 
-	return [subroutine.views.event(row, described) for row in rows]
+	return [subroutine.views.event(row, described, unseen=unseen) for row in rows]
 
 
 def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> None:
@@ -231,7 +234,7 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 				entity="event",
 				timezone=subroutine.views.reader_zone(session, actor),
 			),
-			render=lambda rows: _as_events(session, rows),
+			render=lambda rows: _as_events(session, actor, rows),
 		)
 
 

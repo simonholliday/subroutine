@@ -46,6 +46,7 @@ import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.installations
@@ -3588,10 +3589,17 @@ def _shown (
 			if link.link_category == subroutine.domain.readiness.GATING
 			and link.direction == "incoming"
 			# **A blocker in the trash is not one** (`#1403`), which is the terminal's rule and
-			# `readiness.unblocked`'s, arriving on the third surface that counts.
+			# `readiness.unblocked`'s, arriving on the third surface that counts. **Nor one the reader
+			# cannot see** (`SR#4575`), which is listed below as unseen and counted, as the row does,
+			# by nobody: whether it is over is not this reader's to know.
+			and isinstance(link.other, subroutine.views.LinkEnd)
 			and link.other.deleted_at is None
 		]
-		finished = sum(1 for link in blockers if link.other.is_complete)
+		finished = sum(
+			1
+			for link in blockers
+			if isinstance(link.other, subroutine.views.LinkEnd) and link.other.is_complete
+		)
 		rollup = f"{finished} of {len(blockers)} blockers done" if blockers else ""
 
 		# **A milestone counts what it includes instead** (`#3395`), which is the terminal's rule:
@@ -3602,9 +3610,14 @@ def _shown (
 				for link in links
 				if link.link_category == subroutine.domain.milestones.COUNTING
 				and link.direction == "outgoing"
+				and isinstance(link.other, subroutine.views.LinkEnd)
 				and link.other.deleted_at is None
 			]
-			finished = sum(1 for link in included if link.other.is_complete)
+			finished = sum(
+				1
+				for link in included
+				if isinstance(link.other, subroutine.views.LinkEnd) and link.other.is_complete
+			)
 			# And that it includes more than these, which are the ones this reader can see (`#3597`).
 			unseen = isinstance(found, subroutine.views.Task) and found.included_unseen
 			rollup = (
@@ -3619,7 +3632,11 @@ def _shown (
 			parts.append(rollup)
 
 		parts.extend(
-			f"{link.label}  #{link.other.ref}  {link.other.title}"
+			# **Shown as unseen** (`SR#4575`, decision `#4521`), so an agent told an item is blocked
+			# reads the link that blocks it.
+			f"{link.label}  {subroutine.domain.scoping.UNSEEN}"
+			if isinstance(link.other, subroutine.views.Unseen)
+			else f"{link.label}  #{link.other.ref}  {link.other.title}"
 			+ (
 				"  (deleted)"
 				if link.other.deleted_at is not None
@@ -5150,7 +5167,11 @@ def _linked (
 		held = client.links(ref=ref, entity_type=kind, workspace=workspace)
 
 		for one in others:
-			joins = [found for found in held if found.other.ref == one]
+			joins = [
+				found
+				for found in held
+				if isinstance(found.other, subroutine.views.LinkEnd) and found.other.ref == one
+			]
 
 			if not joins:
 				raise LookupError(f"#{ref} is not joined to #{one}.")

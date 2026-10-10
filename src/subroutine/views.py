@@ -358,6 +358,22 @@ class LinkEnd(pydantic.BaseModel):
 	deleted_at: datetime.datetime | None = None
 
 
+# **`{"visible": false}`, which docs/design.md §7.3a and invariant 14 promised and nothing produced**
+# (`SR#4575`, decision `#4521`). The docstring below is published, so it says the rule and no item.
+# **`extra="forbid"` is what tells the two apart**: a whole end has fields this does not, so it can
+# never be read as one, where a defaulted `visible` alone would read any end as unseen.
+class Unseen(pydantic.BaseModel):
+	"""The end of a link that the reader cannot see.
+
+	The link is shown, so a reader told an item is blocked sees the link that blocks it, and nothing
+	about what is at the other end is said: not its kind, its number or its title.
+	"""
+
+	model_config = pydantic.ConfigDict(extra="forbid")
+
+	visible: typing.Literal[False] = False
+
+
 # docs/design.md §5.7 and §8.4. **The docstring below is published** since `#4052` made this an
 # export's answer, so it is written for the reader of `/v1/openapi.json`: no em dash, and the
 # reason in place of the citation.
@@ -376,8 +392,9 @@ class Edge(pydantic.BaseModel):
 	#: reads it from the target's side.
 	label: str
 
-	source: LinkEnd
-	target: LinkEnd
+	#: Either end may be one the reader cannot see, and never both.
+	source: LinkEnd | Unseen
+	target: LinkEnd | Unseen
 
 	#: **What :class:`Link` says of the same row** (`#4052`): what the type *is*, when the link
 	#: was made and who made it. An export writes a link as an edge, since it has no item to be
@@ -1695,7 +1712,10 @@ class Link(pydantic.BaseModel):
 
 	label: str
 	direction: str
-	other: LinkEnd
+
+	#: **`{"visible": false}` where the reader cannot see what is at the other end** (`SR#4575`,
+	#: decision `#4521`), in place of leaving the link out.
+	other: LinkEnd | Unseen
 
 	#: **When it was made and who made it** (`#4051`), as a task and a document report their own.
 	#: Stored on every link since the first and reported by nothing, so who joined two items, and
@@ -1744,6 +1764,9 @@ class Link(pydantic.BaseModel):
 
 	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this link as the cells of one compact line."""
+
+		if isinstance(self.other, Unseen):
+			return (self.label, "", subroutine.domain.scoping.UNSEEN)
 
 		return (
 			self.label,
@@ -4243,6 +4266,7 @@ def journal_entry (
 	row: subroutine.db.models.activity.Event,
 	*,
 	vocabulary: Vocabulary,
+	unseen: typing.Mapping[uuid.UUID, str],
 	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
 	bodies: dict[uuid.UUID, subroutine.domain.journal.Said] | None = None,
 ) -> JournalEntry:
@@ -4276,8 +4300,14 @@ def journal_entry (
 
 	changed = []
 
-	if isinstance(row.changes, dict):
-		moved = {field: sides for field, sides in row.changes.items() if isinstance(sides, dict)}
+	# **The other end of a link the reader cannot see, said as unseen** (`SR#4575`), and required,
+	# so no renderer can forget it: ``unseen`` is :func:`subroutine.domain.events.unseen_ends`.
+	changes = subroutine.domain.events.shown(
+		row.changes if isinstance(row.changes, dict) else None, unseen.get(row.id)
+	)
+
+	if changes is not None:
+		moved = {field: sides for field, sides in changes.items() if isinstance(sides, dict)}
 
 		for field in moved:
 			# **One line per fact** (decision `#2823`): a flag, who assigned it, a claim's times,
@@ -4423,8 +4453,10 @@ def journal_entries (
 		project_settings=False,
 	)
 
+	unseen = subroutine.domain.events.unseen_ends(session, principal, rows)
+
 	return [
-		journal_entry(row, vocabulary=vocabulary, described=described, bodies=bodies)
+		journal_entry(row, vocabulary=vocabulary, unseen=unseen, described=described, bodies=bodies)
 		for row in rows
 	]
 
@@ -4458,7 +4490,9 @@ def comment (
 
 def event (
 	row: subroutine.db.models.activity.Event,
-	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
+	described: dict[uuid.UUID, subroutine.domain.events.Described] | None,
+	*,
+	unseen: typing.Mapping[uuid.UUID, str],
 ) -> Event:
 	"""Render one event.
 
@@ -4490,7 +4524,11 @@ def event (
 		subject_type=row.subject_type,
 		subject_id=row.subject_id,
 		action=row.action,
-		changes=None if row.changes is None else dict(row.changes),
+		# **The other end of a link the reader cannot see, said as unseen** (`SR#4575`): ``unseen`` is
+		# :func:`subroutine.domain.events.unseen_ends`, required so that no renderer can forget it.
+		changes=subroutine.domain.events.shown(
+			None if row.changes is None else dict(row.changes), unseen.get(row.id)
+		),
 		actor_user_id=row.actor_user_id,
 		actor_token_id=row.actor_token_id,
 		actor_interface=row.actor_interface,
@@ -4506,8 +4544,8 @@ def edge (found: subroutine.domain.links.Edge, vocabulary: Vocabulary) -> Edge:
 		id=found.id,
 		link_type=found.link_type,
 		label=found.label,
-		source=_end(found.source, vocabulary),
-		target=_end(found.target, vocabulary),
+		source=Unseen() if found.source is None else _end(found.source, vocabulary),
+		target=Unseen() if found.target is None else _end(found.target, vocabulary),
 		link_category=found.category,
 		created_at=found.created_at,
 		created_by=found.created_by,
@@ -4591,7 +4629,7 @@ def link (related: subroutine.domain.links.Related, vocabulary: Vocabulary) -> L
 		link_category=related.link_category,
 		label=related.label,
 		direction=related.direction,
-		other=_end(related.other, vocabulary),
+		other=Unseen() if related.other is None else _end(related.other, vocabulary),
 		created_at=related.created_at,
 		created_by=related.created_by,
 	)
@@ -4610,7 +4648,9 @@ def links (
 	the one surface built to save a reader from opening five items.
 	"""
 
-	vocabulary = Vocabulary.for_link_ends(session, reader, [one.other for one in related])
+	vocabulary = Vocabulary.for_link_ends(
+		session, reader, [one.other for one in related if one.other is not None]
+	)
 
 	return [link(one, vocabulary) for one in related]
 
@@ -4752,7 +4792,9 @@ def edges (
 	"""
 
 	vocabulary = Vocabulary.for_link_ends(
-		session, reader, [end for one in found for end in (one.source, one.target)]
+		session,
+		reader,
+		[end for one in found for end in (one.source, one.target) if end is not None],
 	)
 
 	return [edge(one, vocabulary) for one in found]

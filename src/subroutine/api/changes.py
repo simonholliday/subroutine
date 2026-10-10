@@ -240,9 +240,10 @@ def _page (
 		shown=shown,
 	)
 	described = subroutine.domain.events.descriptions(session, shown)
+	unseen = subroutine.domain.events.unseen_ends(session, actor, shown)
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.event(row, described) for row in shown],
+		[subroutine.views.event(row, described, unseen=unseen) for row in shown],
 		# **No `next_cursor`, and that is the contract rather than an omission.** This feed
 		# resumes on `?since=<seq>` (§5.11a), and handing back an opaque keyset cursor would
 		# offer a second way to page that the endpoint does not accept.
