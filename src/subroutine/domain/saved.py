@@ -40,6 +40,7 @@ import subroutine.domain.filtering
 import subroutine.domain.grammar
 import subroutine.domain.grouping
 import subroutine.domain.ordering
+import subroutine.domain.stewardship
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.errors
@@ -362,7 +363,9 @@ def readable (
 	*what is keanu holding*, so a credential narrowed away from the work has no use for it.
 
 	**Every principal has an account behind it**, including an agent's token and a calendar
-	feed's, so *mine* is always askable and there is no fourth case here.
+	feed's, so *mine* is always askable and there is no fourth case here. **And its agents' that can
+	act** (`SR#4572`, decision `#4516`): whoever an agent answers to manages what it owns, so sees its
+	views nobody shared.
 	"""
 
 	subroutine.domain.authorization.authorize(
@@ -373,7 +376,14 @@ def readable (
 
 	return sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id,
-		sqlalchemy.or_(model.shared.is_(True), model.owner_id == principal.user.id),
+		sqlalchemy.or_(
+			model.shared.is_(True),
+			model.owner_id.in_(
+				subroutine.domain.stewardship.managed_owners(
+					session, principal, workspace_id=workspace_id
+				)
+			),
+		),
 	)
 
 
@@ -512,13 +522,33 @@ def update (
 	no-op made a concurrent editor's next write a false conflict.
 	"""
 
-	_refuse_somebody_elses(row, actor)
 	subroutine.domain.authorization.authorize(
 		session,
 		actor,
 		subroutine.permissions.TASK_WRITE,
 		workspace_id=row.workspace_id,
 		own_account=True,
+	)
+
+	# **Its words are its author's, and who sees it is whoever manages it** (`SR#4572`, decision
+	# `#4525`): what a view says, only the person who saved it rewrites; sharing and unsharing it are
+	# its owner's, whoever its owner answers to, or an administrator's where it is shared. A view's
+	# owner demoted to contributor could forget it and not unshare it, and an administrator could
+	# forget a shared view and not unshare it (C section 2.2 of the cold review of 2026-10-05).
+	defining = _defining(title=title, arrangement=arrangement, given=given)
+
+	if defining:
+		_refuse_somebody_elses(row, actor)
+
+	subroutine.domain.stewardship.refuse_unless_managing(
+		session,
+		actor,
+		row.owner_id,
+		workspace_id=row.workspace_id,
+		whose=f"the owner of the view '{row.key}'",
+		act="stop sharing it" if shared is False else "share it" if shared else "change it",
+		field="shared" if shared is not None else "key",
+		seen=row.shared,
 	)
 	subroutine.domain.versions.require(row, expected_version)
 
@@ -540,22 +570,22 @@ def update (
 	# cold review of 2026-10-05): it stays in front of everybody, so it lands on the workspace's place.
 	# A credential narrowed to some projects rewrote the query of a view its owner had shared from
 	# elsewhere, and later was refused a title edit as though it were sharing the view.
-	if row.shared and shared is not False and any(
-		field in given for field in ("title", "arrangement", "q", "order", "group_by")
-	):
+	if row.shared and shared is not False and defining:
 		subroutine.domain.authorization.authorize(
 			session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
 		)
 
 	before = _held(row)
 
-	# **Sharing and unsharing alike** (B I-5): taking a view from in front of the workspace is an act
-	# there as much as putting it there, and a narrowed credential unshared what it could not share.
+	# **Sharing and unsharing alike land on the workspace** (B I-5): taking a view from in front of the
+	# workspace is an act there as much as putting it there, and a narrowed credential unshared what it
+	# could not share. **Unsharing asks what forgetting asks** (`SR#4572`, decision `#4525`), since it is
+	# strictly less: ``task:write`` there, where it asked ``project:write`` of a view's own owner.
 	if shared is not None and shared != row.shared:
 		subroutine.domain.authorization.authorize(
 			session,
 			actor,
-			subroutine.permissions.PROJECT_WRITE,
+			subroutine.permissions.PROJECT_WRITE if shared else subroutine.permissions.TASK_WRITE,
 			workspace_id=row.workspace_id,
 			instead=_KEEP_IT_YOUR_OWN if shared else None,
 			field="shared",
@@ -595,6 +625,28 @@ def update (
 	return row
 
 
+#: What a view says, as against whom it is shown to: the half only its author rewrites.
+_DEFINITION = ("title", "arrangement", "q", "order", "group_by")
+
+
+def _defining (
+	*, title: str | None, arrangement: str | None, given: typing.Container[str]
+) -> bool:
+	"""Report whether a change touches what a view says, rather than only whom it is shown to.
+
+	**From the values as well as ``given``** (`SR#4844`): a title and an arrangement cannot be
+	cleared, so a value names the field, and the terminal names neither in ``given``. Asked of
+	``given`` alone, renaming a shared view through the terminal skipped the check that lands it on
+	the workspace, which refused the same rename over HTTP to a credential narrowed to some projects.
+	"""
+
+	return (
+		title is not None
+		or arrangement is not None
+		or any(field in given for field in _DEFINITION)
+	)
+
+
 def _held (row: subroutine.db.models.saved.SavedView) -> tuple[object, ...]:
 	"""Return what a change to a view can change, to ask afterwards whether anything did."""
 
@@ -618,16 +670,9 @@ def delete (
 	Simon's decision of 2026-09-22), and may not edit one: §5.10's rule for comments, whose
 	author alone may change their words and whose administrator may take them out. A shared
 	view whose author has left, or whose query names a project that has since been renamed,
-	was otherwise broken for everybody and removable by nobody.
+	was otherwise broken for everybody and removable by nobody. **And whoever its owner answers
+	to** (`SR#4572`, decisions `#4525` and `#4516`), who manages what its agent owns.
 	"""
-
-	if row.owner_id != actor.user.id:
-		if not row.shared:
-			_refuse_somebody_elses(row, actor)
-
-		subroutine.domain.authorization.authorize(
-			session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=row.workspace_id
-		)
 
 	# **One's own view lands on one's own account, and a shared one on the workspace** (`#4558`, B
 	# I-5 of the cold review of 2026-10-05): a narrowed credential deleted a view everybody saw.
@@ -637,6 +682,16 @@ def delete (
 		subroutine.permissions.TASK_WRITE,
 		workspace_id=row.workspace_id,
 		own_account=not row.shared,
+	)
+	subroutine.domain.stewardship.refuse_unless_managing(
+		session,
+		actor,
+		row.owner_id,
+		workspace_id=row.workspace_id,
+		whose=f"the owner of the view '{row.key}'",
+		act="forget it",
+		field="key",
+		seen=row.shared,
 	)
 	session.delete(row)
 	session.flush()
@@ -675,18 +730,12 @@ def _refuse_somebody_elses (
 	defect with a wider audience.
 	"""
 
-	if row.owner_id == actor.user.id:
-		return
-
-	raise subroutine.errors.Forbidden(
-		f"The view {row.key!r} belongs to somebody else.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="key",
-				code="forbidden",
-				message="Only the person who saved a view may change it.",
-				hint="Save your own copy of it under another name. A workspace's administrator "
-				"may forget a shared one.",
-			)
-		],
+	subroutine.domain.stewardship.refuse_unless_author(
+		actor,
+		row.owner_id,
+		detail=f"The view {row.key!r} belongs to somebody else.",
+		field="key",
+		message="Only the person who saved a view may change it.",
+		hint="Save your own copy of it under another name. A workspace's administrator may forget "
+		"a shared one.",
 	)

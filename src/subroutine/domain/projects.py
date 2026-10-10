@@ -21,6 +21,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
@@ -29,6 +30,7 @@ import subroutine.domain.patch
 import subroutine.domain.repair
 import subroutine.domain.scoping
 import subroutine.domain.settings
+import subroutine.domain.stewardship
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.versions
@@ -315,7 +317,7 @@ def _made (
 		# Written for public projects too, so that making a project private later does not
 		# lock its owner out of it. ``role_id`` stays null, which means "keeps whatever role
 		# they hold at workspace level" rather than granting anything new.
-		_ensure_member(session, project, owner_id)
+		_ensure_member(session, project, owner_id, actor=actor)
 
 	subroutine.domain.events.record(
 		session,
@@ -375,14 +377,28 @@ def move (
 	# **Nor the Inbox under another project** (`#4143`): a private project above it would hide it.
 	refuse_unsettling_the_inbox(project, parent=parent)
 
-	# **Nor under a private project, unless by its owner or an administrator** (`#4383`, decision
-	# `#4384`): privacy inherits down the tree, so this takes it out of sight as making it private
-	# does. A member moved somebody else's projects under a private one of their own, and the owner
-	# lost them with no administrator's listing to show it.
-	if parent is not None and _private_at_or_above(session, parent):
-		_refuse_deciding_sight(
-			session, actor, project, act="move it under a private project", field="parent"
-		)
+	# **Across a privacy boundary only by its steward** (`SR#4570`, decision `#4509`): privacy inherits
+	# down the tree, so a move under a private project takes it out of sight as making it private does,
+	# and one out from under it shows it to everybody as making it public does. A member moved
+	# somebody else's projects under a private one of their own (`#4383`), and one shared into a
+	# private project moved its sub-project out to the top level (S5 of the cold review of
+	# 2026-10-05). **A move within one private tree crosses nothing** and is not refused, where
+	# `#4384`'s gate refused any move under a private project (NEW-O-1 of its verification).
+	subroutine.domain.stewardship.refuse_crossing(
+		session,
+		actor,
+		steward_of=project,
+		leaving=subroutine.domain.stewardship.private_above(
+			session,
+			None
+			if project.parent_id is None
+			else session.get(subroutine.db.models.project.Project, project.parent_id),
+		),
+		arriving=subroutine.domain.stewardship.private_above(session, parent),
+		what="it",
+		field="parent",
+		under=True,
+	)
 
 	# **Nor under a private project, where it holds a rule for the whole workspace** (`#4286`), for
 	# the reason :func:`update` gives: privacy inherits, so this hides the rule as making it would.
@@ -554,12 +570,17 @@ def update (
 	# **The Inbox stays where everybody in the workspace can see it** (`#4143`).
 	refuse_unsettling_the_inbox(project, visibility=visibility)
 
+	# **Who can see it is its steward's to change, in both directions** (`SR#4570`, decision `#4509`):
+	# making it private takes it out of sight of everybody not shared into it, administrators
+	# included (`#4383`), and making it public puts it in front of the whole workspace, which any
+	# member shared in could do (S5 of the cold review of 2026-10-05).
+	if visibility is not subroutine.domain.patch.UNSET and visibility != project.visibility:
+		subroutine.domain.stewardship.refuse_unless_steward(
+			session, actor, project, act=f"make it {visibility}", field="visibility"
+		)
+
 	# **Nor a project holding a rule for the whole workspace** (`#4286`, decision `#4134`), unless
 	# by somebody who may mark one: it takes the rule out of sight of everybody not shared into it.
-	# **Only its owner or an administrator hides it** (`#4383`, decision `#4384`): it takes the
-	# project out of sight of everybody not shared into it, administrators included.
-	if visibility == "private" and project.visibility != "private":
-		_refuse_deciding_sight(session, actor, project, act="make it private", field="visibility")
 
 	# **And showing one again** (`#4389`, decision `#4134` as amended): a private project made
 	# public brings every rule it holds into everybody's conventions.
@@ -601,11 +622,13 @@ def update (
 			session, project.workspace_id, str(owner_id), field="owner_id"
 		)
 
-	# **And only by its owner or an administrator** (`#4382`, R2-M5 of the cold review of 2026-10-04,
-	# decision `#4384`): `project:write` was enough, so a member shared into a private project made
-	# themselves its owner and then removed the owner, the one share :func:`unshare` protects.
+	# **And only by its steward** (`#4382`, R2-M5 of the cold review of 2026-10-04; `SR#4570`, decision
+	# `#4509`): `project:write` was enough, so a member shared into a private project made themselves
+	# its owner and then removed the owner, the one share :func:`unshare` protects.
 	if owner_id is not subroutine.domain.patch.UNSET and str(owner_id) != str(project.owner_id):
-		_refuse_deciding_sight(session, actor, project, act="change who owns it", field="owner_id")
+		subroutine.domain.stewardship.refuse_unless_steward(
+			session, actor, project, act="change who owns it", field="owner_id"
+		)
 
 	# Resolved here rather than in the assignment pass, because a key that names no status
 	# must refuse before anything has been assigned — the rule this function's docstring
@@ -677,7 +700,7 @@ def update (
 		return project
 
 	if "owner_id" in changes and project.owner_id is not None:
-		_ensure_member(session, project, project.owner_id)
+		_ensure_member(session, project, project.owner_id, actor=actor)
 
 	project.version += 1
 	project.updated_by = None if actor is None else actor.user.id
@@ -980,12 +1003,17 @@ def _ensure_member (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
 	user_id: uuid.UUID,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
 ) -> None:
 	"""Make sure a user holds a membership row for a project, without duplicating one.
 
 	Called when ownership changes, for the same reason :func:`create` writes one: §7.3a
 	grants sight of a private project to members and to nobody else, so handing somebody a
 	private project without this would hand them one they cannot see.
+
+	**And who granted it** (`SR#4572`, C section 5 of the cold review of 2026-10-05): nothing wrote
+	``created_by``, so reporting who let somebody in would have reported nobody on every row.
 	"""
 
 	model = subroutine.db.models.project.ProjectMember
@@ -1005,6 +1033,7 @@ def _ensure_member (
 			project_id=project.id,
 			user_id=user_id,
 			role_id=None,
+			created_by=None if actor is None else actor.user.id,
 		)
 	)
 	session.flush()
@@ -1085,47 +1114,6 @@ def _refuse_hiding_a_rule (
 	from subroutine.domain import documents as rules
 
 	rules.refuse_hiding_a_rule(session, actor, project, field=field)
-
-
-def _refuse_deciding_sight (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal | None,
-	project: subroutine.db.models.project.Project,
-	*,
-	act: str,
-	field: str,
-) -> None:
-	"""Refuse deciding who owns a project or whether it is hidden, unless by its owner or by
-	somebody holding ``workspace:admin`` - `#4382`, `#4383`, decision `#4384`.
-
-	**Privacy inherits down the tree**, so making a project private and moving it under a private one
-	both take it out of sight of people who can see it now, administrators included, and its owner
-	holds the one share nobody else may remove. ``None`` is an internal caller.
-	"""
-
-	if actor is None or actor.user.id == project.owner_id:
-		return
-
-	if (
-		subroutine.domain.authorization.refusal(
-			session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=project.workspace_id
-		)
-		is None
-	):
-		return
-
-	raise subroutine.errors.Forbidden(
-		f"Only the owner of '{project.key}', or somebody who administers this workspace, may {act}.",
-		errors=[
-			subroutine.errors.FieldError(
-				field=field,
-				code="forbidden",
-				message="Who owns a project, and who can see it, are its owner's to decide, or an "
-				"administrator's.",
-			)
-		],
-		hint="Ask its owner, or somebody who administers this workspace.",
-	)
 
 
 def _private_at_or_above (
@@ -1335,13 +1323,11 @@ def share (
 ) -> subroutine.db.models.project.ProjectMember:
 	"""Let one more person see a private project — item `#1444`.
 
-	**Requires ``project:write``, and so does :func:`unshare`.** Anybody holding it can already
-	publish the whole project to the workspace by setting its visibility, so naming one person
-	is strictly less disclosure than a flag they have anyway. The same gate covers revocation
-	**deliberately**: that argument is about disclosure and does not reach taking sight away,
-	but two gates on two halves of one feature is how the halves come to disagree, and somebody
-	trusted with a project's reach is trusted with it in both directions. The known cost is
-	that anybody shared in can evict anybody but the owner.
+	**Its steward's, with ``project:write``, and so is removing somebody else** (`SR#4570`, decision
+	`#4509`). It was ``project:write`` alone, on the argument that anybody holding it could already
+	publish the whole project by setting its visibility; publishing is the steward's now, so a member
+	shared in no longer shares it onward, nor evicts anybody else, an administrator included, which
+	reverses the cost `#1444` accepted (S5 of the cold review of 2026-10-05).
 
 	**Presence, never a role.** The row is written with ``role_id=None`` because §7.3a reads
 	nothing but its existence. `#1452` is where a project-scoped role belongs and it is a
@@ -1363,6 +1349,9 @@ def share (
 	if not rescuable(session, actor, project):
 		subroutine.domain.authorization.authorize_on(
 			session, actor, subroutine.permissions.PROJECT_WRITE, project
+		)
+		subroutine.domain.stewardship.refuse_unless_steward(
+			session, actor, project, act="share it with somebody", field="username"
 		)
 
 	_refuse_somebody_outside_the_workspace(session, project, user)
@@ -1421,6 +1410,7 @@ def share (
 		project_id=project.id,
 		user_id=user.id,
 		role_id=None,
+		created_by=None if actor is None else actor.user.id,
 	)
 	session.add(membership)
 	session.flush()
@@ -1548,11 +1538,15 @@ def unshare (
 ) -> None:
 	"""Take somebody's sight of a private project away again — item `#1444`.
 
-	Gated by ``project:write``, like :func:`share`, and the reasoning is written there.
+	Gated by ``project:write`` and its steward, like :func:`share`, and the reasoning is written
+	there. **Removing yourself is yours** (decision `#4509`), as it always was.
 
 	**Two refusals, and both protect against a project nobody can reach.** The owner's own row
-	is not removable — :func:`create` writes it *"so that making a project private later does
-	not lock its owner out"*, and this is that same sentence one command along. Nor is the row of
+	is not removable while the owner can act — :func:`create` writes it *"so that making a project
+	private later does not lock its owner out"*, and this is that same sentence one command along.
+	**An owner who can no longer act holds it no more** (`SR#4572`, C section 2.4 of the cold review
+	of 2026-10-05): their row pinned a project they could not see, and its steward's stand-in, who
+	can, may take it on. Nor is the row of
 	the last person who can see it: `#1453` is the state this avoids, where a private project has
 	nobody who can see it or make it public again. **A person who can act, by the one predicate**
 	(`SR#4569`, decision `#4526`): this counted rows, those of people who had left included, so the
@@ -1568,6 +1562,11 @@ def unshare (
 		session, actor, subroutine.permissions.PROJECT_WRITE, project
 	)
 
+	if not subroutine.domain.stewardship.holds(actor, user.id):
+		subroutine.domain.stewardship.refuse_unless_steward(
+			session, actor, project, act="remove somebody else from it", field="username"
+		)
+
 	membership = _membership_of(session, project, user.id)
 
 	if membership is None:
@@ -1576,7 +1575,9 @@ def unshare (
 			hint=f"'subroutine project share {project.key} {user.username}' would do that.",
 		)
 
-	if project.owner_id is not None and project.owner_id == user.id:
+	if project.owner_id == user.id and subroutine.domain.accountability.can_act(
+		session, user, workspace_id=project.workspace_id
+	):
 		raise subroutine.errors.ValidationError(
 			f"{user.username} owns {project.key} and cannot be removed from it.",
 			# **No command is named here on purpose.** Ownership moves through
@@ -1602,11 +1603,15 @@ def unshare (
 
 		inside = "," if one.id == project.id else f", inside {project.key},"
 
+		# **A remedy this caller can take** (`SR#4570`): making it public and sharing it are its
+		# steward's now, so somebody removing themselves who is not is pointed at the one who is.
 		raise subroutine.errors.ValidationError(
 			f"{user.username} is the only person who can see {one.key}{inside} so removing them "
 			f"would leave no person able to reach it.",
 			hint=f"'subroutine project update {one.key} --public' first, or share it with "
-			f"somebody else.",
+			f"somebody else."
+			if subroutine.domain.stewardship.stewards(session, actor, one)
+			else f"Ask the owner of '{one.key}' to share it with somebody else first.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="username",

@@ -408,9 +408,10 @@ def admit (
 ) -> subroutine.views.ProjectMember:
 	"""Share a private project with one more person.
 
-	Needs ``project:write``, and so does the DELETE. Anybody holding it can already publish
-	the whole project to the workspace by changing its visibility, so naming one person is
-	strictly less disclosure than a flag they have anyway.
+	Needs ``project:write``, and to be the project's steward: its owner, whoever its owner
+	answers to, or somebody who administers the workspace and can see the project. When the
+	owner can no longer act, anybody who can see the project stands in. The DELETE asks the same
+	of removing anybody but yourself.
 
 	**Sight only.** The row grants nothing but the ability to see the project and what is in
 	it; what somebody may *do* there is still their workspace role.
@@ -445,9 +446,10 @@ def evict (
 ) -> fastapi.Response:
 	"""Take one person's sight of a project away again.
 
-	Neither the owner's own row nor the last remaining one can be removed: a private project
-	with no member is one that nobody - including whoever runs the instance - can see or make
-	public again.
+	Removing yourself needs ``project:write``; removing anybody else needs the project's steward
+	as well, as sharing does. Neither the owner's own row, while the owner can act, nor that of
+	the last person who can see the project can be removed: a private project nobody can see is
+	one that nobody - including whoever runs the instance - can make public again.
 
 	Works whatever the project's visibility is. A row on a public project grants nothing today
 	and everything the day somebody makes it private, so leaving it there is deliberate.

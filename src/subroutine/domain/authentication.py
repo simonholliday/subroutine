@@ -854,11 +854,11 @@ def _refuse_amplification (
 	"""
 
 	# **Starting anything for another account is the instance tier's** (`SR#4566`, decision `#4516`),
-	# asked by the one rule for acts on accounts. Imported here, not at the top: `domain.authorization`
+	# asked by the one rule for acts on accounts. Imported here, not at the top: `domain.stewardship`
 	# imports *this* module for `Principal`, so a module-level import is the circular-import trap
 	# CLAUDE.md records. The house style's documented exception for a nested `from X import Y as
 	# alias` exists for exactly this, and the alias keeps `subroutine` from being rebound as a local.
-	from subroutine.domain import authorization as permits
+	from subroutine.domain import stewardship as permits
 
 	permits.refuse_acting_on_an_account(session, actor, user, stopping=False)
 

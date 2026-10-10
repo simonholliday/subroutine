@@ -20,6 +20,28 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Who can see a project is its steward's to change, in both directions.** Making a private
+  project public, sharing it, removing somebody else from it and moving it out from under a
+  private project now take its owner, whoever its owner answers to, or somebody who administers
+  the workspace and can see it - as making it private and handing it over already did. A member
+  shared into somebody else's private project could publish it, share it onward and remove
+  anybody but its owner, an administrator included. Removing yourself is still yours. When the
+  owner can no longer act - marked as having left, removed from the workspace, or an agent whose
+  person has left - anybody who can see the project stands in, so it is never stranded, and the
+  departed owner's own share can be removed.
+- **Moving a task or a document into a private project, out of one or between two is for the
+  steward of the project it leaves.** A contributor shared into a private project moved a task
+  assigned to somebody else into it, and the person it was assigned to, the project's owner and
+  the workspace's administrators lost sight of it. A move within one private project's tree,
+  which changes nobody's sight, is no longer refused. Moving your own capture from the Inbox into
+  your own private project now asks whoever stewards the Inbox; file it there with `+key`.
+- **What is owned is managed by its owner, whoever its owner answers to, or an administrator, and
+  a refusal names who may.** A workspace's administrator may stop sharing a view as well as forget
+  it, a view's owner moved down to contributor may stop sharing it, and whoever an agent answers to
+  sees its private views, forgets them and deletes its comments. Only whoever saved a view or
+  wrote a comment changes what it says. Giving a calendar feed a new address is its owner's alone.
+- **A credential narrowed to some projects no longer renames a shared view through the terminal**,
+  as it was already refused over HTTP.
 - **Every "last one" is counted the same way: people who can act, never agents.** The last
   person who administers a workspace, its last owner who can act, and the last person who can
   see a private project are refused leaving, stepping down or being unshared, each saying what

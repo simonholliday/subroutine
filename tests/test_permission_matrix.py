@@ -980,6 +980,15 @@ ACTS: tuple[Act, ...] = (
 		rule="A saved view is forgotten by whoever saved it.",
 		theirs="laurence",
 	),
+	Act(
+		"stop sharing a view",
+		"Take somebody else's shared view from in front of the workspace",
+		(),
+		"metacortex",
+		lambda c, s: c.update_saved_view(key=s.names["view"], shared=False, workspace=s.slug),
+		rule="A shared view is managed by whoever saved it, or an administrator (#4525).",
+		theirs="laurence",
+	),
 	# --- Projects --------------------------------------------------------------------------------
 	Act(
 		"create project",
@@ -1019,6 +1028,7 @@ ACTS: tuple[Act, ...] = (
 		"vault",
 		lambda c, s: c.update_project("vault", visibility="public", workspace=s.slug),
 		rule="Whoever stewards a private project decides who sees it (#4509).",
+		theirs="laurence",
 	),
 	Act(
 		"share project",
@@ -1027,6 +1037,7 @@ ACTS: tuple[Act, ...] = (
 		"vault",
 		lambda c, s: c.share_project("vault", username=s.names["tank"], workspace=s.slug),
 		rule="Whoever stewards a private project decides who sees it (#4509).",
+		theirs="laurence",
 	),
 	Act(
 		"unshare project",
@@ -1037,6 +1048,25 @@ ACTS: tuple[Act, ...] = (
 			"vault", username=s.people["carrieanne"].username, workspace=s.slug
 		),
 		rule="Whoever stewards a private project decides who sees it (#4509).",
+	),
+	Act(
+		"hide a project",
+		"Make a public project private",
+		(P.PROJECT_WRITE,),
+		"web",
+		lambda c, s: c.update_project("web", visibility="private", workspace=s.slug),
+		rule="Whoever stewards a project decides who sees it (#4509).",
+		theirs="laurence",
+	),
+	Act(
+		"move work into a private project",
+		"Move a task out of a public project into a private one",
+		(P.TASK_READ, P.TASK_WRITE),
+		"vault",
+		lambda c, s: c.update(ref=s.refs["task"], project="vault", workspace=s.slug),
+		tool=("subroutine_update", lambda s: {"ref": s.refs["task"], "project": "vault"}),
+		rule="Work leaves the sight of who can see it only by its project's steward (#4509).",
+		theirs="laurence",
 	),
 	# --- Workspaces ------------------------------------------------------------------------------
 	Act(
@@ -1292,6 +1322,7 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.PROJECT_WRITE, "ops"): _ROLES - {"contributor", "viewer"} | _OPS,
 	(P.TASK_READ, "ops"): _ROLES | _READING | _OPS,
 	(P.TASK_READ, "vault"): _VAULT,
+	(P.TASK_WRITE, "vault"): _VAULT,
 	(P.PROJECT_READ, "vault"): _VAULT,
 	(P.PROJECT_WRITE, "vault"): _VAULT,
 	(P.COMMENT_READ, "vault"): _VAULT,

@@ -30,6 +30,7 @@ import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.selection
+import subroutine.domain.stewardship
 import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.tokens
@@ -389,9 +390,21 @@ def reset (
 	can see through the address it was handed. **Its expiry counts**, as minting's does: a token
 	expiring tomorrow reset its owner's permanent feed and was handed a permanent address that went
 	on reading after the token had stopped (S2 of the cold review of 2026-10-05).
+
+	**Only by its holder, asked here** (`SR#4572`, decision `#4525`): a new address reads with its
+	owner's sight, so minting one is the holder's alone, as minting any credential is. Only the lookup
+	asked it, so a caller resolving a feed another way would have reset somebody else's (C section 2.6
+	of the cold review of 2026-10-05).
 	"""
 
 	refuse_when_disabled(enabled)
+	subroutine.domain.stewardship.refuse_unless_holding(
+		actor,
+		feed.owner_id,
+		detail="Only the person a calendar feed belongs to may give it a new address.",
+		field="id_or_prefix",
+		hint="Revoke it instead if it should stop; its owner can make another.",
+	)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 	subroutine.domain.authentication.refuse_handing_the_agent_tools_a_secret(
 		actor, what="a calendar feed's address", command="subroutine calendar reset"
@@ -445,7 +458,7 @@ def revoke (
 		session, subroutine.permissions.STOPPING, by=actor.user, on=owner
 	)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
-	subroutine.domain.authorization.refuse_acting_on_an_account(
+	subroutine.domain.stewardship.refuse_acting_on_an_account(
 		session, actor, owner, stopping=True
 	)
 	subroutine.domain.authentication.refuse_undominated(
@@ -526,7 +539,7 @@ def _acted_on (
 
 	model = subroutine.db.models.identity.CalendarFeed
 	statement = sqlalchemy.select(model)
-	reached = subroutine.domain.authorization.accounts_acted_on(session, actor)
+	reached = subroutine.domain.stewardship.accounts_acted_on(session, actor)
 
 	if reached is not None:
 		statement = statement.where(model.owner_id.in_(reached))

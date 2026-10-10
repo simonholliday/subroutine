@@ -119,6 +119,11 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"memberships of a private project, read to count the people who can see it, and never "
 	"returned. **Narrowing would answer wrongly**: the count is about everybody who could repair "
 	"it, which a caller who cannot see the project must not be able to change by not seeing it",
+	"domain/stewardship.py": "the private projects at or above one already in hand (`SR#4570`, "
+	"decision `#4509`), read by id off its path to say whether a move crosses a privacy boundary, "
+	"and never returned. **Narrowing would answer wrongly**: whether a move changes who can see "
+	"the work is about everybody's sight, which a caller who cannot see a private project above "
+	"it must not be able to change by not seeing it",
 	"domain/settings.py": "resolves a setting upwards through a project's ancestors and its "
 	"workspace (`#1026`), for projects a caller already holds — so the rows are vetted before "
 	"this sees them. **Narrowing here would disclose nothing and would render a wrong answer**: "

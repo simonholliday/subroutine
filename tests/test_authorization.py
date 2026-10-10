@@ -953,6 +953,9 @@ _GATES = frozenset(
 		"authorize_on",
 		"authorize_instance",
 		"permitted",
+		# The form that answers rather than raises, which a rule of its own asks before refusing in
+		# its own words: an administrator managing what somebody else owns (`SR#4572`).
+		"refusal",
 		"_refusal",
 		"_instance_refusal",
 		"refuse_a_read_out_of_scope",

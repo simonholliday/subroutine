@@ -38,6 +38,7 @@ import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.scoping
 import subroutine.domain.selection
+import subroutine.domain.stewardship
 import subroutine.domain.text
 import subroutine.domain.trash
 import subroutine.domain.versions
@@ -425,15 +426,22 @@ def update (
 ) -> subroutine.db.models.activity.Comment:
 	"""Edit a comment's text, rewriting whatever it mentions.
 
-	**Only the author may edit**, whatever their role. A comment is attributed prose, and an
-	administrator rewriting somebody else's words while leaving their name on them is not a
-	permission anybody should hold — deleting it is the honest alternative and is allowed.
+	**Only the author may edit**, whatever their role, and not whoever they answer to (decision
+	`#4525`). A comment is attributed prose, and somebody else rewriting the words while leaving the
+	author's name on them is not a permission anybody should hold — deleting it is the honest
+	alternative and is allowed.
 
-	**And only with a credential that may comment there** (`#3920`), as adding one asks.
+	**And only with a credential that may comment there** (`#3920`), as adding one asks, which is
+	asked first: whose the words are is the last question, as it is of every owned thing.
 	"""
 
-	_authored_by(actor, comment, verb="edit")
 	_may_write(session, actor, comment)
+	subroutine.domain.stewardship.refuse_unless_author(
+		actor,
+		comment.author_id,
+		detail="Only the person who wrote a comment may edit it.",
+		hint="Delete it instead if it needs to go; that is allowed for an administrator.",
+	)
 	subroutine.domain.versions.require(comment, expected_version, noun="This comment")
 
 	if body is subroutine.domain.patch.UNSET:
@@ -487,21 +495,24 @@ def delete (
 	Soft, like everything else here — nothing in this system hard-deletes, which is what lets an
 	event about a deleted thing still be scoped (§5.11a).
 
-	The author may delete their own, and an administrator of the workspace anybody's, because a
-	work record sometimes needs a mistake taken out of it. **Either way with a credential that may
-	comment there** (`#3920`): only the administrator's half was asked, so a read-only credential
-	deleted its owner's comments.
+	**The author, whoever the author answers to, or an administrator of the workspace who can see
+	what it is on** (`SR#4572`, decisions `#4525` and `#4516`), because a work record sometimes needs a
+	mistake taken out of it. The refusal named only the administrator's permission, and so hid that
+	the author could. **Either way with a credential that may comment there** (`#3920`): only the
+	administrator's half was asked, so a read-only credential deleted its owner's comments.
 	"""
 
-	if actor is not None and comment.author_id != actor.user.id:
-		subroutine.domain.authorization.authorize(
-			session,
-			actor,
-			subroutine.permissions.WORKSPACE_ADMIN,
-			workspace_id=comment.workspace_id,
-		)
-
-	_may_write(session, actor, comment)
+	subject = _may_write(session, actor, comment)
+	subroutine.domain.stewardship.refuse_unless_managing(
+		session,
+		actor,
+		comment.author_id,
+		workspace_id=comment.workspace_id,
+		project=None if subject is None else _project_of(session, subject),
+		whose="the author of this comment",
+		act="delete it",
+		field="comment_id",
+	)
 	subroutine.domain.versions.require(comment, expected_version, noun="This comment")
 
 	if comment.deleted_at is not None:
@@ -541,7 +552,7 @@ def _may_write (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,
 	comment: subroutine.db.models.activity.Comment,
-) -> None:
+) -> typing.Any:
 	"""Refuse a change to a comment by a credential that may not comment on its item (`#3920`).
 
 	**Exactly what adding one asks** - ``comment:write``, against the item's project - so a
@@ -549,11 +560,12 @@ def _may_write (
 	caller wrote it was asked, so a token scoped to reading, or one that may write only in another
 	project, edited and deleted its owner's comments while being refused a new one. The item is
 	read as a read, since changing a comment on something in the trash is not adding to it - one
-	of the three withdrawals ``trash`` names.
+	of the three withdrawals ``trash`` names. Returns what it is on, or ``None`` for an internal
+	caller, which asks nothing.
 	"""
 
 	if actor is None:
-		return
+		return None
 
 	subject = _entity(
 		session,
@@ -567,19 +579,15 @@ def _may_write (
 		session, actor, subroutine.permissions.COMMENT_WRITE, subject, doing=None
 	)
 
+	return subject
 
-def _authored_by (
-	actor: subroutine.domain.authentication.Principal | None,
-	comment: subroutine.db.models.activity.Comment,
-	*,
-	verb: str,
-) -> None:
-	"""Refuse an edit by anybody but the author. ``None`` is an internal caller."""
 
-	if actor is None or comment.author_id == actor.user.id:
-		return
+def _project_of (
+	session: sqlalchemy.orm.Session, subject: typing.Any
+) -> subroutine.db.models.project.Project | None:
+	"""Return the project a comment's item is in - the item itself, for a comment on a project."""
 
-	raise subroutine.errors.Forbidden(
-		f"Only the person who wrote a comment may {verb} it.",
-		hint="Delete it instead if it needs to go; that is allowed for an administrator.",
-	)
+	if isinstance(subject, subroutine.db.models.project.Project):
+		return subject
+
+	return session.get(subroutine.db.models.project.Project, subject.project_id)

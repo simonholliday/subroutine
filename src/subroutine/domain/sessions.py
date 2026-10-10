@@ -472,11 +472,11 @@ def _refuse_acting_on_the_account (
 	**Handing out a link that signs in as somebody, and ending the sessions they are working in, are
 	acts on their access** rather than on their work, so they are asked what every act on an account
 	is asked: your own is yours, whoever it answers to may stop it, and starting anything for it is
-	the instance tier's. Here only for the import, which ``domain.authorization`` makes a cycle at
+	the instance tier's. Here only for the import, which ``domain.stewardship`` makes a cycle at
 	the top of this module; the alias keeps ``subroutine`` from being rebound as a local name.
 	"""
 
-	from subroutine.domain import authorization as permits
+	from subroutine.domain import stewardship as permits
 
 	permits.refuse_acting_on_an_account(session, actor, user, stopping=stopping)
 

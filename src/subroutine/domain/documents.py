@@ -39,6 +39,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.refs
+import subroutine.domain.stewardship
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.text
@@ -459,6 +460,25 @@ def update (
 		subroutine.domain.authorization.authorize_on(
 			session, actor, subroutine.permissions.TASK_WRITE, project
 		)
+
+		# **Across a privacy boundary only by the steward of the project it leaves** (`SR#4570`, decision
+		# `#4509`): a contributor moved a task assigned to somebody else, and a document somebody else
+		# maintains, into a private project they were shared into, and the assignee, the maintainer, the
+		# administrator and the source project's owner all lost sight of both (S5 of the cold review of
+		# 2026-10-05). Somebody filing their own capture from the Inbox into their own private project
+		# asks the Inbox's steward now, or files it there in the first place.
+		leaving = session.get(subroutine.db.models.project.Project, document.project_id)
+
+		if leaving is not None:
+			subroutine.domain.stewardship.refuse_crossing(
+				session,
+				actor,
+				steward_of=leaving,
+				leaving=subroutine.domain.stewardship.private_above(session, leaving),
+				arriving=subroutine.domain.stewardship.private_above(session, project),
+				what="this document",
+				field="project",
+			)
 
 		if document.parent_id is not None:
 			# `create` refuses a section in a different project from the document it is part

@@ -8554,6 +8554,10 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		This grants sight and nothing else - what they may do in the project is still their
 		role in the workspace, so they have to be in it already.
 
+		Who sees a project is its owner's to decide, or whoever its owner answers to, or somebody
+		who administers the workspace and can see it. When the owner can no longer act, anybody
+		who can see the project may.
+
 		A project inside a private one is hidden by the parent, and a membership on the child
 		grants nothing while that is true. Sharing the parent is what opens it, and this says
 		which project that is rather than appearing to work.
@@ -8572,8 +8576,9 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		  subroutine project unshare secret jo
 
-		The owner cannot be removed, and neither can the last person left: a private project
-		nobody holds is one nobody can see or make public again.
+		You may always remove yourself; removing anybody else is for whoever may share it. The
+		owner cannot be removed while they can act, and neither can the last person who can see
+		it: a private project nobody can see is one nobody can make public again.
 		"""
 
 		_project_unshared(program, key=key, username=username)
@@ -9230,6 +9235,9 @@ def _register_views (app: typer.Typer, program: Program) -> None:
 
 		Only the parts you name change. Writing nothing after --q, --order or --group-by
 		clears that part, which is a different instruction from leaving the flag off.
+
+		Only whoever saved a view changes what it says. Whoever they answer to, and a workspace's
+		administrator, may take a shared one back with --private.
 		"""
 
 		_view_edited(
@@ -9254,8 +9262,9 @@ def _register_views (app: typer.Typer, program: Program) -> None:
 
 		  subroutine view forget my-bugs
 
-		A workspace's administrator may also forget a shared view somebody else saved - one whose
-		author has left, say - though nobody may change a view they did not save.
+		Whoever an agent answers to may forget the agent's views too, and a workspace's
+		administrator may forget a shared view somebody else saved - one whose author has left,
+		say - though nobody may change a view they did not save.
 
 		There is no trash for a view, unlike a task: it records nothing that happened, and
 		one left behind would hold its name against whoever wants it next.

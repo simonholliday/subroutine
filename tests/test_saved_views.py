@@ -546,6 +546,46 @@ def test_a_credential_narrowed_to_some_projects_cannot_rewrite_a_shared_view (
 		assert rewritten.status_code == 403, (change, rewritten.text)
 
 
+def test_a_narrowed_credential_renames_no_shared_view_whichever_door_it_comes_through (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#4844`: refused over HTTP, and renamed through the terminal on a local connection.
+
+	The terminal names ``q``, ``order``, ``group_by`` and ``shared`` in what it says it changed and
+	never a title or an arrangement, which cannot be cleared; the check landing a shared view's words
+	on the workspace asked only what was named. **Asked of the values too**, so both shapes refuse.
+	"""
+
+	_saved(world, title="Everyone's", arrangement="list", shared=True)
+
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	whole = subroutine.domain.authentication.Principal(user=world.user)
+	token, _issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Inbox only", project_scope=[inbox]
+	)
+	narrowed = subroutine.domain.authentication.Principal(user=world.user, token=token)
+	view = subroutine.domain.saved.by_key(
+		world.session, whole, workspace_id=world.workspace.id, key="everyone-s"
+	)
+
+	for title, arrangement, given in (
+		("Over HTTP", None, {"title"}),
+		("Through the terminal", None, ()),
+		(None, "board", ()),
+	):
+		with pytest.raises(subroutine.errors.Forbidden):
+			subroutine.domain.saved.update(
+				world.session,
+				view,
+				title=title,
+				arrangement=arrangement,
+				given=given,
+				actor=narrowed,
+			)
+
+	assert view.title == "Everyone's" and view.arrangement == "list"
+
+
 @pytest.mark.parametrize("typed", ["..", "!!!", ""])
 def test_a_name_that_shapes_to_no_address_is_refused_as_typed (
 	world: test_api_tasks.World, typed: str

@@ -18,6 +18,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.dates
 import subroutine.domain.repair
+import subroutine.domain.stewardship
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
@@ -245,7 +246,7 @@ def set_active (
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
 
 	if actor is not None:
-		subroutine.domain.authorization.refuse_acting_on_an_account(
+		subroutine.domain.stewardship.refuse_acting_on_an_account(
 			session, actor, user, stopping=not active, its_own=False
 		)
 

@@ -24,10 +24,10 @@ import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.accountability
 import subroutine.domain.authentication
-import subroutine.domain.authorization
 import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.selection
+import subroutine.domain.stewardship
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -101,7 +101,7 @@ def issued_tokens (
 
 	model = subroutine.db.models.identity.ApiToken
 	statement = sqlalchemy.select(model).order_by(model.created_at.desc())
-	reached = subroutine.domain.authorization.accounts_acted_on(session, actor)
+	reached = subroutine.domain.stewardship.accounts_acted_on(session, actor)
 
 	if reached is not None:
 		statement = statement.where(model.user_id.in_(reached))
@@ -158,7 +158,7 @@ def revoke (
 		on=owner,
 	)
 	subroutine.domain.authentication.refuse_a_read_only_session(actor)
-	subroutine.domain.authorization.refuse_acting_on_an_account(
+	subroutine.domain.stewardship.refuse_acting_on_an_account(
 		session, actor, owner, stopping=True
 	)
 
