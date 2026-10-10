@@ -38,6 +38,7 @@ import subroutine.domain.filtering
 import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.patch
+import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.stewardship
 import subroutine.domain.tags
@@ -302,6 +303,18 @@ def create (
 			on=named,
 		)
 
+		# **And one who can see it** (`SR#4571`, decision `#4509`): a document in a private project
+		# was given a maintainer it hid from (S14 of the cold review of 2026-10-05).
+		subroutine.domain.projects.member_who_sees(
+			session,
+			project.workspace_id,
+			named.id,
+			within=project,
+			field="owner_id",
+			what="they cannot maintain a document there",
+			actor=actor,
+		)
+
 	# **Nothing is filed under a document in the trash** (decision `#4096`), for the reason
 	# ``tasks.create`` gives: what is beneath the trash is out of sight with it (`#4091`).
 	if parent is not None:
@@ -552,6 +565,19 @@ def update (
 				subroutine.permissions.NAMING_A_MAINTAINER,
 				by=None if actor is None else actor.user,
 				on=named,
+			)
+
+			# **And one who can see it, where it will be** (`SR#4571`), as :func:`create` asks.
+			subroutine.domain.projects.member_who_sees(
+				session,
+				document.workspace_id,
+				named.id,
+				within=project
+				if moving
+				else session.get(subroutine.db.models.project.Project, document.project_id),
+				field="owner_id",
+				what="they cannot maintain this document",
+				actor=actor,
 			)
 
 	# **Whom it binds, in both directions** (`#4133`, decision `#4134`): setting a mark back

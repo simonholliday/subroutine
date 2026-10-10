@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Work is handed only to somebody who can see it.** A task is assigned, a document given a
+  maintainer and a project handed over only to a member of the workspace who can see where it is,
+  however they are named - the terminal, the agent tools or a direct call - and the refusal says
+  who to ask to share it. A task in a private project could be assigned to a member it hid from,
+  and a direct call could assign one to somebody outside the workspace.
 - **Who can see a project is its steward's to change, in both directions.** Making a private
   project public, sharing it, removing somebody else from it and moving it out from under a
   private project now take its owner, whoever its owner answers to, or somebody who administers

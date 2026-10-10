@@ -36,6 +36,7 @@ import subroutine.domain.milestones
 import subroutine.domain.occurrences
 import subroutine.domain.ordering
 import subroutine.domain.patch
+import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
@@ -1060,6 +1061,21 @@ def create (
 		session, actor, subroutine.permissions.TASK_WRITE, project
 	)
 
+	# **Assigned only to a member who can see it** (`SR#4571`, decision `#4509`): only the doors asked
+	# whether an assignee belonged to the workspace, so the domain took one from no workspace at all,
+	# and none asked whether a private project hid the task from them (S14 and E #9 of the cold review
+	# of 2026-10-05).
+	if assignee_id is not None:
+		subroutine.domain.projects.member_who_sees(
+			session,
+			workspace_id,
+			assignee_id,
+			within=project,
+			field="assignee",
+			what="a task there cannot be assigned to them",
+			actor=actor,
+		)
+
 	item_type = item_type_for(session, workspace_id, type_key)
 	status = status_for(session, workspace_id, status_key)
 
@@ -1817,6 +1833,25 @@ def update (
 					subroutine.db.models.work.Task.id != task.id,
 				)
 			)
+		)
+
+	# **Assigned only to a member who can see it, where it will be** (`SR#4571`), as :func:`create`
+	# asks. Only a change of assignee is asked: re-sending the one it has hands it to nobody new.
+	if (
+		assignee_id is not subroutine.domain.patch.UNSET
+		and assignee_id is not None
+		and assignee_id != task.assignee_id
+	):
+		subroutine.domain.projects.member_who_sees(
+			session,
+			task.workspace_id,
+			assignee_id,
+			within=project
+			if moving
+			else session.get(subroutine.db.models.project.Project, task.project_id),
+			field="assignee",
+			what="this task cannot be assigned to them",
+			actor=actor,
 		)
 
 	# Resolved in the pass that may raise, because `ensure` refuses a name that is really a

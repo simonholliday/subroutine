@@ -283,7 +283,15 @@ def _made (
 	# private project made so was invisible to whoever made it. `users.member` is the question
 	# a task's assignee and a document's owner are already asked.
 	if owner_id is not None:
-		subroutine.domain.users.member(session, workspace_id, str(owner_id), field="owner_id")
+		member_who_sees(
+			session,
+			workspace_id,
+			owner_id,
+			within=parent,
+			field="owner_id",
+			what="a project inside it cannot be handed to them",
+			actor=actor,
+		)
 
 	project = subroutine.db.models.project.Project(
 		id=subroutine.db.types.new_uuid(),
@@ -618,8 +626,16 @@ def update (
 	# **Membership, not existence** (`#3934`): an account outside the workspace was taken here too,
 	# handing a project to somebody who could not see it.
 	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
-		subroutine.domain.users.member(
-			session, project.workspace_id, str(owner_id), field="owner_id"
+		member_who_sees(
+			session,
+			project.workspace_id,
+			owner_id,
+			within=None
+			if project.parent_id is None
+			else session.get(subroutine.db.models.project.Project, project.parent_id),
+			field="owner_id",
+			what="this project cannot be handed to them",
+			actor=actor,
 		)
 
 	# **And only by its steward** (`#4382`, R2-M5 of the cold review of 2026-10-04; `SR#4570`, decision
@@ -1093,6 +1109,54 @@ def hidden_by (
 			return ancestor
 
 	return None
+
+
+def member_who_sees (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	user_id: uuid.UUID,
+	*,
+	within: subroutine.db.models.project.Project | None,
+	field: str,
+	what: str,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> subroutine.db.models.identity.User:
+	"""Return the member work is handed to, refusing one who cannot see where it is - `SR#4571`.
+
+	**Work is handed only to a member of the workspace who can see the project it is in** (decision
+	`#4509`, S14 of the cold review of 2026-10-05): a task's assignee, a document's maintainer and a
+	project's owner. A task in a private project was assigned, and a document there given a
+	maintainer, who could not see it, and the task domain took an assignee from no workspace at all
+	(E #9). **Both questions, every time**: sight alone takes an outsider on a public project, and
+	membership alone a member a private project hides.
+
+	``within`` is the project whose sight decides - for a project's owner, the one above it, since
+	handing a project over shares its new owner into it. ``what`` finishes the refusal. The project
+	that hides it is the work's own or one above it, which a caller acting on the work can see, so
+	naming it names nothing hidden from them.
+	"""
+
+	named = subroutine.domain.users.member(session, workspace_id, str(user_id), field=field)
+	blocking = None if within is None else hidden_by(session, within, named.id)
+
+	if blocking is None:
+		return named
+
+	raise subroutine.errors.ValidationError(
+		f"{named.username} cannot see {blocking.key}, so {what}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=f"{named.username} is not shared into {blocking.key}.",
+				hint=f"'subroutine project share {blocking.key} {named.username}' first, or choose "
+				"somebody who can see it."
+				if subroutine.domain.stewardship.stewards(session, actor, blocking)
+				else f"Choose somebody who can see it, or ask the owner of '{blocking.key}' to share it "
+				"with them.",
+			)
+		],
+	)
 
 
 def _refuse_hiding_a_rule (
