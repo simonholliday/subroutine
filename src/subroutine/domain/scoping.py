@@ -39,6 +39,10 @@ import subroutine.domain.authorization
 import subroutine.domain.hierarchy
 import subroutine.permissions
 
+#: **What a refusal calls a row its reader cannot read** (`SR#4574`, decision `#4521`): no answer and
+#: no refusal names it, and "something you cannot see" has one shape everywhere.
+UNSEEN = "something you cannot see"
+
 #: **Which verb reads which kind of row** (`#4677`, decision `#4511`): one table for every read
 #: gate, the refusals and the narrowings alike, where each spelled its own verb. A document is read
 #: with ``task:read`` - there is no ``document:read`` (§7.3a, ``permissions.COVERAGE``) - and the

@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A refusal no longer names a document or a task you cannot see.** Superseding a decision that
+  a private document already supersedes, restoring a document whose place a private one took, and
+  closing a ring of links through private work each named the hidden item's number, and sometimes
+  its title, to somebody who could not see it. It is *something you cannot see* now, a ring keeps
+  its length, and the hint offers only what you can do.
 - **One rule decides whether a document binds the whole workspace, and every credential reads one
   that does.** A rule binds everybody while it is marked `workspace`, of a governing type, in
   force, out of the trash and not beneath a private project, and any change to whether it does, or

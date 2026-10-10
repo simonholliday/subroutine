@@ -558,6 +558,7 @@ def create (
 		source=source,
 		target=target,
 		link_type=link_type,
+		actor=actor,
 	)
 
 	# **The other half of what `SR#1684` gave up** — `SR#2285`. The retired column was unique
@@ -577,6 +578,7 @@ def create (
 			ref=target.ref,
 			by=source.id,
 			field="target",
+			actor=actor,
 		)
 		# **A successor carries whom the superseded document binds** (`#4133`, decision `#4134`),
 		# checked here with the other refusals and written once the link is.
@@ -715,6 +717,7 @@ def _refuse_a_loop (
 	source: End,
 	target: End,
 	link_type: subroutine.db.models.vocabulary.LinkType,
+	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> None:
 	"""Refuse a link saying which of a pair comes first where it would close a ring, naming it.
 
@@ -772,9 +775,9 @@ def _refuse_a_loop (
 		],
 	) is not None
 
-	written = " → ".join(
-		subroutine.domain.refs.format_ref(ref) for ref in _refs_for(session, chain)
-	)
+	# **The ring keeps its length, and each step the caller cannot read is shown unseen**
+	# (`SR#4574`, decision `#4521`): it listed every ref in the chain, hidden ones included.
+	written = " → ".join(_named_for(session, actor, workspace_id=workspace_id, chain=chain))
 	here = subroutine.domain.refs.format_ref(source.ref)
 	there = subroutine.domain.refs.format_ref(target.ref)
 
@@ -986,8 +989,15 @@ def _walked_back (
 	return list(reversed(chain))
 
 
-def _refs_for (session: sqlalchemy.orm.Session, chain: list[_Node]) -> list[int]:
-	"""Return the refs of these items, in the order they were given.
+def _named_for (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+	chain: list[_Node],
+) -> list[str]:
+	"""Return each of these items as a refusal names it, in the order given: its ref where the caller
+	reads it, and :data:`subroutine.domain.scoping.UNSEEN` where not.
 
 	Read in one statement per kind rather than per item: the chain is short, and a loop of
 	queries in the middle of building a refusal is the kind of thing that only shows up when
@@ -1009,11 +1019,24 @@ def _refs_for (session: sqlalchemy.orm.Session, chain: list[_Node]) -> list[int]
 
 		found.update(
 			session.execute(
-				sqlalchemy.select(model.id, model.ref).where(model.id.in_(wanted))
+				_visible(
+					session,
+					principal,
+					workspace_id=workspace_id,
+					entity_type=entity_type,
+					beneath_trash=True,
+				)
+				.with_only_columns(model.id, model.ref)
+				.where(model.id.in_(wanted))
 			).all()
 		)
 
-	return [found[identifier] for _, identifier in chain if identifier in found]
+	return [
+		subroutine.domain.refs.format_ref(found[identifier])
+		if identifier in found
+		else subroutine.domain.scoping.UNSEEN
+		for _, identifier in chain
+	]
 
 
 def remove (

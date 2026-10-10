@@ -951,6 +951,7 @@ def restore (
 			superseded=replaced,
 			ref=ref,
 			by=document.id,
+			actor=actor,
 		)
 
 	document.deleted_at = None
@@ -988,6 +989,7 @@ def refuse_a_second_successor (
 	ref: int,
 	by: uuid.UUID | None = None,
 	field: str | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> None:
 	"""Refuse a second live document superseding one, naming what already replaced it.
 
@@ -1012,6 +1014,11 @@ def refuse_a_second_successor (
 	what they would change — and restoring did not: there is no body, and the path parameter
 	named exactly the document they meant. `#1534`'s rule is that a refusal names a field the
 	caller can correct or names none, never one they had no way to send.
+
+	**Each document is named only to a caller who reads it** (`SR#4574`, decision `#4521`): a member
+	who could not see a private replacement was told its ref and title, and to withdraw a link they
+	could not see. One they cannot read is *something you cannot see*, and the hint offers only what
+	they can do. ``None`` is an internal caller, who reads everything.
 	"""
 
 	link = subroutine.db.models.work.Link
@@ -1039,21 +1046,66 @@ def refuse_a_second_successor (
 	if held is None:
 		return
 
+	read = _read_among(session, actor, workspace_id=workspace_id, wanted={held.id, superseded})
+	unseen = subroutine.domain.scoping.UNSEEN
+	there = subroutine.domain.refs.format_ref(ref) if superseded in read else unseen
+	replacement = subroutine.domain.refs.format_ref(held.ref) if held.id in read else unseen
+	said = f"{there} has already been superseded by {replacement}."
+
+	# **Only what this caller can do** (decision `#4521`): withdrawing the link takes sight of both
+	# its ends, and superseding the replacement sight of it.
+	if held.id not in read:
+		instead = "Somebody who can see the replacement may withdraw its link."
+
+	elif superseded not in read:
+		instead = "Supersede the replacement instead."
+
+	else:
+		instead = "Withdraw that link first, or supersede the replacement instead."
+
 	raise subroutine.errors.Conflict(
-		f"{subroutine.domain.refs.format_ref(ref)} has already been superseded by "
-		f"{subroutine.domain.refs.format_ref(held.ref)}.",
+		said[0].upper() + said[1:],
 		code="duplicate_key",
 		errors=[
 			subroutine.errors.FieldError(
 				field=field,
 				code="duplicate_key",
-				message=f"{held.title!r} supersedes it.",
+				message=f"{held.title!r} supersedes it."
+				if held.id in read
+				else f"{unseen[0].upper()}{unseen[1:]} supersedes it.",
 			)
 		] if field is not None else [],
-		hint=(
-			"A document is replaced once, so that 'which one is current' has one answer. "
-			"Withdraw that link first, or supersede the replacement instead."
-		),
+		hint=f"A document is replaced once, so that 'which one is current' has one answer. {instead}",
+	)
+
+
+def _read_among (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+	wanted: typing.Collection[uuid.UUID],
+) -> set[uuid.UUID]:
+	"""Return which of these documents the actor reads, in the trash or out of it - every one for ``None``."""
+
+	if actor is None:
+		return set(wanted)
+
+	model = subroutine.db.models.work.Document
+
+	return set(
+		session.scalars(
+			subroutine.domain.scoping.readable_documents(
+				session,
+				actor,
+				workspace_ids=[workspace_id],
+				include_deleted=True,
+				include_beneath_trash=True,
+				include_archived=True,
+			)
+			.with_only_columns(model.id)
+			.where(model.id.in_(set(wanted)))
+		)
 	)
 
 
