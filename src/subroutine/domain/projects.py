@@ -436,29 +436,10 @@ def move (
 		under=True,
 	)
 
-	# **Nor under a private project, where it holds a rule for the whole workspace** (`#4286`), for
-	# the reason :func:`update` gives: privacy inherits, so this hides the rule as making it would.
-	if parent is not None and _private_at_or_above(session, parent):
-		_refuse_hiding_a_rule(
-			session,
-			actor,
-			project,
-			field="parent",
-		)
-
-	# **Nor out from under one, by the mirror rule** (`#4389`): a project hidden only by a private
-	# project above it is shown to everybody when it leaves for a public place.
-	if (
-		project.visibility != "private"
-		and _private_at_or_above(session, project)
-		and (parent is None or not _private_at_or_above(session, parent))
-	):
-		_refuse_hiding_a_rule(
-			session,
-			actor,
-			project,
-			field="parent",
-		)
+	# **Nor where it changes which of its rules bind everyone** (`SR#4576`, decision `#4134`): privacy
+	# inherits down the tree, so a move under a private project hides a rule as making it private does
+	# (`#4286`), and one out from under it, to a public place, shows it again (`#4389`).
+	_refuse_changing_its_rules(session, actor, project, field="parent", parent=parent)
 
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
@@ -615,25 +596,13 @@ def update (
 			session, actor, project, act=f"make it {visibility}", field="visibility"
 		)
 
-	# **Nor a project holding a rule for the whole workspace** (`#4286`, decision `#4134`), unless
-	# by somebody who may mark one: it takes the rule out of sight of everybody not shared into it.
-
-	# **And showing one again** (`#4389`, decision `#4134` as amended): a private project made
-	# public brings every rule it holds into everybody's conventions.
-	if visibility == "public" and project.visibility == "private":
-		_refuse_hiding_a_rule(
-			session,
-			actor,
-			project,
-			field="visibility",
-		)
-
-	if visibility == "private" and project.visibility != "private":
-		_refuse_hiding_a_rule(
-			session,
-			actor,
-			project,
-			field="visibility",
+	# **Nor a project holding a rule that binds everyone, unless by somebody who may mark one**
+	# (`#4286`, `#4389`, `SR#4576`, decision `#4134`), in either direction: making it private takes
+	# the rule out of sight of everybody not shared into it, and making it public brings every rule it
+	# holds into everybody's conventions.
+	if visibility is not subroutine.domain.patch.UNSET and visibility != project.visibility:
+		_refuse_changing_its_rules(
+			session, actor, project, field="visibility", private=visibility == "private"
 		)
 
 	# **Who sees a project is decided at the workspace's place** (`#4558`, C I-3 of the cold review
@@ -821,14 +790,9 @@ def delete (
 
 	refuse_unsettling_the_inbox(project, deleting=True)
 
-	# **Nor a project holding a rule for the whole workspace** (`#4286`): the rule goes to the trash
-	# with it, which retires it for everybody.
-	_refuse_hiding_a_rule(
-		session,
-		actor,
-		project,
-		field="project",
-	)
+	# **Nor a project holding a rule that binds everyone** (`#4286`): the rule goes to the trash with
+	# it, which retires it for everybody.
+	_refuse_changing_its_rules(session, actor, project, field="project", deleted=True)
 
 	project.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 	project.version += 1
@@ -948,14 +912,9 @@ def restore (
 	if project.deleted_at is None:
 		return project
 
-	# **Nor one holding a rule for the whole workspace** (`#4389`): its rules come back with it, into
+	# **Nor one holding a rule that binds everyone** (`#4389`): its rules come back with it, into
 	# everybody's conventions, as :func:`delete` takes them away.
-	_refuse_hiding_a_rule(
-		session,
-		actor,
-		project,
-		field="project",
-	)
+	_refuse_changing_its_rules(session, actor, project, field="project", deleted=False)
 
 	# An ancestor still in the trash would put this row back into a subtree nobody can see, so
 	# the caller would be told it worked and nothing would appear. Refused by name instead.
@@ -1187,14 +1146,15 @@ def member_who_sees (
 	)
 
 
-def _refuse_hiding_a_rule (
+def _refuse_changing_its_rules (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,
 	project: subroutine.db.models.project.Project,
 	*,
 	field: str,
+	**change: typing.Any,
 ) -> None:
-	"""Refuse hiding a project holding a rule for the whole workspace, as `domain.documents` says.
+	"""Refuse a change to a project that changes which of its rules bind everyone, as `domain.documents` says.
 
 	**Reached late, because ``domain.documents`` imports ``domain.tasks``**, whose ordering reads
 	``domain.filtering`` at module scope while that is still being imported through this module: a
@@ -1205,27 +1165,7 @@ def _refuse_hiding_a_rule (
 
 	from subroutine.domain import documents as rules
 
-	rules.refuse_hiding_a_rule(session, actor, project, field=field)
-
-
-def _private_at_or_above (
-	session: sqlalchemy.orm.Session, project: subroutine.db.models.project.Project
-) -> bool:
-	"""Return whether a project, or any project above it, is private."""
-
-	model = subroutine.db.models.project.Project
-	identifiers = [
-		uuid.UUID(segment) for segment in subroutine.domain.hierarchy.path_segments(project.path)
-	]
-
-	return (
-		session.scalar(
-			sqlalchemy.select(model.id)
-			.where(model.id.in_(identifiers), model.visibility == "private")
-			.limit(1)
-		)
-		is not None
-	)
+	rules.refuse_changing_what_its_rules_bind(session, actor, project, field=field, **change)
 
 
 def _membership_of (

@@ -16,6 +16,7 @@ What is shared is shared completely: the ref space, the project tree, permission
 event feed, and the mention index.
 """
 
+import dataclasses
 import datetime
 import typing
 import uuid
@@ -40,6 +41,7 @@ import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.refs
+import subroutine.domain.scoping
 import subroutine.domain.stewardship
 import subroutine.domain.tags
 import subroutine.domain.tasks
@@ -342,19 +344,17 @@ def create (
 		session, actor, subroutine.permissions.TASK_WRITE, project
 	)
 
-	if bound == BINDS_THE_WORKSPACE:
-		_permitted_to_mark(
-			session,
-			actor,
-			workspace_id,
-			hint=f"Write it binding its project. {_ASK_FROM_THE_WHOLE}",
-		)
-
 	item_type = item_type_for(session, workspace_id, type_key)
 	status = (
 		status_for(session, workspace_id, status_key)
 		if status_key is not None
 		else _first_status(session, workspace_id, type_key)
+	)
+
+	# **Written binding everyone only by somebody who may mark a rule** (decision `#4134`), and
+	# asked of what it is written as (`SR#4576`): a draft, or a note, marked binds nobody yet.
+	_refuse_writing_a_rule(
+		session, actor, project, bound=bound, item_type=item_type, status=status, parent=parent
 	)
 
 	# **Whoever writes it maintains it unless they name somebody, set here rather than by each door**
@@ -586,33 +586,28 @@ def update (
 				actor=actor,
 			)
 
-	# **Whom it binds, in both directions** (`#4133`, decision `#4134`): setting a mark back
-	# retires a rule for everybody, which is as much an act on the workspace as making one.
-	# Every other edit to a marked document takes what it takes today.
 	bound: typing.Any = (
 		subroutine.domain.patch.UNSET
 		if binds is subroutine.domain.patch.UNSET
 		else _binding(binds)
 	)
 
-	if bound is not subroutine.domain.patch.UNSET and bound != document.binds:
-		_permitted_to_mark(
-			session,
-			actor,
-			document.workspace_id,
-			hint=f"Leave what it binds as it is. {_ASK_FROM_THE_WHOLE}",
-		)
-
-	# **Nor retired by another door** (`#4286`, M1 of the cold review of 2026-10-03, decision
-	# `#4134` as amended that day). A status out of force, a type that binds nobody and a move
-	# elsewhere each take a marked rule out of every agent's conventions as surely as setting the
-	# mark back, which a contributor and a narrowed credential were refused while these went through.
-	retiring = _retiring(
-		session, document, status=status, item_type=item_type, moving=moving, beneath=descendants
+	# **One predicate decides the mark, by every door** (`SR#4576`, decision `#4134` as revised on
+	# 2026-10-05 and 2026-10-09): an edit that changes whether this document, or a section moving with
+	# it, binds everyone - by the mark, a status, a type or a move across a privacy boundary - or that
+	# rewrites one that does, takes what marking takes. A contributor and a narrowed credential could
+	# rewrite a marked rule that reaches every agent's conventions (E #5 of the cold review).
+	_refuse_editing_a_rule(
+		session,
+		actor,
+		document,
+		bound=bound,
+		status=status,
+		item_type=item_type,
+		moving_to=project if moving else None,
+		title=cleaned_title,
+		body=body,
 	)
-
-	if retiring is not None:
-		_permitted_to_mark(session, actor, document.workspace_id, hint=_LEAVE_IT, field=retiring)
 
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
@@ -875,14 +870,16 @@ def delete (
 
 	# **Nor deleted, nor a document holding one** (`#4286`): a section goes to the trash with the
 	# document it is part of (decision `#4091`), so a marked section leaves with an unmarked parent.
-	if _marked_beneath(session, document):
-		_permitted_to_mark(
-			session,
-			actor,
-			document.workspace_id,
-			hint=_LEAVE_IT,
-			field="binds",
-		)
+	# Only one that binds everyone counts (`SR#4576`).
+	_refuse_changing_what_binds_everyone(
+		session,
+		actor,
+		document.workspace_id,
+		subroutine.domain.hierarchy.subtree(subroutine.db.models.work.Document, document),
+		lambda rules: rules.trashing(document.id, trashed=True),
+		field="binds",
+		hint=_LEAVE_IT,
+	)
 
 	document.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 
@@ -931,15 +928,17 @@ def restore (
 
 	# **Bringing a marked rule back from the trash is bringing it into force** (`#4389`, R2-M6 of the
 	# cold review of 2026-10-04, decision `#4134` as amended): a credential refused the delete put
-	# one back, rewritten, into every agent's conventions.
-	if _marked_beneath(session, document):
-		_permitted_to_mark(
-			session,
-			actor,
-			document.workspace_id,
-			hint=_LEAVE_IT,
-			field="binds",
-		)
+	# one back, rewritten, into every agent's conventions. A section that stays in the trash on its
+	# own comes back with nothing (`SR#4576`).
+	_refuse_changing_what_binds_everyone(
+		session,
+		actor,
+		document.workspace_id,
+		subroutine.domain.hierarchy.subtree(subroutine.db.models.work.Document, document),
+		lambda rules: rules.trashing(document.id, trashed=False),
+		field="binds",
+		hint=_LEAVE_IT,
+	)
 
 	# **The place this document held may have been taken while it was in the trash** —
 	# `SR#2285`, and this is the door the retired unique index closed by firing at flush time.
@@ -1404,9 +1403,9 @@ def _permitted_to_mark (
 	the whole workspace is listed for every reader of the conventions, which every agent is told to
 	read before its first write - the channel §14.12 warns about, through which one user can place
 	text in another user's agent's context. So only somebody holding ``project:write`` in the
-	workspace - a member or above - from a credential that reaches all of its projects, can widen a
-	rule's reach, narrow it again, or retire it by another door (`#4286`). ``None`` is an internal
-	caller.
+	workspace - a member or above - from a credential that reaches all of its projects, can change
+	whether a rule binds everyone, by any door, or rewrite one that does (`SR#4576`). ``None`` is an
+	internal caller.
 	"""
 
 	if actor is None:
@@ -1425,138 +1424,501 @@ def _permitted_to_mark (
 #: What to do instead, for every refusal to retire a rule that binds the whole workspace.
 _LEAVE_IT = f"Leave the rule as it is, or set it back to its project first. {_ASK_FROM_THE_WHOLE}"
 
+#: What to do instead, for every refusal to hide or show a project holding one.
+_IT_HOLDS_ONE = f"It holds a rule that binds the whole workspace. {_ASK_FROM_THE_WHOLE}"
 
-def _retiring (
-	session: sqlalchemy.orm.Session,
-	document: subroutine.db.models.work.Document,
-	*,
-	status: typing.Any,
-	item_type: typing.Any,
-	moving: bool,
-	beneath: typing.Sequence[subroutine.db.models.work.Document],
-) -> str | None:
-	"""Return the field by which an update would retire a rule binding the whole workspace, or bring
-	one into force - `#4286`, `#4389`.
 
-	Decision `#4134` names the doors: a status leaving or entering the current category, a type
-	leaving or entering the governing types, and a move to another project - which takes a
-	document's sections with it, so a marked section moves with an unmarked parent. Entering force
-	widens a rule's reach from nobody to everybody, which only somebody who may mark one may do.
-	``None`` where the update does none of them.
+def binds_everyone (*, binds: str, type_key: str, category: str, live: bool, public: bool) -> bool:
+	"""Return whether a document with these facts binds everyone in its workspace - `SR#4576`.
+
+	**One predicate, decision `#4134` as revised on 2026-10-05** (Q5 and Q6 of the cold review of the
+	permission model): marked ``workspace``, of a governing type, in force, live, and not beneath a
+	private project. It decides every check on the mark and what a credential narrowed to some
+	projects may read, where six helpers each asked part of it and counted a draft, a superseded
+	rule, a trashed one and one only a private project's members can see as binding everybody (E #7
+	of that review). :func:`binding_everyone` is the same predicate as SQL, for a read, and a test
+	holds the two to one answer over every combination.
 	"""
 
-	# **Only a live rule counts** (`#4431`, R2-L39 of the cold review of 2026-10-04), as for a
-	# project holding one: a section already in the trash binds nobody, and counting it refused a
-	# narrowed credential a move it could make of a document with no marked section at all.
-	if moving and (
-		document.binds == BINDS_THE_WORKSPACE
-		or any(one.binds == BINDS_THE_WORKSPACE and one.deleted_at is None for one in beneath)
-	):
-		return "project"
-
-	if document.binds != BINDS_THE_WORKSPACE:
-		return None
-
-	if status is not subroutine.domain.patch.UNSET:
-		was = session.get(subroutine.db.models.vocabulary.Status, document.status_id)
-
-		if was is not None and was.category == CURRENT_CATEGORY and status.category != CURRENT_CATEGORY:
-			# Taking it out of force.
-			return "status"
-
-		if was is not None and was.category != CURRENT_CATEGORY and status.category == CURRENT_CATEGORY:
-			# Putting it into force.
-			return "status"
-
-	if item_type is not subroutine.domain.patch.UNSET:
-		kind = session.get(subroutine.db.models.vocabulary.ItemType, document.type_id)
-
-		if kind is not None and kind.key in GOVERNS and item_type.key not in GOVERNS:
-			# A type that binds nobody.
-			return "type"
-
-		if kind is not None and kind.key not in GOVERNS and item_type.key in GOVERNS:
-			# A type that binds everybody.
-			return "type"
-
-	return None
-
-
-def _marked_beneath (
-	session: sqlalchemy.orm.Session, document: subroutine.db.models.work.Document
-) -> bool:
-	"""Return whether a document, or any section of it out of the trash, binds the whole workspace.
-
-	**Only a live section counts** (`#4431`, R2-L39 of the cold review of 2026-10-04), as only a
-	live rule does for a project holding one. A section put in the trash on its own stays there
-	whether its document is deleted or restored, since each moves only its own mark, so it retires
-	nothing and brings nothing back; counting it refused a narrowed credential as if it did. A
-	section that went with its document was never marked, being hidden by its parent, so it counts.
-	"""
-
-	model = subroutine.db.models.work.Document
-
-	return document.binds == BINDS_THE_WORKSPACE or (
-		session.scalar(
-			sqlalchemy.select(model.id)
-			.where(
-				model.workspace_id == document.workspace_id,
-				subroutine.domain.hierarchy.subtree(model, document),
-				model.binds == BINDS_THE_WORKSPACE,
-				model.deleted_at.is_(None),
-			)
-			.limit(1)
-		)
-		is not None
+	return (
+		binds == BINDS_THE_WORKSPACE
+		and type_key in GOVERNS
+		and category == CURRENT_CATEGORY
+		and live
+		and public
 	)
 
 
-def refuse_hiding_a_rule (
+def binding_everyone (document: typing.Any, project: typing.Any) -> sqlalchemy.ColumnElement[bool]:
+	"""Return :func:`binds_everyone` as SQL, over a document and the project it is filed in, joined.
+
+	``document`` is :class:`~subroutine.db.models.work.Document` and ``project`` the
+	:class:`~subroutine.db.models.project.Project` entity, or an alias of it, joined to it. Privacy
+	inherits down the tree as the trash does, so a private project at or above hides a rule exactly
+	as one in the trash does (:func:`subroutine.domain.scoping.in_the_trash_at_or_above`).
+	"""
+
+	item_type = subroutine.db.models.vocabulary.ItemType
+	status = subroutine.db.models.vocabulary.Status
+	above = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+
+	return sqlalchemy.and_(
+		document.binds == BINDS_THE_WORKSPACE,
+		document.type_id.in_(sqlalchemy.select(item_type.id).where(item_type.key.in_(GOVERNS))),
+		document.status_id.in_(
+			sqlalchemy.select(status.id).where(status.category == CURRENT_CATEGORY)
+		),
+		document.deleted_at.is_(None),
+		sqlalchemy.not_(
+			subroutine.domain.scoping.beneath_the_trash(subroutine.db.models.work.Document, document)
+		),
+		sqlalchemy.not_(subroutine.domain.scoping.in_the_trash_at_or_above(project)),
+		sqlalchemy.not_(
+			sqlalchemy.exists(
+				sqlalchemy.select(above.id)
+				.where(
+					above.workspace_id == project.workspace_id,
+					above.visibility == "private",
+					# A path is hex and separators, so a `LIKE` reads no wildcard in it, and not a
+					# range, for the collation reason `hierarchy.subtree` records.
+					project.path.like(above.path.concat("%")),
+				)
+				.correlate(project)
+			)
+		),
+	)
+
+
+@dataclasses.dataclass(frozen=True)
+class Standing:
+	"""What decides whether one document binds everyone, as stored or as a write would leave it."""
+
+	binds: str
+	type_key: str
+	category: str
+	project_id: uuid.UUID
+
+	#: The documents above it and itself, outermost first, as its path names them.
+	chain: tuple[uuid.UUID, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class Place:
+	"""What decides whether a project hides the documents filed in it."""
+
+	private: bool
+	deleted: bool
+
+	#: The projects above it and itself, outermost first, as its path names them.
+	chain: tuple[uuid.UUID, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class Rules:
+	"""The marked documents a write touches, and every fact that decides whether each binds everyone.
+
+	**Read as stored and as the write would leave them, before the first write**, so a refusal leaves
+	nothing behind rather than reporting what is done. Each door says what it is about to change, in
+	the terms of the five facts. A document nobody has marked binds nobody either side of a write, so
+	only marked documents are loaded, and one about to be marked; where there are none, nothing is.
+	"""
+
+	documents: typing.Mapping[uuid.UUID, Standing]
+
+	#: Documents in the trash on their own, among every chain in :attr:`documents`.
+	trashed: frozenset[uuid.UUID]
+
+	#: Every project in the workspace, where a document was loaded.
+	places: typing.Mapping[uuid.UUID, Place]
+
+	def binding (self) -> frozenset[uuid.UUID]:
+		"""Return which of these documents bind everyone."""
+
+		return frozenset(one for one, standing in self.documents.items() if self._binds(standing))
+
+	def _binds (self, standing: Standing) -> bool:
+		"""Return whether one document binds everyone, read through :func:`binds_everyone`."""
+
+		above = self.places[standing.project_id].chain
+
+		return binds_everyone(
+			binds=standing.binds,
+			type_key=standing.type_key,
+			category=standing.category,
+			live=not any(one in self.trashed for one in standing.chain)
+			and not any(self.places[one].deleted for one in above),
+			public=not any(self.places[one].private for one in above),
+		)
+
+	def changed (self, document_id: uuid.UUID, **facts: typing.Any) -> "Rules":
+		"""Return these rules with one document's mark, type or status as a write would leave it."""
+
+		if document_id not in self.documents:
+			return self
+
+		standing = dataclasses.replace(self.documents[document_id], **facts)
+
+		return dataclasses.replace(self, documents={**self.documents, document_id: standing})
+
+	def adding (self, document_id: uuid.UUID, standing: Standing) -> "Rules":
+		"""Return these rules with a document that is about to be written."""
+
+		return dataclasses.replace(self, documents={**self.documents, document_id: standing})
+
+	def filed (self, project_id: uuid.UUID) -> "Rules":
+		"""Return these rules with every document filed in another project, as a move files sections."""
+
+		return dataclasses.replace(
+			self,
+			documents={
+				one: dataclasses.replace(standing, project_id=project_id)
+				for one, standing in self.documents.items()
+			},
+		)
+
+	def trashing (self, document_id: uuid.UUID, *, trashed: bool) -> "Rules":
+		"""Return these rules with one document put in the trash, or taken out of it."""
+
+		return dataclasses.replace(
+			self, trashed=self.trashed | {document_id} if trashed else self.trashed - {document_id}
+		)
+
+	def placed (self, project_id: uuid.UUID, **facts: typing.Any) -> "Rules":
+		"""Return these rules with one project made private or public, deleted or restored."""
+
+		if not self.documents:
+			return self
+
+		place = dataclasses.replace(self.places[project_id], **facts)
+
+		return dataclasses.replace(self, places={**self.places, project_id: place})
+
+	def moved (self, project_id: uuid.UUID, under: uuid.UUID | None) -> "Rules":
+		"""Return these rules with a project and everything beneath it moved, under another or out."""
+
+		if not self.documents:
+			return self
+
+		above = () if under is None else self.places[under].chain
+
+		return dataclasses.replace(
+			self,
+			places={
+				one: dataclasses.replace(
+					place, chain=above + place.chain[place.chain.index(project_id):]
+				)
+				if project_id in place.chain
+				else place
+				for one, place in self.places.items()
+			},
+		)
+
+
+#: The id a document about to be written stands under in :class:`Rules`, having none yet.
+_UNWRITTEN = uuid.UUID(int=0)
+
+
+def _chain (path: str) -> tuple[uuid.UUID, ...]:
+	"""Return the ids a path names, outermost first."""
+
+	return tuple(uuid.UUID(one) for one in subroutine.domain.hierarchy.path_segments(path))
+
+
+def _rules (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	touched: sqlalchemy.ColumnElement[bool],
+	*,
+	marking: typing.Collection[uuid.UUID] = (),
+	writing_under: subroutine.db.models.work.Document | None = None,
+	writing: bool = False,
+) -> Rules:
+	"""Load the marked documents ``touched`` selects, and those in ``marking``, with their facts.
+
+	``writing`` loads the places and the trash for a document about to be written, under
+	``writing_under`` where it is a section, which no query can select yet.
+	"""
+
+	model = subroutine.db.models.work.Document
+	item_type = subroutine.db.models.vocabulary.ItemType
+	status = subroutine.db.models.vocabulary.Status
+	rows = session.execute(
+		sqlalchemy.select(
+			model.id, model.binds, item_type.key, status.category, model.project_id, model.path
+		)
+		.join(item_type, item_type.id == model.type_id)
+		.join(status, status.id == model.status_id)
+		.where(
+			model.workspace_id == workspace_id,
+			touched,
+			sqlalchemy.or_(model.binds == BINDS_THE_WORKSPACE, model.id.in_(set(marking))),
+		)
+	).all()
+	documents = {
+		identifier: Standing(
+			binds=binds, type_key=key, category=category, project_id=project_id, chain=_chain(path)
+		)
+		for identifier, binds, key, category, project_id, path in rows
+	}
+
+	if not documents and not writing:
+		return Rules(documents={}, trashed=frozenset(), places={})
+
+	chains = {one for standing in documents.values() for one in standing.chain}
+
+	if writing_under is not None:
+		chains |= set(_chain(writing_under.path))
+
+	projects = subroutine.db.models.project.Project
+	places = {
+		identifier: Place(private=visibility == "private", deleted=deleted is not None, chain=_chain(path))
+		for identifier, visibility, deleted, path in session.execute(
+			sqlalchemy.select(projects.id, projects.visibility, projects.deleted_at, projects.path).where(
+				projects.workspace_id == workspace_id
+			)
+		)
+	}
+	trashed = frozenset(
+		session.scalars(
+			sqlalchemy.select(model.id).where(model.id.in_(chains), model.deleted_at.is_not(None))
+		)
+	)
+
+	return Rules(documents=documents, trashed=trashed, places=places)
+
+
+def _changes (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	touched: sqlalchemy.ColumnElement[bool],
+	change: typing.Callable[[Rules], Rules],
+	*,
+	marking: typing.Collection[uuid.UUID] = (),
+	rewriting: uuid.UUID | None = None,
+	writing_under: subroutine.db.models.work.Document | None = None,
+	writing: bool = False,
+) -> typing.Literal["whom", "what"] | None:
+	"""Return what a write changes about the rules it touches - `SR#4576`, decision `#4134`.
+
+	``"whom"`` where it changes which of them bind everyone, ``"what"`` where it only rewrites
+	``rewriting``, which binds everyone (Q5 of the cold review of 2026-10-05: the text is what reaches
+	every agent's conventions, as a shared view's is), and ``None`` where it does neither.
+	"""
+
+	before = _rules(
+		session, workspace_id, touched, marking=marking, writing_under=writing_under, writing=writing
+	)
+	was = before.binding()
+
+	if change(before).binding() != was:
+		return "whom"
+
+	return "what" if rewriting is not None and rewriting in was else None
+
+
+def _refuse_changing_what_binds_everyone (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,
-	project: subroutine.db.models.project.Project,
+	workspace_id: uuid.UUID,
+	touched: sqlalchemy.ColumnElement[bool],
+	change: typing.Callable[[Rules], Rules],
 	*,
 	field: str,
+	hint: str,
+	marking: typing.Collection[uuid.UUID] = (),
+	writing_under: subroutine.db.models.work.Document | None = None,
+	writing: bool = False,
 ) -> None:
-	"""Refuse hiding a project that holds a rule binding the whole workspace, or showing one again,
-	unless the actor may mark one - `#4286`, `#4389`, decision `#4134`.
+	"""Refuse a write that changes which documents bind everyone, unless the actor may mark one.
 
-	**Making the project that holds a rule private is retiring it by another door**: privacy
-	inherits down the tree, so a project above it made private, or a move under a private one, does
-	the same, and deleting the project takes the rule to the trash with it (decision `#4091`). Only
-	a live rule counts; one already in the trash binds nobody.
+	**Every door asks this one question** (`SR#4576`, decision `#4134` as revised on 2026-10-05 and
+	2026-10-09), where `#4286` and `#4389` each listed the doors that retire a rule or bring one into
+	force. A draft, a superseded rule or a trashed one blocks nothing, so marking one, and moving a
+	rule between two public places, ask nothing more than they did before the mark. ``None`` is an
+	internal caller.
 	"""
 
 	if actor is None:
 		return
 
-	projects = subroutine.db.models.project.Project
-	model = subroutine.db.models.work.Document
-	held = session.scalar(
-		sqlalchemy.select(model.id)
-		.where(
-			model.workspace_id == project.workspace_id,
-			model.project_id.in_(
-				sqlalchemy.select(projects.id).where(
-					projects.workspace_id == project.workspace_id,
-					subroutine.domain.hierarchy.subtree(projects, project),
-				)
-			),
-			model.binds == BINDS_THE_WORKSPACE,
-			model.deleted_at.is_(None),
+	if (
+		_changes(
+			session,
+			workspace_id,
+			touched,
+			change,
+			marking=marking,
+			writing_under=writing_under,
+			writing=writing,
 		)
-		.limit(1)
+		is None
+	):
+		return
+
+	_permitted_to_mark(session, actor, workspace_id, hint=hint, field=field)
+
+
+def _refuse_writing_a_rule (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+	*,
+	bound: str,
+	item_type: subroutine.db.models.vocabulary.ItemType,
+	status: subroutine.db.models.vocabulary.Status,
+	parent: subroutine.db.models.work.Document | None,
+) -> None:
+	"""Refuse writing a document that binds everyone the moment it exists, unless the actor may mark one."""
+
+	if bound != BINDS_THE_WORKSPACE:
+		return
+
+	standing = Standing(
+		binds=bound,
+		type_key=item_type.key,
+		category=status.category,
+		project_id=project.id,
+		chain=(() if parent is None else _chain(parent.path)) + (_UNWRITTEN,),
 	)
 
-	if held is None:
+	_refuse_changing_what_binds_everyone(
+		session,
+		actor,
+		project.workspace_id,
+		sqlalchemy.false(),
+		lambda rules: rules.adding(_UNWRITTEN, standing),
+		field="binds",
+		hint=f"Write it binding its project. {_ASK_FROM_THE_WHOLE}",
+		writing_under=parent,
+		writing=True,
+	)
+
+
+def _refuse_editing_a_rule (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	document: subroutine.db.models.work.Document,
+	*,
+	bound: typing.Any,
+	status: typing.Any,
+	item_type: typing.Any,
+	moving_to: subroutine.db.models.project.Project | None,
+	title: typing.Any,
+	body: typing.Any,
+) -> None:
+	"""Refuse an edit that changes whether a document binds everyone, or what one that does says.
+
+	A move takes the document's sections with it, so they are asked about too. Each value is the one
+	about to be written, or ``UNSET`` where the edit leaves it alone.
+	"""
+
+	if actor is None:
 		return
+
+	unset = subroutine.domain.patch.UNSET
+	sent = [
+		("binds", bound is not unset and bound != document.binds),
+		("status", status is not unset and status.id != document.status_id),
+		("type", item_type is not unset and item_type.id != document.type_id),
+		("project", moving_to is not None),
+	]
+	rewritten = [
+		("title", title is not unset and title != document.title),
+		("body", body is not unset and body != document.body),
+	]
+
+	if not any(changed for _name, changed in sent + rewritten):
+		return
+
+	model = subroutine.db.models.work.Document
+
+	def change (rules: Rules) -> Rules:
+		"""Leave the rules as this edit would."""
+
+		rules = rules.changed(
+			document.id,
+			**({} if bound is unset else {"binds": bound}),
+			**({} if status is unset else {"category": status.category}),
+			**({} if item_type is unset else {"type_key": item_type.key}),
+		)
+
+		return rules if moving_to is None else rules.filed(moving_to.id)
+
+	changes = _changes(
+		session,
+		document.workspace_id,
+		subroutine.domain.hierarchy.subtree(model, document)
+		if moving_to is not None
+		else model.id == document.id,
+		change,
+		marking=[document.id] if bound == BINDS_THE_WORKSPACE else (),
+		rewriting=document.id if any(changed for _name, changed in rewritten) else None,
+	)
+
+	if changes is None:
+		return
+
+	field = next(
+		(name for name, changed in (sent if changes == "whom" else rewritten) if changed), "binds"
+	)
 
 	_permitted_to_mark(
 		session,
 		actor,
-		project.workspace_id,
-		hint=f"It holds a rule that binds the whole workspace. {_ASK_FROM_THE_WHOLE}",
+		document.workspace_id,
+		hint=f"Leave what it binds as it is. {_ASK_FROM_THE_WHOLE}" if field == "binds" else _LEAVE_IT,
 		field=field,
+	)
+
+
+def refuse_changing_what_its_rules_bind (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+	*,
+	field: str,
+	private: bool | None = None,
+	deleted: bool | None = None,
+	parent: typing.Any = subroutine.domain.patch.UNSET,
+) -> None:
+	"""Refuse hiding or showing a project, deleting or restoring it, or moving it, where that changes
+	which of the rules filed in it bind everyone, unless the actor may mark one - `SR#4576`.
+
+	**Privacy and the trash inherit down the tree** (decision `#4091`), so each takes the rules beneath
+	the project with it. Only a rule that binds everyone, or would, counts: one in a private project
+	beneath binds nobody outside it, and refusing for it named a rule to somebody who could not see
+	it (E #7 of the cold review of 2026-10-05).
+	"""
+
+	projects = subroutine.db.models.project.Project
+
+	def change (rules: Rules) -> Rules:
+		"""Leave the rules as this change to the project would."""
+
+		if private is not None:
+			rules = rules.placed(project.id, private=private)
+
+		if deleted is not None:
+			rules = rules.placed(project.id, deleted=deleted)
+
+		if parent is not subroutine.domain.patch.UNSET:
+			rules = rules.moved(project.id, None if parent is None else parent.id)
+
+		return rules
+
+	_refuse_changing_what_binds_everyone(
+		session,
+		actor,
+		project.workspace_id,
+		subroutine.db.models.work.Document.project_id.in_(
+			sqlalchemy.select(projects.id).where(
+				projects.workspace_id == project.workspace_id,
+				subroutine.domain.hierarchy.subtree(projects, project),
+			)
+		),
+		change,
+		field=field,
+		hint=_IT_HOLDS_ONE,
 	)
 
 
@@ -1572,8 +1934,9 @@ def successor_to_mark (
 
 	**A successor carries the mark** (decision `#4134`): a document superseding one that binds the
 	whole workspace binds it too, so a rule does not stop binding by being revised, and nobody can
-	retire one by replacing it with one that does not. So the link takes what marking takes, and
-	only when it would mark something. Asked before the link is written and applied after it, by
+	retire one by replacing it with one that does not. So the link takes what marking takes, where
+	marking it changes whom it binds (`SR#4576`): a draft successor is marked freely, and putting it
+	in force is what asks. Asked before the link is written and applied after it, by
 	:func:`mark_the_successor`, so a refusal leaves nothing behind.
 	"""
 
@@ -1586,12 +1949,15 @@ def successor_to_mark (
 	if old.binds != BINDS_THE_WORKSPACE or new.binds == BINDS_THE_WORKSPACE:
 		return None
 
-	_permitted_to_mark(
+	_refuse_changing_what_binds_everyone(
 		session,
 		actor,
 		new.workspace_id,
-		hint=f"Its successor would bind the whole workspace too. {_ASK_FROM_THE_WHOLE}",
+		subroutine.db.models.work.Document.id == new.id,
+		lambda rules: rules.changed(new.id, binds=BINDS_THE_WORKSPACE),
 		field=field,
+		hint=f"Its successor would bind the whole workspace too. {_ASK_FROM_THE_WHOLE}",
+		marking=[new.id],
 	)
 
 	return new

@@ -20,6 +20,16 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **One rule decides whether a document binds the whole workspace, and every credential reads one
+  that does.** A rule binds everybody while it is marked `workspace`, of a governing type, in
+  force, out of the trash and not beneath a private project, and any change to whether it does, or
+  to the title or body of one that does, takes what marking takes. A marked draft, a superseded
+  rule, one in the trash or one in a private project no longer stops anybody moving, hiding or
+  deleting the project that holds it, and the refusal no longer names a rule the reader could not
+  see. Marking a draft asks nothing and putting it in force does, and a rule moves freely between
+  two public projects. A credential narrowed to some projects now reads every rule that binds the
+  whole workspace, wherever it is filed, and `subroutine://conventions` lists it; a write to one is
+  refused as beyond the credential's projects.
 - **Making a private project for somebody else keeps you in it.** You make it, then hand it over,
   so both of you can see it and its history says so; it shared the new owner in and not its maker,
   who could no longer see what they had just made. Whoever makes a project or writes a document

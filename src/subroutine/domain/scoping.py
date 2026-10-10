@@ -512,7 +512,7 @@ def readable_documents (
 		.where(
 			in_reach(session, principal, document.workspace_id, workspace_ids),
 			subroutine.domain.authorization.visible_projects(principal),
-			within_project_scope(principal),
+			_within_scope_or_binding(principal, document, project),
 		)
 	)
 
@@ -529,6 +529,34 @@ def readable_documents (
 		statement = statement.where(document.archived_at.is_(None))
 
 	return statement
+
+
+def _within_scope_or_binding (
+	principal: subroutine.domain.authentication.Principal,
+	document: typing.Any,
+	project: typing.Any,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return a credential's project scope, widened to every document that binds everyone - `SR#4576`.
+
+	**A rule that binds the whole workspace is read by every credential in it, whatever its project
+	scope** (decided with Simon on 2026-10-05, Q6 of the cold review of the permission model, decision
+	`#4134`), as a shared view is: it is published to the workspace, and reading it grants no reach -
+	a write to it still asks for its project. Measured before: an agent narrowed to ``web`` was not
+	shown a rule marked in ``ops``, and ``subroutine://conventions`` left it out without saying so (E
+	#6), when narrowed agents are the readers it exists for.
+
+	**Reached late**, as ``projects._refuse_changing_its_rules`` reaches the same module, because
+	``domain.documents`` cannot be imported here at module scope without a cycle.
+	"""
+
+	scoped = within_project_scope(principal)
+
+	if principal.project_scope is None:
+		return scoped
+
+	from subroutine.domain import documents as rules
+
+	return sqlalchemy.or_(scoped, rules.binding_everyone(document, project))
 
 
 def readable_tasks (

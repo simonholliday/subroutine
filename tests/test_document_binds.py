@@ -2,8 +2,8 @@
 
 **Marking takes what sharing a view takes** (`SR#3151`): ``project:write`` on a credential not
 narrowed to some projects - for writing a document marked, for marking one, for setting it back,
-and for superseding a marked one, since a successor carries the mark. Every other edit to a
-marked document takes what it takes today.
+and for superseding a marked one, since a successor carries the mark - wherever that changes whether
+it binds everyone, which `tests/test_binds_everyone.py` holds (`SR#4576`).
 """
 
 import typing
@@ -117,8 +117,8 @@ def test_marking_takes_project_write_on_a_credential_reaching_the_whole_workspac
 ) -> None:
 	"""Decision `#4134`: a contributor, and a member's narrowed credential, cannot change the mark.
 
-	**Both directions and the write**, since setting a mark back retires a rule for everybody. And a
-	contributor still edits a marked document's text, because every other edit takes what it took.
+	**Both directions and the write**, since setting a mark back retires a rule for everybody. And
+	nor its text while it binds everyone (`SR#4576`, Q5 of the cold review of 2026-10-05).
 	"""
 
 	_carrieanne, contributor = _member(world, "carrieanne", "contributor")
@@ -129,7 +129,11 @@ def test_marking_takes_project_write_on_a_credential_reaching_the_whole_workspac
 
 	before = len(world.call("GET", "/v1/documents").json()["items"])
 	refused = _as(
-		world, contributor, "POST", "/v1/documents", json={"title": "A rule", "binds": "workspace"}
+		world,
+		contributor,
+		"POST",
+		"/v1/documents",
+		json={"title": "A rule", "binds": "workspace", "type": "decision"},
 	)
 
 	assert refused.status_code == 403, refused.text
@@ -156,8 +160,8 @@ def test_marking_takes_project_write_on_a_credential_reaching_the_whole_workspac
 
 	revised = _as(world, contributor, "PATCH", path, json={"body": "Name it with +key."})
 
-	assert revised.status_code == 200, revised.text
-	assert revised.json()["binds"] == "workspace", "an edit to the text moved the mark"
+	assert revised.status_code == 403, revised.text
+	assert world.call("GET", path).json()["body"] == rule["body"], "the text was rewritten anyway"
 
 
 @pytest.mark.parametrize(
@@ -165,7 +169,6 @@ def test_marking_takes_project_write_on_a_credential_reaching_the_whole_workspac
 	[
 		("a status out of force", "PATCH", {"status": "superseded"}),
 		("a type that binds nobody", "PATCH", {"type": "note"}),
-		("a move to another project", "PATCH", {"project": "web"}),
 		("a delete", "DELETE", None),
 	],
 )
@@ -219,21 +222,30 @@ def test_retiring_a_marked_rule_takes_what_marking_it_takes (
 def test_a_marked_section_goes_nowhere_its_document_cannot (world: test_api_tasks.World) -> None:
 	"""`SR#4286`: a section moves and goes to the trash with the document it is part of.
 
-	So an unmarked document holding a marked section is a door to the section.
+	So an unmarked document holding a marked section is a door to the section: into a private
+	project, and the trash. **Between two public places it binds everybody either side**, so it goes
+	(`SR#4576`, decision `#4134` as revised on 2026-10-09).
 	"""
 
 	keanu, _member_secret = _member(world, "keanu", "member")
 	web = world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"}).json()["id"]
+	vault = world.call(
+		"POST", "/v1/projects", json={"key": "vault", "title": "Vault", "visibility": "private"}
+	).json()["id"]
 	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
 	narrowed = _credential(world, keanu, project_write_scope=[inbox, web])
-	owner_narrowed = _credential(world, world.user, project_write_scope=[inbox, web])
+	owner_narrowed = _credential(world, world.user, project_write_scope=[inbox, web, vault])
 	held = _written(world, title="The handbook")
 	_written(world, title="Name the project on every capture", binds="workspace", parent=held["ref"])
 	path = f"/v1/documents/{held['ref']}"
 
+	hidden = _as(world, owner_narrowed, "PATCH", path, json={"project": "vault"})
+
+	assert hidden.status_code == 403, hidden.text
+
 	moved = _as(world, narrowed, "PATCH", path, json={"project": "web"})
 
-	assert moved.status_code == 403, moved.text
+	assert moved.status_code == 200, moved.text
 
 	deleted = _as(world, owner_narrowed, "DELETE", path)
 

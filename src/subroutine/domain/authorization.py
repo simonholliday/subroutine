@@ -464,9 +464,25 @@ def authorize_on (
 			# which is the permissive answer this exists to stop.
 			raise subroutine.errors.NotFound("The project this belongs to could not be read.")
 
-		authorize(
-			session, principal, permission, workspace_id=project.workspace_id, project=project
-		)
+		try:
+			authorize(
+				session, principal, permission, workspace_id=project.workspace_id, project=project
+			)
+
+		except OutOfReach:
+			# **A rule that binds everyone is read by every credential in the workspace** (`SR#4576`,
+			# Q6 of the cold review of 2026-10-05, decision `#4134`), so a write to one outside the
+			# credential's projects is refused as beyond them: *not found* would deny a project its
+			# reader can see. Only where the caller reads it, since anywhere else a 403 confirms it.
+			if not _read_by(session, principal, item):
+				raise
+
+			raise AuthorizationError(
+				AuthorizationFailure.BEYOND_ITS_PLACES,
+				permission=permission,
+				workspace_id=project.workspace_id,
+				project_id=project.id,
+			) from None
 
 	if (
 		doing is not None
@@ -475,6 +491,33 @@ def authorize_on (
 		and isinstance(item, subroutine.db.models.work.Task | subroutine.db.models.work.Document)
 	):
 		subroutine.domain.trash.refuse_reaching(session, item, doing=doing)
+
+
+def _read_by (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	item: typing.Any,
+) -> bool:
+	"""Return whether a principal reads a document - the one kind read outside a credential's projects.
+
+	**Reached late**, because ``domain.scoping`` imports this module at module scope, and asked only
+	once a write has already been refused.
+	"""
+
+	if not isinstance(item, subroutine.db.models.work.Document):
+		return False
+
+	from subroutine.domain import scoping
+
+	try:
+		statement = scoping.readable_documents(session, principal, workspace_ids=[item.workspace_id])
+
+	except subroutine.errors.Forbidden:
+		return False
+
+	model = subroutine.db.models.work.Document
+
+	return session.scalar(statement.with_only_columns(model.id).where(model.id == item.id)) is not None
 
 
 def instance_permissions (
