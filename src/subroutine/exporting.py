@@ -533,7 +533,11 @@ def _render_saved_views (
 
 	return [
 		subroutine.views.saved_view_seen(
-			row, owner=subroutine.views.username_in(vocabulary, row.owner_id)
+			row,
+			owner=subroutine.views.username_in(vocabulary, row.owner_id),
+			# What the exporter may do with it is true of them today, so ``COMPUTED`` leaves it out
+			# of every line and it is not asked of each row.
+			may=(),
 		)
 		for row in rows
 	]
@@ -760,7 +764,7 @@ COMPUTED: dict[str, frozenset[str]] = {
 	"statuses": frozenset(),
 	"item_types": frozenset(),
 	"link_types": frozenset(),
-	"saved_views": frozenset({"about_the_reader"}),
+	"saved_views": frozenset({"about_the_reader", "may"}),
 	"users": frozenset({"answers_to"}),
 	"members": frozenset(),
 	"project_members": frozenset(),

@@ -3691,15 +3691,18 @@ export function App () {
 		**`unkept` is computed here rather than in the component**, because what a view cannot
 		carry is a fact about the grammar rather than about the control: the component is handed
 		sentences and draws them.
+
+		**What may be done with a view the instance says, on the view** (`SR#4577`, decision `#4532`),
+		and the browser re-derives none of it. **Sharing a new one is read from `/v1/me`**, the answer
+		the instance gives about the workspace: a view not yet saved has no row to carry `may`, and
+		whoever saves it manages it, so what is left is `project:write` there.
 	*/
 	const saved = everywhere ? null : html`
 		<${SavedViews}
 			views=${savedViews} showing=${showing}
 			unkept=${asSavedView(showing).unkept.map((name) => CANNOT_BE_SAVED[name])}
 			saving=${savingView} forgetting=${forgettingView} busy=${busy}
-			mine=${me ? me.user.username : null}
 			mayShare=${allowed.has("project:write")}
-			mayForgetShared=${allowed.has("workspace:admin")}
 			onApply=${applyView} onClear=${clearView} project=${project}
 			workspace=${workspace} picking=${pickingView}
 			onPicking=${(open) => {

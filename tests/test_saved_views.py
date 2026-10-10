@@ -961,6 +961,7 @@ def test_the_arrangement_half_carries_exactly_three_fields (
 		"owner",
 		"shared",
 		"about_the_reader",
+		"may",
 		"created_at",
 		"updated_at",
 		"version",

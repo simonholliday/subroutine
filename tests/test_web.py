@@ -473,19 +473,20 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{
 				"key": "my-bugs", "title": "My bugs", "q": "type:bug assignee:me",
 				"arrangement": "list", "order": None, "group_by": None,
-				"owner": "morpheus", "shared": False,
+				"owner": "morpheus", "shared": False, "may": ["change", "share", "forget"],
 			},
 			{
 				"key": "team-queue", "title": "Team queue", "q": "urgency>=4",
 				"arrangement": "board", "order": "-priority_score",
 				"group_by": "status_category", "owner": "morpheus", "shared": True,
+				"may": ["change", "unshare", "forget"],
 			},
 			# **Somebody else's**, which only an administrator may forget; the test of that
-			# shows it to one (`SR#3142`).
+			# shows it to one (`SR#3142`), and this reader may do nothing with it.
 			{
 				"key": "everything", "title": "Everything", "q": None,
 				"arrangement": "agenda", "order": None, "group_by": None,
-				"owner": "trinity", "shared": True,
+				"owner": "trinity", "shared": True, "may": [],
 			},
 			# **A shared view that names its reader** (`SR#3150`), so the label saying each
 			# reader sees their own work is drawn by something.
@@ -493,6 +494,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 				"key": "what-i-hold", "title": "What I hold", "q": "assignee:me",
 				"arrangement": "list", "order": None, "group_by": None,
 				"owner": "morpheus", "shared": True, "about_the_reader": True,
+				"may": ["change", "unshare", "forget"],
 			},
 		],
 		"showing": {"view": "list", "selection": {"q": "type:bug assignee:me"}},
@@ -504,7 +506,6 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		# sample without it leaves `.saved-view-asking` matching nothing, which
 		# `test_every_selector_in_the_stylesheet_reaches_something` reads as a dead rule.
 		"forgetting": "my-bugs",
-		"mine": "morpheus",
 		# **The workspace each view's link is an address in** (`#3751`).
 		"workspace": "metacortex",
 	},
@@ -22180,7 +22181,8 @@ def test_a_saved_view_says_whose_work_it_draws_and_offers_only_what_the_reader_m
 	**A shared view on `assignee:me` says it draws each reader's own work.** **Sharing is
 	offered only to a reader who may share**: a box that could only be refused drew an empty
 	banner. **And an administrator is offered forgetting a shared view** somebody else saved,
-	as they may take a comment out.
+	as they may take a comment out - **because the instance says so on the view** (`SR#4577`):
+	``may`` is what each view's reader may do, and the browser re-derives none of it.
 	"""
 
 	sample = {**SAMPLES["SavedViews"], "forgetting": None}
@@ -22188,7 +22190,17 @@ def test_a_saved_view_says_whose_work_it_draws_and_offers_only_what_the_reader_m
 	barred = _rendered(tmp_path, {"SavedViews": {**sample, "mayShare": False}})["SavedViews"]
 	drawn = _markup(tmp_path, {"SavedViews": sample})["SavedViews"]
 	administering = _markup(
-		tmp_path, {"SavedViews": {**sample, "mayForgetShared": True}}
+		tmp_path,
+		{"SavedViews": {**sample, "views": [
+			{**view, "may": ["unshare", "forget"]} if view["key"] == "everything" else view
+			for view in sample["views"]
+		]}},
+	)["SavedViews"]
+	# **The one a demoted viewer met** (F R3 of the cold review of 2026-10-05): their own view, and
+	# nothing they may do with it, offered nothing.
+	demoted = _markup(
+		tmp_path,
+		{"SavedViews": {**sample, "views": [{**view, "may": []} for view in sample["views"]]}},
 	)["SavedViews"]
 
 	def forgettable (markup: str) -> list[str]:
@@ -22207,6 +22219,7 @@ def test_a_saved_view_says_whose_work_it_draws_and_offers_only_what_the_reader_m
 	assert forgettable(administering) == [
 		"My bugs", "Team queue", "Everything", "What I hold",
 	], administering
+	assert forgettable(demoted) == [], demoted
 
 
 def test_the_saved_views_are_links_under_a_button_naming_the_view_the_page_is_on (
@@ -22308,7 +22321,7 @@ def test_the_saved_views_are_links_under_a_button_naming_the_view_the_page_is_on
 	oldest = {
 		"key": "bugs-oldest", "title": "Bugs, oldest first", "q": "type:bug",
 		"arrangement": "list", "order": "created_at", "group_by": None,
-		"owner": "morpheus", "shared": False,
+		"owner": "morpheus", "shared": False, "may": ["change", "share", "forget"],
 	}
 	newest = {**oldest, "key": "bugs-newest", "title": "Bugs, newest first", "order": "-created_at"}
 	twins = {

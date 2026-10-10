@@ -1336,6 +1336,12 @@ class SavedView(pydantic.BaseModel):
 	#: sent: a shared view saying *me* is allowed, and this is what says so where it is listed.
 	about_the_reader: bool = False
 
+	#: **What its reader may do with it** (`SR#4577`, decision `#4532`): ``change``, ``share``,
+	#: ``unshare`` and ``forget``, those this reader may, asked of the checks each act makes, so a
+	#: client offers exactly what the instance allows and re-derives nothing. Defaulted, because this
+	#: model is not new (`#345`).
+	may: list[str] = pydantic.Field(default_factory=list)
+
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
 	version: int
@@ -1365,13 +1371,18 @@ class SavedView(pydantic.BaseModel):
 
 
 def saved_view_seen (
-	row: subroutine.db.models.saved.SavedView, *, owner: str | None = None
+	row: subroutine.db.models.saved.SavedView,
+	*,
+	may: typing.Sequence[str],
+	owner: str | None = None,
 ) -> SavedView:
 	"""Render one saved view.
 
 	``owner`` is passed rather than read off ``row.owner`` because a listing resolves every
 	name in one query and a single read resolves one — and a relationship load here would be
 	`SR#39`'s N+1 arriving through the renderer, which is the door it has come through before.
+	``may`` is :func:`subroutine.domain.saved.may` for whoever reads it, and required, so no
+	renderer can leave a reader offered nothing - or everything.
 	"""
 
 	return SavedView(
@@ -1387,6 +1398,7 @@ def saved_view_seen (
 		owner=owner,
 		shared=row.shared,
 		about_the_reader=subroutine.domain.grammar.names_the_reader(row.q, entity="task"),
+		may=list(may),
 		created_at=row.created_at,
 		updated_at=row.updated_at,
 		version=row.version,

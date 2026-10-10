@@ -390,8 +390,7 @@ function fitBelow (menu) {
 export function SavedViews ({
 	views = [], showing = null, unkept = [], saving = false, forgetting = null, busy = false,
 	onApply = null, onSave = null, onStartSaving = null, onStopSaving = null,
-	onStartForgetting = null, onForget = null, mine = null, mayShare = false,
-	mayForgetShared = false,
+	onStartForgetting = null, onForget = null, mayShare = false,
 	/* **The page's project, and the way back to no view** - `#3739` and `#3738`. Which view is
 	   showing depends on the place as well as the search line, and *None* leaves the one that
 	   is. */
@@ -473,8 +472,11 @@ export function SavedViews ({
 
 	/* **The view this page is showing, if it is one**, and whether this reader may forget it. */
 	const current = views.find(chosen) || null;
-	const mayForget = (view) => Boolean(onForget && mine
-		&& (view.owner === mine || (view.shared && mayForgetShared)));
+	/* **What the instance says this reader may do** (`SR#4577`, decision `#4532`): `may` on each
+	   view, asked of the check forgetting makes. This re-derived *the owner, or an administrator
+	   for a shared one*, and missed `task:write`, so a viewer demoted after saving a view was
+	   offered a *Forget* the instance refused. */
+	const mayForget = (view) => Boolean(onForget && (view.may || []).includes("forget"));
 
 	/* **The menu closes with the choice** (`#3751`), as the save panel closes with a save: a plain
 	   click stays in the app rather than loading a page, so nothing else would close it. Any other

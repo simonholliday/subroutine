@@ -139,7 +139,9 @@ def _owner_names (
 
 
 def _saved_view_shown (
-	session: sqlalchemy.orm.Session, row: subroutine.db.models.saved.SavedView
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.saved.SavedView,
 ) -> subroutine.views.SavedView:
 	"""Render one saved view, with its owner's name resolved.
 
@@ -149,7 +151,9 @@ def _saved_view_shown (
 	"""
 
 	return subroutine.views.saved_view_seen(
-		row, owner=_owner_names(session, [row.owner_id]).get(row.owner_id)
+		row,
+		owner=_owner_names(session, [row.owner_id]).get(row.owner_id),
+		may=subroutine.domain.saved.may(session, actor, row),
 	)
 
 
@@ -1033,7 +1037,11 @@ class Client:
 
 			return subroutine.views.Collection[subroutine.views.SavedView](
 				items=[
-					subroutine.views.saved_view_seen(row, owner=owners.get(row.owner_id))
+					subroutine.views.saved_view_seen(
+						row,
+						owner=owners.get(row.owner_id),
+						may=subroutine.domain.saved.may(session, actor, row),
+					)
 					for row in rows
 				],
 				# **Null, as the route says** (`#3158`): ``Page``'s rule is that the limit is what
@@ -1051,6 +1059,7 @@ class Client:
 
 			return _saved_view_shown(
 				session,
+				actor,
 				subroutine.domain.saved.by_key(
 					session, actor, workspace_id=chosen.id, key=key
 				),
@@ -1074,6 +1083,7 @@ class Client:
 
 			return _saved_view_shown(
 				session,
+				actor,
 				subroutine.domain.saved.create(
 					session,
 					workspace_id=chosen.id,
@@ -1111,6 +1121,7 @@ class Client:
 
 			return _saved_view_shown(
 				session,
+				actor,
 				subroutine.domain.saved.update(
 					session,
 					row,

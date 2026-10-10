@@ -522,34 +522,21 @@ def update (
 	no-op made a concurrent editor's next write a false conflict.
 	"""
 
-	subroutine.domain.authorization.authorize(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=row.workspace_id,
-		own_account=True,
-	)
-
 	# **Its words are its author's, and who sees it is whoever manages it** (`SR#4572`, decision
-	# `#4525`): what a view says, only the person who saved it rewrites; sharing and unsharing it are
-	# its owner's, whoever its owner answers to, or an administrator's where it is shared. A view's
-	# owner demoted to contributor could forget it and not unshare it, and an administrator could
-	# forget a shared view and not unshare it (C section 2.2 of the cold review of 2026-10-05).
+	# `#4525`), each act asked through :func:`_refuse`, which :func:`may` asks too (`SR#4577`).
 	defining = _defining(title=title, arrangement=arrangement, given=given)
+	acts: list[str | None] = []
 
 	if defining:
-		_refuse_somebody_elses(row, actor)
+		acts.append("change")
 
-	subroutine.domain.stewardship.refuse_unless_managing(
-		session,
-		actor,
-		row.owner_id,
-		workspace_id=row.workspace_id,
-		whose=f"the owner of the view '{row.key}'",
-		act="stop sharing it" if shared is False else "share it" if shared else "change it",
-		field="shared" if shared is not None else "key",
-		seen=row.shared,
-	)
+	if shared is not None and shared != row.shared:
+		acts.append("share" if shared else "unshare")
+
+	# **A change that changes nothing still asks who may manage the view**, as it always has.
+	for act in acts or [None]:
+		_refuse(session, actor, row, act)
+
 	subroutine.domain.versions.require(row, expected_version)
 
 	for field, value in (("title", title), ("arrangement", arrangement), ("shared", shared)):
@@ -566,31 +553,9 @@ def update (
 				],
 			)
 
-	# **Changing what a shared view says is an act on the workspace** (`#3589`; `#4558`, B I-5 of the
-	# cold review of 2026-10-05): it stays in front of everybody, so it lands on the workspace's place.
-	# A credential narrowed to some projects rewrote the query of a view its owner had shared from
-	# elsewhere, and later was refused a title edit as though it were sharing the view.
-	if row.shared and shared is not False and defining:
-		subroutine.domain.authorization.authorize(
-			session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
-		)
-
 	before = _held(row)
 
-	# **Sharing and unsharing alike land on the workspace** (B I-5): taking a view from in front of the
-	# workspace is an act there as much as putting it there, and a narrowed credential unshared what it
-	# could not share. **Unsharing asks what forgetting asks** (`SR#4572`, decision `#4525`), since it is
-	# strictly less: ``task:write`` there, where it asked ``project:write`` of a view's own owner.
-	if shared is not None and shared != row.shared:
-		subroutine.domain.authorization.authorize(
-			session,
-			actor,
-			subroutine.permissions.PROJECT_WRITE if shared else subroutine.permissions.TASK_WRITE,
-			workspace_id=row.workspace_id,
-			instead=_KEEP_IT_YOUR_OWN if shared else None,
-			field="shared",
-		)
-
+	if shared is not None:
 		row.shared = shared
 
 	if title is not None:
@@ -674,27 +639,112 @@ def delete (
 	to** (`SR#4572`, decisions `#4525` and `#4516`), who manages what its agent owns.
 	"""
 
-	# **One's own view lands on one's own account, and a shared one on the workspace** (`#4558`, B
-	# I-5 of the cold review of 2026-10-05): a narrowed credential deleted a view everybody saw.
+	_refuse(session, actor, row, "forget")
+	session.delete(row)
+	session.flush()
+
+
+#: What a reader may do with a saved view, in the order a menu offers them - `SR#4577`. ``change`` is
+#: what it says, ``share`` and ``unshare`` whom it is shown to, and ``forget`` taking it away.
+ACTS = ("change", "share", "unshare", "forget")
+
+#: How each act is said in a refusal, and ``None``, a change that changes nothing.
+_SAID: dict[str | None, str] = {
+	"change": "change it",
+	"share": "share it",
+	"unshare": "stop sharing it",
+	"forget": "forget it",
+	None: "change it",
+}
+
+
+def may (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.saved.SavedView,
+) -> list[str]:
+	"""Return what this reader may do with a saved view, each asked of the check that act makes.
+
+	**The browser re-derived these** (`SR#4577`, decision `#4532`): *the view's owner, or an
+	administrator for a shared one*, which missed ``task:write``, so a viewer demoted after saving a
+	view was offered a *Forget* the instance refused (F R3 of the cold review of 2026-10-05, as its
+	verification narrowed it). Each act's own refusal answers here, so the offer and the act cannot
+	disagree. **Only the acts that apply**: sharing a shared view, or unsharing one that is not, is
+	no act at all.
+	"""
+
+	allowed = []
+
+	for act in ACTS:
+		if (act == "share" and row.shared) or (act == "unshare" and not row.shared):
+			continue
+
+		try:
+			_refuse(session, actor, row, act)
+
+		except (subroutine.errors.Forbidden, subroutine.errors.NotFound):
+			continue
+
+		allowed.append(act)
+
+	return allowed
+
+
+def _refuse (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.saved.SavedView,
+	act: str | None,
+) -> None:
+	"""Refuse ``act`` on a view unless this reader may take it - the one statement of each act's rule.
+
+	**What a view says is its author's, and whom it is shown to its manager's** (`SR#4572`, decision
+	`#4525`): its owner, whoever its owner answers to, or an administrator where it is shared. **Each
+	lands on the workspace's place where the view is in front of the workspace, or is to be** (`#4558`,
+	B I-5 of the cold review of 2026-10-05), and on the reader's own account otherwise: a narrowed
+	credential deleted a view everybody saw, rewrote one its owner had shared, and unshared what it
+	could not share. **Unsharing asks what forgetting asks**, since it is strictly less. ``None`` is a
+	change that changes nothing, which asks only who may manage it.
+	"""
+
 	subroutine.domain.authorization.authorize(
 		session,
 		actor,
 		subroutine.permissions.TASK_WRITE,
 		workspace_id=row.workspace_id,
-		own_account=not row.shared,
+		own_account=act != "forget" or not row.shared,
 	)
+
+	if act == "change":
+		_refuse_somebody_elses(row, actor)
+
 	subroutine.domain.stewardship.refuse_unless_managing(
 		session,
 		actor,
 		row.owner_id,
 		workspace_id=row.workspace_id,
 		whose=f"the owner of the view '{row.key}'",
-		act="forget it",
-		field="key",
+		act=_SAID[act],
+		field="shared" if act in ("share", "unshare") else "key",
 		seen=row.shared,
 	)
-	session.delete(row)
-	session.flush()
+
+	# **Changing what a shared view says is an act on the workspace** (`#3589`): it stays in front of
+	# everybody, so it lands on the workspace's place.
+	if act == "change" and row.shared:
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
+		)
+
+	if act in ("share", "unshare"):
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.PROJECT_WRITE if act == "share" else subroutine.permissions.TASK_WRITE,
+			workspace_id=row.workspace_id,
+			instead=_KEEP_IT_YOUR_OWN if act == "share" else None,
+			field="shared",
+		)
 
 
 def _kept (q: str | None) -> str | None:

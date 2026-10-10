@@ -119,7 +119,9 @@ def _named (
 
 
 def _rendered (
-	session: sqlalchemy.orm.Session, row: subroutine.db.models.saved.SavedView
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.saved.SavedView,
 ) -> subroutine.views.SavedView:
 	"""Render one saved view, with its owner's name resolved.
 
@@ -129,7 +131,9 @@ def _rendered (
 	"""
 
 	return subroutine.views.saved_view_seen(
-		row, owner=_named(session, [row.owner_id]).get(row.owner_id)
+		row,
+		owner=_named(session, [row.owner_id]).get(row.owner_id),
+		may=subroutine.domain.saved.may(session, actor, row),
 	)
 
 
@@ -161,7 +165,11 @@ def list_views (
 
 	return subroutine.views.Collection[subroutine.views.SavedView](
 		items=[
-			subroutine.views.saved_view_seen(row, owner=owners.get(row.owner_id))
+			subroutine.views.saved_view_seen(
+				row,
+				owner=owners.get(row.owner_id),
+				may=subroutine.domain.saved.may(session, actor, row),
+			)
 			for row in rows
 		],
 		page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
@@ -186,6 +194,7 @@ def create_view (
 
 	return _rendered(
 		session,
+		actor,
 		subroutine.domain.saved.create(
 			session,
 			workspace_id=workspace.id,
@@ -213,6 +222,7 @@ def read_view (
 
 	return _rendered(
 		session,
+		actor,
 		subroutine.domain.saved.by_key(session, actor, workspace_id=workspace.id, key=key),
 	)
 
@@ -238,7 +248,7 @@ def update_view (
 	row = subroutine.domain.saved.by_key(session, actor, workspace_id=workspace.id, key=key)
 	supplied = body.model_fields_set
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, row)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, row)):
 		changed = subroutine.domain.saved.update(
 			session,
 			row,
@@ -253,7 +263,7 @@ def update_view (
 			given=supplied,
 		)
 
-	return _rendered(session, changed)
+	return _rendered(session, actor, changed)
 
 
 @router.delete("/{key}", status_code=204, summary="Forget a saved view")

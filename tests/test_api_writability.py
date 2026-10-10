@@ -127,6 +127,7 @@ DERIVED: dict[str, str] = {
 	#: **`SR#3150`.** Whether a saved view's query names its reader, read off ``q`` - which is
 	#: settable - so a caller changes this by changing the query.
 	"about_the_reader": "Whether a saved view's query says `me`, derived from `q`.",
+	"may": "What a saved view's reader may do with it, asked of each act's own check (`SR#4577`).",
 	#: **`#1033`'s batch — the six views past `task` and `document`.** Widening the guard was
 	#: expected to surface a run of these and did: twenty-four fields, of which four were
 	#: renames and the rest are below. None turned out to be a gap, which is the answer this

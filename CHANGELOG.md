@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A saved view says what you may do with it.** Each one carries `may` - `change`, `share`,
+  `unshare` or `forget`, those its reader may - asked of the check each act makes, and the browser
+  offers exactly those. It worked them out for itself, so a viewer demoted after saving a view was
+  offered a *Forget* the instance refused.
 - **A link to something you cannot see is shown, as unseen.** An item's links, `show`, the agent
   tools, the browser and the feed list a link whose other end is out of your sight with
   `{"visible": false}` in its place, so an item said to be blocked shows what blocks it, and say
