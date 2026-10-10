@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Making a private project for somebody else keeps you in it.** You make it, then hand it over,
+  so both of you can see it and its history says so; it shared the new owner in and not its maker,
+  who could no longer see what they had just made. Whoever makes a project or writes a document
+  owns it unless they name somebody, decided in one place rather than by each way in. A
+  document's owner is called its maintainer in its history, and the field is still `owner_id`.
 - **Work is handed only to somebody who can see it.** A task is assigned, a document given a
   maintainer and a project handed over only to a member of the workspace who can see where it is,
   however they are named - the terminal, the agent tools or a direct call - and the refusal says

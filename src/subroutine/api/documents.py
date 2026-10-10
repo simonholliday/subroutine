@@ -190,7 +190,7 @@ def create (
 		type_key=body.type or "note",
 		status_key=body.status,
 		parent=parent,
-		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
+		owner_id=body.owner_id,
 		tags=body.tags,
 		binds=body.binds,
 		actor=actor,

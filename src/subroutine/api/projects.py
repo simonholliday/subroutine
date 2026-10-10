@@ -170,9 +170,7 @@ def create (
 		parent=parent,
 		template=body.template,
 		visibility=body.visibility,
-		# The creator owns what they create unless they say otherwise, which is also what
-		# makes a private project visible to them (docs/design.md §7.3a).
-		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
+		owner_id=body.owner_id,
 		actor=actor,
 	)
 

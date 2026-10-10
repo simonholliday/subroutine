@@ -4287,7 +4287,7 @@ def journal_entry (
 				continue
 
 			shape = {
-				"said": field_in_words(field),
+				"said": field_in_words(field, entity_type=row.entity_type),
 				"empty": "never" if field in _NEVER else "nobody" if field in _NOBODY else "nothing",
 				"quoted": field in _QUOTED,
 				"dated": field in _DATED,
@@ -4987,8 +4987,14 @@ _NOBODY = frozenset({"assignee_id", "assigned_by_id", "claimed_by_id", "owner_id
 _QUOTED = frozenset({"status_id", "type_id", "project_id", "workspace_id"})
 
 
-def field_in_words (name: str) -> str:
-	"""Return what a person calls the thing that changed.
+#: What a changed column is called on one kind of row, where that differs from the others - `SR#4573`.
+#: **A document's owner is its maintainer** (decision `#4523`): attribution with no authority, as a
+#: task's assignee is, where a project's owner decides who sees it. The column keeps its name.
+_A_CHANGE_TO_ON: dict[tuple[str | None, str], str] = {("document", "owner_id"): "maintainer"}
+
+
+def field_in_words (name: str, *, entity_type: str | None = None) -> str:
+	"""Return what a person calls the thing that changed - on ``entity_type``'s kind of row, if named.
 
 	The internal suffixes come off anything unmapped — ``_id`` names a row nobody can see and
 	``_at`` says nothing a reader needs — so a column added tomorrow reads as words rather than
@@ -4997,6 +5003,9 @@ def field_in_words (name: str) -> str:
 
 	Public because three surfaces render an event and none of them may answer this its own way.
 	"""
+
+	if (entity_type, name) in _A_CHANGE_TO_ON:
+		return _A_CHANGE_TO_ON[(entity_type, name)]
 
 	if name in _A_CHANGE_TO:
 		return _A_CHANGE_TO[name]
@@ -5007,7 +5016,9 @@ def field_in_words (name: str) -> str:
 	return name.replace("_", " ")
 
 
-def fields_in_words (names: typing.Iterable[str]) -> list[str]:
+def fields_in_words (
+	names: typing.Iterable[str], *, entity_type: str | None = None
+) -> list[str]:
 	"""Return what changed as the names a person reads, one per fact — decision `#2823`.
 
 	The feed's half of the rule :func:`journal_entry` applies to values: a column is left out
@@ -5019,7 +5030,7 @@ def fields_in_words (names: typing.Iterable[str]) -> list[str]:
 
 	return sorted(
 		{
-			field_in_words(name)
+			field_in_words(name, entity_type=entity_type)
 			for name in present
 			if not any(other in present for other in _FOLDED_INTO.get(name, ()))
 		}
@@ -5344,7 +5355,7 @@ def happened (event: Event) -> str:
 
 	# **One name per fact** (decision `#2823`). A defer moves `snoozed_until` and
 	# `snoozed_is_all_day` together and they are one fact to a reader.
-	return "changed " + ", ".join(fields_in_words(event.changes))
+	return "changed " + ", ".join(fields_in_words(event.changes, entity_type=event.entity_type))
 
 
 def _holding_up (

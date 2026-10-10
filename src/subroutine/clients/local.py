@@ -2337,12 +2337,6 @@ class Client:
 				description=description,
 				parent=above,
 				visibility=visibility,
-				# **The creator owns what they create**, which is also what makes a private
-				# project visible to them: §7.3a grants sight only to holders of a
-				# `project_member` row, and `projects.create` writes one for the owner.
-				# Omitting this is how private projects came to be invisible to the people
-				# who made them.
-				owner_id=actor.user.id,
 				actor=actor,
 			)
 
@@ -3237,10 +3231,6 @@ class Client:
 				body=body,
 				type_key=type or "note",
 				status_key=status,
-				# The writer owns what they write, as `projects.create` does — and for a
-				# document it is the attribution that makes §5.10's "what you concluded" mean
-				# anything, since a conclusion with no author is a rumour.
-				owner_id=actor.user.id,
 				tags=tags,
 				parent=above,
 				binds=binds,

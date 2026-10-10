@@ -3473,7 +3473,7 @@ def _change_line (event: subroutine.views.Event, *, verb_wide: int = 0) -> str:
 		else event.item_title or _in_this_persons_terms(event.entity_type)
 	)
 	verb = _event_verb(event)
-	fields = subroutine.views.fields_in_words(event.changes or {})
+	fields = subroutine.views.fields_in_words(event.changes or {}, entity_type=event.entity_type)
 	listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
 
 	# **Padded to the widest verb on the page**, which is what the actor column in

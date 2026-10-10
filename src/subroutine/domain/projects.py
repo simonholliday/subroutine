@@ -157,7 +157,26 @@ def create (
 			instead=lambda: _inside_instead(session, actor, moving=None),
 		)
 
-	return _made(
+	# **Whoever makes it owns it first, set here rather than by each door** (`SR#4573`, decision
+	# `#4523`): four doors each wrote *the creator owns it* and this defaulted to nobody, so a caller
+	# that forgot made a project nobody but an administrator could hide.
+	creator = None if actor is None else actor.user.id
+	handing_over = creator is not None and owner_id is not None and owner_id != creator
+
+	# **Naming somebody else is creating it and then handing it over**, so they are asked about
+	# before anything is made: a refusal after it would leave a project nobody asked for.
+	if handing_over and owner_id is not None:
+		member_who_sees(
+			session,
+			workspace_id,
+			owner_id,
+			within=parent,
+			field="owner_id",
+			what="a project inside it cannot be handed to them",
+			actor=actor,
+		)
+
+	made = _made(
 		session,
 		workspace_id=workspace_id,
 		key=key,
@@ -166,11 +185,20 @@ def create (
 		parent=parent,
 		template=template,
 		visibility=visibility,
-		owner_id=owner_id,
+		owner_id=owner_id if creator is None else creator,
 		max_depth=max_depth,
 		settings=settings,
 		actor=actor,
 	)
+
+	# **The creator keeps their share, and the new owner is shared in**, as any new owner is: making
+	# a private project for somebody else shared them in and not its maker, who could no longer see
+	# what they had just made (D2b of the cold review of 2026-10-05). Handing it over is the creator's
+	# act as its steward at that moment.
+	if handing_over:
+		update(session, made, owner_id=owner_id, actor=actor)
+
+	return made
 
 
 def create_inbox (

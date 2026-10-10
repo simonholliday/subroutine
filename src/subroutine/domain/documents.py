@@ -357,6 +357,12 @@ def create (
 		else _first_status(session, workspace_id, type_key)
 	)
 
+	# **Whoever writes it maintains it unless they name somebody, set here rather than by each door**
+	# (`SR#4573`, decision `#4523`): two doors defaulted it and two did not, so the same agent's
+	# conclusion was its own through the agent tools and nobody's from a direct call.
+	if owner_id is None and actor is not None:
+		owner_id = actor.user.id
+
 	ref = subroutine.domain.refs.allocate(session, workspace_id)
 
 	document = subroutine.db.models.work.Document(
