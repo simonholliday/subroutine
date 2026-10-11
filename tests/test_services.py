@@ -615,13 +615,13 @@ def test_creating_a_project_makes_its_owner_a_member_of_it (
 	project = _project(session, workspace, owner_id=owner.id, visibility="private")
 
 	model = subroutine.db.models.project.ProjectMember
-	membership = session.scalars(
+	# **One row, which grants sight and holds no role** (`#4948`): an owner keeps the role they
+	# hold in the workspace, and the refusals below are what say so.
+	session.scalars(
 		sqlalchemy.select(model).where(
 			model.project_id == project.id, model.user_id == owner.id
 		)
 	).one()
-
-	assert membership.role_id is None, "an owner keeps their workspace role, not a new one"
 
 	principal = subroutine.domain.authentication.Principal(user=owner)
 

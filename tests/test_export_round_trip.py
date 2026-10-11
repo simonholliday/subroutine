@@ -557,7 +557,7 @@ def test_every_membership_is_stored_again_with_its_role_and_its_date (
 		.order_by(member.user_id)
 	)
 	shares = (
-		sqlalchemy.select(shared.project_id, shared.user_id, shared.role_id, shared.created_at)
+		sqlalchemy.select(shared.project_id, shared.user_id, shared.created_at)
 		.where(shared.workspace_id == pair.workspace.id)
 		.order_by(shared.project_id, shared.user_id)
 	)

@@ -14,12 +14,16 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `139a6b351e14`.
+> **This release changes the database schema**, to `bc50ce7db4bc`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`project_member.role_id` is dropped.** It was kept for a role in one project that would
+  replace a member's role in the workspace, which is not built: nothing ever wrote it, and nothing
+  read it. This release's migration removes it, and who a private project is shared with is
+  unchanged.
 - **`subroutine doctor` says what a retention floor has left in the change feed.** Where
   `events_retention_days` is set, a `retention` line states the floor and how many events past
   it are still there, with the day of the oldest, and names `subroutine db archive`, which

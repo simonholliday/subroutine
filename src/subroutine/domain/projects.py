@@ -351,8 +351,8 @@ def _made (
 		# ones the tests inserted by hand, which is why the feature looked covered.
 		#
 		# Written for public projects too, so that making a project private later does not
-		# lock its owner out of it. ``role_id`` stays null, which means "keeps whatever role
-		# they hold at workspace level" rather than granting anything new.
+		# lock its owner out of it. The row grants sight and nothing else: its holder keeps
+		# whatever role they hold in the workspace.
 		_ensure_member(session, project, owner_id, actor=actor)
 
 	subroutine.domain.events.record(
@@ -1035,7 +1035,6 @@ def _ensure_member (
 			workspace_id=project.workspace_id,
 			project_id=project.id,
 			user_id=user_id,
-			role_id=None,
 			created_by=None if actor is None else actor.user.id,
 		)
 	)
@@ -1361,8 +1360,8 @@ def share (
 	shared in no longer shares it onward, nor evicts anybody else, an administrator included, which
 	reverses the cost `#1444` accepted (S5 of the cold review of 2026-10-05).
 
-	**Presence, never a role.** The row is written with ``role_id=None`` because §7.3a reads
-	nothing but its existence. `#1452` is where a project-scoped role belongs and it is a
+	**Presence, never a role.** The row holds no role, because §7.3a reads nothing but its
+	existence. `#1452` is where a project-scoped role belongs and it is a
 	different act: sight inherits down the tree and authority deliberately does not, so one
 	command granting both would carry two scoping rules and mean opposite things on a public
 	project and a private one.
@@ -1441,7 +1440,6 @@ def share (
 		workspace_id=project.workspace_id,
 		project_id=project.id,
 		user_id=user.id,
-		role_id=None,
 		created_by=None if actor is None else actor.user.id,
 	)
 	session.add(membership)

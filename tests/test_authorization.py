@@ -481,56 +481,27 @@ def test_a_project_member_can_see_a_private_project (
 	) is None
 
 
-def test_a_role_written_on_a_project_membership_changes_nothing (
-	session: sqlalchemy.orm.Session,
-) -> None:
-	"""A ``project_member.role_id`` leaves the workspace role in force, both ways - `SR#4547`.
+def test_a_project_membership_can_hold_no_role () -> None:
+	"""Nothing on a ``project_member`` row names a role, so none can answer there - `SR#4948`.
 
 	A role of a project's own replaced the workspace's there (A I-9 of the cold review of
 	2026-10-05) while nothing wrote one, and it was the one way a read and a write could disagree
-	about a role. **Written by hand in both directions**, as only a hand could: a viewer given a
-	member's role in one project gains nothing there, and a member given a viewer's loses nothing.
+	about a role. `SR#4547` stopped anything reading it, and **two tests wrote one by hand** to show
+	so: here, in both directions, and under ``/v1/me``, which had listed the project with what the
+	role allowed (`#2111`). The column they wrote to is gone, so the defect cannot be built, and
+	what holds that is the row's shape. `#1452` is where a role in one project belongs, and it
+	changes this on purpose.
 	"""
 
-	workspace = _seeded_workspace(session)
-	viewer = _member(session, workspace, "viewer")
-	member = _member(session, workspace, "member")
-	project = _project(session, workspace)
+	table = subroutine.db.models.project.ProjectMember.__table__
 
-	for principal, written in ((viewer, "member"), (member, "viewer")):
-		session.add(
-			subroutine.db.models.project.ProjectMember(
-				workspace_id=workspace.id,
-				project_id=project.id,
-				user_id=principal.user.id,
-				role_id=_role(session, workspace, written).id,
-			)
-		)
+	assert "role_id" not in table.columns
+	assert not [
+		column.name
+		for column in table.columns
+		if any(key.column.table.name == "role" for key in column.foreign_keys)
+	], "a project membership points at a role again"
 
-	session.flush()
-
-	for principal in (viewer, member):
-		here = subroutine.domain.authorization.explain(session, principal, workspace.id)
-		there = subroutine.domain.authorization.explain(
-			session, principal, workspace.id, project=project
-		)
-
-		assert there == here, f"a role written on the project answered there: {there} for {here}"
-
-	assert subroutine.domain.authorization.refusal(
-		session,
-		viewer,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=workspace.id,
-		project=project,
-	) is not None
-	assert subroutine.domain.authorization.refusal(
-		session,
-		member,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=workspace.id,
-		project=project,
-	) is None
 
 
 def test_an_unknown_permission_is_a_programming_error (

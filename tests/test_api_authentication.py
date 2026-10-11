@@ -378,40 +378,6 @@ def test_a_scoped_token_reports_only_what_it_can_actually_do (
 	assert body["workspaces"][0]["narrowed_by_credential"] is True
 
 
-def test_me_names_no_project_answering_for_itself_where_a_role_was_written_on_one (
-	session: sqlalchemy.orm.Session, setup: Setup
-) -> None:
-	"""`SR#4547`: ``/v1/me`` answers per workspace, and no project answers for itself.
-
-	A role written by hand on a project membership - which nothing in the program writes - was
-	listed under its workspace with what it allowed (`#2111`), and the decision honoured it. Now
-	neither does, so the workspace's answer stands, and nothing lists the project.
-	"""
-
-	project = subroutine.domain.projects.create(
-		session, workspace_id=setup.workspace.id, key="web", title="Web"
-	)
-	seeded = subroutine.db.models.identity.Role
-	session.add(
-		subroutine.db.models.project.ProjectMember(
-			workspace_id=setup.workspace.id,
-			project_id=project.id,
-			user_id=setup.user.id,
-			role_id=session.scalars(
-				sqlalchemy.select(seeded.id).where(
-					seeded.workspace_id == setup.workspace.id, seeded.key == "viewer"
-				)
-			).one(),
-		)
-	)
-	session.flush()
-	_, secret = _token(session, setup.user)
-	space = _me(setup.application, secret).json()["workspaces"][0]
-
-	assert "projects" not in space, space
-	assert subroutine.permissions.TASK_WRITE in space["permissions"], "the workspace's answer moved"
-
-
 def test_instance_permissions_belong_to_superusers_only (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:

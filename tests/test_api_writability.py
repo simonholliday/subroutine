@@ -921,13 +921,6 @@ UNBUILT: dict[str, str] = {
 	"Task.position": "#28 — manual backlog order is specified and nothing exposes it.",
 	"Document.position": "#28 — the same order, on a document.",
 	"Project.position": "#28 — the same order, on a project.",
-	# **Paired with its own view since `#4086`**: this file read a project membership through
-	# ``views.Member``, a workspace's, and called this column reported as ``Member.role``. The
-	# view of a project membership has no role, deliberately, so nothing reports it.
-	"ProjectMember.role_id": (
-		"#1452 — a role for one project, which would replace the workspace one. Read by "
-		"nothing since #4547 deleted the override, and NULL in every row anything writes."
-	),
 	"User.deleted_at": (
 		"#670 — kept and never set: 1.0 deletes no account (decision #4083), and erasure decides "
 		"what deleting one does, and whether its username may be taken again."

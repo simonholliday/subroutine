@@ -3073,3 +3073,116 @@ def test_the_password_hash_goes_and_every_account_stays (migrated_url: str) -> N
 
 	finally:
 		engine.dispose()
+
+
+_BEFORE_A_MEMBERSHIP_HELD_NO_ROLE = "139a6b351e14"
+
+
+def _membership_columns (engine: sqlalchemy.engine.Engine) -> set[str]:
+	"""Return the names of ``project_member``'s columns, as the database has them now."""
+
+	return {column["name"] for column in sqlalchemy.inspect(engine).get_columns("project_member")}
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_a_project_membership_loses_its_role_column_and_stays (migrated_url: str) -> None:
+	"""`SR#4948`, decision `#4943`: the column nothing wrote or read is dropped, and the row stays.
+
+	Run with a row in the table that **holds a role**, which nothing in the program could write
+	and the column still allowed: the membership is there afterwards, for the same person on the
+	same project, so whoever a private project was shared with still sees it. `#1689`'s rule for a
+	table SQLite rebuilds: enforcement is back on and nothing points at nothing. **Going back
+	brings the column back empty**, and going forward again drops it as before.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+	shared = subroutine.db.models.project.ProjectMember
+	# **The table as it was**, since the model no longer has the column: each id keeps the model's
+	# type, which is what binds a UUID on SQLite.
+	before = sqlalchemy.table(
+		"project_member",
+		sqlalchemy.column("id", shared.__table__.c.id.type),
+		sqlalchemy.column("role_id", shared.__table__.c.id.type),
+	)
+
+	try:
+		assert "role_id" not in _membership_columns(engine), "the head still has the column"
+
+		with sqlalchemy.orm.Session(engine) as session:
+			keanu = subroutine.db.models.identity.User(username="keanu", username_normalized="keanu")
+			workspace = subroutine.db.models.identity.Workspace(slug="metacortex", title="Metacortex")
+
+			session.add_all([keanu, workspace])
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.flush()
+
+			project = subroutine.domain.projects.create(
+				session, workspace_id=workspace.id, key="web", title="Website rebuild"
+			)
+			project.visibility = "private"
+			row = shared(workspace_id=workspace.id, project_id=project.id, user_id=keanu.id)
+			session.add(row)
+			session.flush()
+			contributor = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Role.id).where(
+					subroutine.db.models.identity.Role.workspace_id == workspace.id,
+					subroutine.db.models.identity.Role.key == "contributor",
+				)
+			).one()
+			row_id, project_id, keanu_id = row.id, project.id, keanu.id
+
+			session.commit()
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_A_MEMBERSHIP_HELD_NO_ROLE)
+
+		assert "role_id" in _membership_columns(engine), "going back did not bring the column back"
+
+		with engine.begin() as connection:
+			held: uuid.UUID | None = connection.execute(
+				sqlalchemy.select(before.c.role_id).where(before.c.id == row_id)
+			).scalar_one()
+
+			assert held is None, "going back invented a role"
+
+			connection.execute(
+				before.update().where(before.c.id == row_id).values(role_id=contributor)
+			)
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		assert "role_id" not in _membership_columns(engine)
+
+		with sqlalchemy.orm.Session(engine) as session:
+			kept = session.get(shared, row_id)
+
+			assert kept is not None, "the membership went with its column"
+			assert (kept.project_id, kept.user_id) == (project_id, keanu_id), "it points elsewhere now"
+			assert session.get(subroutine.db.models.identity.Role, contributor) is not None, (
+				"the role it named went with it"
+			)
+
+		with engine.connect() as connection:
+			if engine.dialect.name == "sqlite":
+				assert _foreign_keys(connection) == 1, "the rebuild left enforcement off"
+
+				broken = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+
+				assert broken == [], f"the rebuild left references pointing at nothing: {broken}"
+
+		assert subroutine.db.migrate.check_constraint_differences(engine) == []
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_A_MEMBERSHIP_HELD_NO_ROLE)
+
+		with engine.connect() as connection:
+			again: uuid.UUID | None = connection.execute(
+				sqlalchemy.select(before.c.role_id).where(before.c.id == row_id)
+			).scalar_one()
+
+		assert again is None, "going back kept a role, or invented one"
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		assert "role_id" not in _membership_columns(engine)
+
+	finally:
+		engine.dispose()
