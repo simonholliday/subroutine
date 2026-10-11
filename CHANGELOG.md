@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`docs/permissions.md` says what each act asks, and who holds it.** Every act an instance can
+  be asked - through the terminal, the HTTP API or the agent tools - with the permission it asks
+  and where, any rule of its own and whether the agent tools can take it, then the permissions each
+  role a workspace is given carries. It is generated from the acts the permission tests drive, so
+  it cannot drift from what the instance does.
 - **A saved view says what you may do with it.** Each one carries `may` - `change`, `share`,
   `unshare` or `forget`, those its reader may - asked of the check each act makes, and the browser
   offers exactly those. It worked them out for itself, so a viewer demoted after saving a view was

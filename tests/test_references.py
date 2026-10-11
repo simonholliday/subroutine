@@ -419,6 +419,7 @@ PUBLISHED_PAGES: tuple[str, ...] = (
 	"CONTRIBUTING.md",
 	"SECURITY.md",
 	"docs/errors.md",
+	"docs/permissions.md",
 	"docs/hosting.md",
 	"docs/connecting.md",
 	"plugins/subroutine/skills/subroutine/SKILL.md",

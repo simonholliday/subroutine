@@ -946,6 +946,10 @@ seeded with its own, and `subroutine user list --workspace <slug>` says who hold
 Deciding membership needs `user:admin`, which is a different thing from being able to work
 there.
 
+**[`docs/permissions.md`](permissions.md) lists what each role carries**, and the permission
+every act asks and where - the page to read before choosing somebody's role or narrowing a
+credential.
+
 **Changing what somebody may do is its own command**, because adding them and re-grading them
 are two decisions:
 

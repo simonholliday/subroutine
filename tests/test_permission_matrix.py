@@ -28,6 +28,7 @@ about seventy times, which makes this the slowest file in the suite by design.
 import dataclasses
 import datetime
 import json
+import pathlib
 import typing
 import uuid
 
@@ -36,12 +37,14 @@ import pytest
 import sqlalchemy.orm
 
 import api_support
+import subroutine.acts
 import subroutine.api.app
 import subroutine.clients.base
 import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.db.backup
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -388,63 +391,83 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 
 
 @dataclasses.dataclass(frozen=True)
-class Act:
-	"""One thing a principal can ask an instance to do, as the matrix drives it.
+class Drive:
+	"""How the matrix drives one act of :data:`subroutine.acts.ACTS`, joined to it by its key.
 
-	``verbs`` and ``place`` are what the permission check is asked: each verb, on the workspace and
-	project ``place`` names, or on the installation where it is ``"instance"``. An act asking none is
-	compared across transports and for what it says, and not against the decision. ``reads`` says it
-	changes nothing, which the installation's verbs ask separately. ``rule`` names a rule of the
-	act's own that can refuse what the verbs allow, so an allowed verb does not oblige an answer.
-
-	``secret`` says the answer is a credential, a sign-in link or a calendar feed, which no session
-	through the agent tools is handed (`#4520`). ``route`` is the request ``call_api`` makes, for an
-	act whose request names the principal making it; every other act's is recorded from the HTTP
-	client. ``theirs`` names the person whose own thing the act is on, where anybody else needs
-	``workspace:admin`` to do it - which the agent tools never hold (`SR#4563`).
+	``call`` is the act through a client, and ``tool`` the agent tool and arguments it is asked
+	through, where a tool does it. ``route`` is the request ``call_api`` makes, for an act whose
+	request names the principal making it; every other act's is recorded from the HTTP client.
 	"""
 
-	key: str
-	says: str
-	verbs: tuple[str, ...]
-	place: str | None
 	call: typing.Callable[[Client, Cast], object]
 	tool: tuple[str, typing.Callable[[Cast], dict[str, typing.Any]]] | None = None
-	reads: bool = False
-	rule: str | None = None
-	secret: bool = False
 	route: typing.Callable[[Cast, "Who"], dict[str, typing.Any]] | None = None
-	theirs: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class Act:
+	"""One act of the table as the matrix drives it, on one of the cast's places.
+
+	**The table describes, and this drives** (Simon, 2026-10-10, `#4579`): the words, verbs, place
+	and flags are :data:`subroutine.acts.ACTS`', which ``docs/permissions.md`` is written from, and
+	the driving is :data:`DRIVES`'. ``verbs`` and ``place`` are what the permission check is asked,
+	``place`` being the cast's place for the act's kind of place. ``theirs`` names the person in the
+	cast whose own thing an act on somebody's own thing is on.
+	"""
+
+	described: subroutine.acts.Act
+	place: str | None
+	call: typing.Callable[[Client, Cast], object]
+	tool: tuple[str, typing.Callable[[Cast], dict[str, typing.Any]]] | None
+	route: typing.Callable[[Cast, "Who"], dict[str, typing.Any]] | None
+	theirs: str | None
+
+	@property
+	def key (self) -> str:
+		"""Return the act's key, as the table names it."""
+
+		return self.described.key
+
+	@property
+	def says (self) -> str:
+		"""Return what the act does, in the table's words."""
+
+		return self.described.says
+
+	@property
+	def verbs (self) -> tuple[str, ...]:
+		"""Return the verbs the act asks."""
+
+		return self.described.verbs
+
+	@property
+	def reads (self) -> bool:
+		"""Say whether the act changes nothing."""
+
+		return self.described.reads
+
+	@property
+	def rule (self) -> str | None:
+		"""Return the act's own rule, which can refuse what its verbs allow."""
+
+		return self.described.rule
+
+	@property
+	def secret (self) -> bool:
+		"""Say whether the act's answer is a credential, a sign-in link or a calendar feed."""
+
+		return self.described.secret
 
 	def beyond_the_agent_tools (self, who: "Who") -> bool:
 		"""Say whether the agent tools' ceiling refuses this act to ``who``, whatever it holds.
 
-		Decision `#4520`: a session through ``/mcp`` or ``subroutine mcp`` is handed no secret, holds no
-		instance verb, and holds neither ``workspace:admin`` nor ``workspace:delete``.
+		Decision `#4520`: everybody, for an act the table says never goes through them; and on
+		somebody's own thing, everybody but them (`SR#4563`).
 		"""
 
-		return (
-			self.secret
-			or (self.theirs is not None and who.person != self.theirs)
-			or any(
-				verb in P.INSTANCE_LEVEL or verb in (P.WORKSPACE_ADMIN, P.WORKSPACE_DELETE)
-				for verb in self.verbs
-			)
+		return self.described.never_through_the_agent_tools() or (
+			self.theirs is not None and who.person != self.theirs
 		)
-
-
-def _read (
-	key: str,
-	says: str,
-	verbs: tuple[str, ...],
-	place: str | None,
-	call: typing.Callable[[Client, Cast], object],
-	tool: tuple[str, typing.Callable[[Cast], dict[str, typing.Any]]] | None = None,
-	rule: str | None = None,
-) -> Act:
-	"""Return an act that only reads."""
-
-	return Act(key, says, verbs, place, call, tool=tool, reads=True, rule=rule)
 
 
 def _exporting (kind: str) -> typing.Callable[[Client, Cast], object]:
@@ -458,357 +481,261 @@ def _exporting (kind: str) -> typing.Callable[[Client, Cast], object]:
 	return call
 
 
-#: Somebody else's account, named by every act on one.
-SOMEBODY = "A person administers another account, or that account's own chain does (#4525)."
+def _sent (
+	method: str,
+	path: typing.Callable[[Cast], str],
+	*,
+	body: dict[str, typing.Any] | None = None,
+	in_the_workspace: bool = False,
+) -> typing.Callable[[Client, Cast], object]:
+	"""Return an act only HTTP reaches, sent through ``call_api`` as every client can (`SR#4879`).
 
-ACTS: tuple[Act, ...] = (
-	# --- Reading the installation and oneself --------------------------------------------------
-	_read("identity", "Say which instance this is", (), None, lambda c, s: c.identity()),
-	_read("reference", "Read the agent's guide", (), None, lambda c, s: c.reference("agent")),
-	_read("meta", "Read a workspace's vocabulary", (), "metacortex", lambda c, s: c.meta(workspace=s.slug)),
-	_read("me", "Say who is asking", (), None, lambda c, s: c.me(), tool=("subroutine_whoami", lambda s: {})),
-	_read("user", "Read an account by name", (), None, lambda c, s: c.user(username=s.names["tank"])),
-	_read("users", "List the accounts", (), None, lambda c, s: c.users()),
-	_read("tokens", "List one's credentials", (), None, lambda c, s: c.tokens()),
-	_read("calendars", "List one's calendar feeds", (), None, lambda c, s: c.calendars()),
-	_read(
-		"instance workspaces",
-		"List every workspace on the installation",
-		(P.INSTANCE_ADMIN,),
-		"instance",
+	A refusal comes back as a status rather than raised, so it is read back into the error its
+	problem document names, as the HTTP client reads every other refusal. ``in_the_workspace``
+	names the cast's workspace, which a principal reaching two needs to say.
+	"""
+
+	def call (client: Client, cast: Cast) -> object:
+		"""Send the request, and raise what a refusal names."""
+
+		answered = client.call_api(
+			method=method,
+			path=path(cast),
+			body=body,
+			query={"workspace_id": cast.slug} if in_the_workspace else None,
+		)
+
+		if answered.status >= 400:
+			raise subroutine.errors.from_problem(json.loads(answered.text), status=answered.status)
+
+		return answered.text
+
+	return call
+
+
+def _no_copy (*arguments: typing.Any, **keywords: typing.Any) -> subroutine.db.backup.Backup:
+	"""Take no copy, and say one was taken (`SR#4879`).
+
+	The matrix asks who may take a backup. A real copy cannot be taken inside the savepoint each
+	drive runs in - SQLite will not vacuum inside a transaction - and would be taken a dozen times.
+	"""
+
+	return subroutine.db.backup.Backup(
+		path=pathlib.Path("matrix.db"),
+		taken_at=datetime.datetime.now(datetime.UTC),
+		schema_head="matrix",
+		size_bytes=0,
+		profile=None,
+	)
+
+
+#: The cast's place for each kind of place an act lands on.
+CAST_PLACES: dict[str | None, str | None] = {
+	None: None,
+	subroutine.acts.INSTALLATION: "instance",
+	subroutine.acts.WORKSPACE: "metacortex",
+	subroutine.acts.PROJECT: "web",
+	subroutine.acts.PRIVATE_PROJECT: "vault",
+}
+
+#: Acts driven on the cast's other project, which the credentials narrowed to it may act on.
+ON_OPS = frozenset({"rename project", "move project"})
+
+#: Whose own thing each act on somebody's own thing is on, in the cast.
+THEIRS: dict[str, str] = {
+	"uncomment": "hugo",
+	"forget saved view": "laurence",
+	"stop sharing a view": "laurence",
+	"reveal a private project": "laurence",
+	"share project": "laurence",
+	"hide a project": "laurence",
+	"move work into a private project": "laurence",
+}
+
+#: How each act of :data:`subroutine.acts.ACTS` is driven, by its key.
+DRIVES: dict[str, Drive] = {
+	"identity": Drive(
+		lambda c, s: c.identity(),
+	),
+	"reference": Drive(
+		lambda c, s: c.reference("agent"),
+	),
+	"meta": Drive(
+		lambda c, s: c.meta(workspace=s.slug),
+	),
+	"me": Drive(
+		lambda c, s: c.me(),
+		tool=("subroutine_whoami", lambda s: {}),
+	),
+	"user": Drive(
+		lambda c, s: c.user(username=s.names["tank"]),
+	),
+	"users": Drive(
+		lambda c, s: c.users(),
+	),
+	"tokens": Drive(
+		lambda c, s: c.tokens(),
+	),
+	"calendars": Drive(
+		lambda c, s: c.calendars(),
+	),
+	"instance workspaces": Drive(
 		lambda c, s: c.instance_workspaces(),
 	),
-	_read(
-		"unreachable projects",
-		"List the projects nobody can reach",
-		(P.INSTANCE_ADMIN,),
-		"instance",
+	"unreachable projects": Drive(
 		lambda c, s: c.unreachable_projects(),
 	),
-	_read(
-		"unadministered workspaces",
-		"List the workspaces nobody can administer",
-		(P.INSTANCE_ADMIN,),
-		"instance",
+	"unadministered workspaces": Drive(
 		lambda c, s: c.unadministered_workspaces(),
 	),
-	_read(
-		"unowned workspaces",
-		"List the workspaces with no owner who can act",
-		(P.INSTANCE_ADMIN,),
-		"instance",
+	"unowned workspaces": Drive(
 		lambda c, s: c.unowned_workspaces(),
 	),
-	# --- Reading a workspace ---------------------------------------------------------------------
-	_read(
-		"workspace settings",
-		"Read a workspace's settings",
-		(P.WORKSPACE_READ,),
-		"metacortex",
+	"workspace settings": Drive(
 		lambda c, s: c.workspace_settings(workspace=s.slug),
 	),
-	_read(
-		"members",
-		"List a workspace's members",
-		(P.WORKSPACE_READ,),
-		"metacortex",
+	"members": Drive(
 		lambda c, s: c.members(workspace=s.slug),
 	),
-	_read("statuses", "List the statuses", (), "metacortex", lambda c, s: c.statuses(workspace=s.slug)),
-	_read("link types", "List the link types", (), "metacortex", lambda c, s: c.link_types(workspace=s.slug)),
-	_read("tags", "List the tags", (), "metacortex", lambda c, s: c.tags(workspace=s.slug)),
-	_read("saved views", "List the saved views", (), "metacortex", lambda c, s: c.saved_views(workspace=s.slug)),
-	_read(
-		"saved view",
-		"Read a shared saved view",
-		(),
-		"metacortex",
+	"statuses": Drive(
+		lambda c, s: c.statuses(workspace=s.slug),
+	),
+	"link types": Drive(
+		lambda c, s: c.link_types(workspace=s.slug),
+	),
+	"tags": Drive(
+		lambda c, s: c.tags(workspace=s.slug),
+	),
+	"saved views": Drive(
+		lambda c, s: c.saved_views(workspace=s.slug),
+	),
+	"saved view": Drive(
 		lambda c, s: c.saved_view(key=s.names["view"], workspace=s.slug),
 	),
-	_read(
-		"projects",
-		"List the projects",
-		(P.PROJECT_READ,),
-		"metacortex",
+	"projects": Drive(
 		lambda c, s: c.projects(workspace=s.slug),
 	),
-	_read(
-		"project settings",
-		"Read a project's settings",
-		(P.PROJECT_READ,),
-		"web",
+	"project settings": Drive(
 		lambda c, s: c.project_settings("web", workspace=s.slug),
 	),
-	_read(
-		"project members",
-		"List who a private project is shared with",
-		(P.PROJECT_READ,),
-		"vault",
+	"project members": Drive(
 		lambda c, s: c.project_members("vault", workspace=s.slug),
 	),
-	_read(
-		"agenda",
-		"Read the agenda",
-		(P.TASK_READ,),
-		"metacortex",
+	"agenda": Drive(
 		lambda c, s: c.agenda(workspace=s.slug),
 	),
-	_read(
-		"count tasks",
-		"Count the work",
-		(P.TASK_READ,),
-		"metacortex",
+	"count tasks": Drive(
 		lambda c, s: c.count_tasks(workspace=s.slug),
 	),
-	_read(
-		"tasks",
-		"List the work",
-		(P.TASK_READ,),
-		"metacortex",
+	"tasks": Drive(
 		lambda c, s: c.tasks(workspace=s.slug),
 		tool=("subroutine_list", lambda s: {}),
 	),
-	_read(
-		"search",
-		"Search the work",
-		(P.TASK_READ,),
-		"metacortex",
+	"search": Drive(
 		lambda c, s: c.tasks(workspace=s.slug, q="key"),
 		tool=("subroutine_search", lambda s: {"q": "key"}),
 	),
-	_read(
-		"documents",
-		"List the documents",
-		(P.TASK_READ,),
-		"metacortex",
+	"documents": Drive(
 		lambda c, s: c.documents(workspace=s.slug),
 	),
-	_read(
-		"count documents",
-		"Count the documents",
-		(P.TASK_READ,),
-		"metacortex",
+	"count documents": Drive(
 		lambda c, s: c.count_documents(workspace=s.slug),
 	),
-	_read(
-		"changes",
-		"Read what changed",
-		(),
-		"metacortex",
+	"changes": Drive(
 		lambda c, s: c.changes(workspace=s.slug),
 		tool=("subroutine_changes", lambda s: {}),
 	),
-	_read(
-		"journal",
-		"Read what happened",
-		(),
-		"metacortex",
+	"journal": Drive(
 		lambda c, s: c.journal(workspace=s.slug),
 		tool=("subroutine_journal", lambda s: {}),
 	),
-	*(
-		_read(
-			f"export {kind}",
-			f"Take away every {kind.rstrip('s')} row",
-			(),
-			"metacortex",
-			_exporting(kind),
-		)
-		for kind in ("workspace", "tasks", "comments", "events")
-	),
-	# --- Reading one item ------------------------------------------------------------------------
-	_read(
-		"task",
-		"Read a task",
-		(P.TASK_READ,),
-		"web",
+	**{f"export {kind}": Drive(_exporting(kind)) for kind in ("workspace", "tasks", "comments", "events")},
+	"task": Drive(
 		lambda c, s: c.task(ref=s.refs["task"], workspace=s.slug),
 		tool=("subroutine_show", lambda s: {"ref": s.refs["task"]}),
 	),
-	_read(
-		"private task",
-		"Read a task in a private project",
-		(P.TASK_READ,),
-		"vault",
+	"private task": Drive(
 		lambda c, s: c.task(ref=s.refs["vault"], workspace=s.slug),
 		tool=("subroutine_show", lambda s: {"ref": s.refs["vault"]}),
 	),
-	_read(
-		"document",
-		"Read a document",
-		(P.TASK_READ,),
-		"web",
+	"document": Drive(
 		lambda c, s: c.document(ref=s.refs["document"], workspace=s.slug),
 		tool=("subroutine_show", lambda s: {"ref": s.refs["document"]}),
 	),
-	_read(
-		"comments",
-		"Read a task's comments",
-		(P.COMMENT_READ,),
-		"web",
+	"comments": Drive(
 		lambda c, s: c.comments(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"history",
-		"Read a task's history",
-		(P.TASK_READ,),
-		"web",
+	"history": Drive(
 		lambda c, s: c.history(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"item journal",
-		"Read what happened to a task",
-		(P.TASK_READ,),
-		"web",
+	"item journal": Drive(
 		lambda c, s: c.item_journal(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"links",
-		"Read a task's links",
-		(P.TASK_READ,),
-		"web",
+	"links": Drive(
 		lambda c, s: c.links(ref=s.refs["blocked"], workspace=s.slug),
 	),
-	_read(
-		"backlinks",
-		"Read what mentions a task",
-		(P.TASK_READ,),
-		"web",
+	"backlinks": Drive(
 		lambda c, s: c.backlinks(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"beneath",
-		"Read what is beneath a task",
-		(P.TASK_READ,),
-		"web",
+	"beneath": Drive(
 		lambda c, s: c.beneath(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"governing",
-		"Read what governs a task",
-		(P.TASK_READ,),
-		"web",
+	"governing": Drive(
 		lambda c, s: c.governing(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"verifications",
-		"Read what was checked against a task",
-		(P.TASK_READ,),
-		"web",
+	"verifications": Drive(
 		lambda c, s: c.verifications(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"proposed links",
-		"Read the links a task's words suggest",
-		(P.TASK_READ,),
-		"web",
+	"proposed links": Drive(
 		lambda c, s: c.proposed_links(ref=s.refs["task"], workspace=s.slug),
 	),
-	_read(
-		"occurrences",
-		"Read when a repeating task comes round",
-		(P.TASK_READ,),
-		"web",
+	"occurrences": Drive(
 		lambda c, s: c.occurrences(ref=s.refs["repeat"], workspace=s.slug),
 	),
-	# --- Writing work --------------------------------------------------------------------------
-	Act(
-		"capture",
-		"File a task in a project",
-		(P.TASK_WRITE,),
-		"web",
+	"capture": Drive(
 		lambda c, s: c.capture(text="Order a new phone", project="web", workspace=s.slug),
 		tool=("subroutine_add", lambda s: {"text": "Order a new phone +web"}),
 	),
-	Act(
-		"update",
-		"Retitle a task",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"update": Drive(
 		lambda c, s: c.update(ref=s.refs["task"], title="Fix it", workspace=s.slug),
 		tool=("subroutine_update", lambda s: {"ref": s.refs["task"], "title": "Fix it"}),
 	),
-	Act(
-		"schedule",
-		"Plan a task for a day",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"schedule": Drive(
 		lambda c, s: c.schedule(ref=s.refs["task"], starts=datetime.date(2031, 5, 6), workspace=s.slug),
 	),
-	Act(
-		"complete",
-		"Finish a task",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"complete": Drive(
 		lambda c, s: c.complete(ref=s.refs["task"], workspace=s.slug),
 		tool=("subroutine_done", lambda s: {"ref": s.refs["task"]}),
 	),
-	Act(
-		"complete beneath the trash",
-		"Finish a task whose parent is in the trash",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"complete beneath the trash": Drive(
 		lambda c, s: c.complete(ref=s.refs["beneath the trash"], workspace=s.slug),
 		tool=("subroutine_done", lambda s: {"ref": s.refs["beneath the trash"]}),
-		rule="Nothing in the trash, or beneath it, changes but by restoring or deleting it.",
 	),
-	Act(
-		"skip",
-		"Let one occurrence of a repeat go by",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"skip": Drive(
 		lambda c, s: c.skip(ref=s.refs["repeat"], workspace=s.slug),
 		tool=("subroutine_done", lambda s: {"ref": s.refs["repeat"], "skip": True}),
 	),
-	Act(
-		"move",
-		"Put a task under another",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"move": Drive(
 		lambda c, s: c.move(ref=s.refs["task"], parent=s.refs["other"], workspace=s.slug),
 	),
-	Act(
-		"claim",
-		"Take a task",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"claim": Drive(
 		lambda c, s: c.claim(ref=s.refs["task"], workspace=s.slug),
 		tool=("subroutine_claim", lambda s: {"ref": s.refs["task"]}),
 	),
-	Act(
-		"release",
-		"Give a task back",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"release": Drive(
 		lambda c, s: c.release(ref=s.refs["task"], workspace=s.slug),
 		tool=("subroutine_claim", lambda s: {"ref": s.refs["task"], "release": True}),
 	),
-	Act(
-		"discard",
-		"Put a task in the trash",
-		(P.TASK_READ, P.TASK_DELETE),
-		"web",
+	"discard": Drive(
 		lambda c, s: c.discard(ref=s.refs["task"], workspace=s.slug),
 	),
-	Act(
-		"undiscard",
-		"Take a task out of the trash",
-		(P.TASK_READ, P.TASK_DELETE),
-		"web",
+	"undiscard": Drive(
 		lambda c, s: c.undiscard(ref=s.refs["parent"], workspace=s.slug),
 	),
-	Act(
-		"verify",
-		"Record a check against a task",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"verify": Drive(
 		lambda c, s: c.verify(ref=s.refs["task"], passed=True, summary="Ran it.", workspace=s.slug),
 	),
-	Act(
-		"link",
-		"Link two tasks",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"link": Drive(
 		lambda c, s: c.link(
 			ref=s.refs["task"], link_type="blocks", target=s.refs["other"], workspace=s.slug
 		),
@@ -817,11 +744,7 @@ ACTS: tuple[Act, ...] = (
 			lambda s: {"ref": s.refs["task"], "other": s.refs["other"], "type": "blocks"},
 		),
 	),
-	Act(
-		"link to private work",
-		"Link a task to one in a private project",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"link to private work": Drive(
 		lambda c, s: c.link(
 			ref=s.refs["task"], link_type="blocks", target=s.refs["vault"], workspace=s.slug
 		),
@@ -829,82 +752,42 @@ ACTS: tuple[Act, ...] = (
 			"subroutine_link",
 			lambda s: {"ref": s.refs["task"], "other": s.refs["vault"], "type": "blocks"},
 		),
-		rule="Both ends must be work the principal can see.",
 	),
-	Act(
-		"unlink",
-		"Withdraw a link",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"unlink": Drive(
 		lambda c, s: c.unlink(ref=s.refs["blocked"], link_id=s.ids["link"], workspace=s.slug),
 	),
-	Act(
-		"remark",
-		"Comment on a task",
-		(P.TASK_READ, P.COMMENT_WRITE),
-		"web",
+	"remark": Drive(
 		lambda c, s: c.remark(ref=s.refs["task"], body="Seen.", workspace=s.slug),
 		tool=("subroutine_comment", lambda s: {"ref": s.refs["task"], "body": "Seen."}),
 	),
-	Act(
-		"uncomment",
-		"Delete a comment its author wrote",
-		(P.TASK_READ, P.COMMENT_READ, P.COMMENT_WRITE),
-		"web",
+	"uncomment": Drive(
 		lambda c, s: c.uncomment(
 			ref=s.refs["task"], comment_id=s.ids["hugo's comment"], workspace=s.slug
 		),
-		rule="A comment is deleted by its author or by an administrator.",
-		theirs="hugo",
 	),
-	Act(
-		"create document",
-		"Write a document",
-		(P.TASK_WRITE,),
-		"web",
+	"create document": Drive(
 		lambda c, s: c.create_document(title="On call", body="Rota.", project="web", workspace=s.slug),
 		tool=(
 			"subroutine_document",
 			lambda s: {"title": "On call", "body": "Rota.", "project": "web"},
 		),
 	),
-	Act(
-		"update document",
-		"Revise a document",
-		(P.TASK_READ, P.TASK_WRITE),
-		"web",
+	"update document": Drive(
 		lambda c, s: c.update_document(ref=s.refs["document"], title="Deploying", workspace=s.slug),
 		tool=("subroutine_document", lambda s: {"ref": s.refs["document"], "title": "Deploying"}),
 	),
-	# --- A workspace's vocabulary and views ------------------------------------------------------
-	Act(
-		"create status",
-		"Add a status",
-		(P.STATUS_WRITE,),
-		"metacortex",
+	"create status": Drive(
 		lambda c, s: c.create_status(
 			entity_type="task", key="waiting", label="Waiting", category="todo", workspace=s.slug
 		),
 	),
-	Act(
-		"update status",
-		"Rename a status",
-		(P.STATUS_WRITE,),
-		"metacortex",
+	"update status": Drive(
 		lambda c, s: c.update_status(which=s.ids["status"], label="On hold"),
 	),
-	Act(
-		"delete status",
-		"Remove a status",
-		(P.STATUS_WRITE,),
-		"metacortex",
+	"delete status": Drive(
 		lambda c, s: c.delete_status(which=s.ids["status"]),
 	),
-	Act(
-		"create link type",
-		"Add a link type",
-		(P.LINK_TYPE_WRITE,),
-		"metacortex",
+	"create link type": Drive(
 		lambda c, s: c.create_link_type(
 			key="echoes",
 			title="echoes",
@@ -913,227 +796,94 @@ ACTS: tuple[Act, ...] = (
 			workspace=s.slug,
 		),
 	),
-	Act(
-		"update link type",
-		"Reword a link type",
-		(P.LINK_TYPE_WRITE,),
-		"metacortex",
+	"update link type": Drive(
 		lambda c, s: c.update_link_type(which=s.ids["link type"], title="reflects"),
 	),
-	Act(
-		"delete link type",
-		"Remove a link type",
-		(P.LINK_TYPE_WRITE,),
-		"metacortex",
+	"delete link type": Drive(
 		lambda c, s: c.delete_link_type(which=s.ids["link type"]),
 	),
-	Act(
-		"create tag",
-		"Add a tag",
-		(P.TAG_WRITE,),
-		"metacortex",
+	"create tag": Drive(
 		lambda c, s: c.create_tag(name="urgent", workspace=s.slug),
 	),
-	Act(
-		"update tag",
-		"Rename a tag",
-		(P.TAG_WRITE,),
-		"metacortex",
+	"update tag": Drive(
 		lambda c, s: c.update_tag(which=s.ids["tag"], name="someday"),
 	),
-	Act(
-		"delete tag",
-		"Remove a tag",
-		(P.TAG_WRITE,),
-		"metacortex",
+	"delete tag": Drive(
 		lambda c, s: c.delete_tag(which=s.ids["tag"]),
 	),
-	Act(
-		"rename a hidden tag",
-		"Rename a tag used only on private work",
-		(P.TAG_WRITE,),
-		"metacortex",
+	"rename a hidden tag": Drive(
 		lambda c, s: c.update_tag(which=s.ids["hidden tag"], name="renamed"),
-		rule="A tag the principal cannot see is not there to rename.",
 	),
-	Act(
-		"save view",
-		"Save a view",
-		(),
-		"metacortex",
+	"save view": Drive(
 		lambda c, s: c.save_view(title="Notes", arrangement="list", q="notes", workspace=s.slug),
 	),
-	Act(
-		"update saved view",
-		"Change somebody else's shared view",
-		(),
-		"metacortex",
+	"update saved view": Drive(
 		lambda c, s: c.update_saved_view(key=s.names["view"], title="Deploying", workspace=s.slug),
-		rule="A saved view is changed by whoever saved it.",
 	),
-	Act(
-		"forget saved view",
-		"Forget somebody else's shared view",
-		(),
-		"metacortex",
+	"forget saved view": Drive(
 		lambda c, s: c.forget_saved_view(key=s.names["view"], workspace=s.slug),
-		rule="A saved view is forgotten by whoever saved it.",
-		theirs="laurence",
 	),
-	Act(
-		"stop sharing a view",
-		"Take somebody else's shared view from in front of the workspace",
-		(),
-		"metacortex",
+	"stop sharing a view": Drive(
 		lambda c, s: c.update_saved_view(key=s.names["view"], shared=False, workspace=s.slug),
-		rule="A shared view is managed by whoever saved it, or an administrator (#4525).",
-		theirs="laurence",
 	),
-	# --- Projects --------------------------------------------------------------------------------
-	Act(
-		"create project",
-		"Make a project",
-		(P.PROJECT_WRITE,),
-		"metacortex",
+	"create project": Drive(
 		lambda c, s: c.create_project(key="docs", title="Docs", workspace=s.slug),
 		tool=("subroutine_project", lambda s: {"key": "docs", "title": "Docs"}),
-		rule="A credential narrowed to projects makes none outside them (#4527).",
 	),
-	Act(
-		"update project",
-		"Retitle a project",
-		(P.PROJECT_WRITE,),
-		"web",
+	"update project": Drive(
 		lambda c, s: c.update_project("web", title="Website", workspace=s.slug),
 	),
-	Act(
-		"rename project",
-		"Change a project's key",
-		(P.PROJECT_WRITE,),
-		"ops",
+	"rename project": Drive(
 		lambda c, s: c.rename_project("ops", key="infra", workspace=s.slug),
 	),
-	Act(
-		"move project",
-		"Put a project inside another",
-		(P.PROJECT_WRITE,),
-		"ops",
+	"move project": Drive(
 		lambda c, s: c.move_project("ops", parent="web", workspace=s.slug),
-		rule="The new parent is written into, so it is within reach too.",
 	),
-	Act(
-		"reveal a private project",
-		"Make a private project public",
-		(P.PROJECT_WRITE,),
-		"vault",
+	"reveal a private project": Drive(
 		lambda c, s: c.update_project("vault", visibility="public", workspace=s.slug),
-		rule="Whoever stewards a private project decides who sees it (#4509).",
-		theirs="laurence",
 	),
-	Act(
-		"share project",
-		"Share a private project with one more person",
-		(P.PROJECT_WRITE,),
-		"vault",
+	"share project": Drive(
 		lambda c, s: c.share_project("vault", username=s.names["tank"], workspace=s.slug),
-		rule="Whoever stewards a private project decides who sees it (#4509).",
-		theirs="laurence",
 	),
-	Act(
-		"unshare project",
-		"Take a private project away from somebody",
-		(P.PROJECT_WRITE,),
-		"vault",
+	"unshare project": Drive(
 		lambda c, s: c.unshare_project(
 			"vault", username=s.people["carrieanne"].username, workspace=s.slug
 		),
-		rule="Whoever stewards a private project decides who sees it (#4509).",
 	),
-	Act(
-		"hide a project",
-		"Make a public project private",
-		(P.PROJECT_WRITE,),
-		"web",
+	"hide a project": Drive(
 		lambda c, s: c.update_project("web", visibility="private", workspace=s.slug),
-		rule="Whoever stewards a project decides who sees it (#4509).",
-		theirs="laurence",
 	),
-	Act(
-		"move work into a private project",
-		"Move a task out of a public project into a private one",
-		(P.TASK_READ, P.TASK_WRITE),
-		"vault",
+	"move work into a private project": Drive(
 		lambda c, s: c.update(ref=s.refs["task"], project="vault", workspace=s.slug),
 		tool=("subroutine_update", lambda s: {"ref": s.refs["task"], "project": "vault"}),
-		rule="Work leaves the sight of who can see it only by its project's steward (#4509).",
-		theirs="laurence",
 	),
-	# --- Workspaces ------------------------------------------------------------------------------
-	Act(
-		"create workspace",
-		"Make a workspace",
-		(P.INSTANCE_WORKSPACE_CREATE,),
-		"instance",
+	"create workspace": Drive(
 		lambda c, s: c.create_workspace(slug=f"nebula-{s.slug}", title="Nebula"),
 	),
-	Act(
-		"update workspace",
-		"Describe a workspace",
-		(P.WORKSPACE_WRITE,),
-		"metacortex",
+	"update workspace": Drive(
 		lambda c, s: c.update_workspace(s.slug, title="MetaCortex Inc"),
 	),
-	Act(
-		"rename workspace",
-		"Change a workspace's short name",
-		(P.WORKSPACE_WRITE,),
-		"metacortex",
+	"rename workspace": Drive(
 		lambda c, s: c.rename_workspace(s.slug, slug=f"mc-{s.slug}"),
 	),
-	Act(
-		"delete workspace",
-		"Delete a workspace",
-		(P.WORKSPACE_DELETE,),
-		"metacortex",
+	"delete workspace": Drive(
 		lambda c, s: c.delete_workspace(s.slug),
 	),
-	Act(
-		"restore workspace",
-		"Bring a deleted workspace back",
-		(P.WORKSPACE_DELETE,),
-		None,
+	"restore workspace": Drive(
 		lambda c, s: c.restore_workspace(s.names["deleted"]),
-		rule="Only somebody who could delete it brings a workspace back.",
 	),
-	Act(
-		"add member",
-		"Add somebody to a workspace",
-		(P.USER_ADMIN,),
-		"metacortex",
+	"add member": Drive(
 		lambda c, s: c.add_member(
 			username=s.people["marcus"].username, role="viewer", workspace=s.slug
 		),
 	),
-	Act(
-		"set member role",
-		"Change somebody's role",
-		(P.USER_ADMIN,),
-		"metacortex",
+	"set member role": Drive(
 		lambda c, s: c.set_member_role(username=s.names["tank"], role="viewer", workspace=s.slug),
 	),
-	Act(
-		"remove member",
-		"Take somebody out of a workspace",
-		(P.USER_ADMIN,),
-		"metacortex",
+	"remove member": Drive(
 		lambda c, s: c.remove_member(username=s.names["tank"], workspace=s.slug),
 	),
-	# --- Accounts and credentials ----------------------------------------------------------------
-	Act(
-		"set own timezone",
-		"Say where one keeps one's diary",
-		(),
-		None,
+	"set own timezone": Drive(
 		lambda c, s: c.set_timezone(username=c.me().user.username, timezone="Europe/London"),
 		route=lambda s, who: {
 			"method": "PATCH",
@@ -1141,111 +891,89 @@ ACTS: tuple[Act, ...] = (
 			"body": {"timezone": "Europe/London"},
 		},
 	),
-	Act(
-		"issue own token",
-		"Mint a credential for oneself",
-		(),
-		None,
+	"issue own token": Drive(
 		lambda c, s: c.issue_token(title="Spare"),
-		rule="A credential never mints a wider one (#4527).",
-		secret=True,
 	),
-	Act(
-		"create calendar",
-		"Mint a calendar feed for oneself",
-		(),
-		"metacortex",
+	"create calendar": Drive(
 		lambda c, s: c.create_calendar(title="Diary", workspace=s.slug),
-		rule="A credential never mints a wider one (#4527).",
-		secret=True,
 	),
-	Act(
-		"create user",
-		"Make an account for a person",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"create user": Drive(
 		lambda c, s: c.create_user(username=f"dozer-{s.slug}"),
-		rule="Only a person makes a person (#4515).",
 	),
-	Act(
-		"issue token for somebody",
-		"Mint a credential for somebody else",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"issue token for somebody": Drive(
 		lambda c, s: c.issue_token(title="Tank's spare", username=s.names["tank"]),
-		rule=SOMEBODY,
-		secret=True,
 	),
-	Act(
-		"sign-in link for somebody",
-		"Mint a sign-in link for somebody else",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"sign-in link for somebody": Drive(
 		lambda c, s: c.create_login_link(username=s.names["tank"]),
-		rule=SOMEBODY,
-		secret=True,
 	),
-	Act(
-		"sign somebody out",
-		"Sign another person out everywhere",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"sign somebody out": Drive(
 		lambda c, s: c.sign_out_everywhere(username=s.names["tank"]),
-		rule=SOMEBODY,
 	),
-	Act(
-		"revoke somebody's token",
-		"Revoke another person's credential",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"revoke somebody's token": Drive(
 		lambda c, s: c.revoke_token(id_or_prefix=s.names["tank's token"]),
-		rule=SOMEBODY,
 	),
-	Act(
-		"reset somebody's feed",
-		"Reset another person's calendar feed",
-		(),
-		None,
+	"reset somebody's feed": Drive(
 		lambda c, s: c.reset_calendar(id_or_prefix=s.names["tank's feed"]),
-		rule="Only its owner resets a feed (#4525).",
-		secret=True,
 	),
-	Act(
-		"revoke somebody's feed",
-		"Revoke another person's calendar feed",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"revoke somebody's feed": Drive(
 		lambda c, s: c.revoke_calendar(id_or_prefix=s.names["tank's feed"]),
-		rule=SOMEBODY,
 	),
-	Act(
-		"deactivate somebody",
-		"Mark somebody as having left",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"deactivate somebody": Drive(
 		lambda c, s: c.set_active(username=s.names["tank"], active=False),
-		rule=SOMEBODY,
 	),
-	Act(
-		"transfer an agent",
-		"Hand somebody's agent to another person",
-		(P.INSTANCE_USER_CREATE,),
-		"instance",
+	"transfer an agent": Drive(
 		lambda c, s: c.transfer_agent(username=s.names["claude"], to=s.names["tank"]),
-		rule=SOMEBODY,
 	),
-	Act(
-		"update instance",
-		"Rename the installation",
-		(P.INSTANCE_ADMIN,),
-		"instance",
+	"update instance": Drive(
 		lambda c, s: c.update_instance(name="MetaCortex Inc"),
 	),
-)
+	# **What only HTTP reaches** (`SR#4879`), sent through ``call_api``, which every client has.
+	"backups": Drive(_sent("GET", lambda s: "/v1/admin/backups")),
+	"take backup": Drive(_sent("POST", lambda s: "/v1/admin/backups")),
+	"workspaces": Drive(_sent("GET", lambda s: "/v1/workspaces")),
+	"workspace": Drive(_sent("GET", lambda s: f"/v1/workspaces/{s.slug}")),
+	"project": Drive(_sent("GET", lambda s: "/v1/projects/web", in_the_workspace=True)),
+	"project history": Drive(
+		_sent("GET", lambda s: "/v1/projects/web/events", in_the_workspace=True)
+	),
+	"delete project": Drive(_sent("DELETE", lambda s: "/v1/projects/web", in_the_workspace=True)),
+	"restore project": Drive(
+		_sent("POST", lambda s: "/v1/projects/web/restore", in_the_workspace=True)
+	),
+	"edit comment": Drive(
+		_sent(
+			"PATCH",
+			lambda s: "/v1/comments/" + s.ids["hugo's comment"],
+			body={"body": "Rewritten, as its author"},
+		)
+	),
+	"colour workspace": Drive(
+		lambda c, s: c.update_workspace(s.slug, settings={"appearance.colour": "green"}),
+	),
+}
+
+
+def _driven (described: subroutine.acts.Act) -> Act:
+	"""Return an act of the table as the matrix drives it."""
+
+	drive = DRIVES[described.key]
+
+	return Act(
+		described=described,
+		place="ops" if described.key in ON_OPS else CAST_PLACES[described.place],
+		call=drive.call,
+		tool=drive.tool,
+		route=drive.route,
+		theirs=THEIRS.get(described.key),
+	)
+
+
+#: Every act of the table that is driven here. One that is not is a failure of its own, in
+#: ``test_every_act_is_driven_and_nothing_else``, rather than an error collecting this file.
+ACTS: tuple[Act, ...] = tuple(_driven(act) for act in subroutine.acts.ACTS if act.key in DRIVES)
 
 #: Client methods that are not acts, each with why.
 NOT_AN_ACT: dict[str, str] = {
-	"call_api": "The way in that `subroutine_call_api` is: every act is driven through it.",
 	"read_repeat": "Reads a repeat's words on this machine, and asks the instance nothing.",
 	"close": "Closes the client.",
 }
@@ -1304,6 +1032,7 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.INSTANCE_WORKSPACE_CREATE, "instance"): _INSTALLATION,
 	(P.WORKSPACE_READ, "metacortex"): _ROLES | _OPS,
 	(P.WORKSPACE_WRITE, "metacortex"): _ADMINISTRATORS,
+	(P.WORKSPACE_ADMIN, "metacortex"): _ADMINISTRATORS,
 	(P.WORKSPACE_DELETE, "metacortex"): _INSTALLATION | {"owner"},
 	(P.USER_ADMIN, "metacortex"): _ADMINISTRATORS,
 	(P.STATUS_WRITE, "metacortex"): _ADMINISTRATORS,
@@ -1317,6 +1046,7 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.TASK_READ, "web"): _ROLES | _READING | {"writing only in another project"},
 	(P.TASK_WRITE, "web"): _ROLES - {"viewer"} | {"scoped to filing tasks"},
 	(P.TASK_DELETE, "web"): _ADMINISTRATORS,
+	(P.PROJECT_DELETE, "web"): _ADMINISTRATORS,
 	(P.COMMENT_READ, "web"): _ROLES | {"writing only in another project"},
 	(P.COMMENT_WRITE, "web"): _ROLES - {"viewer"} | {"scoped to reading tasks and commenting"},
 	(P.PROJECT_WRITE, "ops"): _ROLES - {"contributor", "viewer"} | _OPS,
@@ -1836,6 +1566,7 @@ def test_every_principal_meets_one_answer_through_every_transport (
 		return rendering(failure, tool)
 
 	monkeypatch.setattr(subroutine.mcp.protocol, "_explained", rendered)
+	monkeypatch.setattr(subroutine.db.backup, "take", _no_copy)
 	_driving_the_cast(cast, monkeypatch)
 	route = {} if act.route is not None else _route(act, cast)
 	cells: dict[str, list[str]] = {}
@@ -1889,6 +1620,23 @@ def test_the_decision_is_as_written (cast: Cast) -> None:
 				f"{verb} on {place}, {'reading' if reading else 'writing'}: "
 				f"{sorted(decided ^ written)} differ from the table"
 			)
+
+
+def test_every_act_is_driven_and_nothing_else () -> None:
+	"""**Every act the table describes is driven here, and nothing else is** (`SR#4579`).
+
+	The table is what ``docs/permissions.md`` lists, so an act it names and nothing drives would be a
+	published claim nothing tests, and a drive naming no act would test what nobody reads.
+	"""
+
+	described = {act.key for act in subroutine.acts.ACTS}
+	own = {act.key for act in subroutine.acts.ACTS if act.own}
+	projects = {act.key for act in subroutine.acts.ACTS if act.place == subroutine.acts.PROJECT}
+
+	assert described - set(DRIVES) == set(), "an act the table describes and nothing drives"
+	assert set(DRIVES) - described == set(), "a drive naming no act of the table"
+	assert set(THEIRS) == own, "THEIRS and the table's acts on somebody's own thing differ"
+	assert ON_OPS - projects == set(), "ON_OPS names an act that does not land on a project"
 
 
 def test_every_client_method_is_an_act_or_says_why_not () -> None:

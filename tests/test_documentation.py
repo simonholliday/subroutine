@@ -3126,13 +3126,15 @@ def test_nothing_is_excused_from_the_doctor_transcript_that_it_actually_shows ()
 #:
 #: **User-facing documentation, and nothing else** (Simon, same day; `#2595`): the README,
 #: ``CONTRIBUTING.md`` and ``docs/``. ``docs/design.md`` is out because it is frozen (`#945`), and
-#: ``docs/errors.md`` is in because its source is: the registry in ``subroutine/errors.py``.
+#: ``docs/errors.md`` is in because its source is: the registry in ``subroutine/errors.py``. So
+#: is ``docs/permissions.md``, written from ``subroutine/acts.py`` (`SR#4579`).
 SPACED_HYPHEN_PAGES = (
 	"README.md",
 	"CONTRIBUTING.md",
 	"docs/connecting.md",
 	"docs/errors.md",
 	"docs/hosting.md",
+	"docs/permissions.md",
 )
 
 #: The character the house style rules out, written as an escape so that the line says which
