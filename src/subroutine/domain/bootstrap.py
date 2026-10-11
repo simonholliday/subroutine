@@ -71,7 +71,6 @@ def initialise (
 	# a choice on the first day, and it is what every comparable tool does.
 	workspace_title: str = "Projects",
 	workspace_slug: str | None = None,
-	password: str | None = None,
 	timezone: str = "UTC",
 	display_name: str | None = None,
 ) -> Bootstrap:
@@ -99,7 +98,6 @@ def initialise (
 		session,
 		username=username,
 		display_name=display_name,
-		password=password,
 		timezone=timezone,
 		is_superuser=True,
 	)

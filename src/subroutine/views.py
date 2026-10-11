@@ -5531,7 +5531,7 @@ def user (
 	answers_to: str | None,
 	account_parent: str | None,
 ) -> User:
-	"""Render one account, without its email address or its password hash.
+	"""Render one account, without its email address.
 
 	**``answers_to`` is required rather than defaulted, and that is `#986`'s rule** (`#1420`).
 	A caller that had not looked would report *nobody is accountable for this agent* — a

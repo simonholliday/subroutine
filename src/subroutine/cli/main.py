@@ -657,12 +657,8 @@ def init (
 	instance_name: str = typer.Option(
 		"", "--instance-name", help="What to call this installation. Defaults to the hostname."
 	),
-	password_stdin: bool = typer.Option(
-		False,
-		"--password-stdin",
-		help="Read a password from standard input and store it. Nothing signs in with a password "
-		"yet - a browser signs in with 'login link'.",
-	),
+	# **Accepted, and true whether or not it is given**: nothing here prompts. It was read only by
+	# what took a password from the pipe (`#2923`), and an unattended install still passes it.
 	non_interactive: bool = typer.Option(
 		False, "--non-interactive", help="Never prompt; fail instead."
 	),
@@ -678,7 +674,6 @@ def init (
 
 	_warn_an_earlier_instance_is_elsewhere(settings)
 
-	password = _read_password(password_stdin, non_interactive)
 	_key, written_to = subroutine.config.ensure_secret_key(settings)
 
 	if verbose:
@@ -716,7 +711,6 @@ def init (
 					username=username or _system_username(),
 					instance_name=instance_name or _default_instance_name(),
 					workspace_title=workspace,
-					password=password,
 					timezone=settings.default_timezone,
 				)
 
@@ -4310,39 +4304,6 @@ def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> 
 		f"{subroutine.config.config_file_path()} - a URL given only in the environment is not "
 		f"recorded anywhere, so a service started without it will not find it."
 	)
-
-
-def _read_password (from_stdin: bool, non_interactive: bool) -> str | None:
-	"""Return the first user's password, if one was offered.
-
-	``None`` is the ordinary case. Local mode opens the database directly, so a password is
-	only wanted once there is a server to log in to — asking for one during setup would be
-	ceremony in service of nothing.
-
-	**Stored, and read by nothing yet** (`#3944`): a browser signs in with a link from ``login
-	link``, and ``users.verify_password`` is called by a test alone. Kept rather than dropped,
-	because a scripted install may pass the flag, and the help says so.
-
-	An empty pipe under ``--password-stdin`` is refused rather than treated as "no
-	password". Passing the flag states that a password is coming, so nothing arriving means
-	a broken pipeline — most likely a secret that failed to mount in a container. Creating
-	a passwordless account and exiting 0 would be the worst of the available outcomes,
-	because it succeeds and nobody investigates a zero exit code.
-	"""
-
-	if not from_stdin:
-		return None
-
-	password = sys.stdin.readline().rstrip("\n")
-
-	if not password:
-		_stop(
-			"--password-stdin was given but nothing arrived on standard input.",
-			"Pipe the password in, or leave the flag off to create an account with no "
-			"password (local use needs none).",
-		)
-
-	return password
 
 
 def _default_instance_name () -> str:

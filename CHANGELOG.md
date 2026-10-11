@@ -14,12 +14,17 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `a5e890283615`.
+> **This release changes the database schema**, to `139a6b351e14`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`subroutine init --password-stdin` is gone, and no account has a password.** *This is a
+  breaking change for a script that passes the flag*: it is refused before anything is set up.
+  The flag stored a hash that nothing ever checked - a browser signs in with a sign-in link, and
+  everything else presents a token - so the hashes go too, dropped by this release's migration,
+  and `argon2-cffi` is no longer installed with Subroutine.
 - **A repeat is created in the default status, and one given any other is refused naming
   `status`.** `POST /v1/tasks` with a repeat and a status such as `in_progress` kept the status
   where nothing shows it and handed back an occurrence that was open. Create it without one,

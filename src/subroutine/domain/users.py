@@ -1,9 +1,12 @@
-"""Creating people and machine identities, and giving people passwords.
+"""Creating people and machine identities.
 
-A service account has no password and exists so that an agent's work is attributable to
-something other than the human who happens to own its token (docs/design.md §5.2). An agent that
-cannot be named cannot be audited, which is why they are users here rather than a flag on
-a token.
+A service account exists so that an agent's work is attributable to something other than the
+human who happens to own its token (docs/design.md §5.2). An agent that cannot be named cannot
+be audited, which is why they are users here rather than a flag on a token.
+
+**Nobody here has a password** (`#2923`, Simon's decisions of 2026-09-20 and 2026-10-11). A
+person signs in to a browser with a sign-in link and everything else presents a token, so the
+hash ``init`` could be given to store was read by nothing, and it went with the flag that took it.
 """
 
 import uuid
@@ -11,7 +14,6 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
-import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
@@ -45,7 +47,6 @@ def create (
 	username: str,
 	email: str | None = None,
 	display_name: str | None = None,
-	password: str | None = None,
 	is_service_account: bool = False,
 	is_superuser: bool = False,
 	timezone: str | None = None,
@@ -142,19 +143,6 @@ def create (
 			display_name, field="display_name", limit=MAX_DISPLAY_NAME_LENGTH, label="display name"
 		)
 
-	if password is not None and is_service_account:
-		raise subroutine.errors.ValidationError(
-			"A service account has no password - it authenticates with a token.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="password",
-					code="invalid_field_value",
-					message="Service accounts cannot have a password.",
-					hint="Create it without one, then issue a token for it.",
-				)
-			],
-		)
-
 	_refuse_duplicate(session, "username", subroutine.db.models.identity.User.username_normalized, normalize(name))
 
 	normalized_email = None if email is None else normalize(email)
@@ -185,7 +173,6 @@ def create (
 		email=email,
 		email_normalized=normalized_email,
 		display_name=display_name,
-		password_hash=None if password is None else _hash(password),
 		is_service_account=is_service_account,
 		is_superuser=is_superuser,
 		responsible_user_id=answerable,
@@ -682,54 +669,6 @@ def _members (
 	)
 
 
-def set_password (
-	session: sqlalchemy.orm.Session,
-	user: subroutine.db.models.identity.User,
-	password: str,
-) -> None:
-	"""Replace a user's password, refusing one that is too weak to be worth storing."""
-
-	if user.is_service_account:
-		raise subroutine.errors.ValidationError(
-			"A service account has no password - it authenticates with a token.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="password",
-					code="invalid_field_value",
-					message="Service accounts cannot have a password.",
-				)
-			],
-		)
-
-	user.password_hash = _hash(password)
-	session.flush()
-
-
-def verify_password (
-	session: sqlalchemy.orm.Session,
-	user: subroutine.db.models.identity.User,
-	password: str,
-) -> bool:
-	"""Check a password, upgrading its stored hash if the parameters have moved on.
-
-	The rehash happens here because this is the only moment the plaintext exists. Skip it
-	and an installation's oldest accounts keep their weakest hashes for as long as they
-	live (docs/design.md §7.6).
-	"""
-
-	if user.password_hash is None:
-		return False
-
-	if not subroutine.auth.verify_password(user.password_hash, password):
-		return False
-
-	if subroutine.auth.password_needs_rehash(user.password_hash):
-		user.password_hash = subroutine.auth.hash_password(password)
-		session.flush()
-
-	return True
-
-
 def normalize (value: str) -> str:
 	"""Return the comparison form of a username or email address.
 
@@ -738,24 +677,6 @@ def normalize (value: str) -> str:
 	"""
 
 	return " ".join(value.strip().lower().split())
-
-
-def _hash (password: str) -> str:
-	"""Hash a password, refusing one that fails the published rules."""
-
-	problem = subroutine.auth.password_problem(password)
-
-	if problem is not None:
-		raise subroutine.errors.ValidationError(
-			problem,
-			errors=[
-				subroutine.errors.FieldError(
-					field="password", code="invalid_field_value", message=problem
-				)
-			],
-		)
-
-	return subroutine.auth.hash_password(password)
 
 
 def _refuse_duplicate (

@@ -525,7 +525,6 @@ PROSE: dict[str, tuple[Driver, str]] = {
 NOT_PROSE: dict[str, str] = {
 	"event_text.text": "a description or body already written, kept once (`#578`); what was typed passed `text.readable` on its way to the item",
 	"role.description": "seeded; no writer takes one from a caller",
-	"user.password_hash": "a hash computed here; what somebody typed is never stored",
 }
 
 

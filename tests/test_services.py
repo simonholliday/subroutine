@@ -593,42 +593,6 @@ def test_an_agent_whose_chain_reaches_nobody_follows_no_accounts_zone (
 	assert subroutine.domain.schedule.account_zone(session, first) is None
 
 
-def test_a_weak_password_is_refused_with_the_reason (
-	session: sqlalchemy.orm.Session,
-) -> None:
-	"""The message is for the person choosing it."""
-
-	with pytest.raises(subroutine.errors.ValidationError) as error:
-		subroutine.domain.users.create(session, username="someone", password="short")
-
-	assert error.value.errors[0].field == "password"
-	assert "12" in error.value.detail
-
-
-def test_a_service_account_cannot_have_a_password (
-	session: sqlalchemy.orm.Session,
-) -> None:
-	"""An agent authenticates with a token that can be bounded and revoked."""
-
-	with pytest.raises(subroutine.errors.ValidationError):
-		subroutine.domain.users.create(
-			session, username="claude", password="a decent passphrase", is_service_account=True
-		)
-
-
-def test_a_password_verifies_and_rehashes_transparently (
-	session: sqlalchemy.orm.Session,
-) -> None:
-	"""Login is the only moment the plaintext exists, so it is when the hash is upgraded."""
-
-	user = subroutine.domain.users.create(
-		session, username="simon", password="a decent passphrase"
-	)
-
-	assert subroutine.domain.users.verify_password(session, user, "a decent passphrase")
-	assert not subroutine.domain.users.verify_password(session, user, "the wrong one")
-
-
 def test_creating_a_project_makes_its_owner_a_member_of_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:

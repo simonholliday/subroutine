@@ -60,9 +60,9 @@ VARIABLES = ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
 #:
 #: **Spelled out rather than "anything beginning with ``init``"**, so a flag nobody has weighed
 #: runs for real. ``--verbose`` prints the database path, which a planted tree would report as
-#: the template's; ``--password-stdin`` reads input. Neither is here, and neither had to be
-#: excluded by name — **falling through is the default**, and that is what keeps this list from
-#: being the thing that has to be right.
+#: the template's. It is not here, and it did not have to be excluded by name — **falling
+#: through is the default**, and that is what keeps this list from being the thing that has to
+#: be right.
 #:
 #: ``--workspace`` changes what goes into the database and **not what ``init`` prints** —
 #: measured, all three say ``Ready. Try: subroutine add "something to do"`` — so a recorded

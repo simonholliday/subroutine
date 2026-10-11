@@ -2201,6 +2201,9 @@ on login when parameters change. Minimum length 12, checked against a small list
 common passwords; no composition rules (they demonstrably reduce entropy). Password
 login is not required — a service-account user may have none.
 
+*Changed since this was frozen: nothing stores or checks a password. A browser signs in with a
+sign-in link (§7.5).*
+
 ### 7.7 Rate limiting and abuse
 
 Per-token token-bucket limiter, configurable, disabled by default only when nothing outside
@@ -3651,6 +3654,9 @@ not a request for a passwordless account: passing the flag states that a passwor
 coming, so nothing arriving means a broken pipeline — usually a secret that failed to
 mount. Creating the account anyway and exiting 0 is the worst available outcome, because
 it succeeds and nobody investigates a zero exit code.
+
+*Changed since this was frozen: `--password-stdin` is gone, since nothing signed in with the
+password it stored.*
 
 **Local mode**, which is what makes §13.5b's three-command test achievable. When no
 connection URL is configured, the light commands (`add`, `today`, `ls`, `done`, `plan`)

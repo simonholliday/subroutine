@@ -2,8 +2,7 @@
 
 No database and no configuration, matching the module under test. The cases that matter
 are the ones where a plausible implementation is silently wrong: a token whose secret
-contains the delimiter, a corrupt hash that raises instead of refusing, and any route by
-which a secret reaches a string a program might log.
+contains the delimiter, and any route by which a secret reaches a string a program might log.
 """
 
 import pytest
@@ -100,61 +99,3 @@ def test_a_wrong_secret_does_not_match () -> None:
 	assert subroutine.auth.token_matches(secret, issued.token_hash)
 	assert not subroutine.auth.token_matches(secret + "x", issued.token_hash)
 	assert not subroutine.auth.token_matches(secret[:-1], issued.token_hash)
-
-
-def test_passwords_hash_with_argon2id_and_a_fresh_salt () -> None:
-	"""docs/design.md §7.6 names the variant; naming no algorithm is how MD5 happens."""
-
-	first = subroutine.auth.hash_password("correct horse battery")
-	second = subroutine.auth.hash_password("correct horse battery")
-
-	assert first.startswith("$argon2id$")
-	assert first != second, "identical passwords must not produce identical hashes"
-
-
-def test_a_password_verifies_only_against_itself () -> None:
-	"""The obvious property, and the one worth stating."""
-
-	stored = subroutine.auth.hash_password("correct horse battery")
-
-	assert subroutine.auth.verify_password(stored, "correct horse battery")
-	assert not subroutine.auth.verify_password(stored, "correct horse batteries")
-	assert not subroutine.auth.verify_password(stored, "")
-
-
-def test_a_corrupt_hash_refuses_the_login_rather_than_raising () -> None:
-	"""One damaged row should lock out one user, not crash every request."""
-
-	assert not subroutine.auth.verify_password("not a hash at all", "anything")
-	assert not subroutine.auth.verify_password("", "anything")
-
-
-def test_a_current_hash_does_not_need_rehashing_and_a_broken_one_does () -> None:
-	"""Rehash-on-login is what stops the oldest accounts keeping the weakest hashes."""
-
-	stored = subroutine.auth.hash_password("correct horse battery")
-
-	assert not subroutine.auth.password_needs_rehash(stored)
-	assert subroutine.auth.password_needs_rehash("not a hash at all")
-
-
-def test_short_and_common_passwords_are_refused_with_a_usable_reason () -> None:
-	"""The message is read by whoever is choosing the password."""
-
-	short = subroutine.auth.password_problem("abc")
-
-	assert short is not None
-	assert str(subroutine.auth.MINIMUM_PASSWORD_LENGTH) in short
-
-	common = subroutine.auth.password_problem("password1234")
-
-	assert common is not None
-	assert "commonly guessed" in common
-
-	assert subroutine.auth.password_problem("a decent enough passphrase") is None
-
-
-def test_password_rules_do_not_impose_composition () -> None:
-	"""docs/design.md §7.6: no character-class rules, because they reduce entropy in practice."""
-
-	assert subroutine.auth.password_problem("all lower case letters only") is None

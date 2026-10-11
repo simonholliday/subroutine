@@ -1462,21 +1462,21 @@ def test_no_topic_prints_markdown_a_terminal_shows_as_asterisks () -> None:
 @pytest.mark.parametrize(
 	("path", "said", "unsaid"),
 	[
-		(("init",), "Nothing signs in with a password yet", "for scripts."),
 		(("login", "link"), "nothing sends a sign-in link by email yet", "when email is not set up"),
 		(("user", "transfer"), "or to an agent whose own chain ends at one", "Only a person can take"),
 	],
-	ids=["init", "login-link", "user-transfer"],
+	ids=["login-link", "user-transfer"],
 )
 def test_the_help_says_what_the_program_does (
 	path: tuple[str, ...], said: str, unsaid: str
 ) -> None:
 	"""`SR#3944`: three commands' help described a program that is not this one.
 
-	``init --password-stdin`` stores a password nothing reads yet, ``login link`` spoke of signing
-	in by email, which nothing sends, and ``user transfer`` said only a person could take an agent
-	on, where one whose chain ends at a person may (`SR#476`). Read off the command objects, the
-	options' help included, since a rendered option wraps inside a table's borders.
+	``login link`` spoke of signing in by email, which nothing sends, and ``user transfer`` said
+	only a person could take an agent on, where one whose chain ends at a person may (`SR#476`).
+	The third was ``init --password-stdin``, which stored a password nothing read and has gone
+	with it (`SR#2923`). Read off the command objects, the options' help included, since a
+	rendered option wraps inside a table's borders.
 	"""
 
 	command: typing.Any = typer.main.get_command(subroutine.cli.main.app)

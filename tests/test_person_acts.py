@@ -290,7 +290,6 @@ NOT_DECIDING: dict[str, str] = {
 		"Who could repair a scope is people, not agents (decision `#4526`): whom a last-one "
 		"refusal counts, never what the actor may do."
 	),
-	"users.py:set_password": "An agent authenticates with a token and has no password. `#487`.",
 	"stewardship.py:_refuse": (
 		"Says *whoever that agent answers to* in the sentence refusing to manage what an agent "
 		"owns, which is wording; who may is decided before it (`SR#4572`, decision `#4525`)."

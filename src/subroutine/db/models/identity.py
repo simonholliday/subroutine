@@ -108,9 +108,9 @@ class User(
 ):
 	"""A person or a machine identity.
 
-	A service account has no password and exists so that an agent's work is attributable
-	to something other than the human who happens to own its token. An agent that cannot
-	be named cannot be audited.
+	A service account exists so that an agent's work is attributable to something other
+	than the human who happens to own its token. An agent that cannot be named cannot be
+	audited. Nobody has a password: a person signs in with a link, and the rest present a token.
 	"""
 
 	__tablename__ = "user"
@@ -149,9 +149,6 @@ class User(
 	)
 	display_name: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(255), nullable=True
-	)
-	password_hash: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.Text, nullable=True
 	)
 	is_service_account: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False

@@ -816,7 +816,6 @@ INTERNAL: dict[str, str] = {
 		"The lookup half of a credential. `views.Token` reports it as `prefix`; the column "
 		"name differs and the fact does not."
 	),
-	"User.password_hash": "§7.4 again. A hash is not a field, it is the absence of one.",
 	"Instance.events_archived_through": (
 		"The highest `seq` moved to the archive (`#251`), read only by a retention run to carry on "
 		"from. A cursor's refusal names the highest moved in its own workspaces instead (`#4293`)."
@@ -1541,10 +1540,6 @@ NOT_A_FIELD_A_CALLER_SENDS = {
 		"A key in `config.toml`, not a field in anything. Local mode is the path with no "
 		"request at all (§12.4), so there is nothing for a caller to send and the message "
 		"names the setting to edit."
-	),
-	"password": (
-		"`user create --password` at a terminal. No request model accepts one and none should "
-		"— §7.4 keeps credentials off the wire — so this refusal has no HTTP door."
 	),
 	"scope": (
 		"`agent create --scope`. A profile decides which verbs a credential carries, and the "

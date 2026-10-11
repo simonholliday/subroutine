@@ -2973,3 +2973,103 @@ def test_token_admin_leaves_every_role_and_nothing_else (migrated_url: str) -> N
 
 	finally:
 		engine.dispose()
+
+
+#: The revision before the stored password hash went (`SR#2923`).
+_BEFORE_PASSWORDS_WENT = "a5e890283615"
+
+
+def _user_columns (engine: sqlalchemy.engine.Engine) -> set[str]:
+	"""Return the names of the account table's columns, as the database has them now."""
+
+	return {column["name"] for column in sqlalchemy.inspect(engine).get_columns("user")}
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_the_password_hash_goes_and_every_account_stays (migrated_url: str) -> None:
+	"""`SR#2923`: the column nothing read is dropped, and nothing around it moves.
+
+	Run with a row in the table and rows pointing at it, `#1689`'s rule for a migration that
+	rebuilds a referenced table on SQLite: an account holding a hash, a workspace it made and its
+	membership of it. The account, its membership and what it owns are there afterwards and still
+	point at it. **Going back brings the column back empty**, since a hash is kept nowhere to
+	restore, and going forward again drops it as before.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+	account = subroutine.db.models.identity.User
+	member = subroutine.db.models.identity.WorkspaceMember
+	# **The table as it was**, since the model no longer has the column: the id keeps the model's
+	# type, which is what binds a UUID on SQLite.
+	before = sqlalchemy.table(
+		"user",
+		sqlalchemy.column("id", account.__table__.c.id.type),
+		sqlalchemy.column("password_hash", sqlalchemy.Text()),
+	)
+
+	try:
+		assert "password_hash" not in _user_columns(engine), "the head still has the column"
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_PASSWORDS_WENT)
+
+		assert "password_hash" in _user_columns(engine), "going back did not bring the column back"
+
+		with sqlalchemy.orm.Session(engine) as session:
+			keanu = account(username="keanu", username_normalized="keanu")
+			workspace = subroutine.db.models.identity.Workspace(slug="metacortex", title="Metacortex")
+
+			session.add_all([keanu, workspace])
+			session.flush()
+			subroutine.db.seed.seed_workspace(session, workspace)
+			owner = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Role).where(
+					subroutine.db.models.identity.Role.workspace_id == workspace.id,
+					subroutine.db.models.identity.Role.key == "owner",
+				)
+			).one()
+			session.add(member(workspace_id=workspace.id, user_id=keanu.id, role_id=owner.id))
+			session.execute(
+				before.update()
+				.where(before.c.id == keanu.id)
+				.values(password_hash="$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA")
+			)
+			session.commit()
+			keanu_id, workspace_id = keanu.id, workspace.id
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		assert "password_hash" not in _user_columns(engine)
+
+		with sqlalchemy.orm.Session(engine) as session:
+			kept = session.get(account, keanu_id)
+
+			assert kept is not None and kept.username == "keanu", "the account went with its hash"
+			assert session.scalars(
+				sqlalchemy.select(member.user_id).where(member.workspace_id == workspace_id)
+			).all() == [keanu_id], "the membership no longer points at the account"
+
+		with engine.connect() as connection:
+			if engine.dialect.name == "sqlite":
+				assert _foreign_keys(connection) == 1, "the rebuild left enforcement off"
+
+				broken = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+
+				assert broken == [], f"the rebuild left references pointing at nothing: {broken}"
+
+		assert subroutine.db.migrate.check_constraint_differences(engine) == []
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_PASSWORDS_WENT)
+
+		with engine.connect() as connection:
+			stored: str | None = connection.execute(
+				sqlalchemy.select(before.c.password_hash).where(before.c.id == keanu_id)
+			).scalar_one()
+
+		assert stored is None, "going back invented a hash, or kept one"
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		assert "password_hash" not in _user_columns(engine)
+
+	finally:
+		engine.dispose()

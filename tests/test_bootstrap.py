@@ -12,7 +12,6 @@ import shlex
 import subprocess
 import sys
 import typing
-import uuid
 
 import pytest
 import sqlalchemy
@@ -333,19 +332,6 @@ def test_the_inbox_is_findable_by_flag (session: sqlalchemy.orm.Session) -> None
 	)
 
 
-def test_a_password_may_be_set_at_setup (session: sqlalchemy.orm.Session) -> None:
-	"""Optional: local mode opens the database directly and needs no login."""
-
-	result = subroutine.domain.bootstrap.initialise(
-		session,
-		username=f"simon-{uuid.uuid4().hex[:6]}",
-		instance_name="Laptop",
-		password="a decent passphrase",
-	)
-
-	assert result.user.password_hash is not None
-
-
 def test_init_says_one_line_and_leaves_a_working_database (
 	isolated_home: dict[str, str],
 ) -> None:
@@ -486,31 +472,15 @@ def test_db_current_reports_an_empty_database_honestly (
 	assert "Schema is at" in after.stdout
 
 
-def test_an_empty_password_pipe_is_refused (isolated_home: dict[str, str]) -> None:
-	"""A container whose secret failed to mount must not come up looking healthy."""
+def test_the_password_flag_is_gone_and_asking_for_it_sets_nothing_up (
+	isolated_home: dict[str, str],
+) -> None:
+	"""`SR#2923`: the flag stored a hash that nothing read, and it went with the hash.
 
-	result = subprocess.run(
-		[
-			sys.executable,
-			"-c",
-			"import subroutine.cli.main; subroutine.cli.main.main()",
-			"init",
-			"--password-stdin",
-		],
-		input="",
-		capture_output=True,
-		text=True,
-		env=_child(isolated_home),
-		check=False,
-	)
-
-	assert result.returncode == 1
-	assert "--password-stdin" in result.stderr
-	assert "Ready." not in result.stdout
-
-
-def test_a_supplied_password_is_used (isolated_home: dict[str, str]) -> None:
-	"""The flag still works when something actually arrives."""
+	It is refused as any option the program does not have is, and before anything is made: a
+	script that still passes it stops on a clean machine, where setting up without the password it
+	asked for would look like success.
+	"""
 
 	result = subprocess.run(
 		[
@@ -526,9 +496,12 @@ def test_a_supplied_password_is_used (isolated_home: dict[str, str]) -> None:
 		env=_child(isolated_home),
 		check=False,
 	)
+	database = pathlib.Path(isolated_home["XDG_DATA_HOME"]) / "subroutine" / "subroutine.db"
 
-	assert result.returncode == 0, result.stderr
-	assert result.stdout.strip() == EXPECTED_FIRST_LINE
+	assert result.returncode == 2, result.stderr
+	assert "--password-stdin" in result.stderr
+	assert "Ready." not in result.stdout
+	assert not database.exists(), "the flag was refused after the database was made"
 
 
 def test_a_broken_config_file_explains_itself (isolated_home: dict[str, str]) -> None:
