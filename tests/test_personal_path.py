@@ -14495,12 +14495,17 @@ def test_a_document_marked_to_bind_the_whole_workspace_says_so (
 ) -> None:
 	"""`SR#4133`: ``--binds`` on ``doc create`` and ``doc edit``, and ``show`` saying it while it is so.
 
-	A word a document cannot bind is refused naming the two it can.
+	A word a document cannot bind is refused naming the two it can. **A decision, since `SR#4853`**:
+	this marked a note, which binds nobody however it is marked, and ``show`` said it bound
+	everybody.
 	"""
 
 	run("init")
 	written = json.loads(
-		run("doc", "create", "Every agent reads this first", "--binds", "workspace", "--json").output
+		run(
+			"doc", "create", "Every agent reads this first",
+			"--type", "decision", "--binds", "workspace", "--json",
+		).output
 	)
 	ref = str(written["ref"])
 
@@ -14514,6 +14519,44 @@ def test_a_document_marked_to_bind_the_whole_workspace_says_so (
 	refused = run("doc", "edit", ref, "--binds", "everyone", expect=1)
 
 	assert "project, workspace" in refused.output, refused.output
+
+
+def test_show_says_a_marked_document_binds_everybody_only_where_it_does (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4853`: marked is not binding, and ``show`` said every marked document bound everybody.
+
+	A decision in force in a public project binds the whole workspace, and is said to. The same
+	mark on a draft, on a note and on a rule inside a private project binds nobody outside, and
+	each is said to be *marked to bind* it - the words for the mark, where the others are for what
+	it does.
+	"""
+
+	run("init")
+	run("project", "create", "vault", "Vault", "--private")
+
+	def shown (*written: str) -> str:
+		"""Write one document marked for the whole workspace, and return what ``show`` says of it."""
+
+		made = json.loads(run("doc", "create", *written, "--binds", "workspace", "--json").output)
+
+		return str(run("show", str(made["ref"])).output)
+
+	does = "binds the whole workspace"
+	marked = "marked to bind the whole workspace"
+	binding = shown("Every agent reads this first", "--type", "decision")
+
+	assert does in binding and marked not in binding, binding
+
+	for why, written in (
+		("a draft", ("A rule still being written", "--type", "decision", "--status", "draft")),
+		("a note", ("Something worth knowing",)),
+		("inside a private project", ("The vault opens at six", "--type", "decision", "--project", "vault")),
+	):
+		said = shown(*written)
+
+		assert marked in said, f"{why} is marked, and show does not say so: {said}"
+		assert does not in said, f"{why} binds nobody outside, and show says it binds everybody: {said}"
 
 
 def test_show_says_a_link_to_something_hidden_as_unseen_and_counts_what_it_sees (

@@ -6105,7 +6105,13 @@ def test_every_project_is_read_in_one_call () -> None:
 	class Client:
 		"""A client holding fifteen hundred projects, which gives as many as it is asked for."""
 
-		def projects (self, *, workspace: str | None = None, limit: int | None = None) -> Rows:
+		def projects (
+			self,
+			*,
+			workspace: str | None = None,
+			limit: int | None = None,
+			include_archived: bool = False,
+		) -> Rows:
 			"""Answer up to ``limit`` of them, and say whether there were more."""
 
 			asked.append(limit)
@@ -11507,11 +11513,16 @@ def test_a_document_marked_to_bind_the_whole_workspace_is_said_so_to_an_agent (
 	"""`SR#4133`: ``binds`` on ``subroutine_document``, said on the write and by the show.
 
 	Said only while it is so, as the command line says it: a document binds its own project until
-	somebody marks it, and a default nobody chose is not a fact.
+	somebody marks it, and a default nobody chose is not a fact. **A decision, since `SR#4853`**:
+	this marked a note, which binds nobody however it is marked.
 	"""
 
 	written, failed = _called(
-		bound, "subroutine_document", title="Every agent reads this first", binds="workspace"
+		bound,
+		"subroutine_document",
+		title="Every agent reads this first",
+		type="decision",
+		binds="workspace",
 	)
 
 	assert not failed, written
@@ -11529,6 +11540,39 @@ def test_a_document_marked_to_bind_the_whole_workspace_is_said_so_to_an_agent (
 
 	assert not failed, revised
 	assert "binds the whole workspace" not in _called(bound, "subroutine_show", ref=ref)[0]
+
+
+@pytest.mark.parametrize(
+	"written",
+	[
+		{"type": "decision", "status": "draft"},
+		{"type": "note"},
+	],
+	ids=["a draft", "a note"],
+)
+def test_a_marked_document_that_binds_nobody_is_said_to_be_marked_and_no_more (
+	bound: typing.Any, written: dict[str, str]
+) -> None:
+	"""`SR#4853`: marked is not binding, and an agent was told every marked document bound everybody.
+
+	On the write and by the show, a draft and a note marked for the whole workspace are *marked to
+	bind* it. Neither is in force for anybody, and an agent told one binds the whole workspace has
+	been told to follow a rule that is not one.
+	"""
+
+	answer, failed = _called(
+		bound, "subroutine_document", title="A rule still being written", binds="workspace", **written
+	)
+
+	assert not failed, answer
+
+	found = re.search(r"#(\d+)", answer)
+
+	assert found is not None, answer
+
+	for said in (answer, _called(bound, "subroutine_show", ref=int(found.group(1)))[0]):
+		assert "marked to bind the whole workspace" in said, said
+		assert "binds the whole workspace" not in said, said
 
 
 def _a_line_of_projects (
@@ -11667,6 +11711,78 @@ def test_the_conventions_index_reaches_the_projects_above_and_the_rules_for_the_
 	assert "One more is still a draft and is not listed above." in narrow, (
 		f"the drafts were not taken by the rule the index was: {narrow}"
 	)
+
+
+def test_a_rule_marked_inside_a_private_project_is_not_listed_as_one_for_the_whole_workspace (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#4853`: marked is not binding, and the index is where an agent reads what binds it.
+
+	The line of projects, and a private ``vault`` holding a decision in force marked for the whole
+	workspace. A reader standing in the blog who can see the vault was shown that rule as *filed
+	elsewhere that binds the whole workspace*. It binds nobody outside the vault, so it is left out
+	and counted with what was; the rule in ``ops`` that does bind everybody is listed as before.
+	**Standing in the vault it is listed, as marked.** And where the credential may not list
+	projects, which of the two a marked rule is cannot be told: both stay listed, as marked.
+	"""
+
+	slug = _a_line_of_projects(session)
+	web = session.scalars(
+		sqlalchemy.select(subroutine.db.models.project.Project).where(
+			subroutine.db.models.project.Project.key == "web",
+			subroutine.db.models.project.Project.workspace_id.in_(
+				sqlalchemy.select(subroutine.db.models.identity.Workspace.id).where(
+					subroutine.db.models.identity.Workspace.slug == slug
+				)
+			),
+		)
+	).one()
+	vault = subroutine.domain.projects.create(
+		session,
+		workspace_id=web.workspace_id,
+		key="vault",
+		title="Vault",
+		owner_id=web.owner_id,
+		visibility="private",
+	)
+	subroutine.domain.documents.create(
+		session,
+		project=vault,
+		title="The vault opens at six",
+		body="Decided.",
+		type_key="decision",
+		binds="workspace",
+	)
+	session.flush()
+
+	_marked_as(monkeypatch, "web/blog")
+	narrow = _bound_to(session, slug)
+
+	assert "The vault opens at six" not in narrow, narrow
+	assert "(ops, binds the whole workspace)" in narrow, narrow
+	assert "1 filed elsewhere that binds the whole workspace." in " ".join(narrow.split()), narrow
+	assert "3 more in force elsewhere in this workspace" in narrow, narrow
+
+	_marked_as(monkeypatch, "vault")
+	inside = _bound_to(session, slug)
+
+	assert "(vault, marked to bind the whole workspace)" in inside, inside
+	assert "(ops, binds the whole workspace)" in inside, inside
+
+	def forbidden (*_arguments: typing.Any, **_named: typing.Any) -> typing.NoReturn:
+		"""Refuse, as an instance does a credential that may not list projects."""
+
+		raise subroutine.errors.Forbidden("You may not list projects here.")
+
+	monkeypatch.setattr(subroutine.clients.base, "every_project", forbidden)
+	_marked_as(monkeypatch, "web/blog")
+	untold = _bound_to(session, slug)
+
+	assert "(ops, marked to bind the whole workspace)" in untold, untold
+	assert "(vault, marked to bind the whole workspace)" in untold, untold
+	assert "2 filed elsewhere that are marked to bind the whole workspace." in " ".join(
+		untold.split()
+	), untold
 
 
 def test_a_readers_draft_is_counted_however_many_other_drafts_the_workspace_holds (

@@ -591,12 +591,23 @@ def _conventions (
 
 	project = None if landed is None else landed.sent
 	listed: list[subroutine.views.Document] = []
+	# **Which projects are private, read once and only where a rule is marked** (`#4853`).
+	read: list[frozenset[str] | None] = []
+
+	def private () -> frozenset[str] | None:
+		"""Return the private projects this reader can see, or ``None`` where it may list none."""
+
+		if not read:
+			read.append(subroutine.clients.base.private_places(client, workspace=workspace))
+
+		return read[0]
+
 	in_force = 0
 	cut = False
 
 	for kind in subroutine.domain.documents.GOVERNING:
 		section, found, held, more = _governing(
-			client, workspace, kind, project, place, own
+			client, workspace, kind, project, place, own, private
 		)
 
 		lines += section
@@ -660,7 +671,7 @@ def _conventions (
 	if listed:
 		lines += [
 			"",
-			f"{len(listed)} in force{_counted(listed, project, place, own, where)}. Findings and notes",
+			f"{len(listed)} in force{_counted(listed, project, place, own, private, where)}. Findings and notes",
 			"are not listed here: they describe rather than bind, and",
 			'`subroutine_list` with `filter={"type.eq": "finding"}`, or "note", finds those. A code',
 			"review's *Not issues* section is worth reading before re-raising something it already",
@@ -731,6 +742,10 @@ IN_ITS_TREE = "in its tree"
 ABOVE_IT = "above it"
 FOR_THE_WORKSPACE = "for the workspace"
 
+#: Asks which projects are private, for telling a rule that binds everybody from one only marked
+#: to (`#4853`). A callable, so the projects are read once and only where a rule is marked.
+Private = typing.Callable[[], frozenset[str] | None]
+
 
 def _place (
 	client: subroutine.clients.base.Client, workspace: str | None, named: str | None
@@ -794,6 +809,7 @@ def _why_shown (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
+	private: Private,
 ) -> str | None:
 	"""Return why a reader standing in ``named`` is shown a document, or ``None`` - `#3673`.
 
@@ -801,6 +817,12 @@ def _why_shown (
 	the projects above are those whose path its own starts with. Where the path could not be read,
 	``own`` holds what the instance narrowed to instead. A document marked to bind the whole
 	workspace is shown wherever it is filed (decision `#4134`).
+
+	**Unless it is known to sit inside a private project** (`#4853`): such a rule binds nobody
+	standing outside that project, and a reader shared into it was shown it as one for the whole
+	workspace wherever they stood. Where this credential may not list projects that cannot be
+	told, and the rule stays listed: one shown that does not bind costs less than one hidden that
+	does.
 	"""
 
 	if named is None:
@@ -816,7 +838,11 @@ def _why_shown (
 		return ABOVE_IT
 
 	if getattr(document, "binds", None) == "workspace":
-		return FOR_THE_WORKSPACE
+		told = private()
+		said = subroutine.clients.base.said_to_bind(document, told)
+
+		if told is None or not path or said == subroutine.clients.base.BINDS_EVERYBODY:
+			return FOR_THE_WORKSPACE
 
 	return None
 
@@ -826,6 +852,7 @@ def _counted (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
+	private: Private,
 	shown: str | None = None,
 ) -> str:
 	"""Return where a narrowed reader's entries come from, said after their count - `#3673`.
@@ -837,7 +864,7 @@ def _counted (
 	if named is None:
 		return ""
 
-	sides = [_why_shown(one, named, place, own) for one in listed]
+	sides = [_why_shown(one, named, place, own, private) for one in listed]
 	mine, above, marked = (sides.count(side) for side in (IN_ITS_TREE, ABOVE_IT, FOR_THE_WORKSPACE))
 	parts = []
 
@@ -848,9 +875,14 @@ def _counted (
 		parts.append(f"{above} in the projects above it")
 
 	if marked:
-		parts.append(
-			f"{marked} filed elsewhere that {'binds' if marked == 1 else 'bind'} the whole workspace"
+		# **Bind, where that could be told** (`#4853`): a credential that may not list projects
+		# cannot tell a rule inside a private project from one that binds everybody.
+		does = (
+			("is" if marked == 1 else "are") + " marked to bind"
+			if private() is None
+			else ("binds" if marked == 1 else "bind")
 		)
+		parts.append(f"{marked} filed elsewhere that {does} the whole workspace")
 
 	return ": " + (parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1])
 
@@ -868,6 +900,7 @@ def _governing (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
+	private: Private,
 ) -> tuple[list[str], list[subroutine.views.Document], int, bool]:
 	"""Return one type's section, what it lists, how many are in force, and whether there were more.
 
@@ -898,7 +931,7 @@ def _governing (
 		limit=subroutine.clients.base.EVERY_ROW,
 	)
 	everything = list(listed)
-	found = [one for one in everything if _why_shown(one, named, place, own) is not None]
+	found = [one for one in everything if _why_shown(one, named, place, own, private) is not None]
 	cut = listed.has_more
 
 	if not found:
@@ -915,7 +948,7 @@ def _governing (
 		"",
 		kind.obliges,
 		"",
-		*[f"- **#{one.ref}**{_in_project(one)} - {_on_one_line(one.title)}" for one in found],
+		*[f"- **#{one.ref}**{_in_project(one, private)} - {_on_one_line(one.title)}" for one in found],
 	]
 
 	if cut:
@@ -940,7 +973,7 @@ def _governing (
 	return section, found, len(everything), cut
 
 
-def _in_project (document: subroutine.views.Document) -> str:
+def _in_project (document: subroutine.views.Document, private: Private) -> str:
 	"""Return where an entry is filed, as it is written after its number - `#3832`.
 
 	**On every entry**, because the index spans every project it is not narrowed from, and an
@@ -949,14 +982,16 @@ def _in_project (document: subroutine.views.Document) -> str:
 	rather than an empty pair of brackets.
 
 	**And whether it binds the whole workspace** (`#3673`, decision `#4134`), which is why an
-	entry from another part of the tree is listed at all.
+	entry from another part of the tree is listed at all. **In the words true of it** (`#4853`):
+	a rule marked inside a private project, or one whose project this credential cannot place, is
+	marked to bind and is not said to.
 	"""
 
 	path = getattr(document, "project_path", None)
 	said = [path] if isinstance(path, str) and path else []
 
 	if getattr(document, "binds", None) == "workspace":
-		said.append("binds the whole workspace")
+		said.append(subroutine.clients.base.said_to_bind(document, private()) or "")
 
 	return f" ({', '.join(said)})" if said else ""
 
@@ -3239,7 +3274,29 @@ def _item (
 	return document, "document"
 
 
-def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]:
+def _bound (
+	client: subroutine.clients.base.Client,
+	item: subroutine.views.Task | subroutine.views.Document,
+	workspace: str | None,
+) -> str | None:
+	"""Return what a document's mark amounts to, or ``None`` where it carries none - `#4853`.
+
+	The projects are read only for a document that is marked, which is the one case with
+	something to tell: a draft, a note, a rule in the trash and one inside a private project are
+	marked to bind the whole workspace and bind nobody outside.
+	"""
+
+	if not isinstance(item, subroutine.views.Document) or item.binds != "workspace":
+		return None
+
+	return subroutine.clients.base.said_to_bind(
+		item, subroutine.clients.base.private_places(client, workspace=workspace)
+	)
+
+
+def _more (
+	item: subroutine.views.Task | subroutine.views.Document, bound: str | None = None
+) -> list[str]:
 	"""Return the facts ``show`` promises that a listing row leaves out (`#674`).
 
 	Each is something somebody *chose*, which is `_facts`'s rule at the command line and the
@@ -3262,9 +3319,9 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	if subroutine.views.status_is_news(item):
 		facts.append(item.status)
 
-	# The command line's fact, in the same words (`#4133`).
-	if isinstance(item, subroutine.views.Document) and item.binds == "workspace":
-		facts.append("binds the whole workspace")
+	# The command line's fact, in the same words (`#4133`), and the words true of it (`#4853`).
+	if bound is not None:
+		facts.append(bound)
 
 	if isinstance(item, subroutine.views.Task):
 		# **Reported whether or not it has passed.** A defer is a decision somebody made, and
@@ -3401,7 +3458,7 @@ def _shown (
 	reading = _account_zone(client, workspace)
 
 	parts = [_line(found, now=subroutine.db.types.utcnow())]
-	more = _more(found)
+	more = _more(found, _bound(client, found, workspace))
 
 	# **And the status everything starts in, which `_more` leaves out** (`#3674`). Silence is
 	# `#168`'s rule for a row, where most items are open and saying so is noise. On the one tool
@@ -4535,8 +4592,12 @@ def _wrote (
 		if _text(arguments, "status") is not None:
 			answer = f"{answer}\n  {document.status}"
 
-		if document.binds == "workspace":
-			answer = f"{answer}\n  binds the whole workspace"
+		# **What its mark amounts to as written** (`#4853`): a draft marked for the workspace, or a
+		# rule written inside a private project, is marked to bind and binds nobody outside yet.
+		bound = _bound(client, document, workspace)
+
+		if bound is not None:
+			answer = f"{answer}\n  {bound}"
 
 		if told is not None:
 			answer = f"{answer}\n  {told}"

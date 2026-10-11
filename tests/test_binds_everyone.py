@@ -16,13 +16,17 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.clients.base
 import subroutine.clients.http
 import subroutine.connections
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.documents
 import subroutine.domain.projects
+import subroutine.errors
 import subroutine.mcp.tools
+import subroutine.views
 import test_api_tasks
 import test_document_binds
 
@@ -368,3 +372,116 @@ def test_a_draft_successor_is_marked_freely_and_put_in_force_by_somebody_who_may
 	assert world.call("GET", path).json()["binds"] == "workspace"
 	assert _as(world, contributor, "PATCH", path, json={"status": "active"}).status_code == 403
 	assert _as(world, member, "PATCH", path, json={"status": "active"}).status_code == 200
+
+
+def _marked (**facts: typing.Any) -> subroutine.views.Document:
+	"""Return a document view holding only what the wording of a mark reads, marked and binding."""
+
+	held: dict[str, typing.Any] = {
+		"binds": "workspace",
+		"type": "decision",
+		"status_category": subroutine.domain.documents.CURRENT_CATEGORY,
+		"deleted_at": None,
+		"project_path": "web/blog",
+	}
+
+	return subroutine.views.Document.model_construct(**{**held, **facts})
+
+
+@pytest.mark.parametrize(
+	("facts", "private", "said"),
+	[
+		({}, frozenset(), subroutine.clients.base.BINDS_EVERYBODY),
+		({}, frozenset({"ops"}), subroutine.clients.base.BINDS_EVERYBODY),
+		({"project_path": "webinar"}, frozenset({"web"}), subroutine.clients.base.BINDS_EVERYBODY),
+		({"binds": "project"}, frozenset(), None),
+		(
+			{"status_category": subroutine.domain.documents.DRAFT_CATEGORY},
+			frozenset(),
+			subroutine.clients.base.MARKED_TO_BIND,
+		),
+		({"type": "note"}, frozenset(), subroutine.clients.base.MARKED_TO_BIND),
+		(
+			{"deleted_at": subroutine.db.types.utcnow()},
+			frozenset(),
+			subroutine.clients.base.MARKED_TO_BIND,
+		),
+		({}, frozenset({"web/blog"}), subroutine.clients.base.MARKED_TO_BIND),
+		({}, frozenset({"web"}), subroutine.clients.base.MARKED_TO_BIND),
+		({}, None, subroutine.clients.base.MARKED_TO_BIND),
+		({"project_path": ""}, frozenset(), subroutine.clients.base.MARKED_TO_BIND),
+	],
+	ids=[
+		"in force and public",
+		"a private project elsewhere",
+		"a project whose name only starts the same",
+		"not marked",
+		"a draft",
+		"a note",
+		"in the trash",
+		"in a private project",
+		"beneath a private project",
+		"projects that could not be listed",
+		"no path to place it by",
+	],
+)
+def test_a_mark_is_said_to_bind_only_where_the_one_predicate_says_it_does (
+	facts: dict[str, typing.Any], private: frozenset[str] | None, said: str | None
+) -> None:
+	"""`SR#4853`: marked is not binding, and three surfaces read the mark alone.
+
+	``show``, the browser and the agent tools said *binds the whole workspace* of any marked
+	document: a draft, a note, a rule in the trash and one inside a private project, which bind
+	nobody outside. The words now follow :func:`subroutine.domain.documents.binds_everyone`, and
+	say only that it is marked where the predicate says no - or where it could not be asked,
+	because the projects could not be listed or the document names no path.
+	"""
+
+	assert subroutine.clients.base.said_to_bind(_marked(**facts), private) == said
+
+
+def test_the_private_places_include_archived_ones_and_are_untold_where_listing_is_refused () -> None:
+	"""`SR#4853`: what :func:`said_to_bind` is told, and the difference between none and unknown.
+
+	Finishing with a project does not make it public, so the archived are asked for too. A
+	credential that may not list projects is answered ``None`` - not an empty set, which would say
+	every marked rule sits in the open.
+	"""
+
+	class Listing:
+		"""A client that lists two projects, or refuses, and notes what it was asked."""
+
+		def __init__ (self, refuses: bool = False) -> None:
+			"""Remember whether to refuse."""
+
+			self.refuses = refuses
+			self.asked: dict[str, typing.Any] = {}
+
+		def projects (self, **asked: typing.Any) -> list[subroutine.views.Project]:
+			"""List a public project and a private one, as an instance would."""
+
+			self.asked = asked
+
+			if self.refuses:
+				raise subroutine.errors.Forbidden("You may not list projects here.")
+
+			# Only the two fields the reader takes, unpacked so the model's other fields are not asked for.
+			rows: list[dict[str, typing.Any]] = [
+				{"path": "web", "visibility": "public"},
+				{"path": "vault", "visibility": "private"},
+			]
+
+			return [subroutine.views.Project.model_construct(**row) for row in rows]
+
+	listing = Listing()
+	client = typing.cast(subroutine.clients.base.Client, listing)
+
+	assert subroutine.clients.base.private_places(client, workspace="metacortex") == frozenset(
+		{"vault"}
+	)
+	assert listing.asked["include_archived"] is True, listing.asked
+	assert listing.asked["workspace"] == "metacortex", listing.asked
+
+	refusing = typing.cast(subroutine.clients.base.Client, Listing(refuses=True))
+
+	assert subroutine.clients.base.private_places(refusing) is None

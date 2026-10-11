@@ -13183,6 +13183,10 @@ class Sections:
 	#: An empty ``remarks`` is what *no comments* looks like too, so it is said, on both paths.
 	comments_left_out: bool = False
 
+	#: What a document's mark amounts to, or ``None`` where it carries none (`#4853`). Gathered
+	#: here because telling a rule that binds everybody from one only marked to takes a read.
+	bound: str | None = None
+
 
 #: What a section returns when this instance is too old to have the route behind it.
 _Section = typing.TypeVar("_Section")
@@ -13219,6 +13223,25 @@ def _if_the_instance_can_answer (
 		return []
 
 
+def _bound (client: subroutine.clients.base.Client, located: Located) -> str | None:
+	"""Return what a document's mark amounts to, or ``None`` where it carries none - `#4853`.
+
+	**Marked is not binding**: a draft, a note, a rule in the trash and one inside a private project
+	bind nobody outside, and ``show`` said each bound the whole workspace. Whether it sits inside a
+	private project is not on the document, so the projects are read - only for a document that is
+	marked, which is the one case with something to tell.
+	"""
+
+	item = located.item
+
+	if not isinstance(item, subroutine.views.Document) or item.binds != "workspace":
+		return None
+
+	return subroutine.clients.base.said_to_bind(
+		item, subroutine.clients.base.private_places(client, workspace=located.workspace)
+	)
+
+
 def _sections (
 	client: subroutine.clients.base.Client, located: Located, *, history: bool
 ) -> Sections:
@@ -13242,6 +13265,7 @@ def _sections (
 
 	return Sections(
 		comments_left_out=left_out,
+		bound=_bound(client, located),
 		links=client.links(ref=located.ref, **where),
 		remarks=remarks,
 		referring=_if_the_instance_can_answer(
@@ -14017,7 +14041,7 @@ def _render_item (
 	heading.append(located.title, style=HEADING)
 	console.print(heading)
 
-	facts = _facts(located)
+	facts = _facts(located, gathered.bound)
 
 	if facts:
 		console.print(rich.text.Text(f"  {' · '.join(facts)}", style=DETAIL))
@@ -14423,7 +14447,7 @@ def _event_line (event: subroutine.views.Event) -> str:
 	return subroutine.views.happened(event)
 
 
-def _facts (located: Located) -> list[str]:
+def _facts (located: Located, bound: str | None = None) -> list[str]:
 	"""Return the things worth saying about an item beyond its title, and nothing more.
 
 	Each entry earns its place by having been *chosen*. A task of the default type says
@@ -14471,9 +14495,10 @@ def _facts (located: Located) -> list[str]:
 		facts.append(item.status_label or item.status)
 
 	# **Said only when it is so** (`#4133`): a document binds its own project until somebody marks
-	# it, and a default nobody chose is not a fact.
-	if isinstance(item, subroutine.views.Document) and item.binds == "workspace":
-		facts.append("binds the whole workspace")
+	# it, and a default nobody chose is not a fact. **And in the words that are true of it**
+	# (`#4853`): marked is not binding, so ``bound`` is what the mark amounts to, or nothing.
+	if bound is not None:
+		facts.append(bound)
 
 	if isinstance(item, subroutine.views.Task):
 		# **`_priority_cell`, not a second literal.** This printed `!4/u3` where the listing
