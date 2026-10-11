@@ -11,17 +11,25 @@ four separate confusions in one day came from a command acting on a different da
 the one the operator meant, and every one of them looked like success.
 """
 
+import datetime
 import pathlib
 import typing
+import zoneinfo
 
 import pytest
+import sqlalchemy
+import sqlalchemy.exc
 import typer.testing
 
 import subroutine.cli.main
 import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
+import subroutine.db.models.activity
+import subroutine.db.session
+import subroutine.db.types
 import subroutine.diagnosis
+import subroutine.domain.retention
 import subroutine.errors
 import subroutine.installations
 
@@ -639,3 +647,283 @@ class TestTheCommand:
 		done = runner.invoke(subroutine.cli.main.app, ["doctor"])
 
 		assert "- needs attention" in done.output, "the word, not only the colour"
+
+
+#: Well behind any floor a test here sets, so nothing depends on the hour the suite runs at.
+LONG_AGO = subroutine.db.types.utcnow() - datetime.timedelta(days=90)
+
+LIVE = typing.cast(sqlalchemy.Table, subroutine.db.models.activity.Event.__table__)
+
+
+def _printed (*arguments: str) -> str:
+	"""Run one command, which must succeed, and return what it printed, on one line."""
+
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, list(arguments))
+
+	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+
+	return " ".join(result.output.split())
+
+
+def _an_instance_with_work (home: pathlib.Path) -> pathlib.Path:
+	"""Set an instance up with three things filed, and return where its database is."""
+
+	_printed("init", "--workspace", "Metacortex")
+
+	for title in ("Fix the deploy script", "Take the red pill", "Ring the dentist"):
+		_printed("add", title)
+
+	return home / "xdg_data_home" / "subroutine" / "subroutine.db"
+
+
+def _aged (database: pathlib.Path, which: slice) -> int:
+	"""Date some of an instance's events ninety days back, by their order, and say how many."""
+
+	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
+
+	try:
+		with engine.begin() as connection:
+			numbers: list[int] = sorted(connection.scalars(sqlalchemy.select(LIVE.c.seq)))
+			chosen = numbers[which]
+			connection.execute(
+				sqlalchemy.update(LIVE).where(LIVE.c.seq.in_(chosen)).values(created_at=LONG_AGO)
+			)
+
+	finally:
+		engine.dispose()
+
+	return len(chosen)
+
+
+class TestTheRetentionFloor:
+	"""`SR#4248`: what a floor has left in the change feed is stated, and is never a fault.
+
+	``events_retention_days`` moves nothing by itself. A served instance moves events once a day
+	while it is in use and anything else takes ``db archive``, so an instance nobody serves, with
+	no timer, kept every event with a floor set and nothing said so.
+	"""
+
+	def test_no_floor_has_no_line_and_a_floor_with_nothing_past_it_says_so (
+		self, home: pathlib.Path
+	) -> None:
+		"""Unset is the default, where every event stays, and that wants no line."""
+
+		_an_instance_with_work(home)
+
+		assert "retention" not in _areas(subroutine.diagnosis.examine(subroutine.config.Settings()))
+
+		found = _named(
+			subroutine.diagnosis.examine(subroutine.config.Settings(events_retention_days=30)),
+			"retention",
+		)
+
+		assert found.detail == "30 days; nothing older is in the change feed"
+		assert found.ok and not found.unknown
+
+		# **One day is a day**, as `db archive` says it (`SR#4299`).
+		single = subroutine.diagnosis._the_retention(subroutine.config.Settings(events_retention_days=1))
+
+		assert [one.detail for one in single] == ["1 day; nothing older is in the change feed"]
+
+	def test_events_past_the_floor_are_counted_and_the_command_named_moves_that_many (
+		self, home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+	) -> None:
+		"""Stated with the day of the oldest, exit code untouched, and true of ``db archive``.
+
+		Every event is aged, and the newest always stays: so the count is one fewer than there
+		are, which is what a run then says it moved.
+		"""
+
+		database = _an_instance_with_work(home)
+		movable = _aged(database, slice(None)) - 1
+		monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", "30")
+
+		said = _printed("doctor")
+
+		assert (
+			f"retention 30 days; {movable} events older than that are still in the change feed, "
+			"the oldest from "
+		) in said, said
+		assert "'subroutine db archive' moves them" in said, said
+		assert "Nothing here needs attention." in said and "- needs attention" not in said, said
+
+		assert f"Moved {movable} events older than 30 days" in _printed("db", "archive")
+		assert "retention 30 days; nothing older is in the change feed" in _printed("doctor")
+
+	def test_events_held_behind_newer_ones_are_said_to_wait_and_no_command_is_named (
+		self, home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+	) -> None:
+		"""A run moves only a run of old events, so ``db archive`` would move none of these."""
+
+		database = _an_instance_with_work(home)
+		_aged(database, slice(-2, -1))
+		monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", "30")
+
+		said = _printed("doctor")
+
+		assert (
+			"retention 30 days; 1 event older than that is held behind newer ones, and moves "
+			"when those are old enough too"
+		) in said, said
+		assert "db archive" not in said, said
+		assert "Nothing moved." in _printed("db", "archive")
+
+	@pytest.mark.parametrize(
+		"failure",
+		[
+			RuntimeError("database is locked"),
+			sqlalchemy.exc.OperationalError(
+				"SELECT count(*) FROM event", {}, RuntimeError("database is\nlocked")
+			),
+		],
+		ids=["an error of any kind", "the database's own, wrapped with its statement"],
+	)
+	def test_a_feed_that_cannot_be_read_is_said_and_the_rest_is_still_reported (
+		self, home: pathlib.Path, monkeypatch: pytest.MonkeyPatch, failure: Exception
+	) -> None:
+		"""Nothing here raises: the floor is still stated, as something that could not be looked at.
+
+		**In the database's own words, on one line**: what SQLAlchemy raises carries the statement
+		and a link over several lines, which is no use in a report read a line at a time.
+		"""
+
+		_an_instance_with_work(home)
+
+		def locked (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.Any:
+			"""Fail the way a database another process holds does."""
+
+			raise failure
+
+		monkeypatch.setattr(subroutine.domain.retention, "waiting", locked)
+		monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", "30")
+
+		found = subroutine.diagnosis.examine(subroutine.config.Settings())
+		stated = _named(found, "retention")
+
+		assert stated.detail == (
+			"30 days; the change feed could not be read to say what is past it: "
+			"RuntimeError: database is locked"
+		)
+		assert stated.ok and stated.unknown, stated
+		assert _areas(found)[-1] == "retention" and "backups" in _areas(found), _areas(found)
+		assert "Nothing here needs attention." in _printed("doctor")
+
+	def test_a_floor_set_where_nothing_is_set_up_has_no_line_and_makes_nothing (
+		self, home: pathlib.Path
+	) -> None:
+		"""Asked of the check itself, where nothing before it has looked for the database."""
+
+		settings = subroutine.config.Settings(events_retention_days=30)
+
+		assert subroutine.diagnosis._the_retention(settings) == []
+		assert not subroutine.config.data_home().exists(), "looking for events made the data directory"
+
+	def test_a_machine_whose_own_connection_is_off_has_no_line (self, home: pathlib.Path) -> None:
+		"""The setting is this installation's, and says nothing of an instance reached elsewhere.
+
+		A database is there, so it is the connection being off that decides: ``connections add``
+		leaves a machine this way when its work is on a served instance.
+		"""
+
+		_an_instance_with_work(home)
+		settings = subroutine.config.Settings(events_retention_days=30)
+
+		assert [one.area for one in subroutine.diagnosis._the_retention(settings)] == ["retention"]
+
+		configured = subroutine.config.config_file_path()
+		configured.write_text(
+			configured.read_text(encoding="utf-8")
+			+ "\n[connections.local]\nenabled = false\n"
+			+ '\n[connections.work]\nurl = "https://subroutine.example.test"\n',
+			encoding="utf-8",
+		)
+
+		assert subroutine.diagnosis._the_retention(subroutine.config.Settings(events_retention_days=30)) == []
+
+	def test_a_database_the_connections_could_not_reach_is_not_asked_again_for_its_events (
+		self, home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+	) -> None:
+		"""`SR#4411`'s rule, for this check: unreachable once is said once, and waited for once."""
+
+		asked: list[str] = []
+		made = subroutine.db.session.create_engine
+
+		def counted (url: str, *arguments: typing.Any, **named: typing.Any) -> typing.Any:
+			"""Make an engine as the program does, noting that one was made."""
+
+			asked.append(url)
+
+			return made(url, *arguments, **named)
+
+		monkeypatch.setattr(subroutine.db.session, "create_engine", counted)
+
+		found = subroutine.diagnosis.examine(
+			subroutine.config.Settings(
+				dev_mode=True,
+				database_url="postgresql+psycopg://nobody@127.0.0.1:1/none",
+				events_retention_days=30,
+			)
+		)
+
+		assert any(not one.ok for one in found), f"nothing said the database could not be reached: {found}"
+		assert "retention" not in _areas(found), found
+		assert len(asked) == 1, f"the database was asked for {len(asked)} times: {asked}"
+
+	@pytest.mark.parametrize(
+		("movable", "oldest", "held", "said"),
+		[
+			(
+				1_204,
+				datetime.datetime(2026, 8, 2, 9, 0, tzinfo=zoneinfo.ZoneInfo("Europe/London")),
+				0,
+				"1,204 events older than that are still in the change feed, the oldest from "
+				"2 August. 'subroutine db archive' moves them",
+			),
+			(
+				1,
+				datetime.datetime(2025, 12, 14, 9, 0, tzinfo=zoneinfo.ZoneInfo("Europe/London")),
+				7,
+				"1 event older than that is still in the change feed, from 14 December 2025. "
+				"'subroutine db archive' moves it",
+			),
+			(
+				0,
+				None,
+				3,
+				"3 events older than that are held behind newer ones, and move when those are old "
+				"enough too",
+			),
+			(
+				0,
+				None,
+				1,
+				"1 event older than that is held behind newer ones, and moves when those are old "
+				"enough too",
+			),
+			(0, None, 0, "nothing older is in the change feed"),
+		],
+	)
+	def test_what_it_says_of_each_state (
+		self, movable: int, oldest: datetime.datetime | None, held: int, said: str
+	) -> None:
+		"""Each sentence whole, since an operator reads it and a script may match on it."""
+
+		waiting = subroutine.domain.retention.Waiting(movable=movable, oldest=oldest, held=held)
+		now = datetime.datetime(2026, 10, 11, 14, 0, tzinfo=datetime.UTC)
+
+		assert subroutine.diagnosis._past_the_floor(waiting, now=now) == said
+
+	def test_the_year_is_judged_where_the_instance_is (self) -> None:
+		"""A day last year is given its year, and *this year* is the instance's own, not UTC's.
+
+		Two in the morning on New Year's Day in UTC is still the old year in Los Angeles, so an
+		event of 30 December there is this year's, and takes no year.
+		"""
+
+		there = zoneinfo.ZoneInfo("America/Los_Angeles")
+		waiting = subroutine.domain.retention.Waiting(
+			movable=2, oldest=datetime.datetime(2026, 12, 30, 10, 0, tzinfo=there), held=0
+		)
+		now = datetime.datetime(2027, 1, 1, 2, 0, tzinfo=datetime.UTC)
+
+		assert "the oldest from 30 December. " in subroutine.diagnosis._past_the_floor(waiting, now=now)

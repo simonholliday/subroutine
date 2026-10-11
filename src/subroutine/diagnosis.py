@@ -38,6 +38,7 @@ import subroutine.db.backup
 import subroutine.db.migrate
 import subroutine.db.session
 import subroutine.db.types
+import subroutine.domain.retention
 import subroutine.errors
 import subroutine.installations
 
@@ -84,6 +85,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 		*_the_handovers(resolved),
 		*_the_backups(resolved),
 		*_the_set_aside(resolved, connections),
+		*_the_retention(resolved, connections),
 	]
 
 
@@ -584,6 +586,110 @@ def _the_backups (settings: subroutine.config.Settings) -> list[Finding]:
 		),
 		*unfinished,
 	]
+
+
+def _the_retention (
+	settings: subroutine.config.Settings, connections: typing.Sequence[Finding] = ()
+) -> list[Finding]:
+	"""State what an operator's retention floor has left in the change feed - `#4248`.
+
+	**Stated, never judged**, as the age of the newest backup is. ``events_retention_days`` moves
+	nothing by itself: a served instance moves events at most once a day and only while somebody is
+	using it, and anything else takes ``subroutine db archive``. So an instance nobody serves, with
+	no timer, keeps every event in the feed with a floor set, and nothing said so. It is no fault:
+	nothing is lost there, and some events past the floor are the ordinary state between two runs,
+	so a check that failed on them would come and go by the hour.
+
+	**Only where a floor is set and this installation has a database of its own.** The setting is
+	this installation's, so it says nothing of an instance reached elsewhere; and with no floor
+	every event stays, which is the default and wants no line.
+
+	**Counted as a run would move them** (:func:`subroutine.domain.retention.waiting`), so the
+	command the line names does what the line says.
+
+	**Not where the connections' check has just failed to reach the database**, for
+	:func:`_the_set_aside`'s reason: it would wait out the same timeout to say the same thing.
+	"""
+
+	days = settings.events_retention_days
+
+	if days is None or settings.has_no_instance_yet():
+		return []
+
+	try:
+		local = {
+			one.name for one in subroutine.connections.roster(settings).connections if one.is_local
+		}
+
+	# **Reported by `_the_connections` already**, as the one line about a roster that does not load.
+	except subroutine.errors.SubroutineError:
+		return []
+
+	if not local or any(not one.ok and one.area in local for one in connections):
+		return []
+
+	floor = f"{days:,} day{'' if days == 1 else 's'}"
+	now = subroutine.db.types.utcnow()
+
+	try:
+		engine = subroutine.db.session.create_engine(settings.database_url)
+
+		try:
+			with subroutine.db.session.create_session_factory(engine)() as session:
+				waiting = subroutine.domain.retention.waiting(session, days=days, now=now)
+
+		finally:
+			engine.dispose()
+
+	# **Every failure, and never a fault**: the setting is still worth stating, and a database that
+	# cannot be read has its own line above where that is what is wrong.
+	except Exception as failure:
+		# **The database's own words, on one line.** SQLAlchemy's message carries the statement and
+		# a link over several lines, and what it wraps is the sentence an operator can act on.
+		reason = " ".join(_readable(getattr(failure, "orig", None) or failure).split())
+
+		return [
+			Finding(
+				area="retention",
+				detail=f"{floor}; the change feed could not be read to say what is past it: {reason}",
+				unknown=True,
+			)
+		]
+
+	return [Finding(area="retention", detail=f"{floor}; {_past_the_floor(waiting, now=now)}")]
+
+
+def _past_the_floor (
+	waiting: subroutine.domain.retention.Waiting, *, now: datetime.datetime
+) -> str:
+	"""Say what a retention floor has left in the change feed, as the rest of its line.
+
+	**The day, and the year only where it is not this one**: everything here is in the past, so a
+	bare day can only be this year's.
+	"""
+
+	if waiting.movable and waiting.oldest is not None:
+		one = waiting.movable == 1
+		day = waiting.oldest
+		year = "" if day.year == now.astimezone(day.tzinfo).year else f" {day.year}"
+
+		return (
+			f"{waiting.movable:,} event{'' if one else 's'} older than that "
+			f"{'is' if one else 'are'} still in the change feed, {'' if one else 'the oldest '}from "
+			f"{day.day} {day:%B}{year}. 'subroutine db archive' moves {'it' if one else 'them'}"
+		)
+
+	# **What `db archive` says of them** (`#4442`): a run moves only a run of old events, so these
+	# wait for a younger one numbered before them, and no command moves them sooner.
+	if waiting.held:
+		one = waiting.held == 1
+
+		return (
+			f"{waiting.held:,} event{'' if one else 's'} older than that {'is' if one else 'are'} "
+			f"held behind newer ones, and move{'s' if one else ''} when those are old enough too"
+		)
+
+	return "nothing older is in the change feed"
 
 
 def _marked (copy: subroutine.db.backup.Unfinished, *, now: datetime.datetime) -> Finding:

@@ -3034,6 +3034,11 @@ NOT_IN_THE_DOCTOR_TRANSCRIPT = {
 		"credential the plugin's tools there do not use, and the service's account runs it in "
 		"its own directory, which has none"
 	),
+	"retention": (
+		"reported only where `events_retention_days` is set, and the server this page describes "
+		"sets none: unset is the default, every event then stays in the change feed, and "
+		"`_the_retention` has nothing to state"
+	),
 }
 
 

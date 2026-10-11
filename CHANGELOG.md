@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`subroutine doctor` says what a retention floor has left in the change feed.** Where
+  `events_retention_days` is set, a `retention` line states the floor and how many events past
+  it are still there, with the day of the oldest, and names `subroutine db archive`, which
+  moves them. It is stated and never counted as a fault: a served instance moves them once a
+  day while it is in use, so some are there between runs. An instance nobody serves, with no
+  timer, kept every one and nothing said so.
 - **A document marked for the whole workspace is said to bind it only where it does.** `show`,
   the agent tools and the browser said *binds the whole workspace* of any marked document - a
   draft, a note, a rule in the trash, one inside a private project - which bind nobody outside.

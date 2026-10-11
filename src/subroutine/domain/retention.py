@@ -16,6 +16,7 @@ import datetime
 import logging
 import threading
 import typing
+import zoneinfo
 
 import sqlalchemy
 import sqlalchemy.exc
@@ -132,6 +133,67 @@ def held_back (session: sqlalchemy.orm.Session, *, days: int, now: datetime.date
 		)
 		or 0
 	)
+
+
+@dataclasses.dataclass(frozen=True)
+class Waiting:
+	"""What a run would find now: what it would move, and what would wait - `#4248`."""
+
+	#: How many events a run would move.
+	movable: int
+
+	#: When the oldest of those was recorded, in the instance's own zone. ``None`` with none.
+	oldest: datetime.datetime | None
+
+	#: How many more are past the floor and held behind a younger event (:func:`held_back`).
+	held: int
+
+
+def waiting (session: sqlalchemy.orm.Session, *, days: int, now: datetime.datetime) -> Waiting:
+	"""Return what a run would move now and what it would leave waiting, moving nothing.
+
+	For ``subroutine doctor``, which states it (`#4248`). **Asked of :func:`due` and
+	:func:`held_back`, never counted afresh**, so what is said to be waiting is what a run moves. A
+	count of every event past the floor would take in the newest, which always stays, and the ones
+	held behind a younger event, and the command named beside the count would move neither.
+	"""
+
+	live = subroutine.db.models.activity.Event
+	target = due(session, days=days, now=now)
+	held = held_back(session, days=days, now=now)
+
+	if target is None:
+		return Waiting(movable=0, oldest=None, held=held)
+
+	movable, oldest = session.execute(
+		sqlalchemy.select(sqlalchemy.func.count(), sqlalchemy.func.min(live.created_at)).where(
+			live.seq <= target
+		)
+	).one()
+
+	return Waiting(movable=int(movable), oldest=_where_the_instance_is(session, oldest), held=held)
+
+
+def _where_the_instance_is (
+	session: sqlalchemy.orm.Session, moment: datetime.datetime | None
+) -> datetime.datetime | None:
+	"""Return a moment in the zone this instance was set up in, or as it came where that is unknown.
+
+	A day is a different day east and west of where it was recorded, and an instance has a place
+	of its own (docs/design.md §6.5's last step), which is where its operator reads the day in.
+	"""
+
+	if moment is None:
+		return None
+
+	name = session.scalar(sqlalchemy.select(subroutine.db.models.system.Instance.timezone))
+
+	try:
+		return moment.astimezone(zoneinfo.ZoneInfo(name)) if name else moment
+
+	# A zone this machine's database of them does not have, which a copied instance can name.
+	except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+		return moment
 
 
 def move (

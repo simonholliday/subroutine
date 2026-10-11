@@ -127,6 +127,98 @@ def test_the_newest_event_stays_however_old (world: test_api_tasks.World) -> Non
 	assert world.session.scalars(sqlalchemy.select(LIVE.c.seq)).all() == [newest]
 
 
+def _waiting (world: test_api_tasks.World) -> subroutine.domain.retention.Waiting:
+	"""Ask what a run would move now and what it would leave, as ``doctor`` does."""
+
+	world.session.flush()
+
+	return subroutine.domain.retention.waiting(
+		world.session, days=DAYS, now=subroutine.db.types.utcnow()
+	)
+
+
+@pytest.mark.parametrize(
+	"arranged",
+	["nothing old", "old ones and a new one", "every one old", "an old one behind a new one"],
+)
+def test_what_is_said_to_wait_is_what_a_run_then_moves (
+	world: test_api_tasks.World, arranged: str
+) -> None:
+	"""`SR#4248`: ``doctor`` names ``db archive`` beside a count, so the count is a run's own.
+
+	A count of every event past the floor is not that: the newest always stays, and an old event
+	numbered after a young one waits for it, so the command named would move fewer than were said.
+	**Driven**: whatever is said to be movable, a run then moves exactly that many.
+	"""
+
+	_filed(world, "Fix the deploy script")
+	behind = 0
+
+	if arranged == "old ones and a new one":
+		_aged(world.session)
+		_filed(world, "Take the red pill")
+
+	if arranged == "every one old":
+		_filed(world, "Take the red pill")
+		_aged(world.session)
+
+	if arranged == "an old one behind a new one":
+		carried = _filed(world, "Set up the build")
+		_filed(world, "Take the red pill")
+
+		for event in world.session.scalars(sqlalchemy.select(subroutine.db.models.activity.Event)):
+			if str(event.entity_id) == carried["id"]:
+				event.created_at = LONG_AGO
+				behind += 1
+
+	live = _count(world.session, LIVE)
+	said = _waiting(world)
+	moved = _archived(world).moved
+
+	assert said.movable == moved, f"{said.movable} were said to be movable and a run moved {moved}"
+	assert said.held == behind, said
+	assert said.oldest == (LONG_AGO if moved else None), said
+	assert (moved > 0) == (arranged in {"old ones and a new one", "every one old"}), moved
+	assert arranged != "every one old" or moved == live - 1, "the newest always stays"
+	assert _waiting(world).movable == 0, "a run left something it was said it would move"
+
+
+@pytest.mark.parametrize(
+	("zone", "day", "hour"),
+	[("Pacific/Auckland", 2, 11), ("America/Los_Angeles", 1, 16), ("Mars/Olympus", 1, 23)],
+)
+def test_the_oldest_is_dated_where_the_instance_is (
+	world: test_api_tasks.World, zone: str, day: int, hour: int
+) -> None:
+	"""`SR#4248`: the day an operator is told is their instance's own, east or west of UTC.
+
+	And a zone this machine has no record of, which a copied instance can name, leaves the moment
+	as it was recorded - never a failure in a command that reports on a broken machine.
+	"""
+
+	_filed(world, "Fix the deploy script")
+	later = _filed(world, "Set up the build")
+
+	# **Two old days, so the oldest is one of them**: the later one is past the floor as well.
+	for event in world.session.scalars(sqlalchemy.select(subroutine.db.models.activity.Event)):
+		event.created_at = (
+			datetime.datetime(2026, 9, 1, 12, 0, tzinfo=datetime.UTC)
+			if str(event.entity_id) == later["id"]
+			else datetime.datetime(2026, 8, 1, 23, 30, tzinfo=datetime.UTC)
+		)
+
+	_filed(world, "Take the red pill")
+	instance = world.session.scalar(sqlalchemy.select(subroutine.db.models.system.Instance))
+
+	assert instance is not None
+
+	instance.timezone = zone
+	oldest = _waiting(world).oldest
+
+	assert oldest is not None
+	assert (oldest.month, oldest.day, oldest.hour) == (8, day, hour), oldest
+
+
 def test_a_cursor_behind_the_archive_is_expired_and_one_after_it_is_not (
 	world: test_api_tasks.World,
 ) -> None:
