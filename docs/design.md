@@ -17,6 +17,10 @@ decision says what changed and why, where an edit would rewrite history in place
 already the practice rather than a new rule: of the five sections amended between 4 and 17
 August, every one was also written up as a decision at the time.
 
+**Section 7 is the one exception.** It was rewritten once, for the permission redesign made for
+1.0, and frozen again with it, so it describes the permission model of 1.0 rather than the one
+first designed.
+
 **Two of these were live registers and are frozen with the rest.** §19 *Open decisions* and
 Appendix A *Known spec debt* record the state at the freeze rather than the state now. The live
 register is the project's own backlog.
@@ -1820,12 +1824,17 @@ on the backend.
 
 ## 7. Identity, authentication and authorisation
 
+*Rewritten once, for the permission redesign made for 1.0, and frozen again with it; every other
+section of this document stays as it was frozen. [`docs/permissions.md`](permissions.md) is the
+generated companion: each act an instance can be asked, the permission it asks and where, and the
+permissions each role a workspace is given carries.*
+
 ### 7.1 Permissions
 
-Permissions are strings, checked by the service layer. There are **two tiers**, and
-conflating them is the single easiest mistake to make here.
+Permissions are strings, and the domain checks them. There are **two tiers**, and conflating them
+is the single easiest mistake to make here.
 
-**Workspace permissions**, checked against a workspace and granted by a role:
+**Workspace permissions**, checked against a workspace or a project in it, and granted by a role:
 
 ```
 workspace:read   workspace:write   workspace:admin   workspace:delete
@@ -1833,281 +1842,357 @@ project:read     project:write     project:delete
 task:read        task:write        task:delete
 comment:read     comment:write
 tag:write        status:write      link_type:write
-user:admin       token:admin
+user:admin
 ```
 
-`workspace:delete` is separate from `workspace:admin` because §7.2 distinguishes `owner`
-from `admin` by that one act and by nothing else; without its own verb there is no way to
-express the difference. Tasks and documents share the `task:*` verbs — a document is a
-work item under the same permissions as the task beside it (§7.3a), and giving it its own
-set would double the matrix to no purpose. `user:admin` here means **managing membership
-of this workspace** — inviting, removing, changing a member's role. It does not mean
-creating an account, which is the tier below.
+**Each read verb gates one kind of row, wherever that kind appears** - a listing, a single fetch,
+the change feed, an item's history, the journals, search, counts and the export:
 
-**Instance permissions**, checked against nothing:
+| Read verb | Gates |
+| --- | --- |
+| `comment:read` | comments |
+| `task:read` | tasks and documents |
+| `project:read` | projects |
+| `workspace:read` | the workspace itself, its members, and its workspace-level events |
+
+A request whose only subject is a kind the credential cannot read is refused. In any other answer
+that kind is left out, and the answer says so wherever a person would otherwise read the gap as
+nothing there. Naming a project - as where to write, or as a filter - is not a read of it.
+
+`workspace:delete` is separate from `workspace:admin` because §7.2 tells `owner` from `admin` by
+that one act and nothing else. Tasks and documents share the `task:*` verbs: a document is work
+under the same permissions as the task beside it, and its own set would double every table to no
+purpose. `user:admin` is **who belongs to this workspace** - adding, removing and regrading a
+member - and not creating an account, which is the other tier.
+
+**Instance permissions**, checked against the installation:
 
 ```
 instance:workspace_create   instance:user_create   instance:admin
 ```
 
-These exist because the acts they cover have no workspace to be checked against, and a
-permission model that only knows how to answer "may this person do X *in workspace W*"
-cannot express them at all. Creating the second workspace happens outside every existing
-workspace. Creating a user account happens before that user belongs to anywhere. The
-first draft of this section had neither verb, and the effect was that the only way to
-perform either was to bypass the check — which is how permission systems acquire holes.
+These exist because the acts they cover have no workspace to be checked against: creating the
+second workspace happens outside every existing one, and creating an account happens before it
+belongs anywhere. A model that only answers "may this person do X *in workspace W*" cannot
+express them, and the first draft of this section, which had neither, could perform them only by
+bypassing the check.
 
-`instance:admin` covers the instance's own identity and settings: its name, the values in
-`config.toml` a running server may change, and any future operation that reads across
-every workspace at once.
+- **`instance:user_create` is *accounts***: everything done to another account - creating it,
+  deactivating and reactivating it, handing an agent over, and issuing, listing and revoking its
+  credentials, sign-in links, sessions and calendar feeds.
+- **`instance:admin` is *the installation***: its name and timezone, its backups, the listing of
+  every workspace, administering any workspace's membership and deleting it (§7.3), and rescuing
+  a project nobody can reach.
+- **`instance:workspace_create`** is creating a workspace.
 
-**Who holds them: superusers, and nobody else.** There is no role tier above `owner`,
-because roles are seeded per workspace (§7.2) and an instance-level role would have
-nowhere to live. `user.is_superuser` grants all three; every other user holds none.
-`subroutine init` sets it on the first user, who is by construction the person who
-installed the thing.
+**Superusers hold them, and nobody else.** No role carries an instance verb - roles are seeded per
+workspace, and an instance-level role would have nowhere to live - so `user.is_superuser` grants
+all three and every other account holds none. `subroutine init` sets it on the first account,
+which is by construction the person who installed the thing. A credential narrows them exactly as
+it narrows workspace verbs (§7.4): a superuser's credential carrying only `task:read` cannot
+create a workspace.
 
-**Token scopes narrow them exactly as they narrow workspace permissions.** A superuser's
-token scoped to `["task:read"]` cannot create a workspace, and §7.3's rule that
-superusers bypass roles but not token scopes is what makes that true. This is the
-property that makes it safe to answer "yes" to *can my agent create workspaces for me* —
-it can, if and only if you issued it a token that says so. A default agent token does not
-carry the `instance:*` scopes, and the refusal names the scope that was missing.
-
-Filed in Appendix A: whether an ordinary member should be able to create their own
-workspace. Superuser-only is the right default for a self-hosted installation with one
-administrator, and the obvious relaxation is an instance setting rather than a new role.
+Every surface that describes a credential's permissions says what each verb covers in words, from
+one map, so a holder of `instance:user_create` is told that it lets them deactivate people and act
+for them.
 
 ### 7.2 Roles
 
-Seeded per workspace, editable, stored as a permission list:
+**Every workspace is given five roles** - `owner`, `admin`, `member`, `contributor` and `viewer` -
+stored as data, and each member holds exactly one. Which permissions each carries is generated into
+[`docs/permissions.md`](permissions.md) from the seed that writes them, so this section describes
+them rather than listing them twice:
 
-| Role | Permissions |
+- **`owner` and `admin` hold every workspace permission**, and differ only in `workspace:delete`,
+  which an owner holds. A workspace's last owner cannot be removed or demoted (§7.3).
+- **`member`** reads everything and writes projects, tasks, documents, comments and tags.
+- **`contributor`** reads everything and writes tasks, documents and comments, but changes no
+  project.
+- **`viewer`** reads everything and changes nothing.
+
+**"Every workspace permission" stops at the workspace.** An owner is the top of one workspace, not
+of the installation: no role carries an instance verb, so an owner creates neither a second
+workspace nor an account unless they are also a superuser (§7.1). The first account `subroutine
+init` makes happens to be both.
+
+**Only `owner` and `admin` hold the `:delete` verbs.** A member closes, cancels and archives, which
+covers the ordinary reasons for wanting something gone, and cannot put a project or a task in the
+trash. Deletion is soft and recoverable (§6.9), so this is a narrow default rather than a safe one.
+
+### 7.3 Who may act
+
+**The domain decides every permission question, and resolves its own target.** A transport
+authenticates and states what it knows about the session - which door it came through, whether
+the connection is read-only (§13.7), and whether it arrived through the agent tools - and each of
+those only ever narrows. Every way in reaches the same check with the same answer: the terminal on
+a local database, the HTTP API, the agent tools at `/mcp`, `subroutine_call_api` and `subroutine
+mcp`. A test drives every act, as every kind of principal, through all five, and fails where any
+two disagree or any one disagrees with the decision written down beside it; `docs/permissions.md`
+is generated from the same act table.
+
+An act is allowed when every one of these holds:
+
+- **The account can act.** It is active; every account it answers to can act; and inside a
+  workspace, it and the person at the top of its chain are members there. Removing that person
+  from a workspace refuses their agents there, reading, writing and their calendar feeds alike,
+  until they are added back, with nothing re-issued. One predicate answers this at every door,
+  and for every account an act names.
+- **It is not a person's act asked by an agent.** A short list of acts is a person's alone -
+  making a superuser, creating a person, handing an agent over, naming who answers for one,
+  naming a person as a document's maintainer, holding a browser session, making an owner where
+  none can act, and changing the standing of, issuing for or stopping an account outside the
+  agent's own subtree. It is refused to an agent first, before any role or bypass, with one
+  sentence and one status. **An agent acts on accounts only within its own subtree** - itself and
+  the agents that answer to it.
+- **The verb is held.** Inside a workspace, by the account's role there; at the installation, by
+  being a superuser. A credential's verbs narrow it (§7.4), and so does the agent tools' ceiling:
+  a session that arrives through them is handed no secret, holds no instance verb, and holds
+  neither `workspace:admin` nor `workspace:delete`, whatever its credential allows.
+- **The place is within reach.** Every act lands on a place: an instance verb on the
+  installation, a verb asked with no project on its workspace, anything else on its project, and
+  a project move on both the project and where it goes. A read needs its place among the
+  credential's read places; any other act needs it among the write places and the read places
+  both (§7.4).
+- **A read-only session only reads.** That includes the acts that ask no verb at all - setting
+  one's own timezone, revoking one's own other credentials, saving a private view - so the rule
+  is "no act but reads", not "verbs within the reads".
+- **The work is in sight.** A private project, and everything beneath it, exists only for the
+  people it is shared with (§7.3a), whatever their role.
+
+**A superuser acts by their role inside a workspace**, like everybody else, with one clause: an
+instance administrator may administer the membership of, and delete, any live workspace, whether
+or not they belong to it. That is how an operator puts right a workspace with no owner who can
+act: they add or regrade a member, themselves included, and it is recorded as any regrading is. A
+superuser never bypasses a credential's narrowing, or a private project: a privacy control a role
+can override is not one.
+
+**Empty means "no narrowing", not "no permissions".** A credential issued without scopes, project
+scope or a pin carries its account's whole authority, and read as literal set algebra the rules
+above would give every default credential none. Stated because this is the paragraph an
+implementer reads.
+
+**Local mode is no exemption.** On a local database the terminal acts as the configured
+`local_user`, or the sole person, holding no credential, and every check runs exactly as it would
+over HTTP for that account. Holding the database file decides who you may be, never what that
+account may do (§12.1a).
+
+**Nothing in the trash changes but by restoring or deleting it.** What hangs off an item in the
+trash can still be withdrawn - a comment edited or deleted, a claim released, a link removed. What
+is *beneath* something in the trash stays hidden with it, and nothing is done through it until its
+container is restored, though a link to it can still be removed from its live end.
+
+**Removing, demoting or unsharing never leaves a scope with nobody who could repair it.** For each
+scope, the people who could repair it are people, not agents, who can act, are members there, hold
+its administering verb and, for a private project, can see it:
+
+| Scope | Who could repair it |
 | --- | --- |
-| `owner` | all, including `workspace:delete`; at least one per workspace |
-| `admin` | all except `workspace:delete` |
-| `member` | read all; `project:write`, `task:write`, `comment:write`, `tag:write` |
-| `contributor` | read all; `task:write`, `comment:write`; no project changes |
-| `viewer` | read only |
+| The installation | its superusers |
+| A workspace's administration | the people holding `workspace:admin` there |
+| A workspace's ownership | its owners |
+| A private project | its members who can see it |
 
-**"All" means all the workspace permissions, and stops there.** `owner` is the top of one
-workspace, not of the installation: it carries no `instance:*` verb, so a workspace owner
-cannot create a second workspace or a new account unless they are also a superuser (§7.1).
-The two are independent, and the first user created by `subroutine init` happens to be
-both.
+An act that would leave a scope with none of them is refused, and the refusal says what to do
+first. Deactivating an account is allowed, and says before and after which scopes it leaves
+without anybody - except the installation's last superuser who can act, whose deactivation is
+refused, since recovering an installation relies on there being one.
 
-**Only `owner` and `admin` get the `:delete` verbs.** A `member` can close, cancel and
-archive, which covers the ordinary reasons for wanting something gone, but cannot delete a
-project or a task. Deletion is soft and therefore recoverable (§6.9), so this is a
-narrow default rather than a safe one, and an installation that disagrees changes the
-`member` row — roles are data. Filed in Appendix A as worth revisiting once the CLI exists
-and the friction is observable rather than theoretical.
+**No answer and no refusal names what the caller cannot read.** A refusal that would name another
+row resolves it through the caller's reach first, and one they cannot read is *something you
+cannot see*, with a hint offering only what they can do. The one exception is a name somebody
+types - a project key, a view's name, a tag - which is refused as taken even when its holder is
+hidden: a name somebody types is not a secret.
 
-### 7.3 Authorisation resolution
+**Side effects do not escalate.** Creating a tag by naming it on a new task takes what filing the
+task takes, not `tag:write` - otherwise a contributor could not use `#tag` in quick capture, which
+would be an absurd failure.
 
-```
-effective = role_permissions(user, workspace)
-          ∩ token_scopes           (if the token narrows them)
-          ∩ token_project_scope    (restricts which rows, not which verbs)
-```
-
-For the instance tier (§7.1) there is no workspace, so there is no role to consult:
-
-```
-effective = (all instance permissions if user.is_superuser else ∅)
-          ∩ token_scopes           (if the token narrows them)
-```
-
-It is a separate check with a separate signature — one that takes no workspace — rather
-than the same function called with a placeholder. A sentinel workspace id threaded through
-the ordinary path would be a value every future query has to remember to exclude.
-
-**Empty means "no narrowing", not "no permissions".** `token.scopes == []` and
-`token.project_scope IS NULL` are sentinels meaning the token inherits its owner's
-authority unrestricted. Read as literal set algebra the formula above would give every
-default token zero permissions, which is the single easiest way to ship an API where
-nothing works. Stated explicitly because §7.3 is the paragraph an implementer reads.
-
-Superusers bypass role checks but **not** token scopes — otherwise a leaked
-admin-owned agent token is unbounded. They do **not** bypass project visibility either: a
-privacy control that a role can override is not a privacy control, and an operator with
-database access has other ways to reach the data honestly. Revisit if administering a
-private project turns out to need it.
-
-**`project_member.role_id` overrides the workspace role, for that project only.** The
-formula above says `role_permissions(user, workspace)`; the schema has carried a nullable
-project-level role since M1, documented as "NULL means the member keeps whatever role they
-hold at workspace level". Non-null therefore means *use this one instead*, and that is
-what makes a private project useful — an outside contributor can be given `contributor` on
-one project without being made a member of the workspace at all. The override applies
-nowhere else, and a workspace role still applies to every project without a row.
-
-**The check runs in the service layer**, not only at the transport. `tasks.create`,
-`tasks.update`, `projects.create`, `projects.move`, `workspaces.create`, `workspaces.add_member`
-and `users.create` all call `authorize()` (or `authorize_instance()`) before they change
-anything. Settled 2026-07-29, after a review found the layer entirely unenforced: the check
-existed, four documents said it ran, and nothing called it — so a token scoped to
-`task:read` created tasks freely.
-
-Enforcing at the service rather than at the router is what makes the CLI's local mode
-(§12.1a) a real boundary rather than a claim, and the API inherits it rather than having to
-repeat it. Services take `actor=None` for the one caller that runs before any principal
-exists — `domain.bootstrap` — and **a static test fails the build if any other module under
-`src` calls a mutating service without naming an actor**, which is the same instrument this
-section already prescribes for workspace scoping.
-
-**Every endpoint declares its required permission and the object it is checked against**,
-in a single table in `docs/permissions.md`, generated from the route decorators so it
-cannot drift. The permission-matrix test (§11.4) runs against that table. Two rules keep
-it short:
-
-- Entities introduced in §14 and §15 — criteria, verifications, decisions, notes, code
-  refs, comments, watches, claims — **inherit the permission of their parent task or
-  project**. Reading a task's verifications needs `task:read`; adding one needs
-  `task:write`. This avoids a permission verb per entity and is the behaviour anyone
-  would assume.
-- Side effects do not escalate. Auto-creating a tag during task creation (§5.8) requires
-  `task:write`, not `tag:write` — otherwise a `contributor` cannot use `#tag` in quick
-  capture, which would be an absurd failure.
-
-Every repository query is scoped by workspace through a single injected helper. A
-test asserts that no query in the codebase reaches the task or project tables without
-passing through it; this is the kind of invariant that is cheap to hold from the
-start and impossible to retrofit confidently.
+**The check runs in the domain, never only at the transport**, which is what makes local mode a
+boundary rather than a claim. Services take `actor=None` only for the one caller that runs before
+any principal exists - `domain.bootstrap` - and a static test fails the build if any other module
+calls a checked service without naming an actor. Every listing of tasks, documents and projects
+starts from one scoping module, and a test fails the build if a query reaches those tables any
+other way without a written reason.
 
 ### 7.3a Project visibility
 
-Permissions attach to **workspaces and projects only**. Tasks, documents, comments,
-criteria, verifications, links and code refs never carry their own permissions — they
-inherit from the project that contains them, without exception. If you can read a
-project you can read its tasks; if you can write to it you can create and edit them.
-There is deliberately no way to make one task private or hide it from one member: that
-is a feature whose complexity is never repaid, and every system that has it regrets it.
+Permissions attach to **workspaces and projects only**. Tasks, documents, comments, links and
+what hangs off them never carry their own: they are seen by whoever sees the project that holds
+them. There is deliberately no way to make one task private or to hide it from one member - a
+feature whose complexity is never repaid.
 
 Two levels, and no more:
 
-- **`project.visibility = 'public'`** (default) — every member of the workspace can read
-  it, and their workspace role decides whether they can write.
-- **`project.visibility = 'private'`** — only users with a `project_member` row can see it
-  at all. It is absent from lists, search and `/v1/meta` for everyone else, and a direct
-  fetch returns `404` rather than `403`, per §8.7's rule against leaking existence.
+- **Public** (the default) - every member of the workspace sees it, and their role decides what
+  they may do there.
+- **Private** - only the people it is shared with see it at all. It is absent from listings,
+  search and `/v1/meta` for everybody else, and a direct fetch answers `404` rather than `403`,
+  per §8.7's rule against leaking existence.
 
-**Privacy inherits down the project tree.** A project is hidden when it is private *or when
-any ancestor of it is*, unless the caller holds a `project_member` row on the private one.
-Settled 2026-07-29. Without it, marking a project private and creating a sub-project inside
-it published the sub-project's titles to the whole workspace — and the rule beside it, a
-token's `project_scope`, already took the subtree reading with exactly this argument:
-restricting to a project and then exempting everything underneath makes the restriction
-useless for any tree deeper than one level. Two controls of the same shape now agree.
+**Privacy inherits down the project tree.** A project is hidden when it or any ancestor is private
+and not shared with the caller. Without that, a sub-project of a private project would publish its
+titles to the whole workspace - and a credential's project scope already reads a project as its
+subtree, for the same reason. One predicate answers it, and every listing narrows by it.
 
-Implemented as one predicate (`authorization.visible_projects`) that every listing narrows
-with, rather than a rule each caller restates; the agenda had its own copy, and the two
-disagreed.
+**Who can see a project is its steward's to change, in both directions.** The **steward** of a
+project is its owner, or anybody the owner answers to while the owner can act, or a workspace
+administrator who can see it; **when the owner can no longer act**, anybody who can see the
+project stands in, so a departed owner's private project is never stranded. These acts are the
+steward's:
 
-**For the MVP every project is public and `project_member` stays empty.** Both the column
-and the table land in M1 anyway: they are cheap now and a migration later, and the
-permission-check signature already takes the project so nothing else changes when
-enforcement switches on. An invitation flow is a later concern (§18).
+- making a project private, or public;
+- sharing it, or removing somebody else's share - removing yourself stays free;
+- changing its owner, which shares the new owner in;
+- moving a project, a task or a document across a privacy boundary - into a private project, out
+  of one, or between two private trees. For a task or a document, the steward is that of the
+  project it leaves.
 
-**Links across a visibility boundary** need a rule, because they are the one place private
-data can leak. A task in a public project blocked by a task in a private one returns the
-link with the fact of it and nothing else:
+A move that crosses no boundary takes `project:write` or `task:write` at both ends, as any write
+does. **A credential narrowed to some projects changes no project's visibility**, in either
+direction: making a project private or public reaches the whole workspace.
+
+**Work is handed only to somebody who can see it.** A task's assignee, a document's maintainer and
+a project's owner must be a member of the workspace who can see the project it is in, however they
+are named.
+
+**A link across a visibility boundary is shown, as unseen.** A task in a public project blocked by
+one in a private project lists the link with the hidden end in its place:
 
 ```json
-{"blocked_by": [{"visible": false}]}
+{"visible": false}
 ```
 
-"Blocked by something you cannot see" is honest and useful. Silently omitting the link
-would make the tracker lie about why work is stuck, which is worse than an acknowledged
-gap.
+"Blocked by something you cannot see" is honest and useful; leaving the link out would make the
+tracker lie about why work is stuck. Every surface that lists links does it - an item's links,
+`show`, the browser and the change feed - so an item said to be blocked shows the link that blocks
+it, and a count of blockers is of those the reader can see. Withdrawing such a link is refused,
+saying its other end is out of the caller's sight: somebody who can see both ends may withdraw it.
 
-*Reserved:* a `visibility` column on individual tasks. Deliberately not implemented, per
-the rule above.
+*Reserved:* a visibility column on individual tasks. Deliberately not implemented, per the rule
+above.
+
+### 7.3b Ownership
+
+**An owned thing is managed by its owner, by whoever the owner answers to, or by the administrator
+of its place.** Managing is deciding its audience, handing it over and removing it, and for a
+credential, stopping it. The administrator of a project, a saved view or a comment is whoever holds
+`workspace:admin` there and can see it, so a private project stays hidden from an administrator it
+is not shared with; of a credential, sign-in link, browser session or calendar feed, the holder of
+`instance:user_create`.
+
+- **Authored text is rewritten only by its author**: a comment's words, a saved view's definition.
+  An administrator may remove it, never put words under somebody else's name.
+- **Only a credential's holder mints or resets it**; whoever manages it may list it - never its
+  secret - and stop it.
+- **Whoever an account answers to may stop it** - revoke its credentials, sign it out, deactivate
+  it - and stands in for it as owner while it can act. Starting it again stays with the instance
+  tier: issuing for it, reactivating it and handing it over are `instance:user_create`'s. The
+  direction never reverses: an agent gains nothing over the account it answers to.
+
+**A document's owner is its maintainer**: attribution, with no authority, as a task's assignee is.
+Whoever writes a document maintains it unless they name somebody, and anybody who may write it may
+name another member who can see it. An agent may not name a person, since putting a person's name
+on a conclusion is acting for them. The field on the wire is still `owner_id`.
+
+**Making a project for somebody else is making it and handing it over.** Its maker owns it first
+and keeps their share of it, and naming another owner is a change of owner made by its steward at
+that moment.
 
 ### 7.4 API tokens
 
-Format: `sr_<prefix>_<secret>` — e.g. `sr_7f3a91c2_Yk8Fq…`, where `prefix` is 8
-random hex characters used as an indexed lookup key and `secret` is 32 bytes of
-`secrets.token_urlsafe` entropy.
+Format: `sr_<prefix>_<secret>` - e.g. `sr_7f3a91c2_Yk8Fq…`, where `prefix` is 8 random hex
+characters used as an indexed lookup key and `secret` is 32 bytes of `secrets.token_urlsafe`
+entropy.
 
-- **Stored as `sha256(secret)`, unpeppered.** A fast hash is correct here, unlike for
-  passwords: the secret has 256 bits of entropy, so brute force is infeasible regardless,
-  and Argon2 on every request would add ~100 ms of latency to a hot path. The prefix makes
-  lookup a single indexed row fetch, not a scan-and-compare.
+- **Stored as `sha256(secret)`, unpeppered.** A fast hash is correct here, unlike for passwords:
+  the secret has 256 bits of entropy, so brute force is infeasible regardless, and Argon2 on every
+  request would add about 100 ms to a hot path. The prefix makes lookup one indexed row fetch.
 
-  The pepper was specified and then dropped, on this reasoning: a pepper defends a hash
-  whose input can be guessed, and this input cannot be. What it would have cost is real —
-  every issued token tied to the lifetime of `secret_key`, so rotating the key that also
-  signs pagination cursors would lock every agent in the installation out at once. Token
-  verification is therefore a pure function of the presented secret and reads no
-  configuration at all.
-- Shown **once**, at creation. Never recoverable, never logged, redacted in error
-  output and tracebacks.
-- **A token spans every workspace its owner reaches, and pinning is never a default.**
-  Settled 2026-07-29, and the reasoning is worth keeping because the opposite is tempting:
-  presenting a credential to a remote instance should give exactly the access it would give
-  locally. A token that silently covered one workspace out of five would be a surprise the
-  first time it refused, and narrowing a *credential* to shorten an *address* is letting the
-  addressing scheme dictate the access model. Where a narrow credential is genuinely
-  wanted — an agent confined to one workspace — pinning is available and explicit at issue.
-  Least privilege for agents is otherwise reached through `scopes`, `project_scope` and
-  roles, all of which narrow without misrepresenting what the credential is.
+  A pepper defends a hash whose input can be guessed, and this input cannot be. What it would have
+  cost is real: every issued token tied to the lifetime of `secret_key`, so rotating the key that
+  also signs pagination cursors would lock every agent out at once. Verifying a token is therefore
+  a pure function of the presented secret and reads no configuration.
+- Shown **once**, at creation. Never recoverable, never logged, redacted in error output and
+  tracebacks.
+- Optional `expires_at`. `--expires DAY` names a *whole* day and the token works through the end of
+  it, which is §6.5's reading of a deadline: one that stopped at the midnight starting the named day
+  would be a surprise arriving most of a day early.
+- `last_used_at` is written at most once a minute per token; a full write on every request is
+  needless contention, especially on SQLite.
+- Revocation is immediate: `revoked_at` is checked on every authentication. **`revoke` takes a
+  prefix and refuses a whole token**: accepting the whole string would work, since the prefix is in
+  it, and would put a live credential into shell history and `ps` output.
 
-  **Addressing does not depend on how a credential happened to be issued.** A client
-  narrows for itself, per §13.7's current context, so a broad token costs nothing in
-  typing.
-- Optional `expires_at`; optional narrowing `scopes` and `project_scope`; optional
-  workspace pinning. `project_scope` entries are canonicalised to lowercase UUID strings
-  at issue, and a malformed one is refused — stored as written, a mis-cased id produces a
-  token denied on every project for a reason nobody can see. **An empty `project_scope`
-  list is refused outright**: its sibling `scopes == []` means *no narrowing*, so one
-  reading widens the token to every project and the other denies it every project, and
-  guessing either on the caller's behalf gets a security control wrong in silence.
-- `last_used_at` updated at most once per minute per token (a full write on every
-  request is needless contention, especially on SQLite).
-- Revocation is immediate: `revoked_at` is checked on every authentication.
-  - **`token list` and `token revoke` built 2026-08-01 (`#156`).** Both columns had been read
-    on every request since M1 with nothing able to write either, so an instance could issue
-    credentials and never take one back. `--expires DAY` names a *whole* day and the token
-    works through the end of it, which is §6.5's reading of a deadline — one that stopped at
-    the midnight starting the named day would be a surprise arriving most of a day early.
-  - **`revoke` takes a prefix and refuses a whole token.** Accepting the whole string would
-    work, since the prefix is in it, and would put a live credential into shell history and
-    `ps` output. The scheme-prefixed spelling of the *prefix* is accepted, for the reason a
-    ref accepts `42` and `#42`.
-  - **Who may**: the person it was issued for, the person who issued it, or an instance
-    administrator. The first two are what an engagement on somebody else's instance needs.
+**A credential is a subset of its account, in four parts: verbs, read places, write places and
+expiry.** A *place* is the installation, a workspace, or a project with everything beneath it.
 
-Transport: `Authorization: Bearer sr_…`. Tokens are never accepted in query strings —
-they end up in access logs, browser history and referrer headers. **Calendar feeds (§20)
-are the one credential that travels in a URL, and they are deliberately not tokens**: a
-separate table, a distinct `sr_cal_` prefix, read-only, one scope, and rejected outright if
-presented as a bearer token.
+- **Verbs** are `scopes`, or every verb the account holds when there are none.
+- **Read places** are `project_scope` if it is set, else the workspace the credential is pinned
+  to, else everything its account reaches. A credential narrowed to projects in one workspace
+  reaches no other workspace's record, members or vocabulary.
+- **Write places** are `project_write_scope` if it is set, else the read places, and always lie
+  within them.
+- **Expiry** is `expires_at`.
 
-### 7.5 Sessions (future)
+Project scope entries are canonicalised to lowercase ids at issue, and a malformed one is refused:
+stored as written, a mis-cased id produces a credential denied on every project for a reason nobody
+can see.
 
-The web UI holds **an opaque session cookie backed by a row**, resolved by a second entry in
-`api/security.RESOLVERS`. Reserved, not built. The authentication dependency is written to
-resolve a `Principal` from any credential type so adding one is a new resolver, not a change to
-every endpoint — checked rather than assumed on 2026-08-03, and it holds.
+**Pinning is never a default.** A credential presented to a remote instance should give exactly
+the access it gives locally, and narrowing a credential to shorten an address would let the
+addressing scheme dictate the access model. Naming a workspace when an agent is created makes it a
+member there; pinning its credential is asked for explicitly. Least privilege for agents is
+otherwise reached through scopes, project scope and roles, which narrow without misrepresenting
+what the credential is. **Addressing does not depend on how a credential happened to be issued**: a
+client narrows for itself, per §13.7's current context, so a broad credential costs nothing in
+typing.
 
-**The alternative this used to offer — a short-lived JWT — is struck**, and the reasoning is
-decision `#364` in the instance. Two rules already in this document forbid it. §7.4's
-revocation is immediate because `revoked_at` is read on every authentication, and a JWT is
-valid until it expires; making one revocable means a denylist, which is a session table with a
-signing key bolted on. And `secret_key` is deliberately not mixed into stored credentials,
-because that would tie every issued credential to the lifetime of a config value and a rotation
-would lock out every agent at once — a signed session token reintroduces exactly that coupling
-for every person using the UI.
+**A credential that could never be used is refused when it is issued**, with the reason: one
+whose verbs all read, given projects to write in; one narrowed to projects, whose verbs all act on
+the whole workspace or the installation; one pinned to a workspace, whose verbs are all instance
+verbs. A write verb without its read is not refused: that is the write-only capture credential the
+read verbs stay granular for. **An empty `project_scope` is refused outright** - its
+sibling `scopes == []` means *no narrowing*, so one reading widens the credential to every project
+and the other denies it every project, and guessing either gets a security control wrong in
+silence.
 
-§20.2's calendar credential is the model: its own table, its own prefix, one purpose, and
-refused by name where it does not belong. Cookie attributes and the CSRF surface a cookie
-opens are §22.2.
+**A credential acts on other credentials only where it dominates them.** Minting or resetting one -
+a token, a sign-in link, a calendar feed - needs a presenter with at least its verbs, its places and
+its expiry; a sign-in link buys a session with no bounds, so only a presenter with none may mint
+one. Listing and stopping one need at least its verbs and places, expiry aside. A listing shows only
+what the caller dominates, and never a secret. Issuing for another account also needs
+`instance:user_create`, and is a person's act for an agent outside its own subtree (§7.3).
 
-**A session is not a `Principal` with no token.** `token is None` means §12.1a — a caller
-holding the database file, narrowed by nothing, and five things read it that way including the
-guard that stops a credential minting a wider one. A session that reused that shape would be
-maximally privileged and unmetered. The local case wants its own name.
+**Every surface describes a credential in one set of words**: what it may do, then where, then
+until when - *task:read, task:write; in metacortex only; projects web, ops; writing only in web;
+until Wed 14 Oct* - and *everything its owner can do* where nothing narrows it.
+
+Transport: `Authorization: Bearer sr_…`. Tokens are never accepted in query strings - they end up
+in access logs, browser history and referrer headers. **Calendar feeds (§20) are the one credential
+that travels in a URL, and they are deliberately not tokens**: a separate table, a distinct
+`sr_cal_` prefix, read-only, one purpose, and refused outright if presented as a bearer token.
+
+### 7.5 Sessions
+
+The browser holds **an opaque session cookie backed by a row**, resolved by its own entry beside
+the bearer token's, so a new kind of credential is a new resolver rather than a change to every
+endpoint. A browser is signed in by a **sign-in link**, which works once; holding a browser
+session is a person's act (§7.3), so no agent holds one.
+
+**A short-lived JWT was the alternative, and two rules here forbid it.** Revocation is immediate
+because `revoked_at` is read on every authentication (§7.4), and a JWT is valid until it expires:
+making one revocable means a denylist, which is a session table with a signing key bolted on. And
+`secret_key` is deliberately not mixed into stored credentials, because a rotation would then lock
+everybody out at once - a signed session token reintroduces exactly that coupling for every person
+using the browser.
+
+§20.2's calendar credential is the model: its own table, its own prefix, one purpose, and refused
+by name where it does not belong. Cookie attributes, and the CSRF surface a cookie opens, are §22.2.
+
+**A session is not a principal with no token.** A principal with no credential is the terminal on
+a local database (§12.1a), and whatever asks what a caller presented reads it that way. A session
+is a credential of its own kind, so nothing mistakes a browser for somebody holding the database
+file.
 
 ### 7.6 Passwords
 
@@ -3636,6 +3721,9 @@ workspace pin exceed the presenter's, and refuses issuing for another user witho
 database file — is not narrowed by any of it, per this section's opening: the filesystem
 permission is the authentication.
 
+*Changed since this was frozen: local mode is no exemption, and every check runs as it would over
+HTTP for the account named (§7.3).*
+
 `init` prints one line on success. The workspace, the Inbox, the role assignment and the
 token are all created, and none of them are announced — a person setting up a to-do list
 has not asked about workspaces. `subroutine init --verbose` prints the full transcript,
@@ -4673,6 +4761,8 @@ Consequences, all of which need specifying rather than discovering:
 - **`read_only` connections are enforced client-side and worth having.** Pointing an
   agent at a company instance for context while forbidding it to write there is a
   reasonable and common posture.
+  *Changed since this was frozen: the instance enforces a read-only connection, which may do
+  nothing but read (§7.3).*
 
 **The local instance is a connection like any other.** This is the rule that makes the
 whole thing coherent, and it was not always the design: local mode began as what happened

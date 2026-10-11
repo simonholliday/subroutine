@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Section 7 of `docs/design.md` describes the permission model as built.** The published design
+  is frozen, and its section on permissions, roles, credentials and sessions described the model
+  this release replaces. That one section is rewritten, once, and frozen again; every other section
+  stays as it was. It says who may act and why, where `docs/permissions.md` lists what each act
+  asks.
 - **`docs/permissions.md` says what each act asks, and who holds it.** Every act an instance can
   be asked - through the terminal, the HTTP API or the agent tools - with the permission it asks
   and where, any rule of its own and whether the agent tools can take it, then the permissions each
