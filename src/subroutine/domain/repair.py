@@ -14,9 +14,13 @@ what administers it**, and for a private project can see it:
 * a workspace's ownership - its members whose role holds ``workspace:delete``;
 * a private project - its workspace's members holding a row on it, whom nothing hides it from.
 
-Removing, demoting or unsharing is refused where it would leave a scope with nobody, and
-deactivating somebody is named before and after with each scope's repair, which is the same
-answer asked of a future in which they have gone. **Agents are not counted**, reversing `#4020`: an
+**A scope keeps somebody who can repair it** (decision `#4943`, which states this once). An act
+taken inside it - removing, demoting, unsharing, leaving - is refused where it would leave nobody.
+Stopping an account is taken from above the scope, so no workspace or project blocks it: it is
+named before and after with each scope's repair, which is the same answer asked of a future in
+which they have gone, and an administrator of the installation repairs what it leaves. The
+installation has nothing above it, so its last administrator who can act is not stopped either.
+**Agents are not counted**, reversing `#4020`: an
 agent's standing ends with its person's, so a scope only an agent could repair is one a single
 departure strands.
 """

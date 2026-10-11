@@ -1982,9 +1982,9 @@ restoring it*, and what somebody attached to it is still theirs to take back: a 
 and a link, which is removed from whichever of its ends can be reached. Putting a task in the trash
 gives its claim back, as finishing it does, so nothing in the trash is held by anybody.
 
-**Removing, demoting or unsharing never leaves a scope with nobody who could repair it.** For each
-scope, the people who could repair it are people, not agents, who can act, are members there, hold
-its administering verb and, for a private project, can see it:
+**A scope keeps somebody who can repair it.** For each scope, the people who could repair it are
+people, not agents, who can act, are members there, hold its administering verb and, for a private
+project, can see it:
 
 | Scope | Who could repair it |
 | --- | --- |
@@ -1993,10 +1993,11 @@ its administering verb and, for a private project, can see it:
 | A workspace's ownership | its owners |
 | A private project | its members who can see it |
 
-An act that would leave a scope with none of them is refused, and the refusal says what to do
-first. Deactivating an account is allowed, and says before and after which scopes it leaves
-without anybody - except the installation's last superuser who can act, whose deactivation is
-refused, since recovering an installation relies on there being one.
+An act taken inside a scope - removing, demoting, unsharing, leaving - is refused when it would
+leave nobody, and says what to do first. Stopping an account is taken from above the scope, so no
+workspace or project blocks it: it says, before and after, what it leaves without anybody, and an
+administrator of the installation repairs it. The installation has nothing above it, so its last
+administrator who can act is not stopped either.
 
 **No answer and no refusal names what the caller cannot read.** A refusal that would name another
 row resolves it through the caller's reach first, and one they cannot read is *something you
