@@ -336,9 +336,9 @@ def _acting_as (
 	"""Return a resolver that identifies this request's caller in whatever session it is given.
 
 	**Through ``security.resolve``, which is the API's own chain**, rather than through a
-	bearer-token reader written here. §7.5 will add a second credential type, and a copy of the
-	rule in this module would be a copy that has to be remembered — this codebase's signature
-	defect, and it would sit on an authentication path.
+	bearer-token reader written here. §7.5's browser session is a second kind of credential, and
+	a copy of the rule in this module would be a copy that has to be remembered — this
+	codebase's signature defect, and it would sit on an authentication path.
 
 	**It raises rather than falling through**, which is the property that matters most.
 	``domain.local.principal`` answers the same question for a personal machine and, given no

@@ -1388,10 +1388,11 @@ def token_projects (
 	**Keys in, ids out.** ``api_token.project_scope`` holds ids, because a key can be renamed
 	(`#176`) and a credential must not quietly follow it onto whatever takes the old name; a
 	person setting an agent up types ``SR``. Resolving one to the other is the whole of this
-	function — and it means the CLI insists the project *exists*, where ``POST /v1/tokens``
-	deliberately does not. The API's permissiveness is for a caller naming a project it cannot
-	see or one that does not exist yet; a mistyped key typed by a person is a credential
-	silently refused everywhere it is presented, which is the worse failure of the two.
+	function — and it means every surface insists the project *exists* and that its caller can
+	name it, ``POST /v1/tokens`` included, which answers 404 for one that does not: issuing goes
+	through here whichever way it arrives. A mistyped key is otherwise a credential silently
+	refused everywhere it is presented. This said the API deliberately did not insist, which was
+	false (B I-11 of the cold review of 2026-10-05).
 
 	``workspace`` narrows where each name is looked for. Without one, every workspace this
 	actor can read is a candidate and an ambiguous name is refused rather than picked —

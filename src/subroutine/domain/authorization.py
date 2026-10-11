@@ -4,16 +4,12 @@ One entry point, because a permission system with several is a permission system
 several answers. Everything that needs to know goes through :func:`authorize` or
 :func:`refusal`, and both are built on the same private decision.
 
-docs/design.md §7.3 states the rule as set intersection::
-
-    effective = role_permissions(user, workspace)
-              ∩ token_scopes           (if the token narrows them)
-              ∩ token_project_scope    (restricts which rows, not which verbs)
-
-with one exception that has to be stated in the code as loudly as in the spec: **an empty
-``scopes`` list and a null ``project_scope`` mean "no narrowing", not "no permissions"**.
-Read as literal set algebra, the formula gives every ordinary token nothing at all — which
-is the single easiest way to ship an API where everything is refused.
+docs/design.md §7.3 lists what must hold for an act to be allowed - among them that the verb
+is held by the account's role and within its credential's scopes, and that the place is
+within the credential's reach. One thing there has to be stated in the code as loudly as in
+the design: **an empty ``scopes`` list and a null ``project_scope`` mean "no narrowing", not
+"no permissions"**. Read as literal set algebra, they give every ordinary token nothing at
+all — which is the single easiest way to ship an API where everything is refused.
 
 **And every act lands on a place** (`#4558`, decision `#4527`): a read needs its place among the
 credential's read places, which reach decides, and any other act needs it among its write places
@@ -643,8 +639,9 @@ def _instance_refusal (
 	if not principal.is_superuser:
 		return AuthorizationFailure.NOT_A_SUPERUSER
 
-	# A superuser bypasses roles, never token scopes — otherwise a leaked agent token
-	# belonging to an administrator would be unbounded (docs/design.md §7.3).
+	# A superuser holds every instance verb, and a credential's scopes still narrow them —
+	# otherwise a leaked agent token belonging to an administrator would be unbounded
+	# (docs/design.md §7.1).
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 

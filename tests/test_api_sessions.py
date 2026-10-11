@@ -137,8 +137,8 @@ def test_a_link_is_exchanged_for_a_cookie_and_a_redirect (
 def test_the_cookie_authenticates_the_next_request (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
-	"""§7.5's claim that a credential type is "a new resolver, not a change to every
-	endpoint" was checked rather than believed. This is the check."""
+	"""§7.5's claim that a new kind of credential is "a new resolver rather than a change to
+	every endpoint" was checked rather than believed. This is the check."""
 
 	held = _cookie(setup.application, _link(session, setup.user))
 

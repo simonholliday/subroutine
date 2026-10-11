@@ -477,7 +477,7 @@ def test_the_owner_of_a_private_project_can_still_reach_it (
 def test_a_project_scoped_token_sees_only_its_own_subtree (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""docs/design.md §7.3: the scope restricts which rows, and a listing is what decides those."""
+	"""docs/design.md §7.4: the scope is its read places, and a listing is what decides the rows."""
 
 	world = test_api_tasks._world(session)
 

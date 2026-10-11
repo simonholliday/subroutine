@@ -164,8 +164,10 @@ def listing (
 	"""The credentials this caller may see, newest first.
 
 	**Narrowed the same way revoking is**, so nothing appears here that the caller could not
-	then act on: your own, the ones you issued, and - for an instance administrator -
-	everything. An inventory you can read and not revoke is a worse answer than a short one.
+	then act on: your own, those of the agents that answer to you, and - with
+	``instance:user_create`` - everybody's. Only what your credential reaches at least as far as
+	is listed, so a narrowed one does not show its owner's wider ones. An inventory you can read
+	and not revoke is a worse answer than a short one.
 
 	Not paginated, for the reason ``GET /v1/users`` gives: an instance's credentials are
 	bounded by how many somebody issued.

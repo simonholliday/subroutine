@@ -1006,8 +1006,10 @@ def _canonical_project_scope (
 	every project and the other denies it every project — and picking either on the
 	caller's behalf gets a security control wrong in silence.
 
-	The ids are *not* checked against existing projects: a token may legitimately name a
-	project its issuer cannot see, or one created later.
+	The ids are *not* checked against existing projects here: ``tokens.issue``, which every
+	surface issues through, has already resolved what was typed through
+	``selection.token_projects``, and that refuses a project that does not exist or that its
+	issuer cannot name.
 
 	``field`` names the argument in the refusal, because ``project_write_scope`` goes through
 	the same rules and a message about the wrong field sends its reader to the wrong flag
@@ -1075,10 +1077,10 @@ def _refuse_a_write_set_outside_the_reach (
 	is now the one implementation, and :func:`subroutine.domain.hierarchy.beneath_any` is it as SQL.
 
 	**So this does ask the database, and only about the write set.** The ids are not validated
-	for *existence* — :func:`_canonical_project_scope`'s reason still holds, and a credential
-	may name a project its issuer cannot see or one created later. What is fetched is the
-	``path`` needed to place a project in the tree, and a project with no row is covered only by
-	being named outright: unknown means unplaceable, never unwelcome. It is deliberately not
+	for *existence* — :func:`_canonical_project_scope`'s reason still holds: its caller has
+	already resolved them. What is fetched is the ``path`` needed to place a project in the
+	tree, and a project with no row is covered only by being named outright: unknown means
+	unplaceable, never unwelcome. It is deliberately not
 	narrowed by visibility, because this is a question about the shape of the tree rather than
 	about who may look at it — and ``_refuse_amplification`` has already bounded the caller to
 	its own reach before this runs.
@@ -1265,9 +1267,8 @@ def _named (session: sqlalchemy.orm.Session, identifiers: typing.Collection[str]
 	somebody is still holding the command they meant to run — so reading it back as a UUID
 	sends them to look up what they had just written.
 
-	An id with no row is printed as it stands rather than dropped. A credential may name a
-	project its issuer cannot see or one created later, and a bound that quietly omitted such
-	a project would understate what the credential actually carries.
+	An id with no row is printed as it stands rather than dropped: a bound that quietly omitted
+	such a project would understate what the credential actually carries.
 	"""
 
 	placed = _projects_by_id(session, list(identifiers))

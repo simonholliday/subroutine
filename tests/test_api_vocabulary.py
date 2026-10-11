@@ -765,7 +765,8 @@ def test_a_vocabulary_row_in_another_workspace_is_not_found (
 
 	**And with a row in a workspace the caller is not in** (`SR#4543`), each kind of one. This drove
 	the id naming nothing alone, so the check that tells the two apart could go and nothing failed;
-	the caller here is the installation's superuser, whose roles are bypassed and whose sight is not.
+	the caller here is the installation's superuser, who reaches no more of a workspace they are
+	not in than anybody does.
 	"""
 
 	missing = world.call("PATCH", f"/v1/statuses/{uuid.uuid4()}", json={"label": "Nope"})

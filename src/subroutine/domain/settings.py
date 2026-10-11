@@ -997,7 +997,8 @@ def stated_for_workspace (
 	workspace is not reading it: an administrator who may address any workspace still has to
 	belong to one to see how it is configured. **That half is the caller's**: both resolve the
 	workspace through ``selection.workspace``, which is membership, because the check here holds
-	a member to the verb and bypasses a superuser's roles (`#2633`).
+	a member to the verb and an instance administrator holds ``workspace:read`` in every
+	workspace (`#2633`).
 	"""
 
 	if actor is not None:

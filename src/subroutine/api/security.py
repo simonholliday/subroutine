@@ -1,9 +1,9 @@
 """Working out who is calling.
 
-One dependency, several ways of proving identity. Today there is exactly one — a bearer
-token — but the shape is what matters: a *resolver* is asked to find a credential of its
-own kind and turn it into a principal, and adding cookie sessions later (docs/design.md §7.5) is
-a new resolver in :data:`RESOLVERS` rather than an edit to every endpoint.
+One dependency, several ways of proving identity: a bearer token, and a browser's session
+cookie. The shape is what matters: a *resolver* is asked to find a credential of its own
+kind and turn it into a principal, so the cookie (docs/design.md §7.5) was a new resolver in
+:data:`RESOLVERS` rather than an edit to every endpoint.
 
 A resolver returns ``None`` when it finds no credential of its kind, and raises when it
 finds one it cannot accept. That distinction is the whole protocol: "there is no cookie
@@ -459,8 +459,9 @@ _A_WRITE_FROM_ELSEWHERE = (
 
 
 #: Every way of proving identity, tried in order. The first to find a credential of its kind
-#: decides — §7.5's claim that a new credential type is "a new resolver, not a change to every
-#: endpoint" was checked rather than believed when the second one was built, and it held.
+#: decides — §7.5's claim that a new kind of credential is "a new resolver rather than a change
+#: to every endpoint" was checked rather than believed when the second one was built, and it
+#: held.
 RESOLVERS: tuple[Resolver, ...] = (from_bearer_token, from_session_cookie)
 
 

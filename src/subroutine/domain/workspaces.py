@@ -737,7 +737,8 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	Granting a role asked only ``user:admin``, which both hold, so an administrator could make any
 	member owner - themselves included - and then delete the workspace, or remove the owner who
 	founded it (`#3813`). So a role carrying ``workspace:delete`` is granted, taken away or removed
-	only by somebody who holds it. A superuser is not bound by roles, and still may.
+	only by somebody who holds it. Whoever administers the installation still may, by the one
+	clause that lets them administer and delete any workspace (docs/design.md §7.3).
 
 	**Asked by the permission, not by the role's key**, since a workspace's roles are its own to
 	rename and a key would stop naming its owners the day it did.

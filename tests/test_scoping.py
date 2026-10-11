@@ -357,7 +357,7 @@ def test_the_owner_of_a_private_project_still_sees_it (
 def test_a_superuser_is_narrowed_by_privacy_too (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
-	"""Roles are bypassed for a superuser; visibility is not (docs/design.md §7.3).
+	"""Being a superuser takes nobody past a private project (docs/design.md §7.3).
 
 	A privacy control a role can override is not a privacy control.
 	"""
@@ -375,8 +375,8 @@ def test_a_project_scoped_token_narrows_the_listing (
 ) -> None:
 	"""The second defect: the scope refused writes elsewhere and then listed everything.
 
-	docs/design.md §7.3 calls ``project_scope`` a restriction on *which rows*, and a listing is
-	exactly the thing that decides which rows.
+	A credential's ``project_scope`` is its read places (docs/design.md §7.4), and a listing is
+	exactly the thing that decides which rows are in them.
 	"""
 
 	token, _issued = subroutine.domain.authentication.issue_token(

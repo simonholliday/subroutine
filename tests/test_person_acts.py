@@ -152,8 +152,9 @@ def test_every_person_act_is_refused_to_an_agent_in_one_sentence (
 ) -> None:
 	"""Each act on the list, as an agent that administers the installation: one refusal, 403.
 
-	**The superuser agent is the point**: it holds every instance verb and bypasses every role, so
-	anything that lets it through is an act checked after the bypass, which is how G3 happened.
+	**The superuser agent is the point**: it holds every instance verb, and the clause that
+	administers any workspace, so anything that lets it through is an act checked after those,
+	which is how G3 happened.
 	"""
 
 	cast = _cast(session)

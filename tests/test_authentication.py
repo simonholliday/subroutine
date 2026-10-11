@@ -297,7 +297,7 @@ def test_an_unscoped_token_narrows_nothing (session: sqlalchemy.orm.Session) -> 
 def test_superuser_status_comes_from_the_user_not_the_token (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Superusers bypass roles; their tokens still bypass nothing (docs/design.md §7.3)."""
+	"""A superuser is one by their account; their token still narrows (docs/design.md §7.1)."""
 
 	user = _make_user(session, is_superuser=True)
 	_, presented = _issue(session, user, scopes=[subroutine.permissions.TASK_READ])

@@ -538,8 +538,9 @@ def workspace_settings (
 
 	# **Resolved as its contents are, not as the container** (`#2633`, decision `#1860`). `resolve`
 	# admits an instance administrator who belongs to none, which is right for the acts on the
-	# container, and the read check below cannot stop a superuser, whose roles it bypasses - so
-	# this answered a superuser outside the workspace, while the local client refused.
+	# container, and the read check below cannot stop an instance administrator, who holds
+	# ``workspace:read`` in every workspace - so this answered one outside the workspace, while
+	# the local client refused.
 	found = subroutine.domain.selection.workspace(
 		session, actor, requested=id_or_slug, field="id_or_slug"
 	)
@@ -668,9 +669,11 @@ def regrade (
 	Somebody who is not a member is refused by name rather than added, which keeps this and the
 	POST a pair: each turns down the other's case and says which one to run.
 
-	The last account able to administer the workspace cannot be moved out of an administering
-	role, for the same reason it cannot be removed - a workspace nobody can administer cannot
-	be repaired from inside, including by granting the role that would repair it.
+	The last person able to administer the workspace cannot be moved out of an administering
+	role, nor its last owner out of an owner's, for the same reason neither can be removed - a
+	workspace nobody can administer cannot be repaired from inside, including by granting the
+	role that would repair it. Only people who can still act are counted: an agent is not, since
+	it stops when its person goes.
 	"""
 
 	found = resolve(session, actor, id_or_slug)
@@ -708,8 +711,11 @@ def leave (
 	somebody joined by mistake can see private projects they should not, and a membership that
 	can only be granted is one whose mistakes are permanent.
 
-	The last account able to administer the workspace cannot be removed - a workspace nobody can
-	administer has thrown away the remedy for every later mistake, including that one.
+	The last person able to administer the workspace cannot be removed - a workspace nobody can
+	administer has thrown away the remedy for every later mistake, including that one. Nor can
+	its last owner, or the last person who can see a private project in it; each refusal says
+	what to do first. Only people who can still act are counted: an agent is not, since it stops
+	when its person goes.
 	"""
 
 	found = resolve(session, actor, id_or_slug)

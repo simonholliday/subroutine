@@ -1,26 +1,27 @@
 """The one place a listing is narrowed to what its caller may see.
 
-docs/design.md §7.3 has asked for this since slice 1 — "every repository query is scoped by
-workspace through a single injected helper" — and until now nothing built it, so every
-listing narrowed itself by hand. Two of them got it wrong, and both were found by running
-the code rather than reading it:
+The design asked for this from slice 1 — every repository query scoped by workspace through
+a single injected helper — and until now nothing built it, so every listing narrowed itself
+by hand. Two of them got it wrong, and both were found by running the code rather than
+reading it:
 
 * ``subroutine ls`` filtered by workspace and never joined the project at all, so a member
   of a workspace saw the titles of tasks in private projects they were not a member of.
   The agenda, three modules away, did it correctly.
 * the agenda narrowed by project *visibility* but not by a token's ``project_scope``, so an
   agent restricted to one project was correctly refused writes elsewhere and then shown
-  everything anyway. §7.3 calls ``project_scope`` a restriction on *which rows*, which is
-  precisely the thing a listing decides.
+  everything anyway. A credential's ``project_scope`` is its read places (§7.4), and which
+  rows are in them is precisely the thing a listing decides.
 
 Neither is a mistake anybody would make twice; both are mistakes anybody would make once,
 which is why the answer is one function rather than more care. Everything that lists tasks
 or projects starts from here, and ``tests/test_scoping.py`` fails the build when a query
 elsewhere reaches those tables without a written reason.
 
-**A superuser is narrowed like everyone else.** Roles are bypassed for superusers (§7.3);
-visibility is not. A privacy control a role can override is not a privacy control, and an
-operator with database access has honest ways to read the data.
+**A superuser is narrowed like everyone else.** Inside a workspace a superuser acts by their
+role (§7.3), and nothing takes them past a private project. A privacy control a role can
+override is not a privacy control, and an operator with database access has honest ways to
+read the data.
 """
 
 import typing

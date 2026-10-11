@@ -2624,7 +2624,7 @@ def token_create (
 	_say(f"This credential may do {subroutine.views.narrowing(minted, until=until)}.")
 
 	# **And the subtree, because it is the part nobody would guess.** A restriction to `SR` also
-	# reaches `SR/WEB` and everything under it (§7.3), which is what makes it usable on a tree
+	# reaches `SR/WEB` and everything under it (§7.4), which is what makes it usable on a tree
 	# deeper than one level and is not visible in what was typed.
 	if subroutine.views.reach(minted):
 		_say("Each of its projects includes anything filed underneath it.")

@@ -1664,7 +1664,7 @@ def test_an_administrator_makes_an_owner_where_no_owner_can_act (
 def test_an_owner_or_the_operator_makes_and_removes_owners (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The other half of decision `#3808`: an owner may, and a superuser is not bound by roles."""
+	"""The other half of decision `#3808`: an owner may, and so may the installation's operator."""
 
 	workspace, keanu, _carrie_anne, hugo = _metacortex(session)
 	laurence = subroutine.domain.users.create(session, username="laurence", is_superuser=True)
