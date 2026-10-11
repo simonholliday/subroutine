@@ -125,14 +125,13 @@ def _hidden () -> set[str]:
 #: **Hidden for a reason other than being revealed later.** §1.4 hides ``claim``, ``use`` and their
 #: neighbours so that a topic or a tip can reveal them when they are useful, and a topic is the
 #: reveal a reader can ask for. These four are hidden because they are not commands anybody should
-#: learn. An entry goes when the command does, or when a topic names it; the last names its item.
+#: learn. An entry goes when the command does, or when a topic names it.
 HIDDEN_FOR_ANOTHER_REASON = {
 	"subroutine doc": "the second spelling of 'document' (#1549), which the help shows",
 	"subroutine ls": "the synonym for 'list' (docs/design.md §12.2a), which the help shows",
 	"subroutine today": "#509's signpost to 'agenda', which reports where it went and cannot succeed",
 	"subroutine upgrade": "#509's signpost to 'db upgrade', which reports where it went and cannot "
 	"succeed",
-	"subroutine verify": "#4244: no topic names it yet, and the wording is waiting on Simon",
 }
 
 

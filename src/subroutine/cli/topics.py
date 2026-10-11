@@ -564,6 +564,8 @@ token over the network are for.""",
 		# **`claim` is named here, beside `release`** (`#4241`, Simon's decision on `#3945`). Both
 		# are hidden from `--help` until a second connection is configured, and no topic named
 		# `claim`, so an agent with a shell had nothing in the program that mentioned it (`#777`).
+		# **And `verify`, where it says how to finish** (`#4244`): hidden by the same switch, and
+		# the last such command no topic named.
 		body="""Claim an item before you start it, with 'subroutine claim 42', and give
 it back with 'subroutine release 42'.
 
@@ -614,6 +616,11 @@ names who assigned it, and that is how they find it:
 If they need to check the work first, give it back open and say it is
 ready to check. Cancelling something you were given is theirs to decide,
 so give it back instead.
+
+Say what you checked as you finish, so whoever reads it later can see
+it and tell whether the code has moved since:
+
+  subroutine verify 42 --summary "5,610 passed, 41 skipped"
 
 One hand-back is no reason to stop: carry on with something else. Two
 in a row are, because they say the work is not clear enough to do, and

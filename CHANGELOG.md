@@ -20,6 +20,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`subroutine explain handing-back` names `subroutine verify`**, where it says how to finish.
+  It is hidden from `--help` until a second connection is configured, as `claim` and `release`
+  are, and it was the last such command no topic mentioned.
 - **Section 7 of `docs/design.md` describes the permission model as built.** The published design
   is frozen, and its section on permissions, roles, credentials and sessions described the model
   this release replaces. That one section is rewritten, once, and frozen again; every other section
