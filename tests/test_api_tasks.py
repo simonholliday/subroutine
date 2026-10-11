@@ -2272,34 +2272,49 @@ def test_a_task_created_finished_is_finished_everywhere (
 	assert later in _ready_refs(world), "finished work went on blocking"
 
 
-def test_a_repeat_cannot_be_created_finished (world: World) -> None:
-	"""`#4156`. A finished series is a stopped one, so nothing would ever come of it.
+@pytest.mark.parametrize("status", ["done", "cancelled", "in_progress", "blocked", "needs_input"])
+def test_a_repeat_is_created_in_the_default_status_or_refused (world: World, status: str) -> None:
+	"""`#4245`, Simon's decision of 2026-10-03: `#4156`'s rule for a finished status, for every one.
 
-	It was created open: the status was written on the series, its first occurrence took the
-	workspace's default, and the status given was lost. Stamping the series instead would stop it
-	before that occurrence, and the refusal for a rule with no dates left would blame the dates.
+	The status was written on the series, which no listing shows, and its first occurrence took the
+	workspace's default: so ``in_progress`` given with a repeat handed back an occurrence that was
+	open, and nothing said the status had gone nowhere. A finished one stamped on the series would
+	stop it before that occurrence. Refused before anything is written, naming the field.
 	"""
 
+	wanted = {"title": "Water the plants", "recurrence": "every week", "due": "2026-12-01"}
 	before = world.call("GET", "/v1/tasks?limit=50").json()["items"]
 
-	refused = world.call(
-		"POST",
-		"/v1/tasks",
-		json={"title": "Water the plants", "recurrence": "every week", "due": "2026-12-01", "status": "done"},
-	)
+	refused = world.call("POST", "/v1/tasks", json={**wanted, "status": status})
 
 	assert refused.status_code == 422, refused.text
 	assert [error["field"] for error in refused.json()["errors"]] == ["status"]
+	assert status in refused.json()["errors"][0]["message"], "the refusal does not say which status"
 	assert world.call("GET", "/v1/tasks?limit=50").json()["items"] == before, "it wrote something"
+
+	# **The same status without the repeat is still taken**, so it is the pair that is refused.
+	alone = world.call("POST", "/v1/tasks", json={"title": "Water the plants", "status": status})
+
+	assert alone.status_code == 201, alone.text
+	assert alone.json()["status"] == status
+
+
+@pytest.mark.parametrize("given", [{}, {"status": "open"}], ids=["no status", "the default named"])
+def test_a_repeat_given_no_status_or_the_default_is_made (
+	world: World, given: dict[str, str]
+) -> None:
+	"""`#4245`: naming the default outright says nothing a repeat does not already do."""
 
 	kept = world.call(
 		"POST",
 		"/v1/tasks",
-		json={"title": "Water the plants", "recurrence": "every week", "due": "2026-12-01"},
+		json={"title": "Water the plants", "recurrence": "every week", "due": "2026-12-01", **given},
 	)
 
-	assert kept.status_code == 201, "a repeat with no status given must still be made"
+	assert kept.status_code == 201, kept.text
+	assert kept.json()["status"] == "open"
 	assert kept.json()["completed_at"] is None
+	assert kept.json()["recurrence_description"], "the occurrence handed back does not say it repeats"
 
 
 def _filed_under (world: World, parent: dict[str, typing.Any], title: str) -> dict[str, typing.Any]:

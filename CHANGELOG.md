@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A repeat is created in the default status, and one given any other is refused naming
+  `status`.** `POST /v1/tasks` with a repeat and a status such as `in_progress` kept the status
+  where nothing shows it and handed back an occurrence that was open. Create it without one,
+  then set the status of the occurrence you are handed back. A finished status was already
+  refused.
 - **`subroutine explain handing-back` names `subroutine verify`**, where it says how to finish.
   It is hidden from `--help` until a second connection is configured, as `claim` and `release`
   are, and it was the last such command no topic mentioned.

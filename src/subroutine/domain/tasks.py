@@ -1096,24 +1096,31 @@ def create (
 
 	repeat = _repeat(recurrence, anchor=recurrence_anchor, trigger=recurrence_trigger)
 
-	# **A repeat cannot start finished** (`#4156`). Its status is the series', and a finished series
-	# is a stopped one (`materialise`), so stamping it below would stop it before its first
-	# occurrence - and the refusal for a rule with no dates left would then blame the dates. Before
-	# this the status was written on the series and read by nothing: the occurrence handed back was
-	# open, and the status given was lost.
-	if repeat is not None and status.category in FINISHED_CATEGORIES:
-		raise subroutine.errors.ValidationError(
-			"A repeat cannot be created finished.",
-			code="invalid_field_value",
-			hint="Create it without a status, then complete its first occurrence.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="status",
-					code="invalid_field_value",
-					message=f"'{status.key}' means finished, and a repeat that starts finished never comes round.",
-				)
-			],
-		)
+	# **A repeat is created in the default status** (`#4245`, Simon's decision of 2026-10-03, which
+	# makes `#4156`'s rule for a finished status the rule for every status). A status given here is
+	# the series', which no listing shows, and the first occurrence takes the workspace's default
+	# (`materialise`): so the occurrence handed back was open whatever was asked for, and nothing
+	# said the status went nowhere. A finished one would be worse kept than lost, since a finished
+	# series is a stopped one. Asked only where a status was given, and the default named outright
+	# is no different from none.
+	if repeat is not None and status_key is not None:
+		usual = status_for(session, workspace_id, None)
+
+		if status.id != usual.id:
+			raise subroutine.errors.ValidationError(
+				"A repeat is created in the default status.",
+				code="invalid_field_value",
+				hint="Create it without a status, then set the status of the occurrence you are "
+				"handed back.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="status",
+						code="invalid_field_value",
+						message=f"'{status.key}' cannot be given with a repeat, whose first "
+						f"occurrence starts as '{usual.key}'.",
+					)
+				],
+			)
 
 	deadline = subroutine.domain.schedule.interpret(
 		due,
