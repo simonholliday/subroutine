@@ -1,27 +1,31 @@
-"""What may be done to an item in the trash, or beneath anything in it (§6.9, decision `#4532`).
+"""What may be done to an item in the trash, or beneath anything in it (§6.9; decisions `#4532`, `#4943`).
 
-**Read it, restore it, or delete it again - and withdraw what hangs off it.** A row in the trash is
-somebody saying they are done with it, so work on it waits until it is taken back out (`#3935`): a
-comment on a trashed item was refused by name from the start, while an edit, a completion, a skip, a
-claim and a move answered as though it were live - and finishing a trashed occurrence of a repeat
-brought the next one. What is beneath it is out of sight with it (`#4091`), and refused the same.
+**Two rules, and neither is an exception to the other** (`#4946`).
+
+*Sight.* What is beneath something in the trash is hidden with it (`#4091`), until that is restored.
+No lookup finds it, so nothing is done to it or through it, and each door that meets it says what
+to restore (Simon, `#4653`).
+
+*Change.* An item in the trash is read, restored, or deleted again, and changes no other way. A row
+in the trash is somebody saying they are done with it, so work on it waits until it is taken back
+out (`#3935`): a comment on a trashed item was refused by name from the start, while an edit, a
+completion, a skip, a claim and a move answered as though it were live - and finishing a trashed
+occurrence of a repeat brought the next one.
 
 **One gate, at the permission check** (`#4548`): ``authorization.authorize_on`` refuses every
 write to a task or a document in or beneath the trash, with :func:`refuse_reaching`'s sentence, so
 no writer has to remember to ask. Seven asked here by hand, and comments kept a copy of their own.
 
-**Three acts are not refused, because they withdraw what hangs off the item and leave the item as
-it is** (Q10 of the cold review of 2026-10-05): editing or deleting a comment on it - changing one
-is not adding to its record (`#3920`) - releasing a lease on it, since the case a release exists
-for is an agent that died holding one, and removing a link to or from it, which is still its
-owner's to take back (`#4429`). Releasing and changing a comment pass ``doing=None`` to the gate.
-**A link's ends reach it as ends, not as items, so the gate does not hold them**: removing a link
-asks nothing of the trash, and making one asks :func:`refuse_reaching` itself, once it has answered
+**What somebody attached to it is still theirs to take back, which leaves the item as it is** (Q10
+of the cold review of 2026-10-05): a comment's words, edited or deleted - changing one is not adding
+to its record (`#3920`), and it passes ``doing=None`` to the gate - and a link to or from it
+(`#4429`). **A link's ends reach it as ends, not as items, so the gate does not hold them**:
+removing a link asks nothing of the trash, which is why one to something beneath the trash is still
+removed from its live end, and making one asks :func:`refuse_reaching` itself, once it has answered
 a link already made (`#3798`).
 
-**What is beneath the trash takes none of them** (Simon, `#4653`): it is hidden with its container
-(`#4091`), so nothing is done through it until that is restored, and each door that meets it says
-where it is. A link to it can still be removed from its live end (`#4429`).
+**A lease is not among them, because none is there**: putting a task in the trash gives its lease
+back, as finishing does (`claims.released_with_the_trash`), so a task in the trash is held by nobody.
 
 **What is done to an item from elsewhere** - filing or moving something under it - asks
 :func:`refuse_reaching` of the item it reaches, which is not the one being written (`#4096`).

@@ -241,16 +241,30 @@ def release (
 
 	moment = now or subroutine.db.types.utcnow()
 
-	# **In the trash too**, which ``trash`` names as one of three withdrawals: giving back a lease
-	# leaves the task as it is.
+	# **Not in the trash** (`#4946`, decision `#4943`): putting a task there gave its lease back
+	# (:func:`released_with_the_trash`), so there is none to give, and the gate holds this as it
+	# holds every other write.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, task, doing=None
+		session, actor, subroutine.permissions.TASK_WRITE, task
 	)
 
 	subroutine.domain.versions.require(task, expected_version, noun="task")
 
 	if held_by(task, now=moment) is None:
 		return task
+
+	_given_back(session, task, actor=actor)
+
+	return task
+
+
+def _given_back (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> None:
+	"""Clear a lease and record that it went back, asking nothing: each caller has asked."""
 
 	# **Cleared entirely rather than expired in place.** A row that kept its holder with a past
 	# expiry is indistinguishable from one whose lease simply ran out, and those are different
@@ -271,8 +285,6 @@ def release (
 		actor=actor,
 	)
 	session.flush()
-
-	return task
 
 
 def renewed (
@@ -355,6 +367,36 @@ def released_if_finished (
 		return False
 
 	release(session, task, now=now, actor=actor)
+
+	return True
+
+
+def released_with_the_trash (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> bool:
+	"""Give the lease back as a task goes into the trash - `#4946`, decision `#4943`.
+
+	:func:`released_if_finished`'s argument, one step along: nobody works on a task in the trash,
+	so a name on the row saying somebody holds it is false there too. Before this the lease
+	stayed, and giving one back was one of three things the trash let through; now there is none
+	in it to give.
+
+	**It asks nothing of its own.** Whoever puts the task in the trash has been asked for that,
+	and holding ``task:delete`` on a credential without ``task:write`` must not stop the trashing.
+
+	**Called as a task comes back out as well**, for a lease taken before this was built and
+	still running: a restored task is held by nobody. What is *beneath* a task in the trash keeps
+	its lease, hidden with it, until the lease runs out or what it is beneath is restored.
+	"""
+
+	if held_by(task, now=now) is None:
+		return False
+
+	_given_back(session, task, actor=actor)
 
 	return True
 

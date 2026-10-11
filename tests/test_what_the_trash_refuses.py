@@ -6,6 +6,7 @@ recorded on it, and a link at either end. Each is refused naming the trash, and 
 an item in the trash is refused naming that item, since decision `#4091` hides it with it.
 """
 
+import datetime
 import typing
 import uuid
 
@@ -14,7 +15,9 @@ import sqlalchemy
 
 import subroutine.db.models.activity
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.tasks
@@ -155,12 +158,13 @@ def test_what_is_beneath_the_trash_is_refused_naming_what_is_in_it (world: World
 	assert f"#{venue['ref']} is beneath #{parent['ref']}, which is in the trash" in said, said
 
 
-def test_the_trash_takes_only_the_three_withdrawals (world: World) -> None:
-	"""Q10 of the cold review of 2026-10-05, `SR#4548`: what hangs off a trashed task comes back off.
+def test_the_trash_takes_back_only_what_somebody_attached (world: World) -> None:
+	"""Q10 of the cold review of 2026-10-05, `SR#4548`, as `SR#4946` left it: words and links.
 
-	Editing or deleting a comment on it, releasing a lease on it and removing a link from it each
-	withdraw something and leave the task as it is, so each is answered as it would be on a live
-	one. An edit, a claim and a new comment change it, and each is refused naming the trash.
+	Editing or deleting a comment on a trashed task and removing a link from it each take back
+	something somebody attached and leave the task as it is, so each is answered as it would be on a
+	live one. An edit, a claim, giving a lease back and a new comment are each refused naming the
+	trash: the lease went back as the task went in, so there is none to give.
 	"""
 
 	fix = _made(world, "/v1/tasks", {"title": "Fix the deploy script"})
@@ -177,7 +181,6 @@ def test_the_trash_takes_only_the_three_withdrawals (world: World) -> None:
 	for withdrawn in (
 		world.call("PATCH", f"/v1/comments/{started['id']}", json={"body": "Started, then not."}),
 		world.call("DELETE", f"/v1/comments/{waiting['id']}"),
-		world.call("POST", f"/v1/tasks/{fix['ref']}/release"),
 		world.call("DELETE", f"/v1/tasks/{fix['ref']}/links/{link['id']}"),
 	):
 		assert withdrawn.is_success, withdrawn.text
@@ -187,6 +190,7 @@ def test_the_trash_takes_only_the_three_withdrawals (world: World) -> None:
 		fix["ref"],
 	)
 	_refused(world.call("POST", f"/v1/tasks/{fix['ref']}/claim"), fix["ref"])
+	_refused(world.call("POST", f"/v1/tasks/{fix['ref']}/release"), fix["ref"])
 	_refused(
 		world.call("POST", f"/v1/tasks/{fix['ref']}/comments", json={"body": "One more."}),
 		fix["ref"],
@@ -269,3 +273,128 @@ def test_a_comment_on_work_beneath_the_trash_says_where_the_work_is (world: Worl
 
 	assert str(changed.value) == beneath, str(changed.value)
 	assert world.call("DELETE", f"/v1/tasks/{notes['ref']}/links/{link['id']}").status_code == 204
+
+
+def _row (world: World, made: dict[str, typing.Any]) -> subroutine.db.models.work.Task:
+	"""Return a task's row as the database has it now, trash included."""
+
+	world.session.expire_all()
+	model = subroutine.db.models.work.Task
+
+	return world.session.scalars(
+		sqlalchemy.select(model).where(model.id == uuid.UUID(made["id"]))
+	).one()
+
+
+def _released (world: World, made: dict[str, typing.Any]) -> int:
+	"""Return how many times the record says a lease on this task was given back."""
+
+	event = subroutine.db.models.activity.Event
+
+	return len(
+		world.session.scalars(
+			sqlalchemy.select(event.seq).where(
+				event.entity_id == uuid.UUID(made["id"]), event.action == "released"
+			)
+		).all()
+	)
+
+
+def test_putting_a_task_in_the_trash_gives_its_claim_back (world: World) -> None:
+	"""`SR#4946`, decision `#4943`: nobody works on what is in the trash, so nobody holds it.
+
+	Finishing a task already gave its lease back (`SR#1113`). Trashing one left the holder's name on
+	it, and giving the lease back was one of three things the trash let through. **Given back as it
+	goes in, recorded once, and the task is still nobody's when it comes back.**
+	"""
+
+	fix = _made(world, "/v1/tasks", {"title": "Fix the deploy script"})
+
+	assert world.call("POST", f"/v1/tasks/{fix['ref']}/claim").is_success
+	assert _row(world, fix).claimed_by_id == world.user.id, "the claim this rests on was not taken"
+	assert world.call("DELETE", f"/v1/tasks/{fix['ref']}").is_success
+
+	trashed = _row(world, fix)
+
+	assert trashed.deleted_at is not None
+	assert (trashed.claimed_by_id, trashed.claimed_at, trashed.claim_expires_at) == (None, None, None)
+	assert _released(world, fix) == 1, "the record does not say the lease went back, or says it twice"
+
+	# **Deleting twice is not an error and records nothing more.**
+	assert world.call("DELETE", f"/v1/tasks/{fix['ref']}").is_success
+	assert _released(world, fix) == 1
+
+	restored = world.call("POST", f"/v1/tasks/{fix['ref']}/restore")
+
+	assert restored.is_success, restored.text
+	assert restored.json()["claimed_by_id"] is None, "a restored task came back held"
+	assert _released(world, fix) == 1, "restoring recorded a lease nobody held"
+
+
+def test_a_task_nobody_holds_goes_in_the_trash_with_nothing_said_of_a_lease (world: World) -> None:
+	"""The other half: no lease, so no record of one given back."""
+
+	fix = _made(world, "/v1/tasks", {"title": "Fix the deploy script"})
+
+	assert world.call("DELETE", f"/v1/tasks/{fix['ref']}").is_success
+	assert _released(world, fix) == 0
+
+
+def test_a_lease_left_in_the_trash_from_before_goes_as_the_task_comes_back (world: World) -> None:
+	"""`SR#4946`: a lease taken before trashing gave one back, and still running when it is restored.
+
+	Written onto the row as an older build left it. It cannot be given back while it is there, as
+	nothing in the trash changes, and **a restored task is held by nobody**.
+	"""
+
+	fix = _made(world, "/v1/tasks", {"title": "Fix the deploy script"})
+
+	assert world.call("DELETE", f"/v1/tasks/{fix['ref']}").is_success
+
+	left = _row(world, fix)
+	left.claimed_by_id = world.user.id
+	left.claimed_at = subroutine.db.types.utcnow()
+	left.claim_expires_at = subroutine.db.types.utcnow() + datetime.timedelta(hours=1)
+	world.session.flush()
+
+	_refused(world.call("POST", f"/v1/tasks/{fix['ref']}/release"), fix["ref"])
+
+	restored = world.call("POST", f"/v1/tasks/{fix['ref']}/restore")
+
+	assert restored.is_success, restored.text
+	assert restored.json()["claimed_by_id"] is None, "a restored task came back held"
+	assert _released(world, fix) == 1, "the record does not say the lease went back"
+
+
+def test_trashing_a_held_task_asks_for_no_more_than_trashing (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#4946`: a credential holding ``task:delete`` and not ``task:write`` still trashes it.
+
+	Giving a lease back by hand takes ``task:write``. Giving it back because the task went in the
+	trash is part of trashing, so it asks nothing of its own, and the lease still goes.
+	"""
+
+	narrow = test_api_tasks._world(session, scopes=["task:read", "task:delete"])
+	whole = subroutine.domain.authentication.Principal(user=narrow.user)
+	project = subroutine.domain.bootstrap.inbox_for(narrow.session, narrow.workspace)
+
+	assert project is not None
+
+	task = subroutine.domain.tasks.create(
+		narrow.session, project=project, title="Fix the deploy script", actor=whole
+	)
+	subroutine.domain.claims.claim(narrow.session, task, actor=whole)
+	narrow.session.flush()
+
+	assert task.claimed_by_id == narrow.user.id
+
+	refused = narrow.call("POST", f"/v1/tasks/{task.ref}/release")
+
+	assert refused.status_code == 403, f"this credential should not hold task:write: {refused.text}"
+
+	trashed = narrow.call("DELETE", f"/v1/tasks/{task.ref}")
+
+	assert trashed.is_success, trashed.text
+
+	narrow.session.expire_all()
+
+	assert task.deleted_at is not None and task.claimed_by_id is None

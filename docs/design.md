@@ -1976,10 +1976,11 @@ implementer reads.
 over HTTP for that account. Holding the database file decides who you may be, never what that
 account may do (§12.1a).
 
-**Nothing in the trash changes but by restoring or deleting it.** What hangs off an item in the
-trash can still be withdrawn - a comment edited or deleted, a claim released, a link removed. What
-is *beneath* something in the trash stays hidden with it, and nothing is done through it until its
-container is restored, though a link to it can still be removed from its live end.
+**The trash is two rules.** *What is beneath something in the trash is hidden with it*, until that
+is restored, so nothing is done to it or through it. *An item in the trash changes only by
+restoring it*, and what somebody attached to it is still theirs to take back: a comment's words,
+and a link, which is removed from whichever of its ends can be reached. Putting a task in the trash
+gives its claim back, as finishing it does, so nothing in the trash is held by anybody.
 
 **Removing, demoting or unsharing never leaves a scope with nobody who could repair it.** For each
 scope, the people who could repair it are people, not agents, who can act, are members there, hold

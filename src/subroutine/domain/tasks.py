@@ -4289,6 +4289,10 @@ def delete (
 	)
 	session.flush()
 
+	# **Its lease goes back with it** (`#4946`, decision `#4943`), as finishing gives one back:
+	# nobody works on what is in the trash, so nobody holds it.
+	subroutine.domain.claims.released_with_the_trash(session, task, now=now, actor=actor)
+
 	return task
 
 
@@ -4344,6 +4348,10 @@ def restore (
 		actor=actor,
 	)
 	session.flush()
+
+	# **Held by nobody as it comes back** (`#4946`): a lease taken before trashing gave one back
+	# may still be running, and a restored task is nobody's until somebody takes it.
+	subroutine.domain.claims.released_with_the_trash(session, task, actor=actor)
 
 	return task
 

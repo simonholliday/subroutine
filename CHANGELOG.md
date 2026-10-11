@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Putting a task in the trash gives its claim back**, as finishing it does, so a task in the
+  trash is held by nobody and one restored comes back unclaimed. *Releasing a task that is in the
+  trash is now refused, naming the trash*: there is no claim there to release. Editing or deleting
+  a comment on something in the trash, and removing a link from it, work as before.
 - **`project_member.role_id` is dropped.** It was kept for a role in one project that would
   replace a member's role in the workspace, which is not built: nothing ever wrote it, and nothing
   read it. This release's migration removes it, and who a private project is shared with is
