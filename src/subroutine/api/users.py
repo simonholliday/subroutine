@@ -15,10 +15,12 @@ no role can carry ``instance:user_create`` and only a superuser holds it. A toke
 it, which is what makes it safe to give an agent a credential that may do this and nothing
 else.
 
-**Listing is not.** Anyone authenticated may read the directory, because adding a colleague to
-a workspace means naming them and a name nobody can look up has to be passed along out of band.
-Decision ``#161`` is what makes that safe to say: identifiers are unique and public, content is
-neither — and :class:`subroutine.views.User` carries no email address and no content at all.
+**Reading is within reach** (`SR#4945`). An account is read by whoever shares a workspace with
+it, by its own chain and by somebody who administers accounts, which
+:func:`subroutine.domain.users.within_reach` says. It was the whole directory to anybody
+authenticated, so that a colleague could be looked up before being added. Naming an account to
+act on it still takes any name, since an identifier is something somebody types (decision
+``#161``), and :class:`subroutine.views.User` carries no email address and no content at all.
 """
 
 import typing

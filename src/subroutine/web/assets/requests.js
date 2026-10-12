@@ -395,10 +395,11 @@ export function rosterRequest (slug) {
 
 export function peopleRequest (cursor = null) {
 	/*
-		Every account on this instance, a page at a time — `#1397`, `#2624`.
+		Every account the reader can read, a page at a time - `#1397`, `#2624`, and `#4945` for
+		which those are.
 
 		**Not narrowed to a workspace, which is the difference from `rosterRequest`.** That one
-		answers *who can be handed work here*; this answers *who is on this installation*, and an
+		answers *who can be handed work here*; this answers *who is within the reader's reach*, and an
 		agent belonging to no workspace still belongs to somebody. The two are deliberately
 		different questions and the page shows both: the roster call supplies the roles, this one
 		supplies the population.

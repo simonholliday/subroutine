@@ -9652,7 +9652,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 	) -> None:
-		"""Show who is on this instance.
+		"""Show who you can see on this instance.
 
 		Examples:
 
