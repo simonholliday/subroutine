@@ -908,22 +908,39 @@ def test_db_archive_says_what_waits_and_how_a_client_carries_on (
 		run("add", title)
 
 	database = tmp_path / "xdg_data_home" / "subroutine" / "subroutine.db"
-	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
 
-	try:
-		with engine.begin() as connection:
-			numbers: list[int] = sorted(connection.scalars(sqlalchemy.select(LIVE.c.seq)))
-			connection.execute(
-				sqlalchemy.update(LIVE).where(LIVE.c.seq == numbers[-2]).values(created_at=LONG_AGO)
-			)
+	def age (back: int) -> None:
+		"""Make the event this many from the newest older than the floor."""
 
-	finally:
-		engine.dispose()
+		engine = sqlalchemy.create_engine(f"sqlite:///{database}")
 
+		try:
+			with engine.begin() as connection:
+				numbers: list[int] = sorted(connection.scalars(sqlalchemy.select(LIVE.c.seq)))
+				connection.execute(
+					sqlalchemy.update(LIVE)
+					.where(LIVE.c.seq == numbers[-back])
+					.values(created_at=LONG_AGO)
+				)
+
+		finally:
+			engine.dispose()
+
+	age(2)
 	monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", str(DAYS))
 	said = run("db", "archive")
 
 	assert "1 event older than 30 days" in said and "is held behind newer ones" in said, said
+
+	# `SR#4934`: the verb agreed with several events only, so one was said to "move" where
+	# doctor's line for the same state says "moves".
+	assert "and moves when those are old enough too. Nothing moved." in said, said
+
+	age(3)
+	said = run("db", "archive")
+
+	assert "2 events older than 30 days" in said, said
+	assert "are held behind newer ones, and move when those are old enough too." in said, said
 
 	with pytest.raises(subroutine.errors.ValidationError) as refused:
 		subroutine.domain.events.refuse_unusable_cursor(since=0)

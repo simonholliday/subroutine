@@ -2152,8 +2152,8 @@ def database_archive () -> None:
 	if not archived.moved and held:
 		_say(
 			f"{_counted(held, 'event')} older than {_counted(days, 'day')} in {_instance_label()} "
-			f"{'is' if held == 1 else 'are'} held behind newer ones, and move when those are old "
-			"enough too. Nothing moved."
+			f"{'is' if held == 1 else 'are'} held behind newer ones, and "
+			f"{'moves' if held == 1 else 'move'} when those are old enough too. Nothing moved."
 		)
 
 		return
