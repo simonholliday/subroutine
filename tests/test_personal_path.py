@@ -13412,6 +13412,27 @@ def test_somebody_can_be_let_into_a_private_project_and_out_again (
 	assert "jo" not in run("project", "sharing", "secret").output
 
 
+def test_the_sharing_list_names_an_agent_with_who_it_answers_to (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#4944`, decision `#4943`: what is shared with an agent is seen by whoever it answers to.
+
+	So the list of who a project is shared with says whose agent each one is, where it said only
+	that it was one. That line is how somebody reading who can see a project learns a person
+	comes with the agent.
+	"""
+
+	run("init", "--username", "keanu", "--workspace", "Metacortex")
+	run("token", "create", "--service-account", "claude", "--title", "the agent")
+	run("project", "create", "secret", "Secret", "--private")
+	run("project", "share", "secret", "claude")
+
+	listed = run("project", "sharing", "secret").output.splitlines()
+
+	assert "  claude  (agent, @keanu)" in listed, listed
+	assert "  keanu" in listed, listed
+
+
 def test_sharing_a_project_hidden_by_its_parent_names_the_parent (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

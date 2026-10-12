@@ -242,6 +242,43 @@ def answering_to (
 	return {one.id for one in agents_answering_to(session, account)}
 
 
+def sees_as (user_id: uuid.UUID) -> sqlalchemy.Select[uuid.UUID]:
+	"""Return, as a statement of ids, the accounts whose shares this one sees by - `SR#4944`.
+
+	**Sight follows the chain upward** (decision `#4943`): an account sees a private project that
+	is shared with it, or with any agent that answers to it, directly or through other agents. So
+	this is the account itself and every agent beneath it, and nothing above: an agent sees nothing
+	through whoever it answers to.
+
+	**:func:`agents_answering_to`'s walk, as SQL**, for the one predicate every listing narrows by,
+	which has no session to walk with and may not cost a listing a statement: service accounts
+	that are not deleted, a stopped one included, so a person keeps sight of what a stopped agent
+	was shared into, and no further than :data:`MAX_DEPTH` levels down, which is what ends a walk
+	round a circle somebody wrote by hand. A test holds the two walks to one answer.
+
+	Built of its own aliases, so a query that already selects accounts cannot correlate it away.
+	"""
+
+	account = sqlalchemy.orm.aliased(subroutine.db.models.identity.User)
+	beneath = sqlalchemy.orm.aliased(subroutine.db.models.identity.User)
+
+	walk = (
+		sqlalchemy.select(account.id.label("id"), sqlalchemy.literal(0).label("depth"))
+		.where(account.id == user_id)
+		.cte(recursive=True)
+	)
+	walk = walk.union_all(
+		sqlalchemy.select(beneath.id, walk.c.depth + 1).where(
+			beneath.responsible_user_id == walk.c.id,
+			beneath.is_service_account.is_(True),
+			beneath.deleted_at.is_(None),
+			walk.c.depth < MAX_DEPTH,
+		)
+	)
+
+	return sqlalchemy.select(walk.c.id)
+
+
 def refuse_a_person_act (
 	session: sqlalchemy.orm.Session,
 	act: str,

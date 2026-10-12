@@ -20,6 +20,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Whoever an agent answers to sees the private projects shared with it.** Somebody whose agent
+  made a private project could not see it or share themselves into it, though they stand in as
+  its owner. Sight now follows the chain of accountability upward, through other agents too, so
+  sharing a private project with somebody's agent shares it with them, and their listings and
+  agenda hold the work in it. It never runs the other way: an agent sees nothing through the
+  account it answers to.
 - **Putting a task in the trash gives its claim back**, as finishing it does, so a task in the
   trash is held by nobody and one restored comes back unclaimed. *Releasing a task that is in the
   trash is now refused, naming the trash*: there is no claim there to release. Editing or deleting

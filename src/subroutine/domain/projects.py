@@ -1045,6 +1045,8 @@ def hidden_by (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
 	user_id: uuid.UUID,
+	*,
+	without: subroutine.db.models.project.ProjectMember | None = None,
 ) -> subroutine.db.models.project.Project | None:
 	"""Return the project whose privacy keeps this one out of one person's sight, or ``None``.
 
@@ -1052,6 +1054,11 @@ def hidden_by (
 	holds a ``project_member`` row on that private one. So what has to be shared is not always
 	the project somebody names: a public project under a private parent is hidden, and a row
 	on the child grants nothing at all.
+
+	**A row of their own, or of an agent that answers to them** (`SR#4944`, decision `#4943`):
+	sight follows the chain upward, and :func:`subroutine.domain.accountability.sees_as` says
+	whose rows count, here as in the predicate. ``without`` asks it of a future in which that
+	one row has gone, which is what unsharing somebody asks before it takes it.
 
 	Returns the **outermost** private ancestor this user has no row for, which is the one
 	blocking them today. Sharing that is what changes their answer — and if something further
@@ -1077,13 +1084,15 @@ def hidden_by (
 		for row in session.scalars(sqlalchemy.select(model).where(model.id.in_(identifiers)))
 	}
 
-	shared = set(
-		session.scalars(
-			sqlalchemy.select(membership.project_id).where(
-				membership.user_id == user_id, membership.project_id.in_(identifiers)
-			)
-		)
+	held = sqlalchemy.select(membership.project_id).where(
+		membership.user_id.in_(subroutine.domain.accountability.sees_as(user_id)),
+		membership.project_id.in_(identifiers),
 	)
+
+	if without is not None:
+		held = held.where(membership.id != without.id)
+
+	shared = set(session.scalars(held))
 
 	for identifier in identifiers:
 		ancestor = ancestors.get(identifier)
@@ -1256,7 +1265,9 @@ def unreachable (
 	**``leaving`` asks what one person's departure would strand**: projects no person could see once
 	they and every agent answering to them have stopped, where they or one of those agents can see
 	it now. That is the question `user deactivate` puts before it acts, which is the other half of
-	the decision.
+	the decision. **Where they could repair it now, too** (`SR#4944`): somebody who sees a project
+	only through an agent that has been stopped holds no row, and neither does anything of theirs
+	that can act.
 
 	**People only** (`SR#4569`, decision `#4526` and Simon's answer of 2026-10-09): who could repair
 	a private project is a person who can act and see it, so one only an agent can see is listed -
@@ -1305,7 +1316,11 @@ def unreachable (
 		(row, place)
 		for row, place in candidates
 		if not subroutine.domain.repair.repairers(session, row, leaving=gone)
-		and (leaving is None or subroutine.domain.repair.takes_part(session, row, theirs))
+		and (
+			leaving is None
+			or subroutine.domain.repair.takes_part(session, row, theirs)
+			or leaving.id in subroutine.domain.repair.repairers(session, row)
+		)
 	]
 
 	if not stranded:
@@ -1406,7 +1421,11 @@ def share (
 			],
 		)
 
-	if blocking is None:
+	# **Somebody who sees it only through an agent is given a row of their own** (`SR#4944`,
+	# decision `#4943`): nothing hides it from them and no row is theirs, which before sight
+	# followed the chain could only be a project that was not private. Their own row is what they
+	# keep when the agent is handed to somebody else, or unshared.
+	if blocking is None and project.visibility != "private":
 		raise subroutine.errors.ValidationError(
 			f"{project.key} is visible to everybody in this workspace, so there is nobody to "
 			f"share it with.",
@@ -1421,7 +1440,7 @@ def share (
 			],
 		)
 
-	if blocking.id != project.id:
+	if blocking is not None and blocking.id != project.id:
 		raise subroutine.errors.ValidationError(
 			f"{project.key} is hidden by {blocking.key}, which is the project to share.",
 			hint=f"Sharing {blocking.key} shows everything inside it that is not private in "
@@ -1582,6 +1601,8 @@ def unshare (
 	(`SR#4569`, decision `#4526`): this counted rows, those of people who had left included, so the
 	last member who could act could strand it (G11 of the cold review of 2026-10-05). **And every
 	private project inside a private one**, which the row being taken away is what lets them see.
+	**An agent's row too** (`SR#4944`, decision `#4943`): whoever it answers to sees through it,
+	so the question is who could still see each project with this one row gone, whoever holds it.
 
 	**It works whatever the project's visibility is**, unlike :func:`share`. A row on a public
 	project grants nothing today and everything the day somebody makes it private, so leaving
@@ -1628,16 +1649,23 @@ def unshare (
 	for one in _losing_sight(session, project):
 		could = subroutine.domain.repair.repairers(session, one)
 
-		if user.id not in could or could - {user.id}:
+		if not could or subroutine.domain.repair.repairers(session, one, unsharing=membership):
 			continue
 
+		# **One row gives sight to one person**: its holder, or whoever its holder answers to.
+		last = session.get(subroutine.db.models.identity.User, next(iter(could)))
+		seer = user.username if last is None else last.username
 		inside = "," if one.id == project.id else f", inside {project.key},"
+
+		if seer != user.username:
+			inside = f"{inside} and only through their agent {user.username},"
 
 		# **A remedy this caller can take** (`SR#4570`): making it public and sharing it are its
 		# steward's now, so somebody removing themselves who is not is pointed at the one who is.
 		raise subroutine.errors.ValidationError(
-			f"{user.username} is the only person who can see {one.key}{inside} so removing them "
-			f"would leave no person able to reach it.",
+			f"{seer} is the only person who can see {one.key}{inside} so removing "
+			f"{'them' if seer == user.username else user.username} would leave no person able "
+			f"to reach it.",
 			hint=f"'subroutine project update {one.key} --public' first, or share it with "
 			f"somebody else."
 			if subroutine.domain.stewardship.stewards(session, actor, one)
@@ -1646,7 +1674,7 @@ def unshare (
 				subroutine.errors.FieldError(
 					field="username",
 					code="invalid_field_value",
-					message=f"{user.username} is the last person who can see {one.key}.",
+					message=f"{seer} is the last person who can see {one.key}.",
 				)
 			],
 		)

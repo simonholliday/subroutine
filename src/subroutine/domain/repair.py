@@ -12,7 +12,8 @@ what administers it**, and for a private project can see it:
 * the installation - its superusers;
 * a workspace's administration - its members whose role holds ``workspace:admin``;
 * a workspace's ownership - its members whose role holds ``workspace:delete``;
-* a private project - its workspace's members holding a row on it, whom nothing hides it from.
+* a private project - its workspace's members whom nothing hides it from: it is shared with
+  them, or with an agent that answers to them (`SR#4944`).
 
 **A scope keeps somebody who can repair it** (decision `#4943`, which states this once). An act
 taken inside it - removing, demoting, unsharing, leaving - is refused where it would leave nobody.
@@ -70,12 +71,15 @@ def repairers (
 	scope: Scope,
 	*,
 	leaving: typing.Collection[uuid.UUID] = (),
+	unsharing: subroutine.db.models.project.ProjectMember | None = None,
 ) -> set[uuid.UUID]:
 	"""Return the people who could repair ``scope``, by id - `SR#4569`, decision `#4526`.
 
 	``leaving`` asks it of a future in which those accounts have gone, which is what a deactivation
-	names before it happens. A caller taking one person out of a scope - removing, demoting or
-	unsharing them - takes their id out of the answer, since that is all the act changes.
+	names before it happens. A caller taking one person out of a workspace's scope - removing or
+	demoting them - takes their id out of the answer, since that is all the act changes.
+	**``unsharing`` asks it of a private project with one row gone** (`SR#4944`): an agent's row
+	is what whoever it answers to sees by, so taking it away can change somebody else's answer.
 	"""
 
 	model = subroutine.db.models.identity.User
@@ -98,7 +102,7 @@ def repairers (
 		candidates = [held for held, permissions in rows if _VERB[type(scope)] in (permissions or [])]
 
 	else:
-		candidates = _seeing(session, scope, people)
+		candidates = _seeing(session, scope, people, unsharing)
 
 	return {
 		one.id
@@ -111,13 +115,19 @@ def _seeing (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
 	people: sqlalchemy.Select[subroutine.db.models.identity.User],
+	unsharing: subroutine.db.models.project.ProjectMember | None = None,
 ) -> list[subroutine.db.models.identity.User]:
-	"""Return the people who belong to a project's workspace, hold a row on it and can see it.
+	"""Return the people who belong to a project's workspace and can see it.
 
 	**A row alone is not enough** (`#1453`, `#2626`): an account taken out of the workspace keeps
 	its project rows, and privacy inherits down the tree, so a member of a private project inside
 	another they are not a member of cannot see it either. ``hidden_by`` is that rule, asked here
 	rather than restated; imported here, since ``domain.projects`` asks this module.
+
+	**Nor is a row of their own needed** (`SR#4944`, decision `#4943`): sight follows the chain
+	upward, so whoever an agent answers to sees what is shared with it. So ``hidden_by`` is asked
+	of everybody a row could give sight to: whoever holds one, and every account above an agent
+	that does.
 	"""
 
 	from subroutine.domain import projects as listing
@@ -126,18 +136,58 @@ def _seeing (
 	membership = subroutine.db.models.project.ProjectMember
 	belongs = subroutine.db.models.identity.WorkspaceMember
 
+	holders = session.scalars(
+		sqlalchemy.select(model)
+		.join(membership, membership.user_id == model.id)
+		.where(membership.project_id == project.id)
+	)
+	given: set[uuid.UUID] = set()
+
+	for holder in holders:
+		given.update(_above(session, holder))
+
 	found = session.scalars(
-		people.join(membership, membership.user_id == model.id)
-		.join(
+		people.join(
 			belongs,
 			sqlalchemy.and_(
 				belongs.user_id == model.id, belongs.workspace_id == project.workspace_id
 			),
-		)
-		.where(membership.project_id == project.id)
+		).where(model.id.in_(given))
 	)
 
-	return [one for one in found if listing.hidden_by(session, project, one.id) is None]
+	return [
+		one
+		for one in found
+		if listing.hidden_by(session, project, one.id, without=unsharing) is None
+	]
+
+
+def _above (
+	session: sqlalchemy.orm.Session, account: subroutine.db.models.identity.User
+) -> set[uuid.UUID]:
+	"""Return an account and every account it answers to, however its chain is written.
+
+	**Wider than the chain a door would walk, never narrower**: this only says who to ask
+	``hidden_by`` about, which is where the rule is, so a chain that loops or runs long is followed
+	as far as it goes and nobody is refused for it.
+	"""
+
+	model = subroutine.db.models.identity.User
+	met: set[uuid.UUID] = set()
+	current: subroutine.db.models.identity.User | None = account
+
+	while current is not None and current.id not in met:
+		met.add(current.id)
+
+		if not current.is_service_account or current.responsible_user_id is None:
+			break
+
+		if len(met) > subroutine.domain.accountability.MAX_DEPTH:
+			break
+
+		current = session.get(model, current.responsible_user_id)
+
+	return met
 
 
 def departing (

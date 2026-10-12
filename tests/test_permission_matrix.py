@@ -194,14 +194,23 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 	subroutine.domain.workspaces.add_member(session, zion, people["hugo"], role_key="member")
 	projects: dict[str, typing.Any] = {}
 
-	for key, visibility in (("web", "public"), ("ops", "public"), ("vault", "private")):
+	# **Two private projects along one chain of accountability** (`#4944`, decision `#4943`):
+	# ``lab`` is Claude's own, which Hugo sees because Claude answers to him, and ``den`` is
+	# Hugo's, which Claude does not see, since sight never follows the chain down.
+	for key, visibility, owner in (
+		("web", "public", "laurence"),
+		("ops", "public", "laurence"),
+		("vault", "private", "laurence"),
+		("lab", "private", "claude"),
+		("den", "private", "hugo"),
+	):
 		projects[key] = subroutine.domain.projects.create(
 			session,
 			workspace_id=workspace.id,
 			key=key,
 			title=f"{key.title()} {suffix}",
 			visibility=visibility,
-			owner_id=setup.user.id,
+			owner_id=people[owner].id,
 		)
 
 	session.flush()
@@ -251,7 +260,9 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 			"zion": (zion.id, subroutine.domain.bootstrap.inbox_for(session, zion)),
 		},
 	)
-	cast.plant(projects["vault"].title, P.PROJECT_READ, "vault")
+	for hidden in ("vault", "lab", "den"):
+		cast.plant(projects[hidden].title, P.PROJECT_READ, hidden)
+
 	_furnish(cast, suffix, zion.slug)
 
 	return cast
@@ -291,6 +302,12 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 		task("repeat", "Water the plants", "web", then="by 2031-12-01", recurrence="every 7 days")
 		task("vault", f"Pay the dojo invoice #hush{suffix}", "vault")
 		task("ops", "Rotate the keys", "ops")
+
+		# Filed by Hugo, who sees both: Laurence, who files the rest, sees neither.
+		for key, title in (("lab", "Trace the call"), ("den", "Bake the cookies")):
+			text = cast.plant(f"{title} {suffix}", P.TASK_READ, key)
+			cast.refs[key] = hugo.capture(text=text, project=key, workspace=slug).task.ref
+
 		parent = task("parent", "Rewrite the home page copy", "web")
 		task("beneath the trash", "Draft the hero section", "web", parent=parent)
 		laurence.discard(ref=parent, workspace=slug)
@@ -1014,6 +1031,12 @@ _ADMINISTRATORS = _INSTALLATION | {"owner", "admin"}
 #: Who reaches the private project: Laurence, who made it, and Carrie-Anne, who it is shared with.
 _VAULT = _INSTALLATION | {"admin"}
 
+#: Who sees Claude's private project: Claude, and Hugo, whom Claude answers to (`#4944`).
+_LAB = frozenset({"agent", "member", "local member"})
+
+#: Who sees Hugo's: Hugo, and not Claude, since sight never follows the chain down.
+_DEN = frozenset({"member", "local member"})
+
 #: Hugo's credentials, each narrowed one way.
 _READING = frozenset({"scoped to reading tasks", "scoped to reading tasks and commenting"})
 _OPS = frozenset({"narrowed to another project", "writing only in another project"})
@@ -1056,6 +1079,10 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.PROJECT_READ, "vault"): _VAULT,
 	(P.PROJECT_WRITE, "vault"): _VAULT,
 	(P.COMMENT_READ, "vault"): _VAULT,
+	(P.PROJECT_READ, "lab"): _LAB | {"writing only in another project"},
+	(P.TASK_READ, "lab"): _LAB | _READING | {"writing only in another project"},
+	(P.PROJECT_READ, "den"): _DEN | {"writing only in another project"},
+	(P.TASK_READ, "den"): _DEN | _READING | {"writing only in another project"},
 	(P.TASK_READ, "zion"): frozenset(
 		{
 			"member",

@@ -346,6 +346,9 @@ def sharing (
 	Needs ``project:read``. Nothing anywhere else answers *who can see this*, and until this
 	existed the question had no home on any surface.
 
+	**An agent's row is sight for whoever it answers to as well**, directly or through other
+	agents, and each row's account says who that is, in ``user.answers_to``.
+
 	Enveloped and unpaginated, like a workspace's members and a task's links - a
 	project's membership is bounded by how many people somebody put in it.
 
@@ -413,6 +416,9 @@ def admit (
 
 	**Sight only.** The row grants nothing but the ability to see the project and what is in
 	it; what somebody may *do* there is still their workspace role.
+
+	**Sharing with an agent shares with whoever it answers to**, directly or through other
+	agents: they see the project through the agent's row for as long as it answers to them.
 	"""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)

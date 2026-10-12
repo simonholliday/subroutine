@@ -252,6 +252,10 @@ NOT_DECIDING: dict[str, str] = {
 		"Lists the agents beneath an account, which is what a departure stops and what the "
 		"answerer may act on. `#479`."
 	),
+	"accountability.py:sees_as": (
+		"Walks the agents beneath an account, as `agents_answering_to` does, for whose shares "
+		"it sees a private project by (decision `#4943`): sight, never what it may do."
+	),
 	"accountability.py:levels_below": (
 		"Measures the chain below an account before a hand-over, so it cannot run past "
 		"`MAX_DEPTH`. `#3939`."
@@ -285,6 +289,10 @@ NOT_DECIDING: dict[str, str] = {
 	"users.py:transfer": (
 		"Only an agent has somebody answering for it, so handing over a person is refused as a "
 		"request that means nothing. `#478`."
+	),
+	"repair.py:_above": (
+		"Walks up from whoever holds a row on a private project to whoever sees through it "
+		"(decision `#4943`): who a last-one refusal counts, never what the actor may do."
 	),
 	"repair.py:repairers": (
 		"Who could repair a scope is people, not agents (decision `#4526`): whom a last-one "

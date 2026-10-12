@@ -1188,17 +1188,22 @@ def _refuse_stranding_a_private_project (
 
 	**As unsharing them is refused** (`SR#4569`, Simon's answer of 2026-10-09): belonging to the
 	workspace is what grants reach at all (`#1860`), so taking them out of it strands every private
-	project only they could see, as surely as taking their row away. Asked of the projects they
-	hold a row on, since only those can they be the last to see.
+	project only they could see, as surely as taking their row away. Asked of the projects they,
+	or an agent that answers to them, hold a row on (`SR#4944`), since only those can they be the
+	last to see. **Taking an agent out strands nothing**: its rows stay, as a person's do, and
+	whoever it answers to goes on seeing through them.
 	"""
 
 	project = subroutine.db.models.project.Project
 	membership = subroutine.db.models.project.ProjectMember
 	held = session.scalars(
 		sqlalchemy.select(project)
-		.join(membership, membership.project_id == project.id)
 		.where(
-			membership.user_id == user.id,
+			project.id.in_(
+				sqlalchemy.select(membership.project_id).where(
+					membership.user_id.in_(subroutine.domain.accountability.sees_as(user.id))
+				)
+			),
 			project.workspace_id == workspace.id,
 			project.visibility == "private",
 			project.deleted_at.is_(None),

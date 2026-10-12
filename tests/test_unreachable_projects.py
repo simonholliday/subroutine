@@ -131,15 +131,17 @@ def test_a_project_whose_last_member_left_is_found_by_an_administrator (
 	assert found[0]["member_of_workspace"] is True
 
 
-def test_a_project_only_an_agent_can_see_is_listed (
+def test_a_project_only_an_agent_holds_is_listed_once_its_person_cannot_act (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#4569`, decision `#4526` and Simon's answer of 2026-10-09: an agent repairs nothing.
+	"""`SR#4569`, decision `#4526`: an agent repairs nothing - and its person does (`SR#4944`).
 
 	The second door was an agent whose person left, which keeps its rows and stops acting. **Who
-	could repair a private project is a person who can act and see it**, so one only an agent can
-	see is listed while the agent works in it - an agent's own included - and still is once its
-	person has left.
+	could repair a private project is a person who can act and see it.** Sight follows the chain
+	upward (decision `#4943`), so a project only an agent holds a row on is seen by the person it
+	answers to, and is not listed while they can act: this said it was, an agent's own included,
+	which was `#4940`'s gap seen from the administrator's side. Once that person has left nobody
+	can see it, and it is listed, the agent counted for nothing.
 	"""
 
 	world = test_api_tasks._world(session)
@@ -153,14 +155,16 @@ def test_a_project_only_an_agent_can_see_is_listed (
 	subroutine.domain.workspaces.add_member(session, world.workspace, agent, role_key="admin")
 	project = _private(session, world, agent)
 
-	assert [row["project"] for row in _listed(world)] == [project.key], (
-		"an agent was counted as somebody who could repair it"
+	assert [row["project"] for row in _listed(world)] == [], (
+		"a project its only holder's person can see was called unreachable"
 	)
 
 	subroutine.domain.users.set_active(session, thomas, active=False)
 	session.flush()
 
-	assert [row["project"] for row in _listed(world)] == [project.key]
+	assert [row["project"] for row in _listed(world)] == [project.key], (
+		"an agent was counted as somebody who could repair it"
+	)
 
 
 def test_leaving_names_what_a_departure_would_strand_before_it_happens (

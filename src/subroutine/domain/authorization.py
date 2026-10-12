@@ -799,6 +799,12 @@ def visible_projects (
 	somebody would mark a project private, create a sub-project inside it, and quietly
 	publish its titles to the whole workspace.
 
+	**A row of the principal's own, or of an agent that answers to it** (`#4944`, decision
+	`#4943`): sight follows the chain of accountability upward and never down, so whoever an
+	agent answers to sees what is shared with it, and an agent sees nothing through them.
+	:func:`subroutine.domain.accountability.sees_as` says whose rows those are, in the same
+	statement, so no listing gains one.
+
 	This is the same reasoning :func:`_within_project_scope` applies to a token's project
 	restriction, and the two disagreeing was a finding in the slice-2 review. They agree now
 	— both read the materialised ``path``, which is what makes an ancestor test a string
@@ -828,7 +834,9 @@ def visible_projects (
 			project.path.like(ancestor.path.concat("%")),
 			ancestor.id.not_in(
 				sqlalchemy.select(membership.project_id).where(
-					membership.user_id == principal.user.id
+					membership.user_id.in_(
+						subroutine.domain.accountability.sees_as(principal.user.id)
+					)
 				)
 			),
 		)

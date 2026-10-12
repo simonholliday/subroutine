@@ -1957,7 +1957,7 @@ An act is allowed when every one of these holds:
   one's own timezone, revoking one's own other credentials, saving a private view - so the rule
   is "no act but reads", not "verbs within the reads".
 - **The work is in sight.** A private project, and everything beneath it, exists only for the
-  people it is shared with (§7.3a), whatever their role.
+  accounts it is shared with and whoever those answer to (§7.3a), whatever their role.
 
 **A superuser acts by their role inside a workspace**, like everybody else, with one clause: an
 instance administrator may administer the membership of, and delete, any live workspace, whether
@@ -1991,7 +1991,7 @@ project, can see it:
 | The installation | its superusers |
 | A workspace's administration | the people holding `workspace:admin` there |
 | A workspace's ownership | its owners |
-| A private project | its members who can see it |
+| A private project | the people who can see it |
 
 An act taken inside a scope - removing, demoting, unsharing, leaving - is refused when it would
 leave nobody, and says what to do first. Stopping an account is taken from above the scope, so no
@@ -2027,14 +2027,21 @@ Two levels, and no more:
 
 - **Public** (the default) - every member of the workspace sees it, and their role decides what
   they may do there.
-- **Private** - only the people it is shared with see it at all. It is absent from listings,
-  search and `/v1/meta` for everybody else, and a direct fetch answers `404` rather than `403`,
-  per §8.7's rule against leaking existence.
+- **Private** - only the accounts it is shared with, and whoever those answer to, see it at all.
+  It is absent from listings, search and `/v1/meta` for everybody else, and a direct fetch answers
+  `404` rather than `403`, per §8.7's rule against leaking existence.
 
 **Privacy inherits down the project tree.** A project is hidden when it or any ancestor is private
 and not shared with the caller. Without that, a sub-project of a private project would publish its
 titles to the whole workspace - and a credential's project scope already reads a project as its
 subtree, for the same reason. One predicate answers it, and every listing narrows by it.
+
+**Sight follows the chain of accountability upward.** What is shared with an agent is seen by
+whoever it answers to, directly or through other agents, so sharing a private project with
+somebody's agent shares it with them; the list of who a project is shared with shows each agent
+with who it answers to. It holds while the agent is stopped or out of the workspace, and moves
+with the agent when it is handed to somebody else. The direction never reverses: an agent sees
+nothing through the account it answers to.
 
 **Who can see a project is its steward's to change, in both directions.** The **steward** of a
 project is its owner, or anybody the owner answers to while the owner can act, or a workspace

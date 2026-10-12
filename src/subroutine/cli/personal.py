@@ -6638,8 +6638,20 @@ def _project_sharing (program: Program, *, key: str, json_output: bool) -> None:
 
 			return
 
+		# **An agent is named with who it answers to** (`SR#4944`, decision `#4943`): a project
+		# shared with an agent is seen by them too, and this list is what says so. The words are
+		# `views.principal_named`'s, after a name this list has always printed bare.
 		for one in people:
-			program.say(f"  {one.user.username}{'  (agent)' if one.user.is_service_account else ''}")
+			whose = ""
+
+			if one.user.is_service_account:
+				whose = (
+					"  (agent)"
+					if one.user.answers_to is None
+					else f"  (agent, @{one.user.answers_to})"
+				)
+
+			program.say(f"  {one.user.username}{whose}")
 
 
 def _settings_in_force (

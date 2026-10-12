@@ -147,16 +147,19 @@ def test_deactivating_the_only_owner_is_allowed_and_named (
 def test_unsharing_counts_people_who_can_act_and_not_rows (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""G11: three rows, one of a person who left and one of an agent, and only one who could repair it.
+	"""G11: three rows, one of a person who left and one of their agent, and only one who could repair it.
 
 	``unshare`` counted rows, so the last member who could act was taken out and the project was
 	stranded with two rows nobody could use. **Refused**, and the one who could repair it is named.
+	**The agent answers to the person who left** (`SR#4944`, decision `#4943`): an agent's row is
+	sight for whoever it answers to, so one answering to Thomas would leave him seeing the project
+	once his own row had gone, which ``tests/test_sight_follows_the_chain.py`` holds.
 	"""
 
 	thomas = _person(session, "thomas")
 	gone = _person(session, "gone")
 	workspace = _metacortex(session, thomas)
-	bot = _agent(session, "bot", thomas)
+	bot = _agent(session, "bot", gone)
 
 	for member in (gone, bot):
 		workspaces.add_member(session, workspace, member, role_key="member")
