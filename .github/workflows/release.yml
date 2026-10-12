@@ -99,7 +99,7 @@ jobs:
       # Node, because `tests/test_web.py` renders the browser app's components in it and
       # *skips* without a runtime. No browser here — that is the job below, and separating them
       # is what lets this one run in parallel at all.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "22"
 
@@ -194,7 +194,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "22"
 
