@@ -487,6 +487,56 @@ def _refuse_deactivating_the_last_administrator (
 	)
 
 
+def within_reach (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	model: type[subroutine.db.models.identity.User] = subroutine.db.models.identity.User,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate saying an account is one this principal may read - `SR#4945`.
+
+	**An account is read within reach** (decision `#4943`, Simon 2026-10-11): by whoever shares a
+	workspace with it, by its own chain - itself, whoever it answers to and whatever answers to
+	it - and by an administrator of accounts, who holds ``instance:user_create``. Every other
+	kind of row had a reach rule and this one answered every account on the installation to any
+	credential, however narrowed, with who administers the installation, who is active, who
+	answers to whom and where each of them is.
+
+	**Sharing a workspace is asked of the one predicate that says which workspaces a credential
+	reaches** (:func:`subroutine.domain.authorization.reaches`), so one pinned to a workspace reads
+	the accounts of that one, one narrowed to some projects those of the workspaces holding them,
+	and an agent those of the workspaces it works in. An administrator's credential that is pinned
+	or narrowed holds nothing over the installation, and reads as anybody's does.
+
+	**Naming an account to act on it is not a read of it**, as naming a project to file into is
+	not a read of the project: :func:`by_username` still resolves any name, since a username is an
+	identifier somebody types and cannot be a secret (decision `#161`). ``None`` is an internal
+	caller, which nothing here narrows.
+	"""
+
+	if actor is None or subroutine.domain.authorization.may_instance(
+		actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=True
+	):
+		return sqlalchemy.true()
+
+	try:
+		above = [entry.id for entry in subroutine.domain.accountability.chain(session, actor.user)]
+
+	except subroutine.errors.ValidationError:
+		above = [actor.user.id]
+
+	member = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
+
+	return sqlalchemy.or_(
+		model.id.in_(above),
+		model.id.in_(subroutine.domain.accountability.sees_as(actor.user.id)),
+		model.id.in_(
+			sqlalchemy.select(member.user_id).where(
+				subroutine.domain.authorization.reaches(session, actor, member.workspace_id)
+			)
+		),
+	)
+
+
 def readable (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -502,44 +552,67 @@ def readable (
 	follows: the domain decides which rows there are, and each caller decides how many of them
 	to take and in what order.
 
-	**Readable by anyone who is authenticated, and that is a decision.** Adding a colleague to a
-	workspace means naming them, and a name you cannot look up is one you have to be told out of
-	band — which for the commonest case, "who is on this instance", turns a one-line command into
-	a conversation. Decision ``#161`` is what makes it safe to say: identifiers are unique and
-	public, content is neither, and this view carries no email address and no content at all.
-
-	**``actor`` narrows nothing, deliberately, and is taken so that the place where narrowing
-	would go is the place the decision is recorded.** Every other listing here starts at
-	``domain/scoping.py`` and is cut down by workspace, project visibility and the token's own
-	scope; this one is not, because of the paragraph above. An unused parameter is ordinarily
-	this codebase's second signature defect — a control that is declared and inert — so it is
-	worth saying which of the two this is.
+	**The accounts within the asker's reach** (`SR#4945`, decision `#4943`), which
+	:func:`within_reach` says. It was every account, to anybody authenticated, by a decision
+	recorded here: a name you cannot look up is one you have to be told out of band. That still
+	holds where it mattered - the people you share a workspace with are all listed - and a name
+	from anywhere else can still be typed, since naming an account is not reading it. This view
+	carries no email address and no content at all, as before.
 
 	**``answers_to`` asks the question rather than deriving it** (`SR#2387`). It names a person
 	and returns the live service accounts answerable to them, directly or through another, which
 	is exactly what :func:`subroutine.domain.accountability.agents_answering_to` computes. It is
 	not a column and cannot be one: the chain is a bounded walk outward, so there is no value for
 	SQL to compare — the same reason ``priority_score`` is orderable and not filterable. A
-	username that names nobody is refused by name rather than answered with an empty page.
+	username that names nobody the asker can read is refused by name rather than answered with an
+	empty page.
 
 	Ordering is :data:`subroutine.domain.ordering.DEFAULT_USER_ORDER`'s and is applied by the
 	caller, so a cursor and a plain read cannot disagree about where a page stopped.
 	"""
 
 	model = subroutine.db.models.identity.User
-	statement = sqlalchemy.select(model).where(model.deleted_at.is_(None))
+	statement = sqlalchemy.select(model).where(
+		model.deleted_at.is_(None), within_reach(session, actor, model)
+	)
 
 	if answers_to is None:
 		return statement
 
-	# Resolved through `by_username`, so an unknown name is the refusal that function already
-	# writes rather than a page with nothing on it — `#264`'s rule that a refusal names what it
-	# looked at, applied to a filter.
+	# Resolved through `read`, so an unknown name is the refusal that function already writes
+	# rather than a page with nothing on it — `#264`'s rule that a refusal names what it looked
+	# at, applied to a filter.
 	answering = subroutine.domain.accountability.agents_answering_to(
-		session, by_username(session, answers_to)
+		session, read(session, answers_to, actor=actor)
 	)
 
 	return statement.where(model.id.in_([one.id for one in answering]))
+
+
+def read (
+	session: sqlalchemy.orm.Session,
+	username: str,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> subroutine.db.models.identity.User:
+	"""Return the account with this username for somebody to read, or refuse as :func:`by_username` does.
+
+	**One within the asker's reach** (`SR#4945`, decision `#4943`): an account outside it is
+	answered exactly as a name nobody has, so the read says nothing of an account the listing
+	leaves out. An act that names an account - adding somebody to a workspace, sharing a project
+	with them - asks :func:`by_username`, which this is with the reach in front.
+	"""
+
+	account = by_username(session, username)
+	model = subroutine.db.models.identity.User
+	seen = session.scalar(
+		sqlalchemy.select(model.id).where(model.id == account.id, within_reach(session, actor, model))
+	)
+
+	if seen is None:
+		raise _nobody_called(username)
+
+	return account
 
 
 def by_username (
@@ -565,12 +638,22 @@ def by_username (
 	).first()
 
 	if found is None:
-		raise subroutine.errors.NotFound(
-			f"There is no account called {username!r} here.",
-			hint="Run 'subroutine user list' to see who there is.",
-		)
+		raise _nobody_called(username)
 
 	return found
+
+
+def _nobody_called (username: str) -> subroutine.errors.NotFound:
+	"""Return the refusal for a name that is nobody's, or nobody's the asker can read.
+
+	**One sentence for both** (`SR#4945`), so a read cannot be used to tell an account out of
+	reach from one that does not exist.
+	"""
+
+	return subroutine.errors.NotFound(
+		f"There is no account called {username!r} here.",
+		hint="Run 'subroutine user list' to see who there is.",
+	)
 
 
 def member (

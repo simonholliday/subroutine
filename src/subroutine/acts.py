@@ -83,7 +83,12 @@ ACTS: tuple[Act, ...] = (
 		Act("reference", "Read the agent's guide", reads=True),
 		Act("meta", "Read a workspace's vocabulary", place=WORKSPACE, reads=True),
 		Act("me", "Say who is asking", reads=True),
-		Act("user", "Read an account by name", reads=True),
+		Act(
+			"user",
+			"Read an account by name",
+			reads=True,
+			rule="An account out of the asker's reach is answered as a name nobody has.",
+		),
 		Act("users", "List the accounts", reads=True),
 		Act("tokens", "List one's credentials", reads=True),
 		Act("calendars", "List one's calendar feeds", reads=True),
@@ -810,8 +815,8 @@ INTRODUCTION = (
 	(
 		"Everything somebody can ask an instance to do, the permission each act asks, and where "
 		"it asks it. A role in a workspace grants a set of permissions, a credential can be "
-		"narrowed to fewer, and a private project is seen only by the people it is shared with, "
-		"whatever their role. [Section 7 of the design]"
+		"narrowed to fewer, and a private project is seen only by the accounts it is shared with "
+		"and whoever those answer to, whatever their role. [Section 7 of the design]"
 		"(design.md#7-identity-authentication-and-authorisation) sets out the whole model."
 	),
 	(
@@ -825,8 +830,9 @@ INTRODUCTION = (
 	),
 	(
 		"**A listing holds only what its asker can see.** Reading the work of a workspace asks "
-		"`task:read` once, and the work of a private project is still left out for anybody it is "
-		"not shared with."
+		"`task:read` once, and the work of a private project is still left out for anybody who "
+		"cannot see it. The accounts listed are those within the asker's reach: whoever shares a "
+		"workspace with them, and their own chain."
 	),
 	(
 		"The page is generated from the acts the permission tests drive through every way in - "

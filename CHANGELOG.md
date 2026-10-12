@@ -20,6 +20,15 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The account listing answers the accounts within reach.** `subroutine user list`,
+  `GET /v1/users` and the People page answered every account on the installation to anybody
+  signed in, with who administers it, who is active and who answers to whom. They now answer
+  whoever shares a workspace with the asker and the asker's own chain - itself, whoever it
+  answers to and whatever answers to it - and every account only to somebody who administers
+  accounts. A credential pinned to a workspace or narrowed to some projects reads the accounts of
+  the workspaces it reaches. *Reading one account outside that now answers as a name nobody has.*
+  Naming somebody to act still works for any account - adding them to a workspace, sharing a
+  project with them - and where everybody shares a workspace nothing changes.
 - **Whoever an agent answers to sees the private projects shared with it.** Somebody whose agent
   made a private project could not see it or share themselves into it, though they stand in as
   its owner. Sight now follows the chain of accountability upward, through other agents too, so

@@ -1879,7 +1879,8 @@ bypassing the check.
 
 - **`instance:user_create` is *accounts***: everything done to another account - creating it,
   deactivating and reactivating it, handing an agent over, and issuing, listing and revoking its
-  credentials, sign-in links, sessions and calendar feeds.
+  credentials, sign-in links, sessions and calendar feeds, and reading any account on the
+  installation (§7.3).
 - **`instance:admin` is *the installation***: its name and timezone, its backups, the listing of
   every workspace, administering any workspace's membership and deleting it (§7.3), and rescuing
   a project nobody can reach.
@@ -1998,6 +1999,14 @@ leave nobody, and says what to do first. Stopping an account is taken from above
 workspace or project blocks it: it says, before and after, what it leaves without anybody, and an
 administrator of the installation repairs it. The installation has nothing above it, so its last
 administrator who can act is not stopped either.
+
+**An account is read within reach**: by whoever shares a workspace with it, by its own chain -
+itself, whoever it answers to and whatever answers to it - and by whoever holds
+`instance:user_create`. A credential shares the workspaces it reaches, so one pinned to a
+workspace or narrowed to some projects reads fewer accounts, as it reads less of everything
+else. An account outside that is answered as a name nobody has. Naming an account to act on it
+is not a read of it, as naming a project to file into is not a read of the project: a username
+is a name somebody types.
 
 **No answer and no refusal names what the caller cannot read.** A refusal that would name another
 row resolves it through the caller's reach first, and one they cannot read is *something you

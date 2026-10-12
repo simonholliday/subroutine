@@ -9660,8 +9660,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user list --workspace acme
 
-		Without --workspace this is every account, oldest first - the first one is whoever ran
-		'subroutine init'. With it, only that workspace's members, and what each may do there.
+		Without --workspace this is everybody you share a workspace with, and any agents that
+		answer to you, oldest first. Somebody who administers accounts sees every account. With
+		it, only that workspace's members, and what each may do there.
 		"""
 
 		chosen = _workspace_named_or_fail(program, workspace, command="user list")

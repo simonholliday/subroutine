@@ -2,9 +2,9 @@
 
 Everything somebody can ask an instance to do, the permission each act asks, and where it
 asks it. A role in a workspace grants a set of permissions, a credential can be narrowed to
-fewer, and a private project is seen only by the people it is shared with, whatever their
-role. [Section 7 of the design](design.md#7-identity-authentication-and-authorisation) sets
-out the whole model.
+fewer, and a private project is seen only by the accounts it is shared with and whoever
+those answer to, whatever their role. [Section 7 of the
+design](design.md#7-identity-authentication-and-authorisation) sets out the whole model.
 
 **How to read a row.** *Asks* is what the permission check is asked, and *On* is where: the
 installation, the workspace, or the project the act lands in. An act asking no permission is
@@ -15,8 +15,9 @@ calendar feed, and never holds a permission over the installation, `workspace:ad
 `workspace:delete`.
 
 **A listing holds only what its asker can see.** Reading the work of a workspace asks
-`task:read` once, and the work of a private project is still left out for anybody it is not
-shared with.
+`task:read` once, and the work of a private project is still left out for anybody who cannot
+see it. The accounts listed are those within the asker's reach: whoever shares a workspace
+with them, and their own chain.
 
 The page is generated from the acts the permission tests drive through every way in - the
 terminal, the HTTP API and the agent tools - so it says what the instance does.
@@ -31,7 +32,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Read the agent's guide | - | - | - |
 | Read a workspace's vocabulary | - | the workspace | - |
 | Say who is asking | - | - | - |
-| Read an account by name | - | - | - |
+| Read an account by name | - | - | An account out of the asker's reach is answered as a name nobody has. |
 | List the accounts | - | - | - |
 | List one's credentials | - | - | - |
 | List one's calendar feeds | - | - | - |

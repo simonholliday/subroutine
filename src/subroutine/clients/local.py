@@ -2580,8 +2580,8 @@ class Client:
 	def user (self, *, username: str) -> subroutine.views.User:
 		"""Read one account by name."""
 
-		with self._opened() as (session, _actor):
-			account = subroutine.domain.users.by_username(session, username)
+		with self._opened() as (session, actor):
+			account = subroutine.domain.users.read(session, username, actor=actor)
 
 			return subroutine.views.user(
 				account,

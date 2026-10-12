@@ -578,6 +578,10 @@ NOT_OWNERSHIP: dict[str, str] = {
 	"domain/users.py:set_timezone": (
 		"An account's own setting is an identity fact, not an owned thing: nobody else sets it."
 	),
+	"domain/users.py:within_reach": (
+		"Which accounts the caller may read - its own chain and whoever shares a workspace "
+		"with it: reach, decision `#4943`, and nobody's ownership."
+	),
 	"domain/workspaces.py:on_instance": "The workspaces the caller belongs to, `#2626`.",
 }
 

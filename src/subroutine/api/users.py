@@ -226,7 +226,11 @@ def listing (
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
-	"""Who is on this instance, oldest first.
+	"""The accounts within the asker's reach, oldest first.
+
+	**Whoever shares a workspace with the asker, and the asker's own chain** - itself, whoever
+	it answers to and whatever answers to it. Somebody who administers accounts is answered
+	with every account on the instance.
 
 	**Paged like every other listing here** (`SR#2384`). It used to take a ceiling of 200 rows
 	from the domain, supply no ``limit`` of its own, and answer with a literal
@@ -337,15 +341,16 @@ def one (
 	That is a client re-implementing a lookup the server owns, and it is why paging the listing
 	could not be done on its own (`SR#2384`).
 
-	**Readable by anyone authenticated**, for the same reason the listing is: an identifier is
-	unique and public where content is neither, and this view carries no email address and no
-	content at all.
+	**An account within the asker's reach**, as the listing is: one that shares a workspace with
+	them or is in their own chain, or any account for somebody who administers accounts. An
+	account outside it is answered as a name nobody has. This view carries no email address and
+	no content at all.
 
 	Case-insensitive, because ``by_username`` resolves through the normalised column - ``Simon``
 	and ``simon`` being two accounts would be a trap rather than a feature.
 	"""
 
-	account = subroutine.domain.users.by_username(session, username)
+	account = subroutine.domain.users.read(session, username, actor=actor)
 
 	return subroutine.views.user(
 		account,

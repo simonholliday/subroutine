@@ -149,7 +149,9 @@ export function People ({
 	offers = [], workspaces = [], mayCreate = false, busy = false,
 }) {
 	/*
-		The page: every account on this instance, oldest first.
+		The page: every account the reader can read, oldest first - whoever shares a workspace
+		with them and their own chain, and every account for somebody who administers accounts
+		(`#4945`).
 
 		**Oldest first is the server's order and is kept** — `GET /v1/users`' own docstring says
 		why: the first account is the one `init` made, so a reader is usually looking for the

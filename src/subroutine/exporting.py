@@ -323,7 +323,7 @@ def _saved_views (
 def _users (
 	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
 ) -> sqlalchemy.Select[typing.Any]:
-	"""Return the accounts ``GET /v1/users`` lists, which is every one, to anybody signed in."""
+	"""Return the accounts ``GET /v1/users`` lists: those within the reader's reach (`SR#4945`)."""
 
 	return subroutine.domain.users.readable(session, actor=reader)
 
