@@ -279,8 +279,16 @@ def explain (
 	# `credential.narrows` said it was, and `/v1/tokens` agreed with the second.
 	narrowed = principal.narrows
 
+	# **Only the names this build knows** (`#5034`). A role's names are read from a row, and a
+	# row can hold one the build has deleted: `token:admin`, until migration `a5e890283615`
+	# has run, and an instance whose database is behind its code serves reads (`#973`). The
+	# check below raises for a name it does not know, which is right for one the code passes
+	# and made `/v1/me` a 500 for every owner and administrator in that window. A name that
+	# gates nothing grants nothing, so it is left out.
+	held = reached.permissions & subroutine.permissions.WORKSPACE_LEVEL
+
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
-	candidates = reached.permissions if not scopes else reached.permissions & frozenset(scopes)
+	candidates = held if not scopes else held & frozenset(scopes)
 
 	# Ask the real decision about each candidate rather than reproducing its checks here.
 	# Duplicating them is how the two answers drifted apart in the first place.

@@ -10,6 +10,7 @@ and neither was an API request path.
 import typing
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
@@ -21,6 +22,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.db.migrate
+import subroutine.db.models.identity
 import subroutine.domain.sessions
 import subroutine.errors
 import test_api_sessions
@@ -45,6 +47,39 @@ def _disagree (world: test_api_tasks.World) -> None:
 
 	world.application.state.schema_head = "not-a-revision-anybody-has"
 	world.application.state.schema_agrees = False
+
+
+def test_who_am_i_answers_while_a_role_holds_a_name_a_migration_has_yet_to_take_out (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#5034`: in the window this file is about, ``GET /v1/me`` answered 500 to every owner.
+
+	The build that deleted ``token:admin`` ships the migration that takes it out of every role,
+	and an instance serves reads until that migration has run. ``/v1/me`` asks the permission
+	check about each name on the caller's role, and the check raises for a name it does not
+	know, so the read every client makes first failed for the people who could run the
+	upgrade. Seen in a served instance's journal on 2026-10-13.
+	"""
+
+	_disagree(world)
+	model = subroutine.db.models.identity.Role
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = session.scalars(
+		sqlalchemy.select(model)
+		.join(member, member.role_id == model.id)
+		.where(member.workspace_id == world.workspace.id, member.user_id == world.user.id)
+	).one()
+	role.permissions = [*role.permissions, "token:admin"]
+	session.flush()
+
+	answer = world.call("GET", "/v1/me")
+
+	assert answer.status_code == 200, answer.text
+
+	(here,) = [one for one in answer.json()["workspaces"] if one["slug"] == world.workspace.slug]
+
+	assert "token:admin" not in here["permissions"]
+	assert "task:write" in here["permissions"], "the names this build knows are still offered"
 
 
 def test_a_local_client_that_refused_a_schema_goes_on_refusing_it (

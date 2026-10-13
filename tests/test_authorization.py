@@ -560,6 +560,49 @@ def test_effective_permissions_is_empty_for_a_stranger (
 	)
 
 
+def test_explain_leaves_out_a_name_a_role_holds_that_this_build_does_not_know (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5034`: a role is read from a row, and a row can hold a name the build has deleted.
+
+	``token:admin`` was seeded into the owner and administrator roles, and migration
+	``a5e890283615`` takes it out of every one. An instance whose database is behind its code
+	serves reads (`SR#973`), so until that migration has run the row still holds the name, and
+	:func:`explain` asked the check about it. The check raises for a name it does not know, as
+	it should for one the code passes, so ``/v1/me`` answered 500 to every owner and
+	administrator. A name that gates nothing grants nothing, and is left out.
+	"""
+
+	workspace = _seeded_workspace(session)
+	principal = _member(session, workspace, "owner")
+	role = _role(session, workspace, "owner")
+	known = frozenset(role.permissions)
+	role.permissions = [*role.permissions, "token:admin"]
+	session.flush()
+
+	granted = subroutine.domain.authorization.explain(session, principal, workspace.id)
+
+	assert granted.permissions == known
+	assert granted.from_role == role.title
+
+	# A credential issued before the name went still lists it, since the migration leaves a
+	# credential's own scopes as they are. It narrows to the names it shares with the role.
+	narrowed = _with_token(session, principal, scopes=[subroutine.permissions.TASK_READ])
+	assert narrowed.token is not None
+	narrowed.token.scopes = [subroutine.permissions.TASK_READ, "token:admin"]
+	session.flush()
+
+	assert subroutine.domain.authorization.explain(
+		session, narrowed, workspace.id
+	).permissions == {subroutine.permissions.TASK_READ}
+
+	# What the code asks by name is still held to the names there are.
+	with pytest.raises(ValueError):
+		subroutine.domain.authorization.refusal(
+			session, principal, "token:admin", workspace_id=workspace.id
+		)
+
+
 def test_explain_never_promises_more_than_authorize_grants (
 	session: sqlalchemy.orm.Session,
 ) -> None:
