@@ -24,6 +24,7 @@ import subroutine.config
 import subroutine.db.base
 import subroutine.db.fulltext
 import subroutine.db.models
+import subroutine.db.session
 import subroutine.errors
 
 #: Ships inside the package so that migrations are available from an installed wheel,
@@ -197,7 +198,10 @@ def refuse_building_beside_a_set_aside (database_url: str) -> None:
 	if sqlalchemy.engine.make_url(database_url).get_backend_name() != "postgresql":
 		return
 
-	engine = sqlalchemy.create_engine(database_url)
+	# **Built as every engine here is** (`#5061`), so a machine with no driver for it is told
+	# which to install. SQLAlchemy's own raised past that, and this is the first thing ``init``
+	# asks of a PostgreSQL database, so a new installation's first command was a crash report.
+	engine = subroutine.db.session.create_engine(database_url)
 
 	try:
 		with engine.connect() as connection:

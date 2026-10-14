@@ -2624,6 +2624,30 @@ def test_a_supported_backend_with_no_driver_names_what_installs_it (
 	assert "report it" not in refused.output
 
 
+def test_init_with_no_driver_for_its_database_names_what_installs_it (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5061`: ``init`` crashed where every other command says which driver to install.
+
+	Found by the upgrade rehearsal of 2026-10-13. Before it builds anything, ``init`` asks a
+	PostgreSQL database whether a restore set a schema aside (`SR#4398`), and it built the engine
+	for that with SQLAlchemy's own ``create_engine``, which the refusal above does not wrap - so
+	the first command of a new PostgreSQL installation answered with a crash report.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", "postgresql://user@localhost/thing")
+	monkeypatch.setitem(sys.modules, "psycopg", None)
+
+	refused = run("init", "--workspace", "Real", expect=1)
+
+	assert "no postgresql driver" in refused.output, refused.output
+	assert "subroutine[postgres]" in refused.output, refused.output
+	assert "should not have" not in refused.output
+	assert "report it" not in refused.output
+
+
 def test_a_failed_pragma_closes_the_connection_it_was_handed (tmp_path: pathlib.Path) -> None:
 	"""`#228`. The one moment nothing else can clean up after a connection.
 
