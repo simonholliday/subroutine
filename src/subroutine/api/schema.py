@@ -22,6 +22,11 @@ writing on top of a wrong answer, not being given one. Six of nineteen migration
 when one has not run the column exists and is simply unpopulated — so a read is a plausible,
 complete, wrong answer and this permits it. ``subroutine db upgrade`` is the supported path and
 ``/readyz`` is how you find out you are not on it.
+
+**A read that cannot be answered says the same sentence** (`#5057`). Serving reads was decided
+over a schema the reads still fitted. Over a database from before 0.10.0 they did not: forty of
+seventy-six read routes answered a bare 500 while ``/readyz`` knew why. ``api/problems`` asks
+:func:`disagreement` once something has failed, so a read that works is served as it was.
 """
 
 import typing
@@ -92,7 +97,7 @@ def refuse_a_write_against_a_schema_this_build_does_not_expect (
 	if path is not None and f"{request.method} {path}" in NOT_A_WRITE:
 		return
 
-	mismatch = _disagreement(request.app)
+	mismatch = disagreement(request.app)
 
 	if mismatch is None:
 		return
@@ -102,7 +107,7 @@ def refuse_a_write_against_a_schema_this_build_does_not_expect (
 	raise subroutine.errors.SchemaMismatch(detail, hint=hint)
 
 
-def _disagreement (application: fastapi.FastAPI) -> tuple[str, str] | None:
+def disagreement (application: fastapi.FastAPI) -> tuple[str, str] | None:
 	"""Return what to say about this database's schema, or ``None`` when it is the right one.
 
 	**Latched when it agrees and re-read while it does not**, which is not symmetry for its own

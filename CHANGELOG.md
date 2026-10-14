@@ -20,6 +20,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A read that fails while the database is behind says so.** An instance whose database has not
+  been upgraded serves reads and refuses writes, and a read that needed something a migration had
+  yet to add answered a bare internal error. Over a database from before 0.10.0 that was most of
+  them, `/v1/me` and every calendar feed included. Each now answers 409 `schema_mismatch`, naming
+  both revisions and `subroutine db upgrade`, as a refused write does.
 - **The account listing answers the accounts within reach.** `subroutine user list`,
   `GET /v1/users` and the People page answered every account on the installation to anybody
   signed in, with who administers it, who is active and who answers to whom. They now answer

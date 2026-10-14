@@ -11,6 +11,7 @@ import typing
 
 import pytest
 import sqlalchemy
+import sqlalchemy.exc
 import sqlalchemy.orm
 
 import api_support
@@ -25,6 +26,7 @@ import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.domain.sessions
 import subroutine.errors
+import subroutine.views
 import test_api_sessions
 import test_api_tasks
 
@@ -162,6 +164,84 @@ def test_a_write_is_refused_and_says_which_revisions_disagree (
 		"the remedy is the safe procedure — report both versions, back up, migrate, check — "
 		"and a refusal that does not name it sends the reader to the raw migrator"
 	)
+
+
+def _missing_column (*_arguments: typing.Any, **_named: typing.Any) -> typing.Any:
+	"""Fail as a statement does that names a column this database does not have yet."""
+
+	raise sqlalchemy.exc.OperationalError(
+		"SELECT instance.events_archived_through FROM instance",
+		{},
+		Exception("no such column: instance.events_archived_through"),
+	)
+
+
+def _unknown_name (*_arguments: typing.Any, **_named: typing.Any) -> typing.Any:
+	"""Fail as code does that meets a stored value a migration has yet to rewrite."""
+
+	raise ValueError("Unknown workspace permission 'token:admin'.")
+
+
+@pytest.mark.parametrize("failing", [_missing_column, _unknown_name])
+def test_a_read_that_fails_while_the_schema_is_behind_says_so (
+	world: test_api_tasks.World,
+	monkeypatch: pytest.MonkeyPatch,
+	failing: typing.Callable[..., typing.Any],
+) -> None:
+	"""`SR#5057`: over a database older than 0.10.0, most reads failed with nothing said.
+
+	This build serving a database at the 0.9.13 schema answered 500 *Something went wrong
+	that should not have* on forty of its seventy-six read routes, ``/v1/me`` and every
+	calendar feed among them: the instance row gained a column in 0.10.0, and nearly every
+	request reads that row. The instance knew why - ``/readyz`` said so - and told nobody who
+	asked for anything else. A read that works is still served (the test above); one that
+	fails names both revisions and the remedy, whatever it failed on.
+	"""
+
+	monkeypatch.setattr(subroutine.views, "me", failing)
+
+	bare = world.call("GET", "/v1/me")
+
+	assert bare.status_code == 500, bare.text
+	assert bare.json()["code"] == "internal_error"
+	assert "request id" in bare.json()["hint"], (
+		"with the schema as this build expects it, a failure is a fault to be reported"
+	)
+
+	_disagree(world)
+
+	said = world.call("GET", "/v1/me")
+
+	assert said.status_code == 409, said.text
+
+	body = said.json()
+
+	assert body["code"] == "schema_mismatch"
+	assert "not-a-revision-anybody-has" in body["detail"] + body.get("hint", ""), body
+	assert "db upgrade" in body.get("hint", ""), body
+	assert "should not have" not in said.text
+
+
+def test_a_failure_while_the_schema_is_behind_is_still_logged (
+	world: test_api_tasks.World,
+	monkeypatch: pytest.MonkeyPatch,
+	caplog: pytest.LogCaptureFixture,
+) -> None:
+	"""`SR#5057`: what failed stays in the log, under the request's id, as before.
+
+	The answer says the schema is behind because that is what the reader can act on. It may
+	not be why this request failed, and whoever runs the instance has to be able to tell.
+	"""
+
+	monkeypatch.setattr(subroutine.views, "me", _unknown_name)
+	_disagree(world)
+
+	with caplog.at_level("ERROR"):
+		world.call("GET", "/v1/me")
+
+	assert any(
+		"Unhandled error serving GET /v1/me" in record.getMessage() for record in caplog.records
+	), [record.getMessage() for record in caplog.records]
 
 
 @pytest.mark.parametrize("method", ["PATCH", "DELETE"])

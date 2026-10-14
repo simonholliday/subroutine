@@ -178,10 +178,11 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"A database schema does not match the one this build expects. An older schema "
 			"can be migrated forward and the refusal says so; a *newer* one cannot, because "
 			"this version cannot interpret data it does not know the shape of and a partial "
-			"read is worse than a clear failure. Two things answer with it: a backup being "
-			"put back, and any write against a live database that has "
-			"not been migrated yet - reads are still served, so an instance mid-deploy "
-			"stays readable and refuses to be changed. /readyz reports the same condition as "
+			"read is worse than a clear failure. Three things answer with it: a backup being "
+			"put back, any write against a live database that has not been migrated yet, and "
+			"a read of one that could not be answered - every other read is still served, so "
+			"an instance mid-deploy stays readable where it can be read and refuses to be "
+			"changed. /readyz reports the same condition as "
 			"503 service_unavailable rather than this, because a load balancer has to read the "
 			"instance as not ready rather than as arguing.",
 		),

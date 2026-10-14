@@ -27,6 +27,7 @@ import starlette.responses
 import subroutine.api.dependencies
 import subroutine.api.middleware
 import subroutine.api.routing
+import subroutine.api.schema
 import subroutine.api.security
 import subroutine.db.failures
 import subroutine.domain.versions
@@ -369,6 +370,19 @@ def handle_unexpected_error (
 		identifier,
 		exc_info=exception,
 	)
+
+	# **While the database is not at the schema this build expects, that is what is said**
+	# (`#5057`). An instance in that state serves reads (`#973`), and a read can need what a
+	# migration has yet to add: over a database at the 0.9.13 schema forty of seventy-six read
+	# routes failed, `/v1/me` and every calendar feed among them, each as the bare sentence
+	# below while `/readyz` knew the reason. Asked only once something has failed, so a read
+	# that works is served as it was, and what failed is in the log either way.
+	mismatch = subroutine.api.schema.disagreement(request.app)
+
+	if mismatch is not None:
+		detail, hint = mismatch
+
+		return respond(request, subroutine.errors.SchemaMismatch(detail, hint=hint))
 
 	return respond(
 		request,
