@@ -581,6 +581,13 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 	try:
 		engine = subroutine.db.session.create_engine(settings.database_url)
 
+	# **A refusal that already says what to do is reported as it stands** (`#5075`). The one
+	# raised here is a driver this installation does not have, and its hint says how to install
+	# it; under the sentence below it said to check a URL that was right - in `db upgrade`, the
+	# command an operator runs after a reinstall that left the extra behind.
+	except subroutine.errors.SubroutineError as refused:
+		_fail(refused)
+
 	except Exception as error:
 		_stop(
 			f"That database URL cannot be used: {error}",

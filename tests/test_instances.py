@@ -2699,6 +2699,47 @@ def test_init_with_no_driver_for_its_database_names_what_installs_it (
 	assert "report it" not in refused.output
 
 
+@pytest.mark.parametrize(
+	"command",
+	[
+		("db", "upgrade", "--yes"),
+		("db", "current"),
+		("db", "backup"),
+		("db", "archive"),
+		("db", "restore", "BACKUP", "--recover", "--yes"),
+	],
+)
+def test_a_db_command_with_no_driver_for_its_database_names_what_installs_it (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+	command: tuple[str, ...],
+) -> None:
+	"""`SR#5075`: the ``db`` commands said to check a database URL that was right.
+
+	Found by the upgrade rehearsal of 2026-10-14. Each builds its engine inside a helper that
+	turned every failure into *That database URL cannot be used*, so the refusal that says which
+	driver to install kept its first line and lost the line that is the remedy. ``db upgrade`` is
+	the command an operator runs after a reinstall that left the extra behind.
+
+	``db archive`` is given a floor and ``db restore`` a file, or each stops before the database.
+	"""
+
+	backup = tmp_path / "elsewhere.db"
+	backup.write_bytes(b"")
+
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", "postgresql://user@localhost/thing")
+	monkeypatch.setenv("SUBROUTINE_EVENTS_RETENTION_DAYS", "30")
+	monkeypatch.setitem(sys.modules, "psycopg", None)
+
+	refused = run(*(str(backup) if word == "BACKUP" else word for word in command), expect=1)
+	said = " ".join(refused.output.split())
+
+	assert "no postgresql driver" in said, said
+	assert "uv tool install 'subroutine[postgres]'" in said, said
+	assert "Check 'database_url'" not in said, said
+
+
 def test_a_failed_pragma_closes_the_connection_it_was_handed (tmp_path: pathlib.Path) -> None:
 	"""`#228`. The one moment nothing else can clean up after a connection.
 

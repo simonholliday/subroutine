@@ -46,8 +46,10 @@ upgrade involves.
   they are, ask the terminal's program for its own, and say which to upgrade first - or, with
   only `uv` installed, the `uvx` command. Under `--profile`, the remedy names the profile, where
   it upgraded the default instance or found nothing to do.
-- **`init` with no driver for its PostgreSQL database says which to install**, as every other
-  command does, where it answered with a crash report.
+- **`init` and the `db` commands with no driver for their PostgreSQL database say which to
+  install**, as every other command does. `init` answered with a crash report, and `db
+  upgrade`, `db current`, `db backup`, `db archive` and `db restore` said to check a database
+  URL that was right.
 - **`subroutine serve` says when its database is behind.** Started over a database that had
   not been upgraded, it printed what a working service prints, and only `/readyz` said
   otherwise. It now names both revisions and the remedy as it starts, and the log names them
