@@ -382,6 +382,11 @@ def handle_unexpected_error (
 	if mismatch is not None:
 		detail, hint = mismatch
 
+		# **After the traceback, so that it is what the log ends on** (`#5058`). The last few
+		# lines are what `systemctl status` shows, and the tail of a traceback about a column
+		# or a name is how a mistimed deploy came to be read as a bug in the program.
+		_logger.warning("%s %s", detail, hint)
+
 		return respond(request, subroutine.errors.SchemaMismatch(detail, hint=hint))
 
 	return respond(

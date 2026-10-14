@@ -236,12 +236,35 @@ def test_a_failure_while_the_schema_is_behind_is_still_logged (
 	monkeypatch.setattr(subroutine.views, "me", _unknown_name)
 	_disagree(world)
 
-	with caplog.at_level("ERROR"):
+	with caplog.at_level("WARNING"):
 		world.call("GET", "/v1/me")
 
-	assert any(
-		"Unhandled error serving GET /v1/me" in record.getMessage() for record in caplog.records
-	), [record.getMessage() for record in caplog.records]
+	said = [record.getMessage() for record in caplog.records]
+
+	assert any("Unhandled error serving GET /v1/me" in line for line in said), said
+
+	# `SR#5058`: and the log ends on the reason and the remedy, because its last lines are
+	# what `systemctl status` shows and the tail of a traceback names neither.
+	assert "not-a-revision-anybody-has" in said[-1], said
+	assert "db upgrade" in said[-1], said
+
+
+def test_a_failure_with_the_schema_as_expected_logs_nothing_about_the_schema (
+	world: test_api_tasks.World,
+	monkeypatch: pytest.MonkeyPatch,
+	caplog: pytest.LogCaptureFixture,
+) -> None:
+	"""`SR#5058`: the line is for a database that disagrees. A bug stays a bug in the log."""
+
+	monkeypatch.setattr(subroutine.views, "me", _unknown_name)
+
+	with caplog.at_level("WARNING"):
+		world.call("GET", "/v1/me")
+
+	said = [record.getMessage() for record in caplog.records]
+
+	assert any("Unhandled error serving GET /v1/me" in line for line in said), said
+	assert not any("schema" in line for line in said), said
 
 
 @pytest.mark.parametrize("method", ["PATCH", "DELETE"])

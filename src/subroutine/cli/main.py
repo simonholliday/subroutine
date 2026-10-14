@@ -20,6 +20,7 @@ import shutil
 import socket
 import sqlite3
 import sys
+import threading
 import tomllib
 import traceback
 import typing
@@ -918,6 +919,7 @@ def serve (
 
 	from subroutine.api import app as api
 	from subroutine.api import logs as access
+	from subroutine.api import schema as schemas
 
 	# **Before the server starts, because the filter belongs to a logger rather than to a
 	# request** (`#806`). A sign-in link travels in a query string and so lands in the access
@@ -970,6 +972,22 @@ def serve (
 
 	_warn_about_an_open_origin_list(settings)
 	_warn_about_osc_elsewhere(settings)
+
+	def asked () -> tuple[str, str] | None:
+		"""Ask what schema the database is at, and give back what asking opened - `#5058`.
+
+		Given back so the engine's pool starts empty, as it did before anything was asked, and
+		nothing is held by a server that never starts: Python 3.13 reports that as a database
+		left unclosed, measured on the tests that start one with uvicorn replaced.
+		"""
+
+		try:
+			return schemas.disagreement(application)
+
+		finally:
+			api.released(application)
+
+	_warn_about_a_schema_this_build_does_not_expect(asked)
 
 	level = (log_level.strip() or settings.log_level).lower()
 
@@ -1098,6 +1116,53 @@ def _warn_about_osc_elsewhere (settings: subroutine.config.Settings) -> None:
 		f"process on this machine {'send none' if here else 'send it'}. Set osc_enabled in "
 		"config.toml, or put host and public_url there, so they agree."
 	)
+
+
+#: How long ``serve`` waits to learn what schema its database is at, before it starts regardless.
+SCHEMA_ASKED_FOR_SECONDS = 5.0
+
+
+def _warn_about_a_schema_this_build_does_not_expect (
+	ask: typing.Callable[[], tuple[str, str] | None],
+) -> None:
+	"""Say as the server starts that its database is not at this build's schema - `#5058`.
+
+	An instance in that state starts, serves what it can still read and refuses writes, by the
+	decision of 2026-08-22 (`#973`). So a mistimed deploy printed exactly what a working service
+	prints, and the one place that said otherwise was ``/readyz``. On 2026-10-13 a ``db upgrade``
+	run without the service's environment had acted on another database and reported success,
+	and ``systemctl status`` showed a service that had started normally.
+
+	``ask`` is ``api.schema.disagreement`` over the application about to be served, so this is the
+	sentence ``/readyz`` and a refused write give, about the database they give it for.
+
+	**A line rather than a refusal**, which is that decision. **And it waits only so long**,
+	because nothing else here waits on the database at all: one that is not up yet is the reason
+	``/readyz`` exists (`#179`), and one whose host does not answer would otherwise keep the port
+	closed for as long as the operating system goes on trying. No answer in time is left to
+	``/readyz`` to say, as it always was.
+	"""
+
+	answered: list[tuple[str, str] | None] = []
+
+	def asked () -> None:
+		"""Keep what the database said, and nothing where asking it failed."""
+
+		with contextlib.suppress(Exception):
+			answered.append(ask())
+
+	asking = threading.Thread(target=asked, daemon=True)
+	asking.start()
+	asking.join(SCHEMA_ASKED_FOR_SECONDS)
+
+	if not answered or answered[0] is None:
+		return
+
+	detail, hint = answered[0]
+
+	_say(f"  Warning: {detail[0].lower()}{detail[1:]}")
+	_say(f"  {hint}")
+	_say("  Until then this instance answers what it can still read and refuses every write.")
 
 
 def _refuse_a_port_in_use (host: str, port: int) -> None:

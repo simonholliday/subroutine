@@ -24,6 +24,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 import typing
@@ -40,6 +41,7 @@ import typer.testing
 import instance_templates
 import subroutine
 import subroutine.api.app
+import subroutine.api.schema
 import subroutine.auth
 import subroutine.claude_code
 import subroutine.cli.main
@@ -50,6 +52,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.db.migrate
 import subroutine.db.models.system
 import subroutine.db.session
 import subroutine.db.types
@@ -2414,6 +2417,156 @@ def test_starting_a_server_says_every_transport_it_just_started (
 	# **No second address invented where there is none.** A laptop bound to loopback is reached
 	# at loopback, and a line repeating the one above it is noise on the commonest case.
 	assert "Reached at" not in printed, printed
+
+
+def _schema_recorded_as (revision: str) -> None:
+	"""Record ``revision`` as what the local database is at, as another build would have left it."""
+
+	settings = subroutine.config.load_settings()
+	database = pathlib.Path(str(settings.database_url).removeprefix("sqlite:///"))
+
+	# Assigned and closed rather than ``with``, which commits and does not close (`SR#1272`).
+	opened = sqlite3.connect(database)
+
+	try:
+		opened.execute("UPDATE alembic_version SET version_num = ?", (revision,))
+		opened.commit()
+
+	finally:
+		opened.close()
+
+
+def _served (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> tuple[str, list[typing.Any]]:
+	"""Run ``serve`` with only uvicorn replaced, and return what it printed and what it started."""
+
+	started: list[typing.Any] = []
+
+	monkeypatch.setattr("uvicorn.run", lambda app, **given: started.append(app))
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
+
+	return run("serve").output, started
+
+
+def test_starting_a_server_over_a_database_that_is_behind_says_so (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5058`: a mistimed deploy printed exactly what a working service prints.
+
+	An instance whose database is behind its build starts, serves what it can still read and
+	refuses writes (`SR#973`). ``/readyz`` said so and ``serve`` did not, so the journal of a
+	service in that state read as one that had started normally - which is what its operator
+	saw on 2026-10-13, after a ``db upgrade`` that had acted on another database.
+
+	The revision is 0.10.0's, which this build knows and is ahead of.
+	"""
+
+	run("init")
+	_schema_recorded_as("6c708db1582c")
+
+	printed, started = _served(run, monkeypatch)
+	expected = subroutine.db.migrate.head_revision()
+
+	assert expected is not None and expected != "6c708db1582c"
+	assert f"database is at schema 6c708db1582c, and this build expects {expected}" in printed, printed
+	assert "Run 'subroutine db upgrade'" in printed, printed
+	assert "refuses every write" in printed, printed
+	assert started, "and it still starts: serving what can be read is the decision"
+
+	lines = printed.splitlines()
+	said = next(index for index, line in enumerate(lines) if "6c708db1582c" in line)
+
+	assert any("/v1" in line for line in lines[:said]), "after what it serves, with the other warnings"
+
+
+def test_starting_a_server_over_a_database_from_a_newer_build_says_to_update_the_software (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5058`: the other direction has another remedy, and ``db upgrade`` is not it."""
+
+	run("init")
+	_schema_recorded_as("not-a-revision-anybody-has")
+
+	printed, started = _served(run, monkeypatch)
+
+	assert "not-a-revision-anybody-has" in printed, printed
+	assert "Update the software" in printed, printed
+	assert "db upgrade" not in printed, printed
+	assert "refuses every write" in printed, printed
+	assert started
+
+
+def test_starting_a_server_over_the_schema_it_expects_says_nothing_of_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5058`: the line is for a database that disagrees, and most never do."""
+
+	run("init")
+
+	printed, started = _served(run, monkeypatch)
+
+	assert "Serving on" in printed
+	assert "Warning" not in printed, printed
+	assert "schema" not in printed, printed
+	assert started
+
+
+def test_starting_a_server_does_not_wait_on_a_database_that_does_not_answer (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5058`: asking is the first thing ``serve`` does that waits on the database, so it is bounded.
+
+	A database that is not up yet is why ``/readyz`` exists, and one whose host does not answer
+	keeps a connection attempt waiting for as long as the operating system goes on trying. The
+	server starts regardless and says nothing of a schema it was not told.
+	"""
+
+	run("init")
+
+	released = threading.Event()
+
+	def never_answers (application: typing.Any) -> tuple[str, str] | None:
+		"""Wait as a connection to a host that is not there waits."""
+
+		released.wait(20)
+
+		return ("This database is at schema late.", "Too late to say.")
+
+	monkeypatch.setattr(subroutine.api.schema, "disagreement", never_answers)
+	monkeypatch.setattr(subroutine.cli.main, "SCHEMA_ASKED_FOR_SECONDS", 0.2)
+
+	began = time.monotonic()
+
+	try:
+		printed, started = _served(run, monkeypatch)
+
+	finally:
+		released.set()
+
+	assert started, printed
+	assert time.monotonic() - began < 10, "it waited on the database"
+	assert "schema late" not in printed, printed
+
+
+def test_starting_a_server_survives_a_database_that_cannot_be_asked (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5058`: a line of advice may not be what stops a server from starting."""
+
+	run("init")
+
+	def fails (application: typing.Any) -> tuple[str, str] | None:
+		"""Fail as nothing here is expected to."""
+
+		raise RuntimeError("asked and failed")
+
+	monkeypatch.setattr(subroutine.api.schema, "disagreement", fails)
+
+	printed, started = _served(run, monkeypatch)
+
+	assert started, printed
+	assert "Warning" not in printed, printed
 
 
 def test_a_proxied_instance_names_the_address_that_reaches_it (

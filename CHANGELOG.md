@@ -20,6 +20,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`subroutine serve` says when its database is behind.** Started over a database that had
+  not been upgraded, it printed what a working service prints, and only `/readyz` said
+  otherwise. It now names both revisions and the remedy as it starts, and the log names them
+  again after any request that fails, so the last lines of a service's journal say why.
 - **A read that fails while the database is behind says so.** An instance whose database has not
   been upgraded serves reads and refuses writes, and a read that needed something a migration had
   yet to add answered a bare internal error. Over a database from before 0.10.0 that was most of

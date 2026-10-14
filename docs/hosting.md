@@ -1975,9 +1975,11 @@ run with; a test fails the build if the two lists stop matching.
 and start last, so there is never a moment where new code is serving an old database.
 
 If there is one anyway - and a mistimed deploy is the ordinary way to get there - the instance
-does not pretend everything is fine. `/readyz` returns 503 naming both revisions, and **every
-write is refused with a 409 saying the same thing** while reads go on being served. A read the
-older schema cannot answer is refused with that 409 too, rather than failing with nothing said.
+does not pretend everything is fine. `subroutine serve` says so as it starts, naming both
+revisions and the remedy, and its log says it again after any request that fails. `/readyz`
+returns 503 naming both revisions, and **every write is refused with a 409 saying the same
+thing** while reads go on being served. A read the older schema cannot answer is refused with
+that 409 too, rather than failing with nothing said.
 That is a deliberate choice rather than a half-measure: refusing to start would take the
 `/readyz` sentence away, so you would get a connection refused and have to go to the journal,
 and it would stop somebody looking something up over an upgrade they are not involved in.
