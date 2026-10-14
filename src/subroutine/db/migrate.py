@@ -256,16 +256,18 @@ def mismatch_reason (
 			set_aside_remedy(set_aside),
 		)
 
+	# **Each remedy names the profile in force** (`#5059`), or run as written it acts on another
+	# instance and this one goes on refusing.
 	if current is None:
 		return (
 			"This database has no Subroutine schema in it.",
-			"Run 'subroutine init' to set it up.",
+			f"Run '{command('init')}' to set it up.",
 		)
 
 	if expected is not None and knows_revision(current):
 		return (
 			f"This database is at schema {current}, and this build expects {expected}.",
-			"Run 'subroutine db upgrade' - it backs up first, then migrates.",
+			upgrade_remedy(),
 		)
 
 	return (
@@ -274,6 +276,32 @@ def mismatch_reason (
 		"That database was written by a newer version. Update the software rather than the "
 		"database - there is no downgrade.",
 	)
+
+
+def command (*words: str, program: str = "subroutine") -> str:
+	"""Return a command line that acts on the instance this process acts on - `#5059`.
+
+	**The profile, where one is in force.** Under ``--profile scratch`` a remedy written without it
+	acts on the default instance: it upgrades a database nobody asked about, or finds nothing to
+	do, and the one that refused goes on refusing. ``--profile`` exports itself (§12.5), so the
+	variable :func:`subroutine.config.profile` reads is the one the command was given.
+
+	``program`` is what starts it, for a reader who reaches this program some other way.
+	"""
+
+	named = subroutine.config.profile()
+
+	return " ".join([program, *(["--profile", named] if named else []), *words])
+
+
+def upgrade_remedy () -> str:
+	"""Return the remedy for a database this build can migrate forward, as every surface gives it.
+
+	One function rather than a sentence in :func:`mismatch_reason`, because ``mcp/relay`` has to
+	recognise it to say it again in terms its own reader can carry out (`#5059`).
+	"""
+
+	return f"Run '{command('db', 'upgrade')}' - it backs up first, then migrates."
 
 
 def knows_revision (revision: str) -> bool:

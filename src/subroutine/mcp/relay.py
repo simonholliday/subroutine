@@ -31,11 +31,13 @@ reads.
 """
 
 import contextlib
+import functools
 import json
 import os
 import pathlib
 import re
 import shutil
+import subprocess
 import typing
 
 import httpx
@@ -48,6 +50,7 @@ import subroutine.clients.base
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.db.migrate
 import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.errors
@@ -210,6 +213,12 @@ def answering (
 					"No Subroutine instance has been set up on this machine yet.",
 					_how_to_make_one(),
 				)
+
+			# **A remedy this machine can carry out** (`#5059`). The local instance says to run
+			# `db upgrade`, which is the terminal's program, and the plugin's copy is often the
+			# newer of the two. Recognised by the remedy itself, which is the case this answers.
+			if connection.is_local and trouble.get("hint") == subroutine.db.migrate.upgrade_remedy():
+				return _refused(raw, str(trouble.get("detail")), _how_to_upgrade_it())
 
 			# **An instance too old to hold a read-only connection refuses every message** by naming
 			# the parameter the relay sent, which nobody using the connection typed (decision `#4510`).
@@ -805,6 +814,97 @@ def _how_to_make_one () -> str:
 		"'uv' installed, which is what launched this. To have 'subroutine' as a command as "
 		"well, 'uv tool install subroutine' first."
 	)
+
+
+#: How long the plugin's server waits for the terminal's program to say its version (`#5059`).
+PROGRAM_ASKED_FOR_SECONDS = 20
+
+
+def _how_to_upgrade_it () -> str:
+	"""Return the remedy that works from here for a database this program is ahead of - `#5059`.
+
+	**The sentence the local instance gives is right in a terminal and wrong here**, as
+	:func:`_how_to_make_one`'s is. *Run 'subroutine db upgrade'* assumes the reader's program is
+	the one refusing. The plugin runs its own copy, the newest patch of the minor its manifest
+	names, so once the plugin is refreshed and before the terminal's program is upgraded, that
+	command is the older program's, and it answers *Nothing to do* while every tool goes on
+	refusing. Measured in the upgrade rehearsal of 2026-10-13, with 0.10.0 in the terminal.
+
+	**So the terminal's program is asked**, by running it, which is the only way one
+	installation can learn another's version: what it expects decides the advice. The same
+	schema as this one means the plain remedy works. One this build knows is older, and is
+	upgraded first. One it does not know is newer, and would migrate past what this copy reads.
+	"""
+
+	this = subroutine.__version__
+	words = ("db", "upgrade")
+	found = shutil.which("subroutine")
+
+	if found is None:
+		series = ".".join(this.split(".")[:2])
+		pinned = subroutine.db.migrate.command(*words, program=f"subroutine~={series}.0")
+
+		return (
+			f"Run 'uvx {pinned}' in a terminal - it backs up first, then migrates. That needs only "
+			"'uv', which is what started this."
+		)
+
+	run = subroutine.db.migrate.command(*words)
+	starter = "run by the plugin" if subroutine.installations.plugin() is not None else "serving these tools"
+	speaking = f"This is Subroutine {this}, {starter}"
+	version, schema = _program_at(found) or (None, None)
+
+	if schema is None:
+		return f"{speaking}. With {this} in a terminal, run '{run}' - it backs up first, then migrates."
+
+	if schema == subroutine.db.migrate.head_revision():
+		return f"Run '{run}' in a terminal - it backs up first, then migrates."
+
+	if subroutine.db.migrate.knows_revision(schema):
+		return (
+			f"{speaking}, and the 'subroutine' in your terminal is {version}, which cannot migrate a "
+			f"database this far. Upgrade it to {this} the way it was installed, then run '{run}' - it "
+			"backs up first, then migrates."
+		)
+
+	return (
+		f"{speaking}, and the 'subroutine' in your terminal is {version}, whose 'db upgrade' would "
+		f"take this database past what {this} can read. Bring the plugin up to {version} too, then "
+		f"run '{run}' - it backs up first, then migrates."
+	)
+
+
+@functools.cache
+def _program_at (path: str) -> tuple[str, str | None] | None:
+	"""Return the version of the program at ``path`` and the schema it expects, as it says them.
+
+	``None`` where it could not be run or said nothing this can read. **Once per process**: every
+	message of a session is refused in the same way, and each answer costs a program's start.
+	**Its standard input is not this one's**: this process speaks the protocol on it, and a child
+	reading it would take the client's next message.
+	"""
+
+	try:
+		ran = subprocess.run(
+			[path, "--version"],
+			stdin=subprocess.DEVNULL,
+			capture_output=True,
+			text=True,
+			timeout=PROGRAM_ASKED_FOR_SECONDS,
+			check=False,
+		)
+
+	except (OSError, subprocess.SubprocessError):
+		return None
+
+	said = ran.stdout + ran.stderr
+	version = re.search(r"^subroutine (\S+)$", said, re.MULTILINE)
+	schema = re.search(r"^schema (\S+)$", said, re.MULTILINE)
+
+	if version is None:
+		return None
+
+	return version.group(1), None if schema is None else schema.group(1)
 
 
 def _refused (raw: str, detail: str, hint: str | None) -> dict[str, typing.Any] | None:

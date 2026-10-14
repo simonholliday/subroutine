@@ -14,12 +14,27 @@ upgrade involves.
 
 ## Unreleased
 
+> **If you use the `subroutine` plugin in Claude Code, it stays on 0.10.x until you refresh
+> it.** It runs the version its manifest names and never moves to a new minor on its own. Run
+> `claude plugin marketplace update subroutine`, then `claude plugin update
+> subroutine@subroutine`, and start a new session. **Where your work is in a database on this
+> machine, upgrade the program in your terminal and run `subroutine db upgrade` at the same
+> time**: the refreshed plugin refuses a database that has not been upgraded, and the older
+> program refuses one that has. `subroutine-remote` takes its tools from your server, so it
+> follows whatever version the server runs.
+
 > **This release changes the database schema**, to `bc50ce7db4bc`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A database that needs upgrading is told the command that upgrades it, from the plugin and
+  under a profile.** The plugin's tools said to run `subroutine db upgrade`, which on a machine
+  whose terminal still had the older program found nothing to do. They now say which version
+  they are, ask the terminal's program for its own, and say which to upgrade first - or, with
+  only `uv` installed, the `uvx` command. Under `--profile`, the remedy names the profile, where
+  it upgraded the default instance or found nothing to do.
 - **`init` with no driver for its PostgreSQL database says which to install**, as every other
   command does, where it answered with a crash report.
 - **`subroutine serve` says when its database is behind.** Started over a database that had

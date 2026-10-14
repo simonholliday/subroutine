@@ -226,6 +226,57 @@ def test_two_instances_do_not_see_each_other (
 	assert "Keep me" not in scratch
 
 
+def test_a_profile_behind_its_build_is_told_the_command_that_upgrades_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5059`: the remedy left the profile out, so run as written it upgraded another instance.
+
+	Found by the upgrade rehearsal of 2026-10-13: ``--profile scratch list`` over a database that
+	was behind said to run ``subroutine db upgrade``, which acts on the default instance - there it
+	found nothing to do, and the scratch instance went on refusing.
+	"""
+
+	run("init", "--workspace", "Real")
+	run("--profile", "scratch", "init", "--workspace", "Scratch")
+
+	database = next(
+		directory / "subroutine.db"
+		for directory in subroutine.config.profile_directories("scratch")
+		if (directory / "subroutine.db").is_file()
+	)
+
+	# Assigned and closed rather than ``with``, which commits and does not close (`SR#1272`).
+	opened = sqlite3.connect(database)
+
+	try:
+		opened.execute("UPDATE alembic_version SET version_num = '6c708db1582c'")
+		opened.commit()
+
+	finally:
+		opened.close()
+
+	refused = run("--profile", "scratch", "list", expect=1)
+
+	assert "Run 'subroutine --profile scratch db upgrade'" in refused.output, refused.output
+
+
+def test_without_a_profile_the_remedy_names_none (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""`SR#5059`: the default instance's remedy is the one every page and transcript quotes."""
+
+	monkeypatch.delenv(subroutine.config.PROFILE_VARIABLE, raising=False)
+
+	assert subroutine.db.migrate.upgrade_remedy() == (
+		"Run 'subroutine db upgrade' - it backs up first, then migrates."
+	)
+
+	monkeypatch.setenv(subroutine.config.PROFILE_VARIABLE, "scratch")
+
+	assert subroutine.db.migrate.mismatch_reason(None, "head") == (
+		"This database has no Subroutine schema in it.",
+		"Run 'subroutine --profile scratch init' to set it up.",
+	)
+
+
 def test_destroying_an_instance_takes_all_of_it (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

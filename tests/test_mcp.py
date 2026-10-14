@@ -17,6 +17,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import time
 import types
@@ -32,6 +33,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.api.app
+import subroutine.api.inprocess
 import subroutine.api.mcp
 import subroutine.cli.personal
 import subroutine.clients.http
@@ -41,6 +43,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.context
 import subroutine.credentials
+import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -8445,6 +8448,127 @@ def test_a_machine_reached_only_through_uvx_is_told_a_command_it_can_actually_ru
 	assert f"subroutine~={series} init" in said, (
 		f"the remedy is unpinned, so it can create an instance ahead of this program: {said}"
 	)
+
+
+def _behind (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, said: str | None) -> list[dict[str, typing.Any]]:
+	"""Relay one message to a local instance whose database 0.10.0 left, and return the answer.
+
+	``said`` is what the terminal's ``subroutine --version`` prints, or ``None`` for a machine with
+	no such command. The instance's refusal is the one this build gives, read from the function
+	that writes it; the relay's handling of it is what is driven.
+	"""
+
+	expected = subroutine.db.migrate.head_revision()
+	detail, hint = typing.cast(
+		tuple[str, str], subroutine.db.migrate.mismatch_reason("6c708db1582c", expected)
+	)
+
+	class _Answered:
+		"""The in-process instance refusing, as it does every message over a database behind it."""
+
+		status_code = 409
+		text = json.dumps({"status": 409, "code": "schema_mismatch", "detail": detail, "hint": hint})
+
+	monkeypatch.setattr(subroutine.api.inprocess, "call", lambda *args, **kwargs: _Answered())
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	# Made where these settings look, under a profile too, so the refusal of a machine with no
+	# instance does not answer first.
+	settings = subroutine.config.Settings(dev_mode=True)
+	database = pathlib.Path(str(settings.database_url).removeprefix("sqlite:///"))
+	database.parent.mkdir(parents=True)
+	database.touch()
+
+	if said is None:
+		monkeypatch.setattr(shutil, "which", lambda name: None)
+
+	else:
+		# **A real program on the path**, so the asking and the reading are driven, not assumed.
+		directory = tmp_path / "bin"
+		directory.mkdir()
+		program = directory / "subroutine"
+		program.write_text(f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(said)}\n", encoding="utf-8")
+		program.chmod(0o755)
+		monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ.get('PATH', '')}")
+
+	return _relayed(
+		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+		settings,
+		monkeypatch,
+	)
+
+
+def test_a_plugin_ahead_of_the_terminal_says_to_upgrade_the_terminals_program_first (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5059`: the remedy was the terminal's program, which answered *Nothing to do*.
+
+	The plugin runs its own copy of the program. Refreshed before the terminal's program was
+	upgraded, every tool, ``initialize`` included, said to run ``subroutine db upgrade`` - which
+	the terminal's 0.10.0 ran, found its own schema and stopped, while the tools went on refusing.
+	Measured in the upgrade rehearsal of 2026-10-13.
+	"""
+
+	answered = _behind(tmp_path, monkeypatch, "subroutine 0.10.0\nschema 6c708db1582c")
+	said = answered[0]["error"]["message"]
+
+	assert "6c708db1582c" in said, "the instance's own sentence is kept"
+	assert f"This is Subroutine {subroutine.__version__}" in said, f"which program is speaking: {said}"
+	assert "terminal is 0.10.0" in said, said
+	assert f"Upgrade it to {subroutine.__version__}" in said, said
+	assert said.index("Upgrade it") < said.index("then run 'subroutine db upgrade'"), said
+
+
+def test_a_terminal_on_the_same_build_is_given_the_plain_remedy (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5059`: where the terminal's program expects this schema, its ``db upgrade`` works."""
+
+	head = subroutine.db.migrate.head_revision()
+	answered = _behind(tmp_path, monkeypatch, f"subroutine {subroutine.__version__}\nschema {head}")
+	said = answered[0]["error"]["message"]
+
+	assert "Run 'subroutine db upgrade' in a terminal" in said, said
+	assert "terminal is" not in said, said
+
+
+def test_a_terminal_newer_than_the_plugin_is_not_told_to_upgrade_into_it (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5059`: a newer program's ``db upgrade`` would take the database past this copy."""
+
+	answered = _behind(tmp_path, monkeypatch, "subroutine 9.0.0\nschema not-a-revision-anybody-has")
+	said = answered[0]["error"]["message"]
+
+	assert "terminal is 9.0.0" in said, said
+	assert "Bring the plugin up to 9.0.0" in said, said
+
+
+def test_a_machine_with_no_terminal_program_is_given_a_pinned_uvx_remedy (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5059`, `SR#734`'s audience: only ``uv`` is installed, so ``subroutine`` is no command."""
+
+	answered = _behind(tmp_path, monkeypatch, None)
+	said = answered[0]["error"]["message"]
+	series = ".".join(subroutine.__version__.split(".")[:2])
+
+	assert f"Run 'uvx subroutine~={series}.0 db upgrade'" in said, said
+
+
+def test_a_profile_in_force_is_carried_into_the_plugins_remedy (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5059`: a server started under a profile names it, or the remedy upgrades another instance."""
+
+	monkeypatch.setenv(subroutine.config.PROFILE_VARIABLE, "scratch")
+
+	answered = _behind(tmp_path, monkeypatch, None)
+	said = answered[0]["error"]["message"]
+
+	assert "--profile scratch db upgrade" in said, said
 
 
 def test_a_notification_is_not_answered_even_when_it_fails (
