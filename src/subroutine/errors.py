@@ -624,6 +624,34 @@ def after_saving (done: str, refused: SubroutineError, *, hint: str) -> Subrouti
 	return rebuilt
 
 
+def refused_by (connection: str, refused: SubroutineError) -> SubroutineError:
+	"""Return ``refused`` opening with the connection that gave it - `#5060`.
+
+	For an act aimed at a connection that could not be opened. The act was refused because the
+	connection was, and the reader may not have named it: a write goes where the context says. So
+	it is said as the line a read across connections ends with, the connection's label and then its
+	own words, and its own remedy follows - which waiting will not stand in for when the database is
+	behind or the credential is refused.
+
+	**Rebuilt as** :func:`after_saving` **rebuilds one, and for its reason**: some refusals take a
+	constructor of their own, and what each carries comes across as it was.
+	"""
+
+	rebuilt = type(refused).__new__(type(refused))
+	rebuilt.__dict__.update(vars(refused))
+
+	SubroutineError.__init__(
+		rebuilt,
+		f"{connection}: {refused.detail}",
+		code=refused.code,
+		errors=refused.errors,
+		hint=refused.hint,
+		extensions=refused.extensions,
+	)
+
+	return rebuilt
+
+
 def no_instance_yet () -> "ServiceUnavailable":
 	"""Return the refusal for a machine where nobody has run ``init`` yet (`#165`, `#698`).
 

@@ -29,6 +29,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Acting on a connection that refused says why, with its remedy.** On a machine with a
+  second connection, changing something in a list that needed `subroutine db upgrade` said it
+  could not be reached and to try again when it was back, or that there was no connection of
+  that name. `add`, `done`, `show`, `use` and `doc edit` now say what that connection refused
+  with, as a read across connections does, followed by its remedy; a read across connections
+  gives the remedy too where the refusal is about the schema.
 - **A database that needs upgrading is told the command that upgrades it, from the plugin and
   under a profile.** The plugin's tools said to run `subroutine db upgrade`, which on a machine
   whose terminal still had the older program found nothing to do. They now say which version

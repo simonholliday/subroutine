@@ -382,7 +382,12 @@ def _printed (error: subroutine.errors.SubroutineError, *, connection: str | Non
 	# (`#2954`). `Program.opened` records why: beside a partial result a hint per connection
 	# is noise - a dead server among three is one line, not a remedy under every listing. The
 	# fields stay, because they are the question's own answer: the values a field accepts.
-	if connection is not None:
+	#
+	# **Bar a database behind this program** (`#5060`). That is not a dead server among three:
+	# waiting will not end it, the remedy is one command, and without it the line named a cause
+	# and left the reader to work out what to type - where the same read over that connection
+	# alone said it.
+	if connection is not None and not isinstance(error, subroutine.errors.SchemaMismatch):
 		hint = None
 
 	detail = error.detail if connection is None else f"{connection}: {error.detail}"

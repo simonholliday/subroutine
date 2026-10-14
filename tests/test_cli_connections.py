@@ -515,6 +515,63 @@ def test_the_agenda_merges_both_instances_into_one_day (
 	assert "Fix the deploy script" in output
 
 
+def _behind_on_this_machine (run: typing.Callable[..., typer.testing.Result]) -> None:
+	"""Leave this machine's own list at the schema 0.10.0 left, beside a served one that is current."""
+
+	_schema_recorded_as("6c708db1582c")
+
+	said = run("connections").output
+
+	assert "work" in said, said
+
+
+@pytest.mark.parametrize(
+	"command",
+	[("add", "Something new"), ("done", "1"), ("show", "1"), ("use", "local/personal")],
+)
+def test_an_act_on_a_list_that_is_behind_says_so_beside_another_connection (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	command: tuple[str, ...],
+) -> None:
+	"""`SR#5060`: with a second connection, a list waiting on ``db upgrade`` was called out of reach.
+
+	Found by the upgrade rehearsal of 2026-10-13, on the machine docs/connecting.md describes: a
+	list of its own, made by 0.10.0 and not yet upgraded, and a connection to a served instance.
+	``add`` said *local could not be reached, so nothing can be changed there* and to try again
+	when it was back; ``done`` said there was no connection called 'local', or it could not be
+	reached. The program knew the cause, and waiting would never have ended it.
+	"""
+
+	_behind_on_this_machine(run)
+
+	refused = run(*command, expect=1).output
+
+	assert "6c708db1582c" in refused, refused
+	assert "Run 'subroutine db upgrade'" in refused, refused
+	assert "could not be reached" not in refused, refused
+	assert "Try again when it is back" not in refused, refused
+
+
+def test_a_read_across_connections_gives_the_remedy_for_a_list_that_is_behind (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#5060`: the read showed the other connection's work and named the cause without the remedy.
+
+	The same read over that connection alone printed it. Beside a dead server a remedy per
+	connection is noise (`SR#2954`), and the rule stays for every other refusal: a database behind
+	this program is not one waiting will end.
+	"""
+
+	_behind_on_this_machine(run)
+
+	said = run("list").output
+
+	assert "Fix the deploy script" in said, "the other connection's work is still shown"
+	assert "6c708db1582c" in said, said
+	assert "Run 'subroutine db upgrade'" in said, said
+
+
 def test_a_remote_row_prints_an_address_that_can_be_typed_back (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

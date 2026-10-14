@@ -430,6 +430,22 @@ class World:
 
 		return None
 
+
+	def refusal_of (self, name: str) -> subroutine.errors.SubroutineError | None:
+		"""Return why the connection called ``name`` could not be opened, or ``None`` - `#5060`.
+
+		``None`` where it was opened, or was never configured: the sentences about a name nobody
+		set up are still the right ones there. Where it refused, an act aimed at it says so in its
+		own words rather than calling it out of reach - which was false for a list waiting on ``db
+		upgrade``, and sent its reader to wait for something that would not come back by itself.
+		"""
+
+		for failure in self.unreachable:
+			if failure.connection.name == name:
+				return subroutine.errors.refused_by(failure.connection.label, failure.error)
+
+		return None
+
 	def writing_to (self) -> Reached:
 		"""Return the connection a write goes to, or explain why there is not one."""
 
@@ -437,6 +453,11 @@ class World:
 
 		if found is not None:
 			return found
+
+		refused = self.refusal_of(self.current.connection)
+
+		if refused is not None:
+			raise refused
 
 		raise subroutine.errors.ServiceUnavailable(
 			f"{self.current.connection} could not be reached, so nothing can be changed "
@@ -4552,6 +4573,12 @@ def _named_place (
 
 	name = address.connection or world.current.connection
 	item = world.connection(name)
+	refused = world.refusal_of(name) if item is None else None
+
+	# **What it refused with, where it refused** (`#5060`), rather than a guess between a name
+	# nobody configured and one that could not be reached.
+	if refused is not None:
+		program.fail(refused)
 
 	if item is None:
 		program.stop(
@@ -5859,6 +5886,11 @@ def _chosen (program: Program, world: World, where: str) -> tuple[str, str]:
 	name = parts[0] if len(parts) == 2 else world.current.connection
 	wanted = parts[-1]
 	item = world.connection(name)
+	refused = world.refusal_of(name) if item is None else None
+
+	# `#5060`, as :func:`_named_place` says it.
+	if refused is not None:
+		program.fail(refused)
 
 	if item is None:
 		program.stop(
@@ -8118,6 +8150,11 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					)
 
 			where = world.connection(located.connection)
+			refused = world.refusal_of(located.connection) if where is None else None
+
+			# `#5060`, as :func:`_named_place` says it.
+			if refused is not None:
+				program.fail(refused)
 
 			if where is None:
 				program.fail(
