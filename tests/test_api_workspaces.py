@@ -343,6 +343,57 @@ def test_a_credential_that_may_only_found_a_workspace_founds_one (
 	assert filed.status_code in (403, 404), filed.text
 
 
+def test_the_member_listing_over_http_says_which_agents_are_stopped_here (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#5062` over HTTP: the listing, and the one membership an act answers with.
+
+	An agent whose person was taken out of the workspace is stopped there (`SR#4546`), and each
+	member row says so in ``stopped``; null for everybody who can act, and again once the person is
+	back.
+	"""
+
+	slug = world.workspace.slug
+	members = f"/v1/workspaces/{slug}/members"
+	person = subroutine.domain.users.create(session, username=f"hugo-{uuid.uuid4().hex[:8]}")
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"zion-bot-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	session.flush()
+
+	def stopped () -> dict[str, typing.Any]:
+		"""Return what the listing says of each member."""
+
+		listed = world.call("GET", members)
+
+		assert listed.status_code == 200, listed.text
+
+		return {row["user"]["username"]: row["stopped"] for row in listed.json()["items"]}
+
+	assert world.call("POST", members, json={"username": person.username, "role": "member"}).status_code == 201
+
+	added = world.call("POST", members, json={"username": agent.username, "role": "member"})
+
+	assert added.status_code == 201, added.text
+	assert added.json()["stopped"] is None, "its person is a member here"
+
+	assert world.call("DELETE", f"{members}/{person.username}").status_code == 204
+
+	assert stopped()[agent.username] == "outside"
+	assert stopped()[world.user.username] is None
+
+	regraded = world.call("PATCH", f"{members}/{agent.username}", json={"role": "contributor"})
+
+	assert regraded.status_code == 200, regraded.text
+	assert regraded.json()["stopped"] == "outside", "the answer to an act says it as the listing does"
+
+	assert world.call("POST", members, json={"username": person.username, "role": "member"}).status_code == 201
+	assert stopped()[agent.username] is None, "and it starts again with nothing re-issued"
+
+
 def test_only_founding_makes_an_inbox_without_asking () -> None:
 	"""`SR#4135`: ``projects.create_inbox`` asks the credential nothing, so founding alone calls it.
 

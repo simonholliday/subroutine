@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A workspace's member listing says which agents are stopped there, and why.** An agent stops
+  working in a workspace once the person it answers to is not a member there, and the listing
+  showed it as any other member, so one whose person was taken out before this release stopped
+  with nothing saying so. `user list --workspace` and the People page now say *stopped: hugo is
+  not a member here*, and each member the API lists carries `stopped`.
 - **Acting on a connection that refused says why, with its remedy.** On a machine with a
   second connection, changing something in a list that needed `subroutine db upgrade` said it
   could not be reached and to try again when it was back, or that there was no connection of

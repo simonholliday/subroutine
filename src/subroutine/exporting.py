@@ -766,7 +766,7 @@ COMPUTED: dict[str, frozenset[str]] = {
 	"link_types": frozenset(),
 	"saved_views": frozenset({"about_the_reader", "may"}),
 	"users": frozenset({"answers_to"}),
-	"members": frozenset(),
+	"members": frozenset({"stopped"}),
 	"project_members": frozenset(),
 }
 

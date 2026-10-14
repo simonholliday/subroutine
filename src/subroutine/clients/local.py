@@ -2687,11 +2687,16 @@ class Client:
 			parents = subroutine.domain.accountability.account_parents_for_many(
 				session, [account for _row, account, _role in roster]
 			)
+			# And which are stopped here, as the HTTP listing says (`#5062`).
+			outside = subroutine.domain.accountability.outside_in(
+				session, chosen.id, [account for _row, account, _role in roster], answerable
+			)
 
 			return [
 				subroutine.views.member(
 					row, account=account, role=role, within=chosen, prioritised=focus,
 					answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
+					stopped=subroutine.domain.accountability.OUTSIDE if account.id in outside else None,
 				)
 				for row, account, role in roster
 			]

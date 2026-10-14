@@ -21171,6 +21171,32 @@ def test_the_directory_folds_every_workspace_into_one_answer_per_person (
 	assert "claude-super" not in held, "nobody gained a role they do not hold"
 
 
+def test_the_directory_says_where_an_agent_is_stopped_and_whose_membership_starts_it (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#5062`: the People page showed an agent stopped in a workspace as holding its role there."""
+
+	# The harness keeps the elements' names; the sentence is read across them, as a reader reads it.
+	said = " ".join(re.sub(r"<[^>]*>", "", _rendered(tmp_path, {"People": {
+		"people": [
+			{"username": "zion-bot", "is_service_account": True, "is_active": True, "answers_to": "hugo"},
+		],
+		"rosters": [
+			{"slug": "zion", "title": "Zion", "members": [
+				{"user": {"username": "zion-bot", "answers_to": "hugo"}, "role": "contributor", "stopped": "outside"},
+			]},
+			{"slug": "web", "title": "Web", "members": [
+				{"user": {"username": "zion-bot", "answers_to": "hugo"}, "role": "contributor", "stopped": None},
+			]},
+		],
+		"asked": 2,
+		"reached": 2,
+	}})["People"]).split())
+
+	assert "contributor in Zion (stopped: hugo is not a member)" in said, said
+	assert said.count("stopped") == 1, f"only where it is stopped: {said}"
+
+
 def test_the_directory_says_when_it_could_not_read_every_workspace (
 	tmp_path: pathlib.Path
 ) -> None:

@@ -12,6 +12,7 @@ import pytest
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.users
@@ -73,6 +74,58 @@ def _reaches (
 	assert listed == writes, f"the agent lists the workspace: {listed}, and may write in it: {writes}"
 
 	return listed
+
+
+@pytest.mark.parametrize("through", [False, True], ids=["directly", "through another agent"])
+def test_the_roster_says_which_agents_are_stopped_by_the_rule_that_stops_them (
+	session: sqlalchemy.orm.Session, through: bool
+) -> None:
+	"""`SR#5062`: an agent stopped here read as any other member, so nothing said why it stopped.
+
+	Found by the upgrade rehearsal of 2026-10-13: an agent whose person had been taken out of a
+	workspace under 0.10.0 went on working there, stopped after the upgrade, and the member listing,
+	``doctor`` and the agent's own refusal said nothing of why. **Asked of the rule itself**: the
+	roster's answer for every member must be :func:`accountability.standing`'s, out and back.
+	"""
+
+	workspace, person, _secret = _seated(session, through=through)
+
+	def agreed () -> set[str]:
+		"""Return who the roster says is stopped, having checked it against the rule for each."""
+
+		rows = subroutine.domain.workspaces.members(session, workspace)
+		accounts = [account for _row, account, _role in rows]
+		answerable = subroutine.domain.accountability.answerable_for_many(
+			session, [account.id for account in accounts]
+		)
+		outside = subroutine.domain.accountability.outside_in(
+			session, workspace.id, accounts, answerable
+		)
+
+		for account in accounts:
+			ruled = subroutine.domain.accountability.standing(
+				session, account, workspace_id=workspace.id
+			)
+
+			assert (account.id in outside) == (ruled == subroutine.domain.accountability.OUTSIDE), (
+				f"{account.username}: the roster and the rule disagree"
+			)
+
+		return {account.username for account in accounts if account.id in outside}
+
+	assert agreed() == set(), "nobody is stopped while the person is a member"
+
+	subroutine.domain.workspaces.remove_member(session, workspace, person)
+	session.flush()
+
+	stopped = agreed()
+
+	assert len(stopped) == 1 and next(iter(stopped)).startswith("agent-"), stopped
+
+	subroutine.domain.workspaces.add_member(session, workspace, person, role_key="member")
+	session.flush()
+
+	assert agreed() == set(), "and it starts again with nothing re-issued"
 
 
 @pytest.mark.parametrize("through", [False, True], ids=["directly", "through another agent"])

@@ -172,6 +172,45 @@ def standing (
 	return None if wanted <= seated else OUTSIDE
 
 
+def outside_in (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	accounts: typing.Iterable[subroutine.db.models.identity.User],
+	answerable: typing.Mapping[uuid.UUID, str],
+) -> set[uuid.UUID]:
+	"""Return the agents among a workspace's members that are stopped there by :func:`standing`.
+
+	`#5062`. An agent acts in a workspace only while the person at the top of its chain is a member
+	too (`#4546`), and nothing a member listing showed said which ones were stopped. So an agent
+	whose person was taken out of a workspace before the upgrade that brought the rule stopped
+	working there with nothing anywhere saying why - its row read as any other contributor's.
+
+	**:func:`standing`'s rule for a roster, in one query however long it is**: ``answerable`` is
+	what the listing has already walked with :func:`answerable_for_many`, and only whether each
+	agent's person is seated here is asked. The accounts are members already, which is the other
+	half of the rule.
+	"""
+
+	# **Every member, not only agents**: a person answers for themselves and is seated here, so the
+	# rule reads no further for them, as :func:`standing`'s does not.
+	persons = {account.id: answerable[account.id] for account in accounts if account.id in answerable}
+
+	if not persons:
+		return set()
+
+	user = subroutine.db.models.identity.User
+	member = subroutine.db.models.identity.WorkspaceMember
+	seated = set(
+		session.scalars(
+			sqlalchemy.select(user.username)
+			.join(member, member.user_id == user.id)
+			.where(member.workspace_id == workspace_id, user.username.in_(set(persons.values())))
+		)
+	)
+
+	return {identifier for identifier, person in persons.items() if person not in seated}
+
+
 def can_act (
 	session: sqlalchemy.orm.Session,
 	user: subroutine.db.models.identity.User,

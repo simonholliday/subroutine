@@ -155,6 +155,36 @@ def test_the_roster_of_one_workspace_marks_somebody_who_has_left (
 	assert "inactive" in line, line
 
 
+def test_the_roster_of_one_workspace_marks_an_agent_stopped_there (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5062`: an agent whose person left the workspace read as an ordinary contributor.
+
+	It stops working there (`SR#4546`), and the roster is where the operator looks first. **The
+	cell beside a leaver's**, naming whose membership would start it again.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "hugo", "--name", "Hugo Weaving")
+	run("user", "create", "zion-bot", "--agent")
+	run("user", "transfer", "zion-bot", "--to", "hugo")
+
+	def line () -> str:
+		"""Return the roster's line for the agent."""
+
+		return next(
+			one
+			for one in run("user", "list", "--workspace", "acme").output.splitlines()
+			if "zion-bot" in one
+		)
+
+	assert "stopped" not in line(), line()
+
+	run("user", "remove", "hugo")
+
+	assert "stopped: hugo is not a member here" in line(), line()
+
+
 def test_adding_a_colleague_does_not_cost_you_your_own_list (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

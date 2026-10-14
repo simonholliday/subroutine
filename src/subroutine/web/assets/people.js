@@ -55,7 +55,13 @@ export function rolesByUsername (rosters) {
 
 			if (!found.has(who)) found.set(who, []);
 
-			found.get(who).push({ slug: roster.slug, title: roster.title, role: row.role });
+			// **And whether it is stopped there, and whose membership would start it** (`#5062`).
+			found.get(who).push({
+				slug: roster.slug,
+				title: roster.title,
+				role: row.role,
+				stopped: row.stopped === "outside" ? (row.user.answers_to || "its person") : null,
+			});
 		}
 	}
 
@@ -81,6 +87,9 @@ export function Roles ({ held }) {
 			${held.map((one, at) => html`
 				${at > 0 ? html`<span class="between"> · </span>` : null}
 				<span class="role">${one.role}<span class="in"> in </span>${one.title}</span>
+				${one.stopped
+					? html`<span class="stopped"> (stopped: ${one.stopped} is not a member)</span>`
+					: null}
 			`)}
 		</span>
 	`;

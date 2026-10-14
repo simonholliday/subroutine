@@ -593,12 +593,17 @@ def members (
 	parents = subroutine.domain.accountability.account_parents_for_many(
 		session, [account for _row, account, _role in rows]
 	)
+	# **And which of them are stopped here** (`#5062`), from the walk above and one query.
+	outside = subroutine.domain.accountability.outside_in(
+		session, found.id, [account for _row, account, _role in rows], answerable
+	)
 
 	return subroutine.api.shaping.response(
 		[
 			subroutine.views.member(
 				row, account=account, role=role, within=found, prioritised=focus,
 				answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
+				stopped=subroutine.domain.accountability.OUTSIDE if account.id in outside else None,
 			)
 			for row, account, role in rows
 		],
@@ -632,15 +637,7 @@ def join (
 	)
 	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
 
-	return subroutine.views.member(
-		membership,
-		account=account,
-		role=role,
-		within=found,
-		prioritised=_focus(session, actor, found),
-		answers_to=subroutine.domain.accountability.answerable_name(session, account),
-		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
-	)
+	return _one_member(session, actor, found, membership, account, role)
 
 
 @router.patch(
@@ -683,14 +680,33 @@ def regrade (
 	)
 	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
 
+	return _one_member(session, actor, found, membership, account, role)
+
+
+def _one_member (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	found: subroutine.db.models.identity.Workspace,
+	membership: subroutine.db.models.identity.WorkspaceMember,
+	account: subroutine.db.models.identity.User,
+	role: subroutine.db.models.identity.Role,
+) -> subroutine.views.Member:
+	"""Render the one membership an act made or changed, as the listing renders each - `#5062`."""
+
+	answers_to = subroutine.domain.accountability.answerable_name(session, account)
+	outside = subroutine.domain.accountability.outside_in(
+		session, found.id, [account], {} if answers_to is None else {account.id: answers_to}
+	)
+
 	return subroutine.views.member(
 		membership,
 		account=account,
 		role=role,
 		within=found,
 		prioritised=_focus(session, actor, found),
-		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+		answers_to=answers_to,
 		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
+		stopped=subroutine.domain.accountability.OUTSIDE if outside else None,
 	)
 
 

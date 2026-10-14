@@ -2686,6 +2686,11 @@ class Member(pydantic.BaseModel):
 	workspace: WorkspaceRef
 	created_at: datetime.datetime
 
+	#: **Why this member cannot act here, where it cannot** (`#5062`): ``"outside"`` for an agent
+	#: whose person - ``user.answers_to`` - is not a member of this workspace, which stops it here
+	#: and nowhere else (`#4546`). Null for everybody who can. Defaulted for `#345`.
+	stopped: str | None = None
+
 	def address (self) -> str:
 		"""Return what a caller addresses this by — the member's username."""
 
@@ -2695,14 +2700,23 @@ class Member(pydantic.BaseModel):
 		"""Return this membership as the cells of one compact line."""
 
 		# **And whether they have left** (`#3944`), the cell ``User.columns`` has: the roster of one
-		# workspace showed a leaver as an ordinary member.
+		# workspace showed a leaver as an ordinary member. **Or are stopped here** (`#5062`), in the
+		# same cell, naming whose membership would start them again.
 		return (
 			self.user.username,
 			self.role,
 			"agent" if self.user.is_service_account else "person",
-			"" if self.user.is_active else "inactive",
+			"inactive" if not self.user.is_active else self.stopped_cell(),
 			self.user.display_name or "",
 		)
+
+	def stopped_cell (self) -> str:
+		"""Return what the listing says of a member stopped here, or nothing - `#5062`."""
+
+		if self.stopped != subroutine.domain.accountability.OUTSIDE:
+			return ""
+
+		return f"stopped: {self.user.answers_to or 'its person'} is not a member here"
 
 
 class ProjectMember(pydantic.BaseModel):
@@ -6858,6 +6872,7 @@ def member (
 	prioritised: str | None,
 	answers_to: str | None,
 	account_parent: str | None,
+	stopped: str | None = None,
 ) -> Member:
 	"""Render one membership, with the four things it joins already resolved.
 
@@ -6877,6 +6892,7 @@ def member (
 		role=role.key,
 		workspace=workspace_ref(within, prioritised=prioritised),
 		created_at=row.created_at,
+		stopped=stopped,
 	)
 
 
