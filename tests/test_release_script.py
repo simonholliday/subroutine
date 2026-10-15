@@ -88,6 +88,20 @@ def _passing_gate (root: pathlib.Path, *, exit_code: int = 0) -> None:
 	)
 
 
+def _passing_rehearsal (root: pathlib.Path, *, exit_code: int = 0) -> None:
+	"""Write the upgrade rehearsal the script runs before it writes anything.
+
+	**`#5063`: the script rehearses the upgrade from the last release** - it installs that
+	release, fills an installation with it and meets it with this tree. A stub for the gate's
+	reason: the real one installs from the package index and takes half an hour, and these
+	tests are about where the script runs it and what it does when it fails.
+	"""
+
+	(root / "scripts" / "rehearse_upgrade.py").write_text(
+		f"import sys\n\nsys.exit({exit_code})\n", encoding="utf-8"
+	)
+
+
 @pytest.fixture
 def repository (tmp_path: pathlib.Path) -> pathlib.Path:
 	"""Build a repository with a changelog, a manifest, the script, and one release behind it."""
@@ -104,6 +118,7 @@ def repository (tmp_path: pathlib.Path) -> pathlib.Path:
 	)
 	shutil.copy(SCRIPT, root / "scripts" / "release.py")
 	_passing_gate(root)
+	_passing_rehearsal(root)
 
 	_git(root, "init", "-q")
 	_git(root, "config", "user.email", "test@example.com")
@@ -782,3 +797,83 @@ def test_the_gate_runs_before_the_tag_rather_than_after_it (
 
 	assert subject == "Release 0.2.0", f"the gate did not run on the release commit: {subject!r}"
 	assert not tags, f"the tag existed before the gate ran, so it could have been pushed: {tags!r}"
+
+
+
+def test_a_release_whose_rehearsal_fails_writes_nothing (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`SR#5063`: an upgrade that fails its rehearsal is not cut, and nothing is left to undo.
+
+	The suite builds its schema from the models, so it cannot see this build meet a database
+	an older release filled - where the two defects an operator met before 1.0 lived. The
+	rehearsal is what can, and it runs before anything is written, so a failure leaves the tree
+	as it was rather than a commit to revert.
+	"""
+
+	_passing_rehearsal(repository, exit_code=1)
+	_git(repository, "add", ".")
+	_git(repository, "commit", "-q", "-m", "a rehearsal that fails")
+	before = _git(repository, "rev-parse", "HEAD")
+
+	answer = cut("0.2.0")
+
+	assert answer.returncode != 0, f"a failed rehearsal must stop the release: {answer.stdout}"
+	assert "rehearsal" in answer.stderr, f"the refusal must say what stopped it: {answer.stderr}"
+	assert _git(repository, "rev-parse", "HEAD") == before, "a commit was made after a failed rehearsal"
+	assert not _git(repository, "status", "--porcelain").strip(), "a file was written after a failed rehearsal"
+	assert not _git(repository, "tag", "--list", "v0.2.0").strip(), "a failed rehearsal was tagged"
+
+
+def test_the_rehearsal_meets_the_tree_before_anything_is_written (
+	repository: pathlib.Path,
+	cut: typing.Callable[..., subprocess.CompletedProcess[str]],
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#5063`. Rehearsed after the writes, a failure would leave a half-made release behind.
+
+	So this asserts what the rehearsal could *see*: the changelog still unreleased and no
+	release commit yet - and that it ran in the repository, from which it finds the build.
+	"""
+
+	saw = tmp_path / "rehearsal-saw.txt"
+	(repository / "scripts" / "rehearse_upgrade.py").write_text(
+		"import pathlib, subprocess, sys\n"
+		"\n"
+		"subject = subprocess.run(\n"
+		"	['git', 'log', '-1', '--format=%s'], capture_output=True, text=True, check=True\n"
+		").stdout.strip()\n"
+		"unreleased = '## Unreleased' in pathlib.Path('CHANGELOG.md').read_text(encoding='utf-8')\n"
+		f"pathlib.Path({str(saw)!r}).write_text(f'{{subject}}|{{unreleased}}')\n"
+		"sys.exit(0)\n",
+		encoding="utf-8",
+	)
+	_git(repository, "add", ".")
+	_git(repository, "commit", "-q", "-m", "a rehearsal that reports what it saw")
+
+	answer = cut("0.2.0")
+
+	assert answer.returncode == 0, answer.stdout + answer.stderr
+
+	subject, _, unreleased = saw.read_text(encoding="utf-8").partition("|")
+
+	assert subject != "Release 0.2.0", "the rehearsal ran after the release commit was made"
+	assert unreleased == "True", "the rehearsal ran after the changelog had been rewritten"
+
+
+def test_a_dry_run_names_the_rehearsal_and_runs_nothing (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`SR#5063`: the dry run is free, so it says the rehearsal would run rather than running it.
+
+	A rehearsal that would fail is the proof: a dry run that ran it would answer non-zero.
+	"""
+
+	_passing_rehearsal(repository, exit_code=1)
+	_git(repository, "add", ".")
+	_git(repository, "commit", "-q", "-m", "a rehearsal that fails")
+
+	done = cut("0.2.0", "--dry-run")
+
+	assert done.returncode == 0, done.stdout + done.stderr
+	assert "rehearse the upgrade from the last release" in done.stdout, done.stdout

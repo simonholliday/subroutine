@@ -20,6 +20,10 @@ their head.
 backwards and a changelog with nothing unreleased in it are all reasons to stop and let a
 person look, because each means the release is not the thing they think it is.
 
+**It rehearses the upgrade before it writes anything** (`#5063`): the last release, installed and
+filled through its own commands, then met by this tree before and after ``db upgrade``. A
+release that would answer an operator's reads with a server error is not cut.
+
 **It never pushes.** Publishing is outward-facing and belongs to whoever owns the repository;
 this stops at a commit and a tag, and prints the two commands that finish the job.
 """
@@ -174,6 +178,7 @@ def main (argv: list[str] | None = None) -> int:
 		changing.append(f"  {RELEASES.name}: {version} recorded at schema {head}")
 
 		print(f"Would release {version} ({on}):")
+		print("  first, rehearse the upgrade from the last release, before anything is written")
 
 		for line in changing:
 			print(line)
@@ -189,6 +194,11 @@ def main (argv: list[str] | None = None) -> int:
 		print(_when_measured())
 
 		return 0
+
+	failed = _rehearse()
+
+	if failed is not None:
+		return _refuse(failed)
 
 	CHANGELOG.write_text(changelog, encoding="utf-8")
 	_write_plugin_version(version)
@@ -268,6 +278,44 @@ def _gate () -> str | None:
 		"    git revert --no-edit HEAD\n"
 		f"    python scripts/release.py {_git('log', '-1', '--format=%s').removeprefix('Release ')}\n\n"
 		"  A skipped version number is cheap; a tag with nothing behind it is not."
+	)
+
+
+def _rehearse () -> str | None:
+	"""Rehearse the upgrade from the last release to this tree, and say what to do if it fails.
+
+	**The suite cannot see an upgrade** (`#5063`). Its schema is built from the models and its
+	rows from the current code, so no test holds a row only an older release wrote, and none
+	runs this tree over an older release's schema - and the two defects an operator met before
+	1.0 lived exactly there. ``scripts/rehearse_upgrade.py`` installs the last release, fills an
+	installation through its commands, and meets it with this tree before and after ``db
+	upgrade``, on both backends; it says what it found, and exits non-zero on a server error or
+	a crash.
+
+	**Before anything is written**, where the gate runs after the commit. The release commit
+	changes a heading, the manifests and the record, none of which the rehearsal exercises, so
+	the tree it meets is the program that ships - and a failure here leaves nothing to undo.
+
+	**No flag skips it**, for the gate's reason: a release is the one act where a half-run is
+	worse than a refusal. Half an hour is the trade, beside a published upgrade that fails.
+	"""
+
+	print("Rehearsing the upgrade from the last release. It installs that release from the "
+	      "package index and takes about half an hour.")
+
+	ran = subprocess.run(
+		[sys.executable, str(ROOT / "scripts" / "rehearse_upgrade.py")],
+		cwd=ROOT,
+		check=False,
+	)
+
+	if ran.returncode == 0:
+		return None
+
+	return (
+		"the upgrade from the last release failed its rehearsal, so nothing has been written.\n\n"
+		"  What it found is listed above. Fix it, then cut again; "
+		"'python scripts/rehearse_upgrade.py' runs it on its own."
 	)
 
 
