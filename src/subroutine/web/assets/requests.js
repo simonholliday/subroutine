@@ -1377,6 +1377,28 @@ export function completeRequest (row, slug) {
 	return { path: scoped(`/tasks/${row.ref}/complete`, slug), method: "POST" };
 }
 
+export function completedNote (row, where) {
+	/*
+		What completing a row says, and whether it offers to undo it - `SR#5137`.
+
+		**No Undo after completing a repeating task** (M-13 of the cold review of 2026-10-17,
+		decision `#5097`): completing an occurrence makes the next one, so putting its status back
+		left two open occurrences of one series, and a series of one occurrence finished beneath
+		an open one. A one-off task keeps it; a mis-click on a repeat is put right by hand.
+		`recurrence_description` is what every row the browser completes carries for a repeat.
+	*/
+	const said = { text: `Completed #${row.ref} ${row.title}.`, tone: "good" };
+
+	if (row.recurrence_description) return said;
+
+	/* What it was, so undo restores rather than guesses. `restoreRequest` is what carries it
+	   back; this is where it is remembered. */
+	return {
+		...said,
+		undo: { ref: row.ref, kind: row.kind, title: row.title, status: row.status, where },
+	};
+}
+
 export function restoreRequest (going, slug) {
 	/*
 		Undo, which puts back **the status that was there** rather than a status we chose. A

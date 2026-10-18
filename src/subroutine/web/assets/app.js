@@ -72,7 +72,8 @@ import {
 	SAID_AS_NUMBERS, SAID_AS_WRITTEN,
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	commentsRequest, pagesFrom,
-	completeRequest, conflictIn, dateFor, deferralOnly, documentRequest, edited, filed, freshly,
+	completedNote, completeRequest, conflictIn, dateFor, deferralOnly, documentRequest, edited,
+	filed, freshly,
 	fromItem,
 	moveRequest, movingTo, unreadableParent,
 	headRequest, identityRequest, instanceBehind, itemJournalRequest, itemRequests,
@@ -2299,13 +2300,7 @@ export function App () {
 	   item the reader is looking at. Remembered on the undo for the same reason. */
 	const complete = useCallback((row, where = workspace) => wrote(
 		row,
-		() => ({
-			text: `Completed #${row.ref} ${row.title}.`,
-			tone: "good",
-			/* What it was, so undo restores rather than guesses. `restoreRequest` is what
-			   carries it back; this is where it is remembered. */
-			undo: { ref: row.ref, kind: row.kind, title: row.title, status: row.status, where },
-		}),
+		() => completedNote(row, where),
 		() => sent(completeRequest(row, where)),
 	), [workspace, wrote]);
 
@@ -4584,6 +4579,7 @@ export {
 	changeWorkspaceSettingRequest,
 	collectionsFor,
 	commentRequest,
+	completedNote,
 	completeRequest,
 	conflictIn,
 	credentialsRequest,

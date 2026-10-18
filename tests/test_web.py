@@ -8012,6 +8012,35 @@ def test_undo_restores_the_status_that_was_there (tmp_path: pathlib.Path) -> Non
 	)
 
 
+def test_completing_a_repeating_task_offers_no_undo (tmp_path: pathlib.Path) -> None:
+	"""`SR#5137`, M-13 of the cold review of 2026-10-17, decided in `#5097`.
+
+	Undo after completing an occurrence put its status back beside the next occurrence completing
+	it had made: two open occurrences of one series. **A repeating row says it was completed and
+	offers nothing**; a one-off row still offers to undo, remembering what it was.
+	"""
+
+	repeating, one_off = _built(tmp_path, [
+		(
+			"completedNote",
+			[
+				{"ref": 7, "kind": "task", "title": "Water the plants", "status": "open", "recurrence_description": "every week"},
+				"personal",
+			],
+		),
+		(
+			"completedNote",
+			[{"ref": 8, "kind": "task", "title": "Fix it", "status": "in progress", "recurrence_description": None}, "personal"],
+		),
+	])
+
+	assert repeating["text"] == "Completed #7 Water the plants.", repeating
+	assert "undo" not in repeating, f"a repeating task offered an undo: {repeating}"
+	assert one_off["undo"] == {
+		"ref": 8, "kind": "task", "title": "Fix it", "status": "in progress", "where": "personal"
+	}, one_off
+
+
 def test_every_write_goes_through_one_request_function () -> None:
 	"""One `fetch`, reads and writes together — so the credential rules are written once.
 

@@ -29,6 +29,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Completing a repeating task in the browser offers no Undo.** Undoing it reopened the finished
+  occurrence beside the next one completing it had made, leaving two open occurrences of one
+  series. A one-off task still offers Undo, and a mis-click on a repeat is put right by hand.
 - **The agent tools read a day in the account's zone whichever way a call names its workspace.**
   Named by its id, as every tool's schema offers, a workspace matched nothing, and a day given to
   `plan`, `defer` or `until` was read in the server's zone, so *today* could be stored as
