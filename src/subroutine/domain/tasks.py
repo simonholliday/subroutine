@@ -1832,6 +1832,17 @@ def update (
 				field="project",
 			)
 
+			# **Nor by a credential narrowed to some projects** (`SR#5102`, decision `#5097`).
+			subroutine.domain.stewardship.refuse_narrowed_crossing(
+				session,
+				actor,
+				workspace_id=task.workspace_id,
+				leaving=subroutine.domain.stewardship.private_above(session, leaving),
+				arriving=subroutine.domain.stewardship.private_above(session, project),
+				permission=subroutine.permissions.TASK_WRITE,
+				field="project",
+			)
+
 		if task.parent_task_id is not None:
 			# The invariant runs both ways: `create` refuses a subtask in a different project
 			# from its parent, so moving a child alone would break it from the other side.

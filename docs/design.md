@@ -2067,8 +2067,10 @@ project is never stranded; a public one is its administrators'. These acts are t
   project it leaves.
 
 A move that crosses no boundary takes `project:write` or `task:write` at both ends, as any write
-does. **A credential narrowed to some projects changes no project's visibility**, in either
-direction: making a project private or public reaches the whole workspace.
+does. **A credential narrowed to some projects changes no project's visibility and moves
+nothing across a privacy boundary**, in either direction: making a project private or public, and
+moving a project, a task or a document into a private project or out of one, reach the whole
+workspace.
 
 **Work is handed only to somebody who can see it.** A task's assignee, a document's maintainer and
 a project's owner must be a member of the workspace who can see the project it is in, however they

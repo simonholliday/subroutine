@@ -157,10 +157,12 @@ def test_a_rule_that_binds_nobody_blocks_nothing_and_is_not_named (world: test_a
 
 	assert world.call("DELETE", f"/v1/documents/{gone['ref']}").status_code < 300
 
-	moved = _as(world, narrowed, "POST", "/v1/projects/ops/move", json={"parent": "vault"})
+	# **Moved by an unnarrowed credential** (`SR#5102`): a narrowed one makes no crossing move, and
+	# the rule check is this test's subject, not the credential.
+	moved = world.call("POST", "/v1/projects/ops/move", json={"parent": "vault"})
 
 	assert moved.status_code == 200, moved.text
-	assert _as(world, narrowed, "POST", "/v1/projects/vault/ops/move", json={"parent": "web"}).status_code == 200
+	assert world.call("POST", "/v1/projects/vault/ops/move", json={"parent": "web"}).status_code == 200
 	assert _as(world, narrowed, "DELETE", "/v1/projects/web/ops").status_code < 300
 
 	# **Somebody else's private project beneath binds nobody outside it**, so it is neither counted nor
@@ -187,7 +189,7 @@ def test_a_rule_that_binds_nobody_blocks_nothing_and_is_not_named (world: test_a
 	hidden = _as(world, narrowed, "PATCH", "/v1/projects/web", json={"visibility": "private"})
 
 	assert "rule that binds the whole workspace" not in hidden.text, hidden.text
-	assert _as(world, narrowed, "POST", "/v1/projects/web/move", json={"parent": "vault"}).status_code == 200
+	assert world.call("POST", "/v1/projects/web/move", json={"parent": "vault"}).status_code == 200
 
 	_written(world, title="Every page loads fast", binds="workspace", project="docs")
 	kept = _as(world, narrowed, "DELETE", "/v1/projects/docs")
@@ -256,6 +258,10 @@ def test_a_rule_moves_freely_between_public_places_and_not_into_a_private_one (
 
 	assert hidden.status_code == 403, hidden.text
 	assert hidden.json()["errors"][0]["field"] == "project", hidden.text
+
+	# **The rule's own refusal, not the narrowed credential's crossing** (`SR#5102`), which is asked
+	# after it: both are 403s on ``project``, and only this one says which permission moves a rule.
+	assert "which documents bind the whole workspace" in hidden.json()["detail"], hidden.text
 	assert world.call("PATCH", path, json={"project": "vault"}).status_code == 200
 
 

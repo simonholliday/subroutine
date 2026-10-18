@@ -609,6 +609,21 @@ def update (
 		body=body,
 	)
 
+	# **Nor across a privacy boundary by a credential narrowed to some projects** (`SR#5102`, decision
+	# `#5097`): asked after the rules' refusal above, whose reason is the more particular.
+	if moving:
+		subroutine.domain.stewardship.refuse_narrowed_crossing(
+			session,
+			actor,
+			workspace_id=document.workspace_id,
+			leaving=subroutine.domain.stewardship.private_above(
+				session, session.get(subroutine.db.models.project.Project, document.project_id)
+			),
+			arriving=subroutine.domain.stewardship.private_above(session, project),
+			permission=subroutine.permissions.TASK_WRITE,
+			field="project",
+		)
+
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
 	previous_text = (document.title, document.body)

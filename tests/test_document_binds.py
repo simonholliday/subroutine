@@ -307,9 +307,10 @@ def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	"""`SR#4286`: privacy inherits down the tree, and a deleted project takes its rules with it.
 
 	Making the rule's project private, moving it under a private one, or deleting it each took the
-	rule out of sight. **And the control**: a project holding no marked rule goes through each - bar
-	making it private, which a narrowed credential is refused whatever the project holds, since who
-	sees a project is the workspace's to decide (`SR#4558`, C I-3 of the cold review of 2026-10-05).
+	rule out of sight. **And the control**: a project holding no marked rule is deleted - bar making
+	it private or moving it under a private project, which a narrowed credential is refused whatever
+	the project holds, since who sees a project is the workspace's to decide (`SR#4558`, C I-3 of the
+	cold review of 2026-10-05, and `SR#5102`).
 	"""
 
 	ops = world.call("POST", "/v1/projects", json={"key": "ops", "title": "Operations"}).json()["id"]
@@ -338,7 +339,7 @@ def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 
 	control = through("web")
 
-	if door == "private":
+	if door in ("private", "under a private project"):
 		assert control.status_code == 403, control.text
 		assert "rule that binds the whole workspace" not in control.text, control.text
 
@@ -407,7 +408,9 @@ def test_showing_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	"""`SR#4389`: the mirror of hiding one. Restoring the rule's project, making it public, or moving
 	it out from under a private project each brought the rule into everybody's conventions.
 
-	**And the control**: a project holding no marked rule goes through each.
+	**And the control**: a project holding no marked rule is restored - bar making it public or
+	moving it out from under a private project, which a narrowed credential is refused whatever the
+	project holds (`SR#4558`, `SR#5102`).
 	"""
 
 	vault = world.call(
@@ -461,11 +464,12 @@ def test_showing_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	assert refused.status_code == 403, f"{door} went through: {refused.text}"
 	assert "rule that binds the whole workspace" in refused.text, refused.text
 
-	# **Bar making it public** (`SR#4558`, C I-3): who sees a project is the workspace's to decide,
-	# so a narrowed credential is refused that whatever the project holds.
+	# **Bar making it public, or moving it out from under a private project** (`SR#4558`, C I-3, and
+	# `SR#5102`): who sees a project is the workspace's to decide, so a narrowed credential is refused
+	# either whatever the project holds.
 	control = through("docs")
 
-	if door == "public":
+	if door in ("public", "out from under a private project"):
 		assert control.status_code == 403, control.text
 		assert "rule that binds the whole workspace" not in control.text, control.text
 

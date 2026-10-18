@@ -433,6 +433,39 @@ def refuse_crossing (
 	refuse_unless_steward(session, actor, steward_of, act=f"move {what} {where}", field=field)
 
 
+def refuse_narrowed_crossing (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+	leaving: frozenset[uuid.UUID],
+	arriving: frozenset[uuid.UUID],
+	permission: str,
+	field: str,
+) -> None:
+	"""Refuse a move across a privacy boundary to a credential narrowed to some projects - `SR#5102`.
+
+	**A credential narrowed to some projects makes no crossing move** (M-5 of the cold review of
+	2026-10-17, decision `#5097`): it may not make a project private or public, and moved one, a task
+	or a document across the same boundary, changing who sees it as surely. So a crossing asks the
+	workspace's place, as changing a project's visibility does, and a narrowed agent asks somebody
+	whose credential reaches the whole workspace. **Asked by each caller after the rules' own
+	refusals**, whose reasons are the more particular: asked first, it shadowed them.
+	"""
+
+	if actor is None or leaving == arriving:
+		return
+
+	subroutine.domain.authorization.authorize(
+		session,
+		actor,
+		permission,
+		workspace_id=workspace_id,
+		instead="Ask somebody whose credential reaches the whole workspace to move it.",
+		field=field,
+	)
+
+
 def refuse_acting_on_an_account (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,

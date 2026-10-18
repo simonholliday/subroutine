@@ -444,6 +444,18 @@ def move (
 	# (`#4286`), and one out from under it, to a public place, shows it again (`#4389`).
 	_refuse_changing_its_rules(session, actor, project, field="parent", parent=parent)
 
+	# **Nor by a credential narrowed to some projects** (`SR#5102`, decision `#5097`), as it may not
+	# make the project private or public: asked after the rules' refusal above.
+	subroutine.domain.stewardship.refuse_narrowed_crossing(
+		session,
+		actor,
+		workspace_id=project.workspace_id,
+		leaving=leaving,
+		arriving=arriving,
+		permission=subroutine.permissions.PROJECT_WRITE,
+		field="parent",
+	)
+
 	subroutine.domain.versions.require(project, expected_version, noun="project")
 
 	destination = None if parent is None else parent.id
