@@ -378,6 +378,17 @@ def _owner_for (
 	subroutine.domain.text.readable(machine, field="service_account", label="service account")
 
 	found = _any_account(session, wanted or machine)
+
+	# **Whether the caller may issue for somebody else is asked before anything about them is said**
+	# (`SR#5103`, M-8 of the cold review of 2026-10-17, decision `#4943` rule 2): each refusal below
+	# described an account's standing or its kind, which the reach rule withholds, to a caller who
+	# could not read it. Every request that passes this passed it anyway as the credential was
+	# issued, so only the order changes; a name nobody has is still answered as one.
+	if found is not None:
+		subroutine.domain.stewardship.refuse_acting_on_an_account(
+			session, actor, found, stopping=False
+		)
+
 	why = None if found is None else subroutine.domain.accountability.standing(session, found)
 
 	# **An agent nobody active answers for is refused, as a deactivated account is** (`#4545`, G8

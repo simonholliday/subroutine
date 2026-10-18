@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Issuing a credential for somebody else asks whether you may before it says anything about
+  them.** Refused, it could say whether their account was deactivated, whether it was a person's
+  or an agent's, and whether anybody still answered for it, to somebody who could not read the
+  account. Without the permission to issue for other accounts you are now refused as you would be
+  for anybody. A name nobody has is still answered as one.
 - **Completing a repeating task in the browser offers no Undo.** Undoing it reopened the finished
   occurrence beside the next one completing it had made, leaving two open occurrences of one
   series. A one-off task still offers Undo, and a mis-click on a repeat is put right by hand.
