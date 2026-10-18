@@ -13,8 +13,12 @@ import typing
 import pytest
 import sqlalchemy.orm
 
+import subroutine.domain.projects
+import subroutine.domain.workspaces
+import subroutine.errors
 import test_api_tasks
 import test_document_binds
+import test_sight_follows_the_chain
 
 _member = test_document_binds._member
 _as = test_document_binds._as
@@ -26,6 +30,77 @@ def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
 	"""An installation reachable over HTTP, sharing the test's transaction."""
 
 	return test_api_tasks._world(session)
+
+
+_person = test_sight_follows_the_chain._person
+_metacortex = test_sight_follows_the_chain._metacortex
+_project = test_sight_follows_the_chain._project
+_principal = test_sight_follows_the_chain._as
+
+
+def _whole (refused: subroutine.errors.SubroutineError) -> str:
+	"""Return everything a refusal says - its sentence, its hint and its fields' messages."""
+
+	return " ".join([refused.detail, refused.hint or "", *(error.message or "" for error in refused.errors)])
+
+
+def test_taking_somebody_out_names_no_project_the_caller_cannot_see (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5100`, H-4 of the cold review of 2026-10-17: the last-one refusal is said through reach.
+
+	Carrieanne administers MetaCortex and cannot see keanu's private `severance`; taking keanu out
+	is refused, as it strands it, without its key, and the hint names keanu, who can act on it. Her
+	own private `web`, which keanu alone also sees, is named, since she can see it.
+	"""
+
+	carrieanne = _person(session, "carrieanne")
+	keanu = _person(session, "keanu")
+	workspace = _metacortex(session, carrieanne, keanu=(keanu, "member"))
+	_project(session, workspace, "severance", keanu)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.workspaces.remove_member(session, workspace, keanu, actor=_principal(carrieanne))
+
+	said = _whole(refused.value)
+
+	assert "severance" not in said, said
+	assert "something you cannot see" in said, said
+	assert f"Ask {keanu.username} to share each" in (refused.value.hint or ""), refused.value.hint
+
+	with pytest.raises(subroutine.errors.ValidationError) as asked_by_the_installation:
+		subroutine.domain.workspaces.remove_member(session, workspace, keanu, actor=None)
+
+	assert "severance" in asked_by_the_installation.value.detail, "an internal caller reads everything"
+
+
+def test_unsharing_names_no_project_inside_that_the_caller_cannot_see (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5100`: the unshare refusal for a private child is said through reach too.
+
+	Jo owns private `outer`, shared with pat, and cannot see `severance` inside it, which only pat
+	holds a row on. Taking pat's row on `outer` strands it, so it is refused - the review's Open
+	Question 12, settled by #4943 rule 4 - without naming it, and the hint asks pat, who can see it.
+	"""
+
+	jo = _person(session, "jo")
+	pat = _person(session, "pat")
+	workspace = _metacortex(session, jo, pat=(pat, "member"))
+	outer = _project(session, workspace, "outer", jo)
+	subroutine.domain.projects.share(session, outer, pat)
+	_project(session, workspace, "severance", pat, parent=outer)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.projects.unshare(session, outer, pat, actor=_principal(jo))
+
+	said = _whole(refused.value)
+
+	assert "severance" not in said, said
+	assert said.count("something you cannot see") == 2, said
+	assert refused.value.hint == f"Ask {pat.username} to share it with somebody else first."
 
 
 def _names_none_of (text: str, *hidden: dict[str, typing.Any]) -> None:

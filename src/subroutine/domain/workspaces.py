@@ -25,6 +25,7 @@ import subroutine.domain.events
 import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.repair
+import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.domain.versions
@@ -1095,7 +1096,7 @@ def remove_member (
 		_refuse_an_owner_to_anybody_but_an_owner(session, workspace, held, actor=actor)
 
 	_refuse_leaving_nobody_to_repair(session, workspace, found, administering=True, owning=True)
-	_refuse_stranding_a_private_project(session, workspace, user)
+	_refuse_stranding_a_private_project(session, workspace, user, actor=actor)
 
 	subroutine.domain.events.record(
 		session,
@@ -1183,6 +1184,8 @@ def _refuse_stranding_a_private_project (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
 	user: subroutine.db.models.identity.User,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
 ) -> None:
 	"""Refuse taking somebody out of a workspace where they are the last person to see a project.
 
@@ -1192,6 +1195,12 @@ def _refuse_stranding_a_private_project (
 	or an agent that answers to them, hold a row on (`SR#4944`), since only those can they be the
 	last to see. **Taking an agent out strands nothing**: its rows stay, as a person's do, and
 	whoever it answers to goes on seeing through them.
+
+	**Named only to a caller who can see them** (`SR#5100`, H-4 of the cold review of 2026-10-17,
+	decision `#4521`): an administrator who could not see a private project read its key, and who
+	alone sees it, member by member. One the caller cannot see is *something you cannot see*, and the
+	hint names the person being taken out, who can, rather than an act on a project the caller
+	cannot reach.
 	"""
 
 	project = subroutine.db.models.project.Project
@@ -1210,15 +1219,23 @@ def _refuse_stranding_a_private_project (
 		)
 		.order_by(project.key)
 	)
-	stranded = [one.key for one in held if _strands(session, one, user.id)]
+	stranded = [one for one in held if _strands(session, one, user.id)]
 
-	if stranded:
-		raise subroutine.errors.ValidationError(
-			f"{user.username} is the only person who can see {', '.join(stranded)}, so taking them "
-			f"out of {workspace.slug} would leave no person able to reach "
-			f"{'it' if len(stranded) == 1 else 'them'}.",
-			hint="Share each with somebody else first, or make it public.",
-		)
+	if not stranded:
+		return
+
+	keys = [subroutine.domain.projects.key_named_to(session, actor, one) for one in stranded]
+	seen = [key for key in keys if key is not None]
+	named = seen if len(seen) == len(keys) else [*seen, subroutine.domain.scoping.UNSEEN]
+
+	raise subroutine.errors.ValidationError(
+		f"{user.username} is the only person who can see {', '.join(named)}, so taking them "
+		f"out of {workspace.slug} would leave no person able to reach "
+		f"{'it' if len(stranded) == 1 else 'them'}.",
+		hint="Share each with somebody else first, or make it public."
+		if len(seen) == len(keys)
+		else f"Ask {user.username} to share each with somebody else first, or to make it public.",
+	)
 
 
 def readable (

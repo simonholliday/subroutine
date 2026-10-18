@@ -520,7 +520,10 @@ def test_taking_somebody_out_of_a_workspace_counts_what_they_see_through_an_agen
 	workspace = _metacortex(session, laurence, keanu=(keanu, "member"), claude=(claude, "member"))
 	lab = _project(session, workspace, "lab", claude)
 
-	with pytest.raises(subroutine.errors.ValidationError, match="only person who can see lab"):
+	# Laurence cannot see `lab`, so the refusal does not name it (`SR#5100`).
+	with pytest.raises(
+		subroutine.errors.ValidationError, match="only person who can see something you cannot see"
+	):
 		workspaces.remove_member(session, workspace, keanu, actor=_as(laurence))
 
 	workspaces.remove_member(session, workspace, claude, actor=_as(laurence))

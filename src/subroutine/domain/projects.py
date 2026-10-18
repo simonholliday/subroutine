@@ -1657,24 +1657,37 @@ def unshare (
 		seer = user.username if last is None else last.username
 		inside = "," if one.id == project.id else f", inside {project.key},"
 
+		# **Named only to a caller who can see it** (`SR#5100`, H-4 of the cold review of
+		# 2026-10-17, decision `#4521`): a private child the caller cannot see was named three times
+		# over, so an owner could read its key, and who alone sees it, from a refusal. The refusal
+		# stands - #4943 rule 4 - and the person being unshared, who can see it, is who to ask.
+		key = key_named_to(session, actor, one)
+		named = key or subroutine.domain.scoping.UNSEEN
+
 		if seer != user.username:
 			inside = f"{inside} and only through their agent {user.username},"
 
 		# **A remedy this caller can take** (`SR#4570`): making it public and sharing it are its
 		# steward's now, so somebody removing themselves who is not is pointed at the one who is.
+		if key is None:
+			hint = f"Ask {seer} to share it with somebody else first."
+
+		elif subroutine.domain.stewardship.stewards(session, actor, one):
+			hint = f"'subroutine project update {key} --public' first, or share it with somebody else."
+
+		else:
+			hint = f"Ask the owner of '{key}' to share it with somebody else first."
+
 		raise subroutine.errors.ValidationError(
-			f"{seer} is the only person who can see {one.key}{inside} so removing "
+			f"{seer} is the only person who can see {named}{inside} so removing "
 			f"{'them' if seer == user.username else user.username} would leave no person able "
 			f"to reach it.",
-			hint=f"'subroutine project update {one.key} --public' first, or share it with "
-			f"somebody else."
-			if subroutine.domain.stewardship.stewards(session, actor, one)
-			else f"Ask the owner of '{one.key}' to share it with somebody else first.",
+			hint=hint,
 			errors=[
 				subroutine.errors.FieldError(
 					field="username",
 					code="invalid_field_value",
-					message=f"{seer} is the last person who can see {one.key}.",
+					message=f"{seer} is the last person who can see {named}.",
 				)
 			],
 		)
@@ -1695,6 +1708,33 @@ def unshare (
 		changes={"user_id": {"from": user.id, "to": None}},
 		actor=actor,
 	)
+
+
+def key_named_to (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+) -> str | None:
+	"""Return a project's key for a refusal to name to this caller, or ``None`` where they cannot see it.
+
+	**A refusal that names another row resolves it through the caller's reach first** (decision
+	`#4521`, `SR#5100`): one that does not resolve is said as :data:`scoping.UNSEEN`, and its hint
+	offers only what this caller can do. ``None`` as the actor is an internal caller, which reads
+	everything.
+	"""
+
+	if actor is None:
+		return project.key
+
+	failure = subroutine.domain.authorization.refusal(
+		session,
+		actor,
+		subroutine.permissions.PROJECT_READ,
+		workspace_id=project.workspace_id,
+		project=project,
+	)
+
+	return project.key if failure is None else None
 
 
 def _losing_sight (
