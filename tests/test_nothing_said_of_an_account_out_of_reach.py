@@ -187,3 +187,57 @@ def test_a_name_nobody_has_and_ones_own_are_answered_as_before (
 	status, said = _asked(application, headers, "username", here.marcus.username)
 
 	assert status == 201, said
+
+
+def _linked (
+	application: fastapi.FastAPI, headers: dict[str, str], name: str
+) -> tuple[int, dict[str, object]]:
+	"""Ask for a sign-in link for ``name``, returning the status and the body."""
+
+	answer = api_support.call(
+		application, "POST", "/v1/login-links", headers=headers, json={"username": name}
+	)
+
+	return answer.status_code, answer.json()
+
+
+def test_a_sign_in_link_refused_outside_reach_is_refused_as_for_anybody (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""marcus is refused a sign-in link for claude exactly as for carrieanne, a person.
+
+	**The agent check said what the account is** (decision `#5097`, "A sign-in link for an account
+	the caller cannot read"): it was asked first, so marcus heard that claude is an agent. Where the
+	caller cannot read the account, the accounts permission is asked first.
+	"""
+
+	here = Installation(session)
+	application = api_support.build_app(api_support.factory_for(session))
+	headers = here.credential(here.marcus)
+
+	plain_status, plain = _linked(application, headers, here.carrieanne.username)
+	status, said = _linked(application, headers, here.claude.username)
+
+	assert plain_status == 403, plain
+	assert (status, said.get("detail"), said.get("errors")) == (
+		plain_status, plain.get("detail"), plain.get("errors")
+	), said
+	assert "agent" not in str(said), f"marcus was told what claude is: {said}"
+
+
+@pytest.mark.parametrize("who", ["keanu", "laurence"], ids=["a co-member", "an administrator"])
+def test_a_caller_who_reads_the_account_still_hears_it_is_an_agent (
+	session: sqlalchemy.orm.Session, who: str
+) -> None:
+	"""keanu shares MetaCortex with claude, and laurence reads every account: each hears the reason.
+
+	**Where the caller can read it, the agent check still runs first**, before any role or bypass,
+	so an administrator is told the more useful answer rather than about a permission.
+	"""
+
+	here = Installation(session)
+	application = api_support.build_app(api_support.factory_for(session))
+	status, said = _linked(application, here.credential(getattr(here, who)), here.claude.username)
+
+	assert status == 403, said
+	assert str(said.get("detail")).startswith(f"{here.claude.username!r} is an agent"), said

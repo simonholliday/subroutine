@@ -605,6 +605,23 @@ def readable (
 	return statement.where(model.id.in_([one.id for one in answering]))
 
 
+def reached (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	account: subroutine.db.models.identity.User,
+) -> bool:
+	"""Report whether this principal may read ``account`` - :func:`within_reach`, for one account.
+
+	``None`` is an internal caller, which reads every account (`SR#5103`).
+	"""
+
+	model = subroutine.db.models.identity.User
+
+	return session.scalar(
+		sqlalchemy.select(model.id).where(model.id == account.id, within_reach(session, actor, model))
+	) is not None
+
+
 def read (
 	session: sqlalchemy.orm.Session,
 	username: str,
@@ -620,12 +637,8 @@ def read (
 	"""
 
 	account = by_username(session, username)
-	model = subroutine.db.models.identity.User
-	seen = session.scalar(
-		sqlalchemy.select(model.id).where(model.id == account.id, within_reach(session, actor, model))
-	)
 
-	if seen is None:
+	if not reached(session, actor, account):
 		raise _nobody_called(username)
 
 	return account

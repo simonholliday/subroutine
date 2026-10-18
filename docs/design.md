@@ -1943,8 +1943,9 @@ An act is allowed when every one of these holds:
   naming a person as a document's maintainer, holding a browser session, making an owner where
   none can act, and changing the standing of, issuing for or stopping an account outside the
   agent's own subtree. It is refused to an agent first, before any role or bypass, with one
-  sentence and one status. **An agent acts on accounts only within its own subtree** - itself and
-  the agents that answer to it.
+  sentence and one status, except that a sign-in link for an account the caller cannot read asks
+  the accounts permission first, so the refusal says nothing about that account. **An agent acts
+  on accounts only within its own subtree** - itself and the agents that answer to it.
 - **The verb is held.** Inside a workspace, by the account's role there; at the installation, by
   being a superuser. A credential's verbs narrow it (§7.4), and so does the agent tools' ceiling:
   a session that arrives through them is handed no secret, holds no instance verb, and holds

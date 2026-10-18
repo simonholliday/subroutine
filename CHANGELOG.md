@@ -29,6 +29,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A sign-in link for an account you cannot read says nothing about it.** Asked for an agent
+  outside your reach, the refusal said it was an agent. Whether you may act on other accounts is
+  asked first there now; an administrator of accounts, who reads every account, still hears that
+  an agent cannot sign in.
 - **Issuing a credential for somebody else asks whether you may before it says anything about
   them.** Refused, it could say whether their account was deactivated, whether it was a person's
   or an agent's, and whether anybody still answered for it, to somebody who could not read the

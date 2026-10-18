@@ -23,6 +23,7 @@ import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.accountability
 import subroutine.domain.authentication
+import subroutine.domain.users
 import subroutine.errors
 import subroutine.permissions
 
@@ -73,6 +74,14 @@ def mint_link (
 	``actor`` is who asked, recorded for the audit trail. ``None`` is an internal caller with no
 	principal at all; somebody at a terminal is the local user, asked as over HTTP (decision `#4514`).
 	"""
+
+	# **An account the caller cannot read is asked about as anybody's is** (`SR#5103`, M-8 of the
+	# cold review of 2026-10-17, decision `#5097`): the agent check below says the account is an
+	# agent, which the reach rule withholds, so where the caller cannot read it the accounts
+	# permission is asked first and the refusal says nothing about it. Where the caller can, the
+	# agent check still runs first, so an administrator still hears that an agent cannot sign in.
+	if not subroutine.domain.users.reached(session, actor, user):
+		_refuse_acting_on_the_account(session, actor, user, stopping=False)
 
 	# **Two person's acts, asked first** (`SR#4565`, decision `#4515`): they are the final answer, so
 	# holding whatever is asked after changes nothing. An agent issues only for its own agents, and
