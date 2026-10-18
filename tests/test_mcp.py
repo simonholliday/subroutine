@@ -5016,6 +5016,47 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone (
 	)
 
 
+def test_a_day_an_agent_writes_is_read_in_the_account_s_zone_however_its_workspace_is_named (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+	local_client: subroutine.clients.local.Client,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5122`, M-15 of the cold review of 2026-10-17: by name the day was the account's, and by
+	the workspace's id - which every tool's schema offers - it was the server's.
+
+	**At an instant where the two disagree**: 13:00 UTC is already tomorrow in Auckland. A workspace
+	named that matches none reads in the account's own zone too, rather than the server's.
+	"""
+
+	[who] = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	[place] = session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace)).all()
+	who.timezone = "Pacific/Auckland"
+	session.flush()
+
+	frozen = datetime.datetime.fromisoformat("2027-08-05T13:00:00Z")
+	monkeypatch.setattr(subroutine.db.types, "utcnow", lambda: frozen)
+
+	for named in (place.slug, str(place.id)):
+		ref = _added(bound, "Sand the door")
+		changed, failed = _called(bound, "subroutine_update", ref=ref, plan="today", workspace=named)
+
+		assert not failed, changed
+
+		row = session.scalars(
+			sqlalchemy.select(subroutine.db.models.work.Task).where(
+				subroutine.db.models.work.Task.ref == ref
+			)
+		).one()
+
+		assert row.starts_at is not None, changed
+		assert row.starts_at.astimezone(zoneinfo.ZoneInfo("Pacific/Auckland")).date() == datetime.date(
+			2027, 8, 6
+		), f"named {named!r}, 'today' was read in another zone"
+
+	assert subroutine.mcp.tools._account_zone(local_client, "nowhere") == "Pacific/Auckland"
+
+
 def test_an_agent_naming_a_start_and_an_end_is_read_as_one_span (
 	bound: subroutine.mcp.protocol.Server,
 	session: sqlalchemy.orm.Session,

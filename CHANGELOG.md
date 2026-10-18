@@ -29,6 +29,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The agent tools read a day in the account's zone whichever way a call names its workspace.**
+  Named by its id, as every tool's schema offers, a workspace matched nothing, and a day given to
+  `plan`, `defer` or `until` was read in the server's zone, so *today* could be stored as
+  yesterday. One named that matches no workspace now reads in the account's own zone too.
 - **A backup goes into a folder whatever its name.** One whose name held a `#`, a `?` or a `%`
   followed by two characters was reported unreadable, the copy just written was deleted, and an
   empty file was left beside the folder; restoring from such a folder was refused, and an

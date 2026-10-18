@@ -4977,17 +4977,25 @@ def _account_zone (client: subroutine.clients.base.Client, workspace: str | None
 	# method that is both excused and called here — correctly, because an excuse claiming a
 	# capability is absent and a call reaching it are two statements that must not disagree.
 	# ``subroutine_whoami`` already reaches ``me``, so nothing about what an agent can do moves.
-	reachable = client.me().workspaces
+	me = client.me()
 	wanted = None if workspace is None else workspace.strip().lower()
 
-	for candidate in reachable:
-		if wanted is not None and candidate.slug != wanted:
+	# **By its name or its id** (`SR#5122`, M-15 of the cold review of 2026-10-17): every tool's
+	# schema says either names a workspace, and an id matched none, so a day an agent named was read
+	# in the server's zone on every relayed call that named its workspace that way.
+	for candidate in me.workspaces:
+		if wanted is not None and wanted not in (candidate.slug, str(candidate.id)):
 			continue
 
 		if candidate.reader_timezone is not None:
 			return candidate.reader_timezone
 
 		break
+
+	# **And one named that matches none reads in the account's own zone** (`SR#5122`, `#1083`), the
+	# answer for a question about no workspace, rather than whichever host runs this.
+	if me.reader_timezone is not None:
+		return me.reader_timezone
 
 	return subroutine.config.system_timezone()
 
