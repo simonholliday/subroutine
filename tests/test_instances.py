@@ -3726,3 +3726,83 @@ def test_every_backup_this_program_takes_says_what_it_is_for () -> None:
 		f"this walked {found} call(s) to backup.take and there are at least three — one per "
 		f"kind. The scan has stopped finding them rather than the callers having gone."
 	)
+
+
+# --------------------------------------------------------------------------------------
+# A backup folder's name, and a relative SQLite path (`SR#5152`)
+# --------------------------------------------------------------------------------------
+
+#: Folders whose names a file URI must encode: a ``#`` and a ``?`` ended the path early, and a
+#: ``%41`` decoded to another name (M-12 of the cold review of 2026-10-17).
+AWKWARD_FOLDERS = ("backups #1", "what?now", "100%41")
+
+
+@pytest.mark.parametrize("folder", AWKWARD_FOLDERS)
+def test_a_backup_goes_into_a_folder_whose_name_a_uri_must_encode (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	folder: str,
+) -> None:
+	"""`SR#5152`: it failed as unreadable, deleted the copy it had written, and left an empty
+	database named for the part of the path before the ``#`` or ``?`` beside the folder. **Taken
+	and read back, with nothing left beside it**, on both backends."""
+
+	volume = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(volume / folder))
+
+	written = subroutine.db.backup.take(engine, _settings())
+
+	assert written.path.is_file()
+	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
+	assert sorted(one.name for one in volume.iterdir()) == [folder], "a stray file was left beside it"
+
+
+@pytest.mark.parametrize("folder", AWKWARD_FOLDERS)
+def test_a_backup_in_such_a_folder_is_restored_by_a_relative_path (
+	own_database: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, folder: str
+) -> None:
+	"""`SR#5152`: restoring a good copy from there was refused as *not a Subroutine backup*. **Put
+	back, named by a path relative to where the command runs**, which is how ``db restore`` passes
+	its argument on and what the encoding needs made absolute first."""
+
+	volume = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(volume / folder))
+	subroutine.db.migrate.upgrade(own_database)
+	settings = subroutine.config.Settings(
+		database_url=own_database, backup_directory=str(volume / folder)
+	)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, settings)
+		monkeypatch.chdir(volume)
+		restored = subroutine.db.backup.restore(
+			engine, pathlib.Path(folder) / written.path.name, as_clone=False
+		)
+
+		assert restored == subroutine.db.migrate.head_revision()
+
+	finally:
+		engine.dispose()
+
+
+def test_a_restore_over_a_relative_sqlite_path_does_not_crash (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""NEW-D-1 of the verification of the cold review of 2026-10-17 (`SR#5152`): with
+	``sqlite:///reldb.db`` and the file there, ``db restore --recover --yes`` ended in the crash
+	report, *relative path can't be expressed as a file URI*, asking whether there was anything to
+	save."""
+
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", "sqlite:///reldb.db")
+
+	run("init", "--workspace", "Acme")
+	name = _backup_name(run("db", "backup").output)
+	restored = run("db", "restore", name, "--recover", "--yes")
+
+	assert "Traceback" not in restored.output and restored.exception is None, restored.output

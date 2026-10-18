@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A backup goes into a folder whatever its name.** One whose name held a `#`, a `?` or a `%`
+  followed by two characters was reported unreadable, the copy just written was deleted, and an
+  empty file was left beside the folder; restoring from such a folder was refused, and an
+  installation backing up there could not upgrade. `db restore` also no longer crashes where the
+  database is named by a relative SQLite path.
 - **Work goes only to somebody who can act on it.** A task could be assigned, a document given a
   maintainer and a project handed to a member who had left, or to an agent that had stopped
   working there, and nobody could then act on it. Each is refused now, saying why. Work already

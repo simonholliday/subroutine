@@ -1089,14 +1089,29 @@ def check_unused (engine: sqlalchemy.engine.Engine) -> None:
 	)
 
 
+def read_only (path: pathlib.Path) -> str:
+	"""Return the URI that opens a SQLite file read-only - `SR#5152`.
+
+	**Percent-encoded, and absolute** (M-12 of the cold review of 2026-10-17): written as
+	``file:{path}?mode=ro``, a ``#`` or ``?`` in a folder's name ended the path early and dropped
+	``mode=ro``, so SQLite created an empty database at the shortened path, and ``%41`` decoded to
+	another name. A backup into such a folder failed, deleted the good copy and left a stray file
+	beside it, and an installation backing up there could not upgrade. ``as_uri`` encodes the path
+	and needs it absolute, which ``db restore`` is not always given.
+	"""
+
+	return f"{path.absolute().as_uri()}?mode=ro"
+
+
 def _head_in_sqlite (path: pathlib.Path) -> str:
 	"""Read ``alembic_version`` out of a SQLite backup file."""
 
 	# Read-only and through a URI, so that sqlite3 does not helpfully create an empty database
 	# when handed a path that is not one — which would turn "this file is not a backup" into
-	# "this backup has no schema version", a much less useful thing to be told.
+	# "this backup has no schema version", a much less useful thing to be told. **That holds only
+	# with the path encoded** (`SR#5152`), which is :func:`read_only`'s reason.
 	try:
-		connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+		connection = sqlite3.connect(read_only(path), uri=True)
 
 	except sqlite3.Error as error:
 		raise subroutine.errors.BadRequest(
@@ -1233,7 +1248,7 @@ def _refuse_a_corrupt_copy (path: pathlib.Path) -> None:
 	if engine_in(path) != "SQLite":
 		return
 
-	connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+	connection = sqlite3.connect(read_only(path), uri=True)
 
 	try:
 		# The pragma answers a single row reading ``ok``, or one row per problem found — and
@@ -1303,7 +1318,7 @@ def _tables_in_sqlite (path: pathlib.Path) -> frozenset[str]:
 	"""List the tables in a SQLite backup."""
 
 	try:
-		connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+		connection = sqlite3.connect(read_only(path), uri=True)
 
 	except sqlite3.Error as error:
 		raise subroutine.errors.BadRequest(

@@ -4068,7 +4068,7 @@ def _nothing_to_save (settings: subroutine.config.Settings) -> bool:
 		return False
 
 	try:
-		with contextlib.closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)) as database:
+		with contextlib.closing(sqlite3.connect(subroutine.db.backup.read_only(path), uri=True)) as database:
 			tables = database.execute("SELECT count(*) FROM sqlite_master").fetchone()
 
 	except sqlite3.Error:
