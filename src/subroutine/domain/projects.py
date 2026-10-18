@@ -420,17 +420,20 @@ def move (
 	# private project moved its sub-project out to the top level (S5 of the cold review of
 	# 2026-10-05). **A move within one private tree crosses nothing** and is not refused, where
 	# `#4384`'s gate refused any move under a private project (NEW-O-1 of its verification).
+	leaving = subroutine.domain.stewardship.private_above(
+		session,
+		None
+		if project.parent_id is None
+		else session.get(subroutine.db.models.project.Project, project.parent_id),
+	)
+	arriving = subroutine.domain.stewardship.private_above(session, parent)
+
 	subroutine.domain.stewardship.refuse_crossing(
 		session,
 		actor,
 		steward_of=project,
-		leaving=subroutine.domain.stewardship.private_above(
-			session,
-			None
-			if project.parent_id is None
-			else session.get(subroutine.db.models.project.Project, project.parent_id),
-		),
-		arriving=subroutine.domain.stewardship.private_above(session, parent),
+		leaving=leaving,
+		arriving=arriving,
 		what="it",
 		field="parent",
 		under=True,
@@ -452,6 +455,28 @@ def move (
 			project.key,
 			parent_id=destination,
 			moving=project.key,
+		)
+
+	# **Nor where it leaves a private project with nobody who could see it** (`SR#5101`, M-4 of the
+	# cold review of 2026-10-17, decision `#5097`): only arriving under a private project it was not
+	# under hides anything. Asked after the reasons above, which are the more particular, and not of a
+	# move beneath itself, which the move refuses by name.
+	above = (
+		()
+		if parent is None
+		else tuple(
+			uuid.UUID(segment) for segment in subroutine.domain.hierarchy.path_segments(parent.path)
+		)
+	)
+
+	if parent is not None and arriving - leaving and project.id not in above:
+		_refuse_stranding(
+			session,
+			actor,
+			project,
+			afterwards=subroutine.domain.repair.Afterwards(moved=project.id, above=above),
+			doing=f"Moving {project.key} under {parent.key}",
+			field="parent",
 		)
 
 	previous_parent = project.parent_id
@@ -622,8 +647,10 @@ def update (
 
 	# **Membership, not existence** (`#3934`): an account outside the workspace was taken here too,
 	# handing a project to somebody who could not see it.
+	new_owner: subroutine.db.models.identity.User | None = None
+
 	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
-		member_who_sees(
+		new_owner = member_who_sees(
 			session,
 			project.workspace_id,
 			owner_id,
@@ -680,6 +707,24 @@ def update (
 		# keys are real — needs one. Run against the merged map rather than the incoming one, so
 		# that a key already stored stays checked when something beside it changes.
 		subroutine.domain.settings.verified(session, project.workspace_id, cleaned_settings)
+
+	# **Nor where it leaves a private project with nobody who could see it** (`SR#5101`, M-4 of the
+	# cold review of 2026-10-17, decision `#5097`): jo made ``outer`` private, and pat's private
+	# project inside it, which pat saw without being shared into ``outer``, was seen by nobody. Asked
+	# last, since the reasons above are the more particular, and counting a new owner, whom this same
+	# change shares in.
+	if visibility == "private" and project.visibility != "private":
+		_refuse_stranding(
+			session,
+			actor,
+			project,
+			afterwards=subroutine.domain.repair.Afterwards(
+				private=frozenset({project.id}),
+				granted=frozenset() if new_owner is None else frozenset({(project.id, new_owner.id)}),
+			),
+			doing=f"Making {project.key} private",
+			field="visibility",
+		)
 
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
@@ -1047,6 +1092,7 @@ def hidden_by (
 	user_id: uuid.UUID,
 	*,
 	without: subroutine.db.models.project.ProjectMember | None = None,
+	afterwards: subroutine.domain.repair.Afterwards | None = None,
 ) -> subroutine.db.models.project.Project | None:
 	"""Return the project whose privacy keeps this one out of one person's sight, or ``None``.
 
@@ -1058,7 +1104,8 @@ def hidden_by (
 	**A row of their own, or of an agent that answers to them** (`SR#4944`, decision `#4943`):
 	sight follows the chain upward, and :func:`subroutine.domain.accountability.sees_as` says
 	whose rows count, here as in the predicate. ``without`` asks it of a future in which that
-	one row has gone, which is what unsharing somebody asks before it takes it.
+	one row has gone, which is what unsharing somebody asks before it takes it, and ``afterwards``
+	of one in which a project is made private, moved or given a new owner (`SR#5101`).
 
 	Returns the **outermost** private ancestor this user has no row for, which is the one
 	blocking them today. Sharing that is what changes their answer — and if something further
@@ -1079,6 +1126,9 @@ def hidden_by (
 		for segment in subroutine.domain.hierarchy.path_segments(project.path)
 	]
 
+	if afterwards is not None:
+		identifiers = afterwards.path(identifiers)
+
 	ancestors = {
 		row.id: row
 		for row in session.scalars(sqlalchemy.select(model).where(model.id.in_(identifiers)))
@@ -1093,6 +1143,11 @@ def hidden_by (
 		held = held.where(membership.id != without.id)
 
 	shared = set(session.scalars(held))
+	private: frozenset[uuid.UUID] = frozenset() if afterwards is None else afterwards.private
+
+	if afterwards is not None and afterwards.granted:
+		seeing_as = set(session.scalars(subroutine.domain.accountability.sees_as(user_id)))
+		shared |= {identifier for identifier, holder in afterwards.granted if holder in seeing_as}
 
 	for identifier in identifiers:
 		ancestor = ancestors.get(identifier)
@@ -1100,7 +1155,7 @@ def hidden_by (
 		if ancestor is None:
 			continue
 
-		if ancestor.visibility == "private" and ancestor.id not in shared:
+		if (ancestor.visibility == "private" or ancestor.id in private) and ancestor.id not in shared:
 			return ancestor
 
 	return None
@@ -1766,6 +1821,107 @@ def _losing_sight (
 			.order_by(model.path)
 		),
 	]
+
+
+def _refuse_stranding (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+	*,
+	afterwards: subroutine.domain.repair.Afterwards,
+	doing: str,
+	field: str,
+) -> None:
+	"""Refuse making a project private, or moving it, where a private project is left with nobody.
+
+	**The last-one question, asked of two more acts** (`SR#5101`, M-4 of the cold review of
+	2026-10-17, decision `#5097`): asked of the project and each private project inside it, of who
+	could see it once the act is taken, computed rather than rehearsed. **Refusing only a change from
+	somebody to nobody**, as :func:`unshare` does: one nobody could reach already is the rescue's.
+
+	``doing`` opens the refusal, *Making outer private*. **Named only to a caller who can see it**
+	(decision `#4521`), and the hint says what to do first: make somebody who can see it the owner of
+	the project made private, since a public project cannot be shared, or share the private project
+	the move would hide it beneath.
+	"""
+
+	# **The workspace is locked before anybody is counted**, as removing somebody locks it (`#1178`,
+	# `#3899`), so this cannot race a removal or an unshare counting the same people.
+	place = subroutine.db.models.identity.Workspace
+	session.execute(
+		sqlalchemy.update(place)
+		.where(place.id == project.workspace_id)
+		.values(updated_at=place.updated_at)
+		.execution_options(synchronize_session=False)
+	)
+
+	model = subroutine.db.models.project.Project
+	inside = list(
+		session.scalars(
+			sqlalchemy.select(model)
+			.where(
+				model.workspace_id == project.workspace_id,
+				subroutine.domain.hierarchy.subtree(model, project),
+				model.visibility == "private",
+				model.deleted_at.is_(None),
+			)
+			.order_by(model.path)
+		)
+	)
+	becoming = project.visibility != "private" and project.id in afterwards.private
+
+	for one in [project, *inside] if becoming else inside:
+		# **A project being made private has somebody before**: whoever makes it private can see it,
+		# and so does the person an agent doing so answers to. Each other is asked who sees it now.
+		could = None if one is project and becoming else subroutine.domain.repair.repairers(session, one)
+
+		if could == set() or subroutine.domain.repair.repairers(session, one, afterwards=afterwards):
+			continue
+
+		key = key_named_to(session, actor, one)
+		named = key or subroutine.domain.scoping.UNSEEN
+		people = sorted(
+			(
+				row
+				for row in (
+					session.get(subroutine.db.models.identity.User, identifier)
+					for identifier in could or ()
+				)
+				if row is not None
+			),
+			key=lambda row: row.username,
+		)
+		seer = people[0] if people else None
+		hiding = None if seer is None else hidden_by(session, one, seer.id, afterwards=afterwards)
+
+		if seer is None:
+			hint = "Make somebody who can act its owner first."
+
+		elif hiding is not None and hiding.id != project.id:
+			hint = (
+				f"'subroutine project share {hiding.key} {seer.username}' first."
+				if subroutine.domain.stewardship.stewards(session, actor, hiding)
+				else f"Ask the owner of '{hiding.key}' to share it with {seer.username} first."
+			)
+
+		elif key is None:
+			hint = f"Make {seer.username} the owner of {project.key} first, since they can see it."
+
+		else:
+			hint = f"Make {seer.username}, who can see {key}, the owner of {project.key} first."
+
+		raise subroutine.errors.ValidationError(
+			f"{doing} would leave no person able to reach "
+			f"{'it' if one.id == project.id else f'{named} inside it'}.",
+			hint=hint,
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message="It would be hidden from everybody who can see it now.",
+				)
+			],
+		)
 
 
 def members (

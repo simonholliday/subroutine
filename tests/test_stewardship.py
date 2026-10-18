@@ -36,6 +36,7 @@ import subroutine.domain.documents
 import subroutine.domain.projects
 import subroutine.domain.saved
 import subroutine.domain.scoping
+import subroutine.domain.stewardship
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -199,6 +200,14 @@ def test_an_administrator_stewards_only_what_they_can_see (
 
 	assert hr.visibility == "private"
 
+	# **And the sight half, asked on its own** (L-11 of the cold review of 2026-10-17): the refusal
+	# above comes from the write verb before stewardship is asked, so it held with that half gone.
+	assert not subroutine.domain.stewardship.stewards(session, _as(trinity), hr)
+
+	projects.share(session, hr, trinity, actor=_as(alice))
+
+	assert subroutine.domain.stewardship.stewards(session, _as(trinity), hr)
+
 
 def test_whoever_an_owner_answers_to_stewards_its_project_and_never_the_reverse (
 	session: sqlalchemy.orm.Session,
@@ -258,11 +267,14 @@ def test_when_the_owner_can_no_longer_act_anybody_who_can_see_it_stands_in (
 	assert kp.owner_id == bob.id and _sees(session, trinity, kp)
 
 
-def test_a_project_nobody_owns_is_stewarded_by_anybody_who_can_see_it (
+def test_a_public_project_nobody_owns_is_its_administrators_to_make_private (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""An owner nobody names cannot act either, so the stand-in applies: a project with no owner is
-	not one only an administrator who happens to see it may ever decide about.
+	"""An owner nobody names cannot act either, and the stand-in let bob, a member, make a public
+	project nobody owns private, after which only he could see it (`SR#5099`, H-1 of the cold review
+	of 2026-10-17). **The stand-in is for private projects**, so it is refused, saying who may; and
+	thomas, who administers the workspace, is asked to make somebody its owner first (`SR#5101`),
+	which he does in the same change.
 	"""
 
 	thomas = _person(session, "thomas")
@@ -270,9 +282,22 @@ def test_a_project_nobody_owns_is_stewarded_by_anybody_who_can_see_it (
 	workspace = _metacortex(session, thomas, bob=(bob, "member"))
 	nobodys = _project(session, workspace, "nobodys", None, visibility="public")
 
-	projects.update(session, nobodys, visibility="private", actor=_as(bob))
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		projects.update(session, nobodys, visibility="private", actor=_as(bob))
 
-	assert nobodys.visibility == "private"
+	assert refused.value.detail == "Only somebody who administers this workspace may make it private."
+
+	with pytest.raises(subroutine.errors.ValidationError) as stranding:
+		projects.update(session, nobodys, visibility="private", actor=_as(thomas))
+
+	assert stranding.value.detail == "Making nobodys private would leave no person able to reach it."
+	assert stranding.value.hint == "Make somebody who can act its owner first."
+	assert nobodys.visibility == "public"
+
+	projects.update(session, nobodys, visibility="private", owner_id=thomas.id, actor=_as(thomas))
+
+	assert nobodys.visibility == "private" and _sees(session, thomas, nobodys)
+	assert not _sees(session, bob, nobodys)
 
 
 def test_a_move_within_one_private_tree_crosses_nothing (session: sqlalchemy.orm.Session) -> None:

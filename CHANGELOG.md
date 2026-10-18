@@ -171,8 +171,9 @@ upgrade involves.
   shared into somebody else's private project could publish it, share it onward and remove
   anybody but its owner, an administrator included. Removing yourself is still yours. When the
   owner can no longer act - marked as having left, removed from the workspace, or an agent whose
-  person has left - anybody who can see the project stands in, so it is never stranded, and the
-  departed owner's own share can be removed.
+  person has left - anybody who can see the project stands in where it, or a project above it, is
+  private, so it is never stranded, and the departed owner's own share can be removed. A public
+  project whose owner can no longer act is its administrators' to hide or hand over.
 - **Moving a task or a document into a private project, out of one or between two is for the
   steward of the project it leaves.** A contributor shared into a private project moved a task
   assigned to somebody else into it, and the person it was assigned to, the project's owner and
@@ -189,8 +190,11 @@ upgrade involves.
 - **Every "last one" is counted the same way: people who can act, never agents.** The last
   person who administers a workspace, its last owner who can act, and the last person who can
   see a private project are refused leaving, stepping down or being unshared, each saying what
-  to do first - including the last person who can see a project inside a private one. A
-  workspace's founding owner could be removed while only an agent administered it, the only
+  to do first - including the last person who can see a project inside a private one. Making a
+  project private, or moving one under a private project, is refused the same way where it would
+  leave that project, or a private one inside it, with nobody able to see it, and says whom to
+  make its owner, or whom to share in, first. A workspace's founding owner could be removed while
+  only an agent administered it, the only
   owner could step down, and `unshare` counted the rows of people who had left. Deactivating
   somebody stays allowed, and `user deactivate` and `instance workspaces` now name a workspace
   left with no owner who can act, as well as one left with nobody to administer it.

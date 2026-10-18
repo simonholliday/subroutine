@@ -744,9 +744,15 @@ def test_a_member_a_private_parent_hides_is_told_about_the_parent_not_that_they_
 
 	assert _listed(world) == []
 
-	made_private = world.call("PATCH", "/v1/projects/p1", json={"visibility": "private"})
+	# **Making p1 private is refused now, since it would leave p3 with nobody** (`SR#5101`), so the
+	# state is reached as an instance already holding it holds it: p1 made private beneath the API.
+	refused_private = world.call("PATCH", "/v1/projects/p1", json={"visibility": "private"})
 
-	assert made_private.status_code == 200, made_private.text
+	assert refused_private.status_code == 422, refused_private.text
+
+	parent.visibility = "private"
+	session.flush()
+
 	assert [row["project"] for row in _listed(world)] == ["p1/p3"]
 
 	refused = world.call("POST", "/v1/projects/p1/p3/members", json={"username": carol.username})

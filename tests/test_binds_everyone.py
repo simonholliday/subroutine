@@ -165,7 +165,7 @@ def test_a_rule_that_binds_nobody_blocks_nothing_and_is_not_named (world: test_a
 
 	# **Somebody else's private project beneath binds nobody outside it**, so it is neither counted nor
 	# named: keanu files a rule in his own private project inside the website.
-	_keanu, member = _member(world, "keanu", "member")
+	keanu, member = _member(world, "keanu", "member")
 	inside = _as(
 		world,
 		member,
@@ -177,6 +177,13 @@ def test_a_rule_that_binds_nobody_blocks_nothing_and_is_not_named (world: test_a
 	assert inside.status_code == 201, inside.text
 
 	_written(world, member, title="Keanu's rule for his corner", binds="workspace", project=inside.json()["id"])
+
+	# **Keanu is shared into ``vault`` first, so moving the website beneath it leaves him seeing his
+	# own project** (`SR#5101`): a move that leaves a private project with nobody is refused.
+	shared = world.call("POST", "/v1/projects/vault/members", json={"username": keanu.username})
+
+	assert shared.status_code == 201, shared.text
+
 	hidden = _as(world, narrowed, "PATCH", "/v1/projects/web", json={"visibility": "private"})
 
 	assert "rule that binds the whole workspace" not in hidden.text, hidden.text

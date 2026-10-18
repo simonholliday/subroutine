@@ -22,8 +22,9 @@ rewrite them.
 **A project's steward decides who sees the work in it** (decision `#4509`): making it private or
 public, sharing it or removing somebody else's share, changing its owner, and moving a project, a
 task or a document across a privacy boundary. **When the owner can no longer act**, anybody who can
-see the project stands in, so a departed owner's private project is never stranded; an owner nobody
-names cannot act either.
+see the project stands in where it, or a project above it, is private, so a departed owner's private
+project is never stranded (`SR#5099`); an owner nobody names cannot act either, and a public project
+whose owner cannot act is its administrators'.
 
 The act's own verb is asked first, by its caller, so a refusal here is only ever about whose the
 thing is. ``tests/test_stewardship.py`` holds that nothing outside this module compares an actor with
@@ -308,16 +309,26 @@ def stewards (
 
 	**Its owner, or anybody the owner answers to while the owner can act, or a workspace
 	administrator who can see it.** When the owner cannot act - deactivated, out of the workspace, or
-	an agent whose chain has stopped - or nobody owns it, **anybody who can see it stands in**, so a
-	departed owner's private project is never stranded: no administrator sees a private project they
-	are not in, and the remaining members still reach it, so no rescue applies either (C section 2.4
-	of the cold review of 2026-10-05, measured on the verification's mutant).
+	an agent whose chain has stopped - or nobody owns it, **anybody who can see it stands in where it,
+	or a project above it, is private** (`SR#5099`), so a departed owner's private project is never
+	stranded: no administrator sees a private project they are not in, and the remaining members
+	still reach it, so no rescue applies either (C section 2.4 of the cold review of 2026-10-05,
+	measured on the verification's mutant). **Not the project's own visibility**: a public project
+	under a private one is hidden from every administrator not shared into that, which is the case
+	the stand-in exists for.
 	"""
 
 	if actor is None:
 		return True
 
 	owner = _acting_owner(session, project.owner_id, workspace_id=project.workspace_id)
+
+	# **A public project whose owner cannot act is its administrators'** (`SR#5099`, H-1 of the cold
+	# review of 2026-10-17, decision `#5097`): with the stand-in asking nothing of its privacy, any
+	# member could make one private, or take it over and then hide it, and a contributor could move
+	# somebody else's work out of an Inbox whose founder had left into their own private project.
+	if owner is None and not private_above(session, project):
+		return _administers(session, actor, workspace_id=project.workspace_id, project=project)
 
 	if owner is None:
 		return (

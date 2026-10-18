@@ -16,7 +16,8 @@ what administers it**, and for a private project can see it:
   them, or with an agent that answers to them (`SR#4944`).
 
 **A scope keeps somebody who can repair it** (decision `#4943`, which states this once). An act
-taken inside it - removing, demoting, unsharing, leaving - is refused where it would leave nobody.
+taken inside it - removing, demoting, unsharing, leaving, and making a project private or moving one
+across a privacy boundary (`SR#5101`, decision `#5097`) - is refused where it would leave nobody.
 Stopping an account is taken from above the scope, so no workspace or project blocks it: it is
 named before and after with each scope's repair, which is the same answer asked of a future in
 which they have gone, and an administrator of the installation repairs what it leaves. The
@@ -56,6 +57,30 @@ class Ownership:
 	workspace_id: uuid.UUID
 
 
+@dataclasses.dataclass(frozen=True)
+class Afterwards:
+	"""Who could see a project once an act is taken, asked before it is - `SR#5101`.
+
+	**Computed, not rehearsed** (decision `#5097`): ``private`` is the projects the act makes
+	private, ``moved`` the project it moves and ``above`` the path it moves to, outermost first and
+	ending at the new parent, or empty for the top level. ``granted`` is the rows the act writes, as
+	a project and an account: a new owner is shared in by the same act that makes the project private.
+	"""
+
+	private: frozenset[uuid.UUID] = frozenset()
+	moved: uuid.UUID | None = None
+	above: tuple[uuid.UUID, ...] = ()
+	granted: frozenset[tuple[uuid.UUID, uuid.UUID]] = frozenset()
+
+	def path (self, identifiers: list[uuid.UUID]) -> list[uuid.UUID]:
+		"""Return a project's path, outermost first, as it will be once the act is taken."""
+
+		if self.moved is None or self.moved not in identifiers:
+			return identifiers
+
+		return [*self.above, *identifiers[identifiers.index(self.moved) :]]
+
+
 #: Every scope a last one is held for. A private project is named by its row.
 Scope = str | Administration | Ownership | subroutine.db.models.project.Project
 
@@ -72,6 +97,7 @@ def repairers (
 	*,
 	leaving: typing.Collection[uuid.UUID] = (),
 	unsharing: subroutine.db.models.project.ProjectMember | None = None,
+	afterwards: Afterwards | None = None,
 ) -> set[uuid.UUID]:
 	"""Return the people who could repair ``scope``, by id - `SR#4569`, decision `#4526`.
 
@@ -80,6 +106,8 @@ def repairers (
 	demoting them - takes their id out of the answer, since that is all the act changes.
 	**``unsharing`` asks it of a private project with one row gone** (`SR#4944`): an agent's row
 	is what whoever it answers to sees by, so taking it away can change somebody else's answer.
+	**``afterwards`` asks it of a private project once a change to who sees it is made** (`SR#5101`):
+	made private, moved, or given a new owner.
 	"""
 
 	model = subroutine.db.models.identity.User
@@ -102,7 +130,7 @@ def repairers (
 		candidates = [held for held, permissions in rows if _VERB[type(scope)] in (permissions or [])]
 
 	else:
-		candidates = _seeing(session, scope, people, unsharing)
+		candidates = _seeing(session, scope, people, unsharing, afterwards)
 
 	return {
 		one.id
@@ -116,6 +144,7 @@ def _seeing (
 	project: subroutine.db.models.project.Project,
 	people: sqlalchemy.Select[subroutine.db.models.identity.User],
 	unsharing: subroutine.db.models.project.ProjectMember | None = None,
+	afterwards: Afterwards | None = None,
 ) -> list[subroutine.db.models.identity.User]:
 	"""Return the people who belong to a project's workspace and can see it.
 
@@ -136,11 +165,22 @@ def _seeing (
 	membership = subroutine.db.models.project.ProjectMember
 	belongs = subroutine.db.models.identity.WorkspaceMember
 
-	holders = session.scalars(
-		sqlalchemy.select(model)
-		.join(membership, membership.user_id == model.id)
-		.where(membership.project_id == project.id)
+	holders = list(
+		session.scalars(
+			sqlalchemy.select(model)
+			.join(membership, membership.user_id == model.id)
+			.where(membership.project_id == project.id)
+		)
 	)
+
+	# **And whoever the act shares in** (`SR#5101`): a new owner's row is written by the same act.
+	if afterwards is not None:
+		for identifier, account in afterwards.granted:
+			granted = session.get(model, account) if identifier == project.id else None
+
+			if granted is not None:
+				holders.append(granted)
+
 	given: set[uuid.UUID] = set()
 
 	for holder in holders:
@@ -158,7 +198,8 @@ def _seeing (
 	return [
 		one
 		for one in found
-		if listing.hidden_by(session, project, one.id, without=unsharing) is None
+		if listing.hidden_by(session, project, one.id, without=unsharing, afterwards=afterwards)
+		is None
 	]
 
 

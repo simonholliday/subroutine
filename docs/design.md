@@ -1994,8 +1994,9 @@ project, can see it:
 | A workspace's ownership | its owners |
 | A private project | the people who can see it |
 
-An act taken inside a scope - removing, demoting, unsharing, leaving - is refused when it would
-leave nobody, and says what to do first. Stopping an account is taken from above the scope, so no
+An act taken inside a scope - removing, demoting, unsharing, leaving, making a project private,
+moving one across a privacy boundary - is refused when it would leave nobody, and says what to do
+first. Stopping an account is taken from above the scope, so no
 workspace or project blocks it: it says, before and after, what it leaves without anybody, and an
 administrator of the installation repairs it. The installation has nothing above it, so its last
 administrator who can act is not stopped either.
@@ -2055,8 +2056,8 @@ nothing through the account it answers to.
 **Who can see a project is its steward's to change, in both directions.** The **steward** of a
 project is its owner, or anybody the owner answers to while the owner can act, or a workspace
 administrator who can see it; **when the owner can no longer act**, anybody who can see the
-project stands in, so a departed owner's private project is never stranded. These acts are the
-steward's:
+project stands in where it, or a project above it, is private, so a departed owner's private
+project is never stranded; a public one is its administrators'. These acts are the steward's:
 
 - making a project private, or public;
 - sharing it, or removing somebody else's share - removing yourself stays free;
