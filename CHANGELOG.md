@@ -29,6 +29,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An administrator of the installation can restore a workspace they are not in.** They could
+  delete any workspace, member or not, and only its owners could bring it back, so one whose
+  owners had left stayed in the trash. Whoever may delete a workspace may now restore it, by its
+  short name or its id.
 - **An owner refused a change to another owner is told why.** Through the agent tools, such a
   change was refused as though only an owner could make it - said to an owner, who was sent to
   ask one. It is refused now with the agent tools' own reason, as on a read-only connection or

@@ -719,7 +719,8 @@ def _refusal (
 		return AuthorizationFailure.READ_ONLY
 
 	# **An instance administrator administers any live workspace's membership, and deletes it,
-	# member or not** (`#4557`, decision `#4519`, `#1418`): the one clause, where a superuser
+	# member or not** (`#4557`, decision `#4519`, `#1418`), **and restores it**, which asks the same
+	# verb (`SR#5108`): the one clause, where a superuser
 	# bypassed every role. Asked of the instance tier, so a pin, a narrowing to some projects and a
 	# read-only session each refuse it as they refuse any instance act; and the verb itself must be
 	# within the credential's scopes, as everywhere. **Before reach, since it is the one way past

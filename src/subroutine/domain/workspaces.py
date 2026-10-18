@@ -534,7 +534,20 @@ def for_restore (
 	"""
 
 	wanted = id_or_slug.strip()
-	reachable = readable(session, principal, include_deleted=True)
+
+	# **An installation administrator restores what they may delete** (`SR#5108`, M-23 of the cold
+	# review of 2026-10-17, decision `#5097`): the one clause lets them delete any workspace, member
+	# or not, and the trash was searched among their memberships alone, so only a workspace's owners
+	# could bring it back and one whose owners had left stayed there. ``may_instance`` is the clause's
+	# own question, so a pinned or narrowed credential still finds only what it is a member of.
+	if subroutine.domain.authorization.may_instance(
+		principal, subroutine.permissions.INSTANCE_ADMIN, reading=True
+	):
+		reachable = list(session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace)))
+
+	else:
+		reachable = readable(session, principal, include_deleted=True)
+
 	deleted = [found for found in reachable if found.deleted_at is not None]
 
 	named = [
@@ -574,7 +587,7 @@ def for_restore (
 
 	raise subroutine.errors.NotFound(
 		f"There is no workspace {wanted!r} that you can reach.",
-		hint="Only somebody who was already a member of it can restore one.",
+		hint="Only a member of it, or an administrator of this instance, can restore one.",
 	)
 
 

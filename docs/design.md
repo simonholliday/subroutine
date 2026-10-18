@@ -1962,8 +1962,8 @@ An act is allowed when every one of these holds:
   accounts it is shared with and whoever those answer to (§7.3a), whatever their role.
 
 **A superuser acts by their role inside a workspace**, like everybody else, with one clause: an
-instance administrator may administer the membership of, and delete, any live workspace, whether
-or not they belong to it. That is how an operator puts right a workspace with no owner who can
+instance administrator may administer the membership of, and delete, any live workspace, and
+restore one from the trash, whether or not they belong to it. That is how an operator puts right a workspace with no owner who can
 act: they add or regrade a member, themselves included, and it is recorded as any regrading is. A
 superuser never bypasses a credential's narrowing, or a private project: a privacy control a role
 can override is not one.
