@@ -784,15 +784,14 @@ def _refuse_an_owner_to_anybody_but_an_owner (
 	if failure is None or repairing:
 		return
 
-	# **The token's own sentence where the token is what refused** (`#4020`, L-2 (2) of the cold
-	# review of 2026-09-30): an owner whose token was not given ``workspace:delete`` was told that
-	# only an owner may, about a workspace they own.
-	if failure in (
-		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
-		subroutine.domain.authorization.AuthorizationFailure.BEYOND_ITS_PLACES,
-	):
-		raise subroutine.domain.authorization.AuthorizationError(
-			failure, permission=subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
+	# **The owner sentence only where the role is what refused** (`SR#5107`, M-23 of the cold review
+	# of 2026-10-17; `#4020` before it): every other failure is the credential's or the session's,
+	# and its own sentence says so. Asked the other way round, by listing the credential's failures,
+	# an owner working through the agent tools was told that only an owner may, about a workspace
+	# they own, and sent to ask one; a kind added later would have fallen into the same sentence.
+	if failure is not subroutine.domain.authorization.AuthorizationFailure.ROLE_LACKS_PERMISSION:
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.WORKSPACE_DELETE, workspace_id=workspace.id
 		)
 
 	raise subroutine.errors.Forbidden(

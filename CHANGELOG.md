@@ -29,6 +29,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An owner refused a change to another owner is told why.** Through the agent tools, such a
+  change was refused as though only an owner could make it - said to an owner, who was sent to
+  ask one. It is refused now with the agent tools' own reason, as on a read-only connection or
+  with a credential that does not reach that far.
 - **A project's members listing names somebody you cannot read, and says nothing more.** It
   gave every holder's whole account - whether they administer the installation, whether they are
   active, when they last signed in - for somebody who had left every workspace you share too.
