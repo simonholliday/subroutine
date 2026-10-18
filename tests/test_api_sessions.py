@@ -1638,7 +1638,49 @@ def test_a_credential_the_session_would_outlive_cannot_mint_a_link (
 
 	assert answer.status_code == 403
 	assert answer.json()["errors"][0]["field"] == "expires", answer.text
-	assert "expires before that" in answer.json()["hint"], answer.text
+	assert "only a credential that never expires" in answer.json()["hint"], answer.text
+
+
+def test_a_credential_that_outlasts_a_fortnight_still_cannot_mint_a_link (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`SR#5117`, H-6 of the cold review of 2026-10-17: any expiry at all refuses the link.
+
+	The check compared the presenter with a session ending a fortnight from now, so a token
+	expiring on day twenty passed - and the session it bought slides its end forward on every use
+	(`#1671`), so it was still signed in on day ninety, minting tokens of its own, long after the
+	token itself was refused. Decision `#4527`: only a presenter with no bounds mints a session with
+	none. A credential with no expiry still mints one.
+	"""
+
+	later = subroutine.db.types.utcnow() + datetime.timedelta(days=20)
+	_row, expiring = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Expiring in twenty days", expires_at=later
+	)
+	_row, lasting = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Never expiring"
+	)
+
+	def minted (secret: typing.Any) -> typing.Any:
+		"""Ask for a sign-in link with one credential."""
+
+		return api_support.call(
+			setup.application,
+			"POST",
+			"/v1/login-links",
+			json={},
+			headers={"Authorization": f"Bearer {secret.value.get_secret_value()}"},
+		)
+
+	refused = minted(expiring)
+
+	assert refused.status_code == 403, refused.text
+	assert refused.json()["errors"][0]["field"] == "expires", refused.text
+	assert "only a credential that never expires" in refused.json()["hint"], refused.text
+
+	allowed = minted(lasting)
+
+	assert allowed.status_code == 201, allowed.text
 
 
 @pytest.mark.parametrize(("axis", "narrowing"), NARROWINGS, ids=[one[0] for one in NARROWINGS])

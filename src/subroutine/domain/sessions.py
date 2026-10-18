@@ -505,9 +505,13 @@ def _refuse_a_credential_that_would_be_widened (
 	exactly the same way. `#829` is that half, and it was reachable from the CLI, the API and
 	MCP alike.
 
-	**Expiry is refused on the same rule as `#356` and only in the amplifying direction.** A
-	credential with no expiry may mint anything; one that outlives the session it would buy is
-	not being widened, so it passes. Only a credential the session would outlive is refused.
+	**Only a credential with no expiry mints one** (`SR#5117`, decision `#4527`: *a sign-in link
+	buys a session with no bounds, so only a presenter with none may mint one*). A session slides
+	its end forward on every use with no ceiling (`#1671`), so a session in daily use never ends,
+	and every credential with an expiry is outlived by one - `#356`'s rule that a credential handed
+	back must not outlive the one that asked. Comparing against a fortnight from now, as this did,
+	let a token expiring on day twenty buy a session still signed in on day ninety, minting tokens
+	of its own long after the token was refused.
 
 	``None`` is an internal caller with no principal at all. **Somebody at a terminal presents no
 	credential, so nothing here narrows them** (decision `#4514`): a credential with no narrowing and
@@ -515,8 +519,8 @@ def _refuse_a_credential_that_would_be_widened (
 	since a locked-out self-hoster mints from the console as a superuser rather than over HTTP.
 
 	**A signed-in browser is refused by the expiry rule, and that is a decision rather than a
-	side effect.** A session always expires sooner than the fortnight a fresh one would buy, so
-	it always fails the comparison — and it should, because a session minting links for itself
+	side effect.** A session always has an end, however often it is renewed, so it always fails
+	the comparison — and it should, because a session minting links for itself
 	is a session that never ends. Nothing reaches this today: the browser does not call the
 	route and the CLI presents a token or nothing. If `#599` ever offers *send me a link* from a
 	signed-in page, this is the line it will meet, and the question it should reopen is whether
@@ -524,20 +528,21 @@ def _refuse_a_credential_that_would_be_widened (
 	"""
 
 	# **Dominance, with the session the link buys as what is handed back** (`#4560`, decision
-	# `#4527`): it carries no narrowing and lasts a fortnight from now, so only a credential with no
-	# narrowing that outlasts it mints one.
+	# `#4527`): it carries no narrowing and, kept in use, no end, so only a credential with neither
+	# mints one (`SR#5117`).
 	subroutine.domain.authentication.refuse_undominated(
 		session,
 		actor,
-		subroutine.domain.authentication.Bounds(expires_at=now + SESSION_LIFETIME),
+		subroutine.domain.authentication.Bounds(),
 		counting_expiry=True,
 		act="mint a sign-in link",
 		hint="A browser session carries no scopes, no project scope and no workspace "
 		"pin, so signing in with one would hand back more authority than the "
 		"credential you presented. Use an unrestricted credential, or run "
 		"'subroutine login link' at the instance itself.",
-		outlived=f"The session it buys lasts at least {SESSION_LIFETIME.days} days - longer "
-		f"if it keeps being used - and the credential you presented expires before that.",
+		outlived="The session it buys lasts as long as it keeps being used, so only a "
+		"credential that never expires mints one. Use one that does not expire, ask an "
+		"administrator for a link, or run 'subroutine login link' at the instance itself.",
 	)
 
 

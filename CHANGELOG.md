@@ -29,6 +29,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Only a credential that never expires mints a sign-in link.** A browser session stays signed
+  in for as long as it keeps being used, so a link minted with a credential that expires bought a
+  session that outlived it: still signed in, and able to mint credentials of its own, after the
+  credential had stopped working. One with any expiry is now refused, and told to use one that
+  does not expire, ask an administrator for a link, or run `subroutine login link` at the
+  instance itself.
 - **A workspace's member listing says which agents are stopped there, and why.** An agent stops
   working in a workspace once the person it answers to is not a member there, and the listing
   showed it as any other member, so one whose person was taken out before this release stopped
