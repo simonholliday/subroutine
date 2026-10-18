@@ -204,9 +204,9 @@ def _problem (detail: str) -> dict[str, typing.Any]:
 
 
 def test_an_instance_that_does_not_know_the_flag_is_said_to_be_too_old () -> None:
-	"""**It fails closed, and says why in terms of what the person set.** Every release before this one
-	refuses the parameter as unknown, which keeps a read-only connection from writing to it and reads,
-	to somebody who never typed ``read_only``, as nonsense."""
+	"""**It fails closed, and says why in terms of what the person set.** Every release from 0.7.5 until
+	this one refuses the parameter as unknown, which keeps a read-only connection from writing to it and
+	reads, to somebody who never typed ``read_only``, as nonsense."""
 
 	def older (request: httpx.Request) -> httpx.Response:
 		"""Answer as a server from before the flag did, to a request carrying it."""
@@ -233,6 +233,125 @@ def test_an_instance_that_does_not_know_the_flag_is_said_to_be_too_old () -> Non
 
 	assert "does not know the 'read_only' setting" in refused.value.detail
 	assert "Upgrade work" in (refused.value.hint or "")
+
+
+class Older:
+	"""A server from before 0.7.5, which takes a write and ignores ``read_only`` on it - `SR#5116`.
+
+	``refuses_meta`` answers ``/v1/meta`` as 0.7.1 does, refusing the parameter there as on every
+	listing; otherwise it answers as 0.5.0 does, reporting ``version`` and ignoring the parameter.
+	Every write that reaches it is recorded, and refused as a release that holds the flag would.
+	"""
+
+	def __init__ (self, version: str | None, *, refuses_meta: bool = False) -> None:
+		"""Remember how this server answers."""
+
+		self.version = version
+		self.refuses_meta = refuses_meta
+		self.written: list[str] = []
+		self.asked_its_release = 0
+
+	def __call__ (self, request: httpx.Request) -> httpx.Response:
+		"""Answer one request as the old server would."""
+
+		assert request.url.params.get("read_only") == "true", "the flag was not sent"
+
+		if request.method != "GET":
+			self.written.append(f"{request.method} {request.url.path}")
+
+			return httpx.Response(
+				403,
+				headers={"content-type": "application/problem+json"},
+				json={"type": "about:blank", "title": "Forbidden", "status": 403, "detail": "Read-only."},
+			)
+
+		self.asked_its_release += request.url.path == "/v1/meta"
+
+		if self.refuses_meta or request.url.path != "/v1/meta":
+			return httpx.Response(
+				422,
+				headers={"content-type": "application/problem+json"},
+				json=_problem("This endpoint does not accept 'read_only'."),
+			)
+
+		return httpx.Response(
+			200, json={"workspaces": [], **({} if self.version is None else {"instance_version": self.version})}
+		)
+
+
+def _read_only_client (server: Older) -> subroutine.clients.http.Client:
+	"""Return a read-only connection's client to an old server."""
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://employer.example.com", read_only=True),
+		token="sr_not_a_real_one",
+		transport=httpx.MockTransport(server),
+		base_url="https://employer.example.com",
+	)
+
+
+#: The writes H-3 of the cold review of 2026-10-17 made through a read-only connection to 0.7.1 and
+#: 0.5.0: a credential, an agent's account and credential, a sign-in link, a task and its completion.
+OLD_WRITES: dict[str, typing.Callable[[subroutine.clients.http.Client], typing.Any]] = {
+	"token create": lambda client: client.issue_token(title="Spare"),
+	"agent create": lambda client: client.create_user(username="scout", is_service_account=True),
+	"login link": lambda client: client.create_login_link(),
+	"add": lambda client: client.capture(text="Buy milk"),
+	"done": lambda client: client.complete(ref=1),
+	"call_api": lambda client: client.call_api(method="POST", path="/v1/tasks", body={"title": "No"}),
+}
+
+
+@pytest.mark.parametrize("write", OLD_WRITES, ids=list(OLD_WRITES))
+@pytest.mark.parametrize(
+	("server", "said"),
+	[
+		(lambda: Older(None, refuses_meta=True), "does not know the 'read_only' setting"),
+		(lambda: Older("0.5.0"), "runs 0.5.0, and a release before 0.7.5 ignores"),
+		(lambda: Older("0.7.4"), "runs 0.7.4, and a release before 0.7.5 ignores"),
+		(lambda: Older("0.7.5.dev3+gabcdef0"), "cannot be placed against 0.7.5"),
+		(lambda: Older(None), "does not say which release it runs"),
+	],
+	ids=["0.7.1", "0.5.0", "0.7.4", "a build of 0.7.5", "no version"],
+)
+def test_a_read_only_connection_writes_nothing_to_a_release_that_would_ignore_it (
+	server: typing.Callable[[], Older], said: str, write: str
+) -> None:
+	"""`SR#5116`, H-3 of the cold review of 2026-10-17: refused before any write leaves the client.
+
+	The flag fails closed only from 0.7.5, where every route refuses a parameter it does not know;
+	0.7.1 refused it on its listings alone, so its write routes took a credential, a sign-in link, an
+	account and a task from a read-only connection, and 0.5.0 ignored it everywhere. The client now
+	asks the release first, and an instance that cannot be placed is refused like an old one.
+	"""
+
+	old = server()
+
+	with _read_only_client(old) as client, pytest.raises(subroutine.errors.SubroutineError) as refused:
+		OLD_WRITES[write](client)
+
+	assert old.written == [], f"{write} reached an instance that ignores read_only"
+	assert said in refused.value.detail, refused.value.detail
+	assert "Upgrade work" in (refused.value.hint or "")
+
+
+@pytest.mark.parametrize("version", ["0.7.5", "0.10.0", "0.10.1.dev4+g7a85a36", "1.0.0rc1"])
+def test_a_release_that_holds_read_only_is_asked_once_and_sent_the_write (version: str) -> None:
+	"""From 0.7.5 the write goes to the instance, which refuses it or does not know the flag.
+
+	The release is read once, before the first write, and not again: a build between releases is
+	placed by the release it names, so a served instance reporting a development version is held.
+	"""
+
+	current = Older(version)
+
+	with _read_only_client(current) as client:
+		for write in (lambda: client.issue_token(title="Spare"), client.create_login_link):
+			with pytest.raises(subroutine.errors.Forbidden):
+				write()
+
+	assert current.written == ["POST /v1/tokens", "POST /v1/login-links"]
+	assert current.asked_its_release == 1, "the release was asked again for the second write"
 
 
 # --- The relay, on both of its paths ----------------------------------------------------------

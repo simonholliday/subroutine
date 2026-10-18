@@ -324,9 +324,10 @@ upgrade involves.
   release from 0.5.0 the terminal was refused writes on such a connection, while `subroutine mcp`
   wrote through every tool and `subroutine_call_api`, on this machine and to a served instance. The
   instance enforces it now: the program says so with every request, and the instance refuses that
-  session anything but a read, whichever command or tool asked. An instance older than this
-  release does not know the setting and refuses every request from such a connection, reads
-  included, rather than risk a write - upgrade it, or remove the setting.
+  session anything but a read, whichever command or tool asked. An instance from 0.7.5 up to
+  this release does not know the setting and refuses every request from such a connection, reads
+  included, rather than risk a write; one older than 0.7.5 would take the write, so this program
+  sends it none - upgrade it, or remove the setting.
 
 ## 0.10.0 — 2026-10-05
 

@@ -18,6 +18,7 @@ results it did get.
 """
 
 import datetime
+import re
 import types
 import typing
 import urllib.parse
@@ -142,6 +143,10 @@ class Client:
 		# past rather than fetched, because the call that needs it is the one that just failed:
 		# a body this client could not read is still a body that says which release wrote it.
 		self._instance_version: str | None = None
+
+		# **Whether this read-only connection has seen that its instance can hold it to that**
+		# (`SR#5116`): asked once, before the first request that is not a read.
+		self._read_only_is_held = False
 
 	# --- The protocol ------------------------------------------------------------------
 
@@ -2527,6 +2532,9 @@ class Client:
 	def _call (self, method: str, path: str, **options: typing.Any) -> httpx.Response:
 		"""Make one request, turning a transport failure into a sentence."""
 
+		if self.connection.read_only and method != "GET" and not self._read_only_is_held:
+			self._refuse_writing_where_read_only_is_ignored()
+
 		try:
 			return self._client.request(method, path, **options)
 
@@ -2550,6 +2558,36 @@ class Client:
 				hint="Check that the instance is running and that you are on a network that "
 				"can reach it.",
 			) from None
+
+	def _refuse_writing_where_read_only_is_ignored (self) -> None:
+		"""Refuse a read-only connection's write to an instance too old to refuse it - `SR#5116`.
+
+		**The connection says it is read-only with every request, and that holds only from 0.7.5**
+		(H-3 of the cold review of 2026-10-17). From that release every route refuses a query
+		parameter it does not know, so an instance that does not know ``read_only`` refuses the
+		request; one that does refuses the session every write (decision `#4510`). A release
+		before 0.7.5 refuses an unknown parameter on its listings alone, so a write there went
+		through: a credential minted, a sign-in link, an account, a task filed and finished.
+
+		**One question, asked once, before the first request that is not a read**: which release
+		the instance runs, from ``/v1/meta``, which every release from 0.5.0 reports. An instance
+		that refuses that read refuses as :meth:`_read` says, which for one that does not know the
+		parameter is :func:`clients.base.too_old_for_read_only`; one below the floor, or one whose
+		release cannot be told, is refused here. Every write is refused on such a connection by any
+		instance that knows the setting, so refusing one that cannot be placed costs only the
+		sentence.
+		"""
+
+		running = self._read(self._call("GET", "/v1/meta")).get("instance_version")
+
+		if not isinstance(running, str) or not _at_least(running, READ_ONLY_FLOOR):
+			detail, hint = subroutine.clients.base.too_old_to_hold_read_only(
+				self.connection, running if isinstance(running, str) else None
+			)
+
+			raise subroutine.errors.Forbidden(detail, hint=hint)
+
+		self._read_only_is_held = True
 
 	def _read (self, response: httpx.Response) -> dict[str, typing.Any]:
 		"""Return one response's object, or raise the failure it describes."""
@@ -2596,6 +2634,33 @@ class Client:
 			)
 
 		raise self._refused(subroutine.errors.from_problem(document, status=response.status_code))
+
+
+#: **The first release a read-only connection cannot write to** (`SR#5116`): from 0.7.5 every route
+#: refuses a query parameter it does not know, so ``read_only`` is refused or enforced, never ignored.
+READ_ONLY_FLOOR = (0, 7, 5)
+
+#: The release a build between releases names, as in ``0.9.11.dev4+g7a85a3683`` or ``1.0.0rc1``.
+_NAMED_RELEASE = re.compile(r"(\d+)\.(\d+)\.(\d+)(?=[.+a-z])")
+
+
+def _at_least (version: str, floor: tuple[int, ...]) -> bool:
+	"""Say whether an instance's release is ``floor`` or later, answering no where it cannot tell.
+
+	A release of three plain numbers is compared as they are (:func:`installations.ordered`). A build
+	between releases comes before the release it names and after every one beneath that, so it
+	clears the floor only when the release it names is above it: ``0.9.11.dev4+g7a85a3683`` does,
+	and a build named for 0.7.5 itself does not, since it may predate what 0.7.5 changed.
+	"""
+
+	exact = subroutine.installations.ordered(version)
+
+	if exact is not None:
+		return exact >= floor
+
+	named = _NAMED_RELEASE.match(version)
+
+	return named is not None and tuple(int(part) for part in named.groups()) > floor
 
 
 def _parsed (response: httpx.Response) -> dict[str, typing.Any] | None:

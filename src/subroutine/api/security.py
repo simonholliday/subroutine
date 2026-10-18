@@ -60,9 +60,12 @@ CREDENTIAL_PARAMETERS = frozenset(name.lower() for name in TOKEN_PARAMETERS)
 #: **What a read-only connection sends with every request** (decision `#4510`, `SR#4562`): ``true``
 #: makes the session read-only, and the domain refuses it every act that is not a read.
 #:
-#: **A query parameter rather than a header, because it has to fail closed.** Every release before
-#: this one refuses a query parameter it does not know, so a read-only connection meeting an older
-#: instance is refused outright; a header would be ignored, and the write would go through.
+#: **A query parameter rather than a header, because it has to fail closed.** Every release from
+#: 0.7.5 refuses a query parameter it does not know, so one from before this release refuses a
+#: read-only connection outright; a header would be ignored, and the write would go through. A
+#: release before 0.7.5 refuses one on its listings alone, so the HTTP client asks which release it
+#: is talking to before it writes, and writes nothing through such a connection to one of those
+#: (`SR#5116`).
 #: Read here rather than declared on each route, as the credential is, so it reaches every route
 #: without anybody remembering it.
 READ_ONLY_PARAMETER = "read_only"

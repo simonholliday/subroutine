@@ -31,6 +31,7 @@ import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.readiness
 import subroutine.errors
+import subroutine.installations
 import subroutine.views
 
 #: Distinguishes "leave this alone" from "clear it" on a scheduling call, the same way §8.3
@@ -2134,9 +2135,10 @@ def read_only_query (connection: subroutine.connections.Connection) -> dict[str,
 def refuses_read_only (code: str | None, fields: typing.Iterable[str | None]) -> bool:
 	"""Report whether a refusal is an instance saying it does not know ``read_only``.
 
-	An instance from before decision `#4510` refuses the parameter as one it does not accept, which
-	is the refusal that keeps a read-only connection from writing to it - and reads, to somebody
-	who never typed ``read_only``, as nonsense.
+	An instance from 0.7.5 to before decision `#4510` refuses the parameter as one it does not
+	accept, which is the refusal that keeps a read-only connection from writing to it - and reads,
+	to somebody who never typed ``read_only``, as nonsense. One older than 0.7.5 ignores it on a
+	write, so the HTTP client asks its release before writing (`SR#5116`).
 	"""
 
 	return code == "unknown_field" and any(
@@ -2151,6 +2153,33 @@ def too_old_for_read_only (connection: subroutine.connections.Connection) -> tup
 		f"{connection.name} does not know the 'read_only' setting this connection carries, so it "
 		"refused the request rather than risk a write. An instance enforces it from this program's "
 		"release on.",
+		f"Upgrade {connection.name}, or remove 'read_only' from [connections.{connection.name}] "
+		f"in {subroutine.config.config_file_path()} if writing there is what you want.",
+	)
+
+
+def too_old_to_hold_read_only (
+	connection: subroutine.connections.Connection, version: str | None
+) -> tuple[str, str]:
+	"""Return what to say when a read-only connection meets a release that would ignore it - `SR#5116`.
+
+	**Said by this program, before anything is sent**, where :func:`too_old_for_read_only` is said
+	of an instance that refused: a release before 0.7.5 takes a write with ``read_only`` on it and
+	ignores the setting, so the program writes nothing there through such a connection.
+	"""
+
+	if version is None:
+		running = f"{connection.name} does not say which release it runs, and"
+
+	elif subroutine.installations.ordered(version) is None:
+		running = f"{connection.name} runs {version}, which cannot be placed against 0.7.5, and"
+
+	else:
+		running = f"{connection.name} runs {version}, and"
+
+	return (
+		f"{running} a release before 0.7.5 ignores the 'read_only' setting this connection carries, "
+		"so nothing is written there through it.",
 		f"Upgrade {connection.name}, or remove 'read_only' from [connections.{connection.name}] "
 		f"in {subroutine.config.config_file_path()} if writing there is what you want.",
 	)
