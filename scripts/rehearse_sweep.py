@@ -43,6 +43,10 @@ ORDERS = ("priority_score", "-priority_score", "due_at", "-due_at")
 #: gains is asked about from the day it exists, rather than read past by a sweep that says nothing.
 NOT_SAMPLED = {
 	"cursor": "every listing is paged through by its own next cursor",
+	"to": "asked only beside 'transferring', and refused alone before anything is read; the pair "
+	"asks what 'leaving' asks, which is sampled",
+	"transferring": "asked only beside 'to', and refused alone before anything is read; the pair "
+	"asks what 'leaving' asks, which is sampled",
 	"workspace_id": "every address is asked in each workspace in turn",
 }
 

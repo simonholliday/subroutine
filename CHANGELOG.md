@@ -198,7 +198,10 @@ upgrade involves.
   owner could step down, and `unshare` counted the rows of people who had left. Deactivating
   somebody stays allowed, and `user deactivate` and `instance workspaces` now name a workspace
   left with no owner who can act, as well as one left with nobody to administer it.
-  `instance projects` lists a private project only an agent can see.
+  `instance projects` lists a private project only an agent can see. `user transfer` names,
+  before and after, a private project somebody could see only through the agent and that nobody
+  could see once it moves, as `user deactivate` does, and `GET /v1/instance/unreachable-projects`
+  asks it with `transferring` and `to`.
 - **Removing somebody from a workspace keeps their private views**, as deactivating them does:
   out of reach while they are not a member, and theirs again if they are added back.
 - **`token:admin` is deleted, and the two permissions over the installation say what they

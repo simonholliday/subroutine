@@ -2822,21 +2822,23 @@ class Client:
 			)
 
 	def unreachable_projects (
-		self, *, leaving: str | None = None
+		self,
+		*,
+		leaving: str | None = None,
+		transferring: str | None = None,
+		to: str | None = None,
 	) -> list[subroutine.views.UnreachableProject]:
 		"""List the private projects nobody who can act here is able to see."""
 
 		with self._opened() as (session, actor):
+			departing, handing = subroutine.domain.projects.asked_about(
+				session, leaving=leaving, transferring=transferring, to=to
+			)
+
 			return [
 				subroutine.views.unreachable_project(row)
 				for row in subroutine.domain.projects.unreachable(
-					session,
-					actor=actor,
-					leaving=(
-						None
-						if leaving is None
-						else subroutine.domain.users.by_username(session, leaving)
-					),
+					session, actor=actor, leaving=departing, transferring=handing
 				)
 			]
 

@@ -20,7 +20,8 @@ taken inside it - removing, demoting, unsharing, leaving, and making a project p
 across a privacy boundary (`SR#5101`, decision `#5097`) - is refused where it would leave nobody.
 Stopping an account is taken from above the scope, so no workspace or project blocks it: it is
 named before and after with each scope's repair, which is the same answer asked of a future in
-which they have gone, and an administrator of the installation repairs what it leaves. The
+which they have gone, and an administrator of the installation repairs what it leaves; so is
+handing an agent to somebody else (`SR#5101`), which moves what it sees through. The
 installation has nothing above it, so its last administrator who can act is not stopped either.
 **Agents are not counted**, reversing `#4020`: an
 agent's standing ends with its person's, so a scope only an agent could repair is one a single
@@ -65,12 +66,16 @@ class Afterwards:
 	private, ``moved`` the project it moves and ``above`` the path it moves to, outermost first and
 	ending at the new parent, or empty for the top level. ``granted`` is the rows the act writes, as
 	a project and an account: a new owner is shared in by the same act that makes the project private.
+	``handed`` is an agent handed to somebody else and who it goes to, and ``moving`` that agent and
+	every agent beneath it, whose shares are seen through the new chain once it moves.
 	"""
 
 	private: frozenset[uuid.UUID] = frozenset()
 	moved: uuid.UUID | None = None
 	above: tuple[uuid.UUID, ...] = ()
 	granted: frozenset[tuple[uuid.UUID, uuid.UUID]] = frozenset()
+	handed: tuple[uuid.UUID, uuid.UUID] | None = None
+	moving: frozenset[uuid.UUID] = frozenset()
 
 	def path (self, identifiers: list[uuid.UUID]) -> list[uuid.UUID]:
 		"""Return a project's path, outermost first, as it will be once the act is taken."""
@@ -79,6 +84,35 @@ class Afterwards:
 			return identifiers
 
 		return [*self.above, *identifiers[identifiers.index(self.moved) :]]
+
+	def upward (self, account: subroutine.db.models.identity.User) -> uuid.UUID | None:
+		"""Return whom an account will answer to once the act is taken."""
+
+		if self.handed is not None and account.id == self.handed[0]:
+			return self.handed[1]
+
+		return account.responsible_user_id
+
+	def seeing (self, user_id: uuid.UUID, accounts: set[uuid.UUID]) -> set[uuid.UUID]:
+		"""Return whose shares an account will see by, from whose it sees by now.
+
+		**Sight follows the chain upward** (decision `#4943`), so handing an agent over takes its
+		shares, and those of every agent beneath it, from everybody above it to everybody above
+		whoever it goes to.
+		"""
+
+		if self.handed is None:
+			return accounts
+
+		agent, to = self.handed
+
+		if agent in accounts and user_id not in self.moving:
+			accounts = accounts - self.moving
+
+		if to in accounts:
+			accounts = accounts | self.moving
+
+		return accounts
 
 
 #: Every scope a last one is held for. A private project is named by its row.
@@ -184,7 +218,7 @@ def _seeing (
 	given: set[uuid.UUID] = set()
 
 	for holder in holders:
-		given.update(_above(session, holder))
+		given.update(_above(session, holder, afterwards))
 
 	found = session.scalars(
 		people.join(
@@ -204,13 +238,16 @@ def _seeing (
 
 
 def _above (
-	session: sqlalchemy.orm.Session, account: subroutine.db.models.identity.User
+	session: sqlalchemy.orm.Session,
+	account: subroutine.db.models.identity.User,
+	afterwards: Afterwards | None = None,
 ) -> set[uuid.UUID]:
 	"""Return an account and every account it answers to, however its chain is written.
 
 	**Wider than the chain a door would walk, never narrower**: this only says who to ask
 	``hidden_by`` about, which is where the rule is, so a chain that loops or runs long is followed
-	as far as it goes and nobody is refused for it.
+	as far as it goes and nobody is refused for it. ``afterwards`` walks the chain an agent handed
+	over will have (`SR#5101`).
 	"""
 
 	model = subroutine.db.models.identity.User
@@ -219,14 +256,15 @@ def _above (
 
 	while current is not None and current.id not in met:
 		met.add(current.id)
+		upward = current.responsible_user_id if afterwards is None else afterwards.upward(current)
 
-		if not current.is_service_account or current.responsible_user_id is None:
+		if not current.is_service_account or upward is None:
 			break
 
 		if len(met) > subroutine.domain.accountability.MAX_DEPTH:
 			break
 
-		current = session.get(model, current.responsible_user_id)
+		current = session.get(model, upward)
 
 	return met
 

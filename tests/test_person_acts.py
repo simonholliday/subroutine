@@ -286,9 +286,9 @@ NOT_DECIDING: dict[str, str] = {
 		"`--service-account` names an agent, so an existing account under that name must be one: "
 		"what was asked for, not what the actor may do. `#348`."
 	),
-	"users.py:transfer": (
+	"users.py:refuse_transferring": (
 		"Only an agent has somebody answering for it, so handing over a person is refused as a "
-		"request that means nothing. `#478`."
+		"request that means nothing. `#478`; the transfer's checks, asked before it too (`SR#5101`)."
 	),
 	"repair.py:_above": (
 		"Walks up from whoever holds a row on a private project to whoever sees through it "

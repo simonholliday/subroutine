@@ -377,6 +377,26 @@ def transfer (
 			actor, subroutine.permissions.INSTANCE_USER_CREATE
 		)
 
+	refuse_transferring(session, agent, to=to)
+
+	agent.responsible_user_id = to.id
+	agent.version += 1
+	session.flush()
+
+
+def refuse_transferring (
+	session: sqlalchemy.orm.Session,
+	agent: subroutine.db.models.identity.User,
+	*,
+	to: subroutine.db.models.identity.User,
+) -> None:
+	"""Refuse handing this agent to ``to`` where :func:`transfer` would, before anything moves.
+
+	**Asked by the transfer and by the question put before it** (`SR#5101`): what a transfer would
+	leave with nobody able to see it is asked first, and a transfer that would be refused is refused
+	there in its own words rather than answered.
+	"""
+
 	if not agent.is_service_account:
 		raise subroutine.errors.ValidationError(
 			f"{agent.username} is a person, and a person answers for themselves.",
@@ -432,10 +452,6 @@ def transfer (
 			f"so it could not act.",
 			hint="Hand it to somebody nearer a person.",
 		)
-
-	agent.responsible_user_id = to.id
-	agent.version += 1
-	session.flush()
 
 
 def _refuse_deactivating_the_last_administrator (

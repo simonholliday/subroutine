@@ -143,6 +143,14 @@ def unreachable_projects (
 		None,
 		description="Instead, the ones that would be left unreachable if this person left.",
 	),
+	transferring: str | None = fastapi.Query(
+		None,
+		description="Instead, the ones that would be left unreachable if this agent were handed to "
+		"the account 'to' names.",
+	),
+	to: str | None = fastapi.Query(
+		None, description="Who the agent 'transferring' names would be handed to."
+	),
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
@@ -161,9 +169,15 @@ def unreachable_projects (
 	``POST /v1/workspaces/{id_or_slug}/members``.
 
 	With ``leaving``, it answers the question to ask before deactivating somebody instead: which
-	projects that somebody can see now would nobody be able to see afterwards.
+	projects that somebody can see now would nobody be able to see afterwards. With
+	``transferring`` and ``to``, the one to ask before handing an agent to somebody else: which
+	projects somebody can see now, through that agent or one beneath it, would nobody be able to
+	see once it is handed over. The two come together, and not beside ``leaving``.
 	"""
 
+	departing, handing = subroutine.domain.projects.asked_about(
+		session, leaving=leaving, transferring=transferring, to=to
+	)
 	shape = subroutine.api.shaping.wanted(
 		format=format,
 		fields=fields,
@@ -172,9 +186,7 @@ def unreachable_projects (
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	rows = subroutine.domain.projects.unreachable(
-		session,
-		actor=actor,
-		leaving=None if leaving is None else subroutine.domain.users.by_username(session, leaving),
+		session, actor=actor, leaving=departing, transferring=handing
 	)
 
 	return subroutine.api.shaping.response(

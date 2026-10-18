@@ -1348,12 +1348,18 @@ class Client(typing.Protocol):
 		"""
 
 	def unreachable_projects (
-		self, *, leaving: str | None = None
+		self,
+		*,
+		leaving: str | None = None,
+		transferring: str | None = None,
+		to: str | None = None,
 	) -> list[subroutine.views.UnreachableProject]:
 		"""List the private projects nobody who can act here is able to see - item `#1453`.
 
 		``leaving`` asks instead which ones one person's departure would strand, which is what
-		``user deactivate`` names before it acts. Needs ``instance:admin``.
+		``user deactivate`` names before it acts, and ``transferring`` with ``to`` which ones handing
+		an agent to somebody else would (`SR#5101`), which ``user transfer`` names. Needs
+		``instance:admin``.
 		"""
 
 		raise NotImplementedError

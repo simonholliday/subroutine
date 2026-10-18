@@ -6528,6 +6528,88 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 			)
 
 
+def _transferred (program: Program, *, username: str, to: str, yes: bool) -> None:
+	"""Hand an agent to somebody else, naming first what that leaves with nobody able to see it.
+
+	**Out of `register`**, for `#943`'s ratchet, as :func:`_deactivated` is. **What nobody will be
+	able to see afterwards is named before and after** (`SR#5101`, decision `#5097`), as deactivating
+	somebody names it: sight follows the chain upward, so a private project somebody saw only through
+	the agent moves with it, and nobody sees it where its new person is not in that workspace.
+	"""
+
+	with program.opened() as world:
+		where = world.writing_to()
+
+		# **Asked of the server, for deactivation's reasons.** It needs `instance:admin`, which a
+		# credential allowed to hand an agent over may not carry, and an instance from before the
+		# question does not know it: each is said rather than read as *nothing stranded*. Any other
+		# refusal is the transfer's own, so it stops here, before a question is put.
+		try:
+			stranded = where.client.unreachable_projects(transferring=username, to=to)
+			unchecked = None
+
+		except subroutine.errors.Forbidden as refused:
+			stranded, unchecked = [], refused.detail
+
+		except subroutine.errors.ValidationError as refused:
+			if refused.code != "unknown_field":
+				raise
+
+			stranded, unchecked = [], "this instance cannot be asked it."
+
+		stranding = [one.address() for one in stranded]
+
+		if (stranding or unchecked) and not yes:
+			if stranding:
+				program.say(
+					f"Nobody will be able to see {len(stranding)} private project(s): "
+					f"{', '.join(stranding)}"
+				)
+
+			if unchecked:
+				program.say(f"Whether this strands a private project was not checked: {unchecked}")
+
+			if not typer.confirm(f"Hand {username} to {to}?"):
+				program.say("Left as it was.")
+
+				return
+
+		where.client.transfer_agent(username=username, to=to)
+
+		program.say(f"{to} now answers for {username}")
+
+		for address in stranding:
+			program.say(f"  {address} can be seen by nobody")
+
+		# **And where that stops it** (`#4546`, decision `#4518`): an agent works in a workspace only
+		# while the person at the top of its chain is a member there too.
+		stops, unlisted = _where_it_stops(where.client, username, to)
+
+		if stops:
+			program.say(
+				f"{username} stops working in {', '.join(stops)}, where the person it now "
+				f"answers to is not a member."
+			)
+
+		if unlisted:
+			program.say(f"Workspaces this credential cannot list were not checked: {unlisted}")
+
+		# **Joining comes first where the operator is outside** (`#2626`), as after a deactivation.
+		if any(not one.member_of_workspace for one in stranded):
+			_suggest(
+				program.console,
+				JOIN_A_WORKSPACE,
+				"first, for a workspace you do not belong to",
+			)
+
+		if stranding:
+			_suggest(
+				program.console,
+				"subroutine -w <workspace> project share <project> <username>",
+				"lets somebody back in; 'subroutine instance projects' lists them",
+			)
+
+
 def _register_unreachable (instance_app: typer.Typer, program: Program) -> None:
 	"""Add ``instance projects`` to the instance group - item `#1453`.
 
@@ -9919,6 +10001,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 	def user_transfer (
 		username: str = typer.Argument(..., help="Which agent, by the name 'user list' shows."),
 		to: str = typer.Option(..., "--to", help="Who becomes answerable for it."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
 	) -> None:
 		"""Hand an agent to somebody else, who becomes answerable for what it does.
 
@@ -9929,28 +10012,11 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		Agents stop when the person answerable for them leaves, so this is how one is kept when
 		somebody goes. Only a person can hand an agent over. It can go to a person, or to an
 		agent whose own chain ends at one. It works in a workspace only while that person is a
-		member there, and this says where it stops.
+		member there, and this says where it stops. A private project somebody could see only
+		through the agent, and that nobody could see once it moves, is named before and after.
 		"""
 
-		with program.opened() as world:
-			where = world.writing_to()
-
-			where.client.transfer_agent(username=username, to=to)
-
-			program.say(f"{to} now answers for {username}")
-
-			# **And where that stops it** (`#4546`, decision `#4518`): an agent works in a workspace
-			# only while the person at the top of its chain is a member there too.
-			stops, unchecked = _where_it_stops(where.client, username, to)
-
-			if stops:
-				program.say(
-					f"{username} stops working in {', '.join(stops)}, where the person it now "
-					f"answers to is not a member."
-				)
-
-			if unchecked:
-				program.say(f"Workspaces this credential cannot list were not checked: {unchecked}")
+		_transferred(program, username=username, to=to, yes=yes)
 
 	@user_app.command("remove")
 	def user_remove (

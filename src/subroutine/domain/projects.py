@@ -1134,8 +1134,16 @@ def hidden_by (
 		for row in session.scalars(sqlalchemy.select(model).where(model.id.in_(identifiers)))
 	}
 
+	sights = subroutine.domain.accountability.sees_as(user_id)
+	accounts: set[uuid.UUID] | None = None
+
+	# **Whose shares this person sees by once the act is taken** (`SR#5101`): an agent handed over
+	# takes its own with it, and those of every agent beneath it.
+	if afterwards is not None and (afterwards.handed is not None or afterwards.granted):
+		accounts = afterwards.seeing(user_id, set(session.scalars(sights)))
+
 	held = sqlalchemy.select(membership.project_id).where(
-		membership.user_id.in_(subroutine.domain.accountability.sees_as(user_id)),
+		membership.user_id.in_(sights if accounts is None else accounts),
 		membership.project_id.in_(identifiers),
 	)
 
@@ -1145,9 +1153,8 @@ def hidden_by (
 	shared = set(session.scalars(held))
 	private: frozenset[uuid.UUID] = frozenset() if afterwards is None else afterwards.private
 
-	if afterwards is not None and afterwards.granted:
-		seeing_as = set(session.scalars(subroutine.domain.accountability.sees_as(user_id)))
-		shared |= {identifier for identifier, holder in afterwards.granted if holder in seeing_as}
+	if afterwards is not None and accounts is not None:
+		shared |= {identifier for identifier, holder in afterwards.granted if holder in accounts}
 
 	for identifier in identifiers:
 		ancestor = ancestors.get(identifier)
@@ -1304,6 +1311,8 @@ def unreachable (
 	*,
 	actor: subroutine.domain.authentication.Principal | None = None,
 	leaving: subroutine.db.models.identity.User | None = None,
+	transferring: tuple[subroutine.db.models.identity.User, subroutine.db.models.identity.User]
+	| None = None,
 ) -> list[Unreachable]:
 	"""Return the private projects no person who can act here is able to see - item `#1453`.
 
@@ -1324,6 +1333,11 @@ def unreachable (
 	only through an agent that has been stopped holds no row, and neither does anything of theirs
 	that can act.
 
+	**``transferring`` asks what handing an agent to somebody else would strand** (`SR#5101`,
+	decision `#5097`): projects somebody could see now, through a share the agent or one beneath it
+	holds, that nobody could once it answers to its new person - the question `user transfer` puts
+	before it acts. Refused where the transfer would be, in the transfer's own words.
+
 	**People only** (`SR#4569`, decision `#4526` and Simon's answer of 2026-10-09): who could repair
 	a private project is a person who can act and see it, so one only an agent can see is listed -
 	an agent's own included - and is named when the agent's person leaves.
@@ -1337,6 +1351,20 @@ def unreachable (
 		subroutine.domain.authorization.authorize_instance(
 			actor, subroutine.permissions.INSTANCE_ADMIN, reading=True
 		)
+
+	afterwards: subroutine.domain.repair.Afterwards | None = None
+	moving: frozenset[uuid.UUID] = frozenset()
+
+	if transferring is not None:
+		agent, to = transferring
+		subroutine.domain.users.refuse_transferring(session, agent, to=to)
+		moving = frozenset(
+			{
+				agent.id,
+				*(one.id for one in subroutine.domain.accountability.agents_answering_to(session, agent)),
+			}
+		)
+		afterwards = subroutine.domain.repair.Afterwards(handed=(agent.id, to.id), moving=moving)
 
 	project = subroutine.db.models.project.Project
 	workspace = subroutine.db.models.identity.Workspace
@@ -1367,15 +1395,28 @@ def unreachable (
 	# `SR#4569`): a project is theirs to strand where they, or an agent answering to them, holds a
 	# row on it. Each walk is a members query and a climb of the project's chain, bounded, as above,
 	# by how many private projects exist - which is the number to watch if this grows slow.
+	def asked (row: subroutine.db.models.project.Project) -> bool:
+		"""Report whether this project is one the question is about: every one, or what an act leaves."""
+
+		if leaving is not None:
+			return subroutine.domain.repair.takes_part(
+				session, row, theirs
+			) or leaving.id in subroutine.domain.repair.repairers(session, row)
+
+		# **Only what the transfer changes** (`SR#5101`): a project somebody could see now, through a
+		# share the agent or one beneath it holds. One nobody could see already is listed as it is.
+		if transferring is not None:
+			return subroutine.domain.repair.takes_part(session, row, moving) and bool(
+				subroutine.domain.repair.repairers(session, row)
+			)
+
+		return True
+
 	stranded = [
 		(row, place)
 		for row, place in candidates
-		if not subroutine.domain.repair.repairers(session, row, leaving=gone)
-		and (
-			leaving is None
-			or subroutine.domain.repair.takes_part(session, row, theirs)
-			or leaving.id in subroutine.domain.repair.repairers(session, row)
-		)
+		if not subroutine.domain.repair.repairers(session, row, leaving=gone, afterwards=afterwards)
+		and asked(row)
 	]
 
 	if not stranded:
@@ -1413,6 +1454,58 @@ def unreachable (
 		)
 		for row, place in stranded
 	]
+
+
+def asked_about (
+	session: sqlalchemy.orm.Session,
+	*,
+	leaving: str | None = None,
+	transferring: str | None = None,
+	to: str | None = None,
+) -> tuple[
+	subroutine.db.models.identity.User | None,
+	tuple[subroutine.db.models.identity.User, subroutine.db.models.identity.User] | None,
+]:
+	"""Resolve by name what :func:`unreachable` is asked about, refusing a question half asked.
+
+	**Both doors ask it here** (`SR#5101`, decision `#5097`), the API and the local client: a transfer
+	named without who it goes to, or beside somebody leaving, is refused in one sentence. Naming an
+	account to ask about it is not a read of it (decision `#4943`).
+	"""
+
+	if (transferring is None) != (to is None):
+		given, missing = ("transferring", "to") if to is None else ("to", "transferring")
+
+		raise subroutine.errors.ValidationError(
+			f"'{given}' needs '{missing}' beside it: the agent, and who it would be handed to.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=missing, code="missing_field", message=f"'{missing}' goes with '{given}'."
+				)
+			],
+		)
+
+	if leaving is not None and transferring is not None:
+		raise subroutine.errors.ValidationError(
+			"Ask what somebody leaving would strand, or what a transfer would, not both at once.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="transferring",
+					code="invalid_field_value",
+					message="'transferring' and 'leaving' are two questions.",
+				)
+			],
+		)
+
+	departing = None if leaving is None else subroutine.domain.users.by_username(session, leaving)
+
+	if transferring is None or to is None:
+		return departing, None
+
+	return departing, (
+		subroutine.domain.users.by_username(session, transferring),
+		subroutine.domain.users.by_username(session, to),
+	)
 
 
 def share (

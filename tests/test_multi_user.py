@@ -1774,3 +1774,75 @@ def test_a_new_credential_says_what_it_may_do_and_until_when (
 	assert "This credential may do everything its owner can do; until 2030-01-1" in answered, (
 		answered
 	)
+
+
+def test_handing_an_agent_over_names_before_and_after_what_nobody_could_see (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5101`, decision `#5097`: ``user transfer`` said only where the agent stops.
+
+	**``lab`` is made in the database**, owned by ``bot``, which answers to the operator, so only
+	``bot`` makes it visible to anybody; jo is in another workspace. Named before, and the question
+	put: declining leaves ``bot`` where it was, and ``--yes`` hands it over and names ``lab`` again,
+	with the way back. An instance that cannot be asked says so rather than reading as *nothing
+	stranded*.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "dojo", "The Dojo")
+	run("user", "create", "jo", "--name", "Jo", "--workspace", "dojo")
+	run("agent", "create", "bot", "--workspace", "acme")
+
+	engine = subroutine.db.session.create_engine(subroutine.config.load_settings().database_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			operator = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.User.username).where(
+					subroutine.db.models.identity.User.is_superuser.is_(True)
+				)
+			).one()
+			acme = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Workspace).where(
+					subroutine.db.models.identity.Workspace.slug == "acme"
+				)
+			).one()
+			subroutine.domain.projects.create(
+				session,
+				workspace_id=acme.id,
+				key="lab",
+				title="Lab",
+				visibility="private",
+				owner_id=subroutine.domain.users.by_username(session, "bot").id,
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	declined = run("user", "transfer", "bot", "--to", "jo", input="n\n").output
+
+	assert "Nobody will be able to see 1 private project(s): acme/lab" in declined, declined
+	assert "Left as it was." in declined and "now answers for" not in declined, declined
+
+	made = run("user", "transfer", "bot", "--to", "jo", "--yes").output
+
+	assert "jo now answers for bot" in made, made
+	assert "  acme/lab can be seen by nobody" in made, made
+	assert "project share" in made, "and it says how to let somebody back in"
+
+	def older (self: typing.Any, **asked: typing.Any) -> typing.NoReturn:
+		"""Answer as an instance from before the question does."""
+
+		raise subroutine.errors.ValidationError(
+			"This endpoint does not accept 'to'.", code="unknown_field"
+		)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "unreachable_projects", older)
+	unasked = run("user", "transfer", "bot", "--to", operator, input="y\n").output
+
+	assert (
+		"Whether this strands a private project was not checked: this instance cannot be asked it."
+		in unasked
+	), unasked
+	assert f"{operator} now answers for bot" in unasked, unasked

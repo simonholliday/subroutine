@@ -1460,12 +1460,18 @@ class Client:
 		)
 
 	def unreachable_projects (
-		self, *, leaving: str | None = None
+		self,
+		*,
+		leaving: str | None = None,
+		transferring: str | None = None,
+		to: str | None = None,
 	) -> list[subroutine.views.UnreachableProject]:
 		"""List the private projects nobody who can act here is able to see."""
 
 		body = self._json(
-			"GET", "/v1/instance/unreachable-projects", params=_given(leaving=leaving)
+			"GET",
+			"/v1/instance/unreachable-projects",
+			params=_given(leaving=leaving, transferring=transferring, to=to),
 		)
 
 		return [

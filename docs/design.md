@@ -1996,10 +1996,10 @@ project, can see it:
 
 An act taken inside a scope - removing, demoting, unsharing, leaving, making a project private,
 moving one across a privacy boundary - is refused when it would leave nobody, and says what to do
-first. Stopping an account is taken from above the scope, so no
-workspace or project blocks it: it says, before and after, what it leaves without anybody, and an
-administrator of the installation repairs it. The installation has nothing above it, so its last
-administrator who can act is not stopped either.
+first. Stopping an account, and handing an agent to somebody else, are taken from above the scope,
+so no workspace or project blocks them: each says, before and after, what it leaves without
+anybody, and an administrator of the installation repairs it. The installation has nothing above
+it, so its last administrator who can act is not stopped either.
 
 **An account is read within reach**: by whoever shares a workspace with it, by its own chain -
 itself, whoever it answers to and whatever answers to it - and by whoever holds
