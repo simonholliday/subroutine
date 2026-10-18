@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The last occurrence of a repeat filed where you cannot see it can be finished.** An assignee
+  who could not see the project a repeat was filed in was told there was no such project when they
+  finished or skipped its last occurrence, or stopped it. Finishing it now ends the repeat; stopping
+  it, or changing how it repeats, is refused in words that name nothing you cannot see, and
+  somebody who can see where it is set changes it.
 - **Only a credential that never expires mints a sign-in link.** A browser session stays signed
   in for as long as it keeps being used, so a link minted with a credential that expires bought a
   session that outlived it: still signed in, and able to mint credentials of its own, after the

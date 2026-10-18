@@ -143,13 +143,16 @@ def hidden (
 	return None
 
 
-def _out_of_sight (
+def container_in_the_trash (
 	session: sqlalchemy.orm.Session, row: Item
-) -> subroutine.errors.ValidationError | None:
-	"""Say what in the trash ``row`` is beneath, nearest first, or ``None`` when nothing is."""
+) -> Item | subroutine.db.models.project.Project | None:
+	"""Return what in the trash ``row`` is beneath, nearest first, or ``None`` when nothing is.
+
+	For a refusal of its own that names it (`SR#5135`), as :func:`_out_of_sight` does with this
+	program's sentence.
+	"""
 
 	kind = type(row)
-	shown = subroutine.domain.refs.format_ref(row.ref)
 
 	# **Its own kind first, because that is nearer**: a sub-task is filed in its parent's project,
 	# so whatever task or document it is beneath sits inside the projects above it. Cast because a
@@ -169,12 +172,7 @@ def _out_of_sight (
 	)
 
 	if above is not None:
-		container = subroutine.domain.refs.format_ref(above.ref)
-
-		return subroutine.errors.ValidationError(
-			f"{shown} is beneath {container}, which is in the trash.",
-			hint=f"Restore {container} to bring it back, with everything beneath it.",
-		)
+		return above
 
 	model = subroutine.db.models.project.Project
 	filed_in = session.get(model, row.project_id)
@@ -182,7 +180,7 @@ def _out_of_sight (
 	if filed_in is None:
 		return None
 
-	binned = session.scalars(
+	return session.scalars(
 		sqlalchemy.select(model)
 		.where(
 			model.workspace_id == row.workspace_id,
@@ -192,11 +190,28 @@ def _out_of_sight (
 		.order_by(sqlalchemy.func.length(model.path).desc())
 	).first()
 
+
+def _out_of_sight (
+	session: sqlalchemy.orm.Session, row: Item
+) -> subroutine.errors.ValidationError | None:
+	"""Say what in the trash ``row`` is beneath, nearest first, or ``None`` when nothing is."""
+
+	shown = subroutine.domain.refs.format_ref(row.ref)
+	binned = container_in_the_trash(session, row)
+
 	if binned is None:
 		return None
 
+	if not isinstance(binned, subroutine.db.models.project.Project):
+		container = subroutine.domain.refs.format_ref(binned.ref)
+
+		return subroutine.errors.ValidationError(
+			f"{shown} is beneath {container}, which is in the trash.",
+			hint=f"Restore {container} to bring it back, with everything beneath it.",
+		)
+
 	address = subroutine.domain.projects.paths_for(session, {binned.id}).get(binned.id, binned.key)
-	where = "in" if binned.id == filed_in.id else "beneath"
+	where = "in" if binned.id == row.project_id else "beneath"
 
 	return subroutine.errors.ValidationError(
 		f"{shown} is {where} the project {address}, which is in the trash.",

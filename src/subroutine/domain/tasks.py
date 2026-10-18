@@ -41,6 +41,7 @@ import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.stewardship
 import subroutine.domain.tags
@@ -733,8 +734,19 @@ def materialise (
 		# **Not a series in the trash** (`#4026`, L-1 (2) of the cold review of 2026-09-30): an older
 		# build put one there, and completing it is refused, so its last occurrence could be neither
 		# completed nor skipped, about a row the person never sees. It is out of sight already.
-		if template.completed_at is None and template.deleted_at is None:
-			complete(session, template, now=now, actor=actor)
+		# **Nor one beneath it** (`SR#5135`, H-5 of the cold review of 2026-10-17, decided in `#5097`):
+		# a series in a project in the trash, its occurrence moved out, refused the occurrence the
+		# same way, naming a row no listing shows.
+		#
+		# **And finished as a consequence of the occurrence, not asked of its reader** (`SR#5141`,
+		# NEW-C-1 of that review's verification): an assignee who could not see the series' project
+		# was told there was no such project when they finished the last occurrence, which they may.
+		if (
+			template.completed_at is None
+			and template.deleted_at is None
+			and subroutine.domain.trash.container_in_the_trash(session, template) is None
+		):
+			complete(session, template, now=now, actor=actor, as_a_consequence=True)
 
 		return None
 
@@ -1531,6 +1543,7 @@ def update (
 	expected_version: int | None = None,
 	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
+	as_a_consequence: bool = False,
 ) -> subroutine.db.models.work.Task:
 	"""Change a task, recording only what actually changed.
 
@@ -1576,8 +1589,13 @@ def update (
 	# version a task is at (docs/design.md §8.9). **Nothing but restoring changes a task in the
 	# trash** (`#3935`) - not an edit, a completion or a skip, which all come through here - and
 	# the permission check is where that is asked (`#4548`).
+	#
+	# **A write that follows from one already permitted is not asked again** (`SR#5141`):
+	# ``as_a_consequence`` is a series finished because its last occurrence was, which its reader
+	# may finish though they cannot see where the series is filed. The trash is still asked, since
+	# that gate holds for every caller, and the act is still recorded as theirs.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, task
+		session, None if as_a_consequence else actor, subroutine.permissions.TASK_WRITE, task
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
 	refuse_an_answer_that_means_nothing(task, applies_to)
@@ -1905,6 +1923,18 @@ def update (
 			applies_to=applies_to,
 		)
 	)
+
+	# **How a series repeats changes only where it can be reached from here** (`SR#5135`, `SR#5141`,
+	# decided in `#5097`): stopping or restarting it, a new rule and an edit from now on each write the
+	# series, which may be beneath the trash, or in a project the reader cannot see, while its
+	# occurrence is in front of them. Asked before anything is assigned.
+	if applies_to == FROM_NOW_ON or (
+		repeating is not subroutine.domain.patch.UNSET
+		and (repeating.stopping or repeating.repeat is not None)
+	):
+		_refuse_changing_a_series_out_of_reach(
+			session, task, actor=actor, from_now_on=applies_to == FROM_NOW_ON
+		)
 
 	# **A series is not left with no date to repeat from** (`#4026`), as :func:`_series_anchor`
 	# refuses one being made - **asked here, before anything is assigned** (`#4307`, M9 of the cold
@@ -2410,6 +2440,7 @@ def complete (
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
+	as_a_consequence: bool = False,
 ) -> subroutine.db.models.work.Task:
 	"""Mark a task finished, in whatever this workspace calls its finished status.
 
@@ -2417,6 +2448,8 @@ def complete (
 	and giving it a second code path would be how the two come to disagree about events,
 	permissions or the ``completed_at`` invariant. What it adds is not having to know the
 	installation's vocabulary in order to say "done".
+
+	``as_a_consequence`` is :func:`update`'s.
 	"""
 
 	return update(
@@ -2426,6 +2459,7 @@ def complete (
 		now=now,
 		expected_version=expected_version,
 		actor=actor,
+		as_a_consequence=as_a_consequence,
 	)
 
 
@@ -3848,6 +3882,101 @@ class _Repeating (typing.NamedTuple):
 
 	#: Whether the change stops the series, which is ``None`` given as the rule.
 	stopping: bool
+
+
+def _refuse_changing_a_series_out_of_reach (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+	from_now_on: bool,
+) -> None:
+	"""Refuse changing how an occurrence repeats where its series cannot be reached - `SR#5135`, `SR#5141`.
+
+	**Beneath the trash** (H-5 of the cold review of 2026-10-17): decision `#4943`'s *Change* rule -
+	an item in the trash, or beneath anything in it, takes no write but restore and delete - holds
+	for a series as for anything else. A stop and a restart were refused naming the series by its
+	own number, a row no listing shows, and a new rule and an edit from now on wrote it asking
+	nothing. **In a project the reader cannot see** (NEW-C-1 of its verification): a stop answered
+	that there was no such project, about a task the reader could see and was assigned.
+
+	**Said in the reader's words**: the place is named only to a reader who can see it, and to
+	anybody else is *something you cannot see* (decision `#4521`); the series' number never. Asked of
+	every caller for the trash, as that gate is, and of a principal alone for sight.
+	"""
+
+	series = series_of(session, task)
+
+	if series is None or series.id == task.id:
+		return
+
+	field = "applies_to" if from_now_on else "recurrence"
+	binned = subroutine.domain.trash.container_in_the_trash(session, series)
+
+	if binned is not None:
+		where = _named_to(session, actor, binned)
+		place = where or subroutine.domain.scoping.UNSEEN
+
+		if where is None:
+			hint = "Ask somebody who can see it to restore it first."
+
+		else:
+			hint = f"Restore {where} first."
+
+		if from_now_on:
+			hint = f"{hint[:-1]}, or change just this one."
+
+		raise subroutine.errors.ValidationError(
+			f"How this repeats cannot change until {place} is restored.",
+			hint=hint,
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"How this repeats is kept beneath {place}, which is in the trash.",
+				)
+			],
+		)
+
+	project = session.get(subroutine.db.models.project.Project, series.project_id)
+
+	if actor is None or project is None or subroutine.domain.projects.key_named_to(session, actor, project):
+		return
+
+	raise subroutine.errors.ValidationError(
+		"How this repeats is set where you cannot see it, so it cannot change from here.",
+		hint="Change just this one instead, or ask somebody who can see where it is set."
+		if from_now_on
+		else "Ask somebody who can see where it is set to change it.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message="How this repeats is set where you cannot see it.",
+			)
+		],
+	)
+
+
+def _named_to (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	container: subroutine.domain.trash.Item | subroutine.db.models.project.Project,
+) -> str | None:
+	"""Return what in the trash a refusal may name to this caller, or ``None`` where they cannot see it."""
+
+	if isinstance(container, subroutine.db.models.project.Project):
+		if subroutine.domain.projects.key_named_to(session, actor, container) is None:
+			return None
+
+		return subroutine.domain.projects.paths_for(session, {container.id}).get(container.id, container.key)
+
+	filed_in = session.get(subroutine.db.models.project.Project, container.project_id)
+
+	if filed_in is None or subroutine.domain.projects.key_named_to(session, actor, filed_in) is None:
+		return None
+
+	return subroutine.domain.refs.format_ref(container.ref)
 
 
 def _repeat_read (
