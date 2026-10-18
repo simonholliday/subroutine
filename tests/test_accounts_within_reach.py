@@ -12,6 +12,7 @@ out, on the listing, on the read of one account, and over HTTP.
 """
 
 import dataclasses
+import json
 import typing
 import uuid
 
@@ -294,6 +295,98 @@ def test_naming_an_account_to_act_on_it_is_not_a_read_of_it (
 	status, said = get(f"/v1/users/{here.tank.username}")
 
 	assert status == 200, said
+
+
+@pytest.mark.parametrize(
+	"body",
+	[{}, {"is_active": None}, {"responsible": None}, {"is_active": None, "responsible": None}],
+	ids=["empty", "is_active null", "responsible null", "both null"],
+)
+def test_an_edit_that_asks_no_act_is_answered_as_a_read (
+	session: sqlalchemy.orm.Session, body: dict[str, typing.Any]
+) -> None:
+	"""keanu's `PATCH` of tank asking nothing is the 404 his `GET` is - `SR#5115`.
+
+	H-2 of the cold review of 2026-10-17: the edit resolved its name with `by_username` and answered
+	with the row, so an empty body read any account on the installation, the one who administers it
+	included, and a 200 against a 404 for a name nobody has said which names were taken.
+	"""
+
+	here = Installation(session)
+	application: fastapi.FastAPI = api_support.build_app(api_support.factory_for(session))
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=here.keanu, title="keanu's own"
+	)
+	session.flush()
+	headers = {"Authorization": f"Bearer {issued.value.get_secret_value()}"}
+
+	def asked (method: str, name: str) -> tuple[int, str]:
+		"""Ask one account by name as keanu, with the body under test for an edit.
+
+		The text comes back with the request's own id taken out, which differs on every answer, and
+		the name asked for written as ``X``, so two answers can be compared whole.
+		"""
+
+		path = f"/v1/users/{name}"
+
+		if method == "PATCH":
+			answer = api_support.call(application, method, path, headers=headers, json=body)
+
+		else:
+			answer = api_support.call(application, method, path, headers=headers)
+
+		said = answer.json()
+		said.pop("request_id", None)
+
+		return answer.status_code, json.dumps(said, sort_keys=True).replace(name, "X")
+
+	for outside in (here.tank, here.laurence, here.scout):
+		read = asked("GET", outside.username)
+		edited = asked("PATCH", outside.username)
+
+		assert read[0] == 404, read
+		assert edited[0] == 404, f"an edit asking nothing read {outside.username}: {edited[1]}"
+		assert edited[1] == read[1], (
+			"the edit and the read answered an account out of reach differently"
+		)
+
+	assert asked("PATCH", "nobody-at-all") == asked("PATCH", here.tank.username), (
+		"an account out of reach is told apart from a name nobody has"
+	)
+
+	status, said = asked("PATCH", here.carrieanne.username)
+
+	assert status == 200, said
+	assert '"username": "X"' in said, "an account within reach is no longer answered"
+
+
+def test_an_edit_that_asks_an_act_names_its_account_without_reading_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""An act named by the edit is refused by the act, not as a name nobody has - `SR#5115`.
+
+	Decision `#4943` rule 2: naming an account to act on it is not a read of it. keanu may not
+	deactivate tank, and is told so; answering 404 there would make every act on an account out of
+	reach look like a missing one, which is what reading every body through the reach rule did.
+	"""
+
+	here = Installation(session)
+	application: fastapi.FastAPI = api_support.build_app(api_support.factory_for(session))
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=here.keanu, title="keanu's own"
+	)
+	session.flush()
+
+	answer = api_support.call(
+		application,
+		"PATCH",
+		f"/v1/users/{here.tank.username}",
+		headers={"Authorization": f"Bearer {issued.value.get_secret_value()}"},
+		json={"is_active": False},
+	)
+
+	assert answer.status_code == 403, answer.text
+	assert here.tank.is_active, "the refused act deactivated the account all the same"
 
 
 def test_an_export_holds_the_accounts_its_reader_can_read (session: sqlalchemy.orm.Session) -> None:

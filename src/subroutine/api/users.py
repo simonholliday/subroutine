@@ -172,9 +172,29 @@ def update (
 
 	The last person who can administer the instance is refused, because an instance nobody can
 	administer cannot be repaired from inside and would have stopped every agent on it.
+
+	**A body that asks for none of these is a read**, and is answered exactly as ``GET`` answers
+	the same name: an account outside the asker's reach is a name nobody has.
 	"""
 
-	account = subroutine.domain.users.by_username(session, username)
+	# **An edit that asks no act reads the account, so it reads within reach** (`SR#5115`, H-2 of
+	# the cold review of 2026-10-17): `{}`, or a body whose two acts are null and whose timezone
+	# is absent, changes nothing and answers with the row, and it answered with any account's -
+	# who administers the installation, who is active, who answers to whom - where `GET` said
+	# there was nobody of that name. A body that asks an act still names its account with
+	# `by_username`, because naming an account to act on it is not a read of it (decision `#4943`
+	# rule 2) and the act's own refusal is the answer; reading through `read` for every body
+	# turned the matrix's 403s for deactivating and transferring into 404s.
+	asks_an_act = (
+		body.responsible is not None
+		or body.is_active is not None
+		or "timezone" in body.model_fields_set
+	)
+	account = (
+		subroutine.domain.users.by_username(session, username)
+		if asks_an_act
+		else subroutine.domain.users.read(session, username, actor=actor)
+	)
 
 	if body.responsible is not None:
 		subroutine.domain.users.transfer(
