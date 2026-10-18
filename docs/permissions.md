@@ -171,6 +171,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | --- | --- | --- | --- |
 | Say where one keeps one's diary | - | - | - |
 | Mint a credential for oneself | - | - | A credential never mints a wider one. Never through the agent tools. |
+| Mint a sign-in link for oneself | - | - | Only a person signs in, and only with a credential that never expires. Never through the agent tools. |
 | Mint a calendar feed for oneself | - | the workspace | A credential never mints a wider one. Never through the agent tools. |
 | Make an account for a person | `instance:user_create` | the installation | Only a person makes a person. Never through the agent tools. |
 | Mint a credential for somebody else | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |

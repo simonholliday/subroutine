@@ -911,6 +911,9 @@ DRIVES: dict[str, Drive] = {
 	"issue own token": Drive(
 		lambda c, s: c.issue_token(title="Spare"),
 	),
+	"sign-in link for oneself": Drive(
+		lambda c, s: c.create_login_link(),
+	),
 	"create calendar": Drive(
 		lambda c, s: c.create_calendar(title="Diary", workspace=s.slug),
 	),

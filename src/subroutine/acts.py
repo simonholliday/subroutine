@@ -707,6 +707,14 @@ ACTS: tuple[Act, ...] = (
 			secret=True,
 		),
 		Act(
+			"sign-in link for oneself",
+			"Mint a sign-in link for oneself",
+			# Decision `#4527`, as `SR#5117` applies it: the session a link buys carries no bounds and,
+			# kept in use, no end. `SR#5127`: driven on its own, not only as one for somebody else.
+			rule="Only a person signs in, and only with a credential that never expires.",
+			secret=True,
+		),
+		Act(
 			"create calendar",
 			"Mint a calendar feed for oneself",
 			place=WORKSPACE,
