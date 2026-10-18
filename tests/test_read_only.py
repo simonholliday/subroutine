@@ -96,6 +96,65 @@ def test_saying_false_is_saying_nothing (world: test_api_tasks.World) -> None:
 	assert made.status_code == 201, made.text
 
 
+@pytest.mark.parametrize("order", [("true", "false"), ("false", "true")], ids=["true first", "false first"])
+def test_a_flag_sent_twice_is_read_only_if_either_says_so (
+	world: test_api_tasks.World, order: tuple[str, str]
+) -> None:
+	"""**Any true wins, so a repeated parameter can only narrow** - `SR#5131`, L-6 of the cold review
+	of 2026-10-17, where nothing sent it twice."""
+
+	refused = world.call(
+		"POST",
+		"/v1/tasks",
+		params=[("read_only", order[0]), ("read_only", order[1])],
+		json={"title": "Not written"},
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert refused.json()["detail"] == READ_ONLY
+	assert "Not written" not in _titles(world)
+
+
+def test_a_caller_s_query_cannot_switch_a_read_only_connection_s_flag_off () -> None:
+	"""`SR#5131`: ``call_api`` on a read-only connection still says so, whatever its query says.
+
+	httpx laid a request's parameters over the client's by replacing a key, so a query naming
+	``read_only=false`` sent that alone, and the instance took the write. Driven against a server
+	that records what arrived, from a release that holds the flag.
+	"""
+
+	sent: list[list[str]] = []
+
+	def current (request: httpx.Request) -> httpx.Response:
+		"""Answer as a release that holds the flag, recording what each write said of it."""
+
+		if request.url.path == "/v1/meta":
+			return httpx.Response(200, json={"workspaces": [], "instance_version": "0.10.0"})
+
+		sent.append(request.url.params.get_list("read_only"))
+
+		return httpx.Response(
+			403,
+			headers={"content-type": "application/problem+json"},
+			json={"type": "about:blank", "title": "Forbidden", "status": 403, "detail": READ_ONLY},
+		)
+
+	client = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://employer.example.com", read_only=True),
+		token="sr_not_a_real_one",
+		transport=httpx.MockTransport(current),
+		base_url="https://employer.example.com",
+	)
+
+	with client:
+		answered = client.call_api(
+			method="POST", path="/v1/tasks", body={"title": "No"}, query={"read_only": "false", "x": "1"}
+		)
+
+	assert answered.status == 403, answered.text
+	assert sent == [["true"]], f"the caller's query changed what the connection sent: {sent}"
+
+
 def test_a_value_that_says_neither_is_refused_by_name (world: test_api_tasks.World) -> None:
 	"""Neither true nor false is refused, rather than guessed at in either direction."""
 

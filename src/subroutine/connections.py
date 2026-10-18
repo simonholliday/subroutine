@@ -102,7 +102,8 @@ class Connection:
 	#: ``work`` on the command line.
 	display_name: str | None = None
 
-	#: Refuse writes to this connection, client-side. Pointing an agent at a company
+	#: Refuse writes on this connection: it says so with every request, and the instance refuses
+	#: that session everything but a read (decision `#4510`). Pointing an agent at a company
 	#: instance for context while forbidding it to write there is a reasonable posture and a
 	#: common one (§13.7).
 	read_only: bool = False

@@ -167,10 +167,14 @@ class Client:
 
 		verb = subroutine.clients.base.require_a_method(method)
 
+		# **The connection's flag is laid over the caller's query, never under it** (`SR#5131`, L-6
+		# of the cold review of 2026-10-17): httpx merges a request's parameters over the client's
+		# by replacing a key, so `read_only=false` in a query switched off what the connection
+		# sends with every request, and a read-only connection wrote.
 		answer = self._call(
 			verb,
 			subroutine.clients.base.require_a_route(path),
-			params=query,
+			params={**(query or {}), **(subroutine.clients.base.read_only_query(self.connection) or {})},
 			json=body,
 		)
 
