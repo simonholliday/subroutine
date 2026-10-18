@@ -738,7 +738,12 @@ def _member_by_name (
 	if found is not None:
 		return found
 
-	available = sorted(member.username for member in session.scalars(_members(workspace_id)))
+	# **Only those who can act there** (`SR#5104`): the hint never offers somebody who would be refused.
+	available = sorted(
+		one.username
+		for one in session.scalars(_members(workspace_id))
+		if subroutine.domain.accountability.can_act(session, one, workspace_id=workspace_id)
+	)
 
 	raise subroutine.errors.ValidationError(
 		f"There is nobody called {username!r} in this workspace.",

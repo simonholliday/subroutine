@@ -290,6 +290,11 @@ NOT_DECIDING: dict[str, str] = {
 		"Only an agent has somebody answering for it, so handing over a person is refused as a "
 		"request that means nothing. `#478`; the transfer's checks, asked before it too (`SR#5101`)."
 	),
+	"projects.py:member_who_sees": (
+		"Says *has left* of a person and *has stopped working here* of an agent, refusing to hand "
+		"work to one who cannot act (decision `#4509`, `SR#5104`): what the sentence says, never what "
+		"the actor may do."
+	),
 	"repair.py:_above": (
 		"Walks up from whoever holds a row on a private project to whoever sees through it "
 		"(decision `#4943`): who a last-one refusal counts, never what the actor may do."

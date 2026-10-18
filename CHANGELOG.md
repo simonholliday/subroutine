@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Work goes only to somebody who can act on it.** A task could be assigned, a document given a
+  maintainer and a project handed to a member who had left, or to an agent that had stopped
+  working there, and nobody could then act on it. Each is refused now, saying why. Work already
+  theirs stays theirs, and an edit that sends them back unchanged, as the browser does, still
+  saves.
 - **The last occurrence of a repeat filed where you cannot see it can be finished.** An assignee
   who could not see the project a repeat was filed in was told there was no such project when they
   finished or skipped its last occurrence, or stopped it. Finishing it now ends the repeat; stopping

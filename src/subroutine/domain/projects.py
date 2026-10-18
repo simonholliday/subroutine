@@ -319,6 +319,7 @@ def _made (
 			field="owner_id",
 			what="a project inside it cannot be handed to them",
 			actor=actor,
+			handed=False,
 		)
 
 	project = subroutine.db.models.project.Project(
@@ -661,7 +662,14 @@ def update (
 	# handing a project to somebody who could not see it.
 	new_owner: subroutine.db.models.identity.User | None = None
 
-	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
+	# **Only a change of owner is asked** (`SR#5104`), as a task's assignee and a document's maintainer
+	# are: the browser sends every field it shows, unchanged ones included, so asking a re-sent owner
+	# who has since left refused every save of the project.
+	if (
+		owner_id is not subroutine.domain.patch.UNSET
+		and owner_id is not None
+		and str(owner_id) != str(project.owner_id)
+	):
 		new_owner = member_who_sees(
 			session,
 			project.workspace_id,
@@ -1189,8 +1197,12 @@ def member_who_sees (
 	field: str,
 	what: str,
 	actor: subroutine.domain.authentication.Principal | None,
+	handed: bool = True,
 ) -> subroutine.db.models.identity.User:
 	"""Return the member work is handed to, refusing one who cannot see where it is - `SR#4571`.
+
+	``handed`` is false where nobody hands it to them - a project made for its maker - so whether
+	they can act there is not asked (`SR#5104`).
 
 	**Work is handed only to a member of the workspace who can see the project it is in** (decision
 	`#4509`, S14 of the cold review of 2026-10-05): a task's assignee, a document's maintainer and a
@@ -1206,6 +1218,28 @@ def member_who_sees (
 	"""
 
 	named = subroutine.domain.users.member(session, workspace_id, str(user_id), field=field)
+
+	# **And who can act there** (`SR#5104`, M-10 of the cold review of 2026-10-17, decision `#4509`):
+	# a member who had left, or an agent that had stopped, was handed a task, a document or a project
+	# nobody could then act on. Said in its own sentence, since they are a member: the lookup's own
+	# refusal would say there is nobody of that name. **Only where it is handed to them**: a project
+	# made for its own maker is not, nor the Inbox for whoever founds the workspace.
+	if handed and not subroutine.domain.accountability.can_act(
+		session, named, workspace_id=workspace_id
+	):
+		raise subroutine.errors.ValidationError(
+			f"{named.username} "
+			f"{'has stopped working here' if named.is_service_account else 'has left'}, so {what}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"{named.username} cannot act here.",
+					hint="Choose somebody who can act.",
+				)
+			],
+		)
+
 	blocking = None if within is None else hidden_by(session, within, named.id)
 
 	if blocking is None:
