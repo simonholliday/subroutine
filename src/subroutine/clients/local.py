@@ -2924,6 +2924,7 @@ class Client:
 				within=found,
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
 				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
+				readable=subroutine.domain.users.reached(session, actor, account),
 			)
 
 	def unshare_project (
@@ -2957,10 +2958,18 @@ class Client:
 			parents = subroutine.domain.accountability.account_parents_for_many(
 				session, [account for _row, account in rows]
 			)
+			readable = subroutine.domain.users.reached_among(
+				session, actor, [account.id for _row, account in rows]
+			)
 
 			return [
 				subroutine.views.project_member(
-					row, account=account, within=found, answers_to=answerable.get(account.id), account_parent=parents.get(account.id)
+					row,
+					account=account,
+					within=found,
+					answers_to=answerable.get(account.id),
+					account_parent=parents.get(account.id),
+					readable=account.id in readable,
 				)
 				for row, account in rows
 			]

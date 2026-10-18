@@ -29,6 +29,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A project's members listing names somebody you cannot read, and says nothing more.** It
+  gave every holder's whole account - whether they administer the installation, whether they are
+  active, when they last signed in - for somebody who had left every workspace you share too.
+  Such a holder is listed by id and username now, and an agent with who it answers to, so an
+  account's `is_service_account`, `is_superuser`, `is_active` and `created_at` may be null. A
+  client from an earlier release cannot read such a row.
 - **A sign-in link for an account you cannot read says nothing about it.** Asked for an agent
   outside your reach, the refusal said it was an agent. Whether you may act on other accounts is
   asked first there now; an administrator of accounts, who reads every account, still hears that

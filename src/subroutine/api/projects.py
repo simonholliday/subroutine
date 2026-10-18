@@ -376,6 +376,11 @@ def sharing (
 		session, [account for _row, account in rows]
 	)
 
+	# **A holder the reader cannot read is named and no more** (`SR#5103`, decision `#5097`).
+	readable = subroutine.domain.users.reached_among(
+		session, actor, [account.id for _row, account in rows]
+	)
+
 	return subroutine.api.shaping.response(
 		[
 			subroutine.views.project_member(
@@ -383,6 +388,7 @@ def sharing (
 				account=account,
 				within=project,
 				answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
+				readable=account.id in readable,
 			)
 			for row, account in rows
 		],
@@ -433,6 +439,7 @@ def admit (
 		within=project,
 		answers_to=subroutine.domain.accountability.answerable_name(session, account),
 		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
+		readable=subroutine.domain.users.reached(session, actor, account),
 	)
 
 

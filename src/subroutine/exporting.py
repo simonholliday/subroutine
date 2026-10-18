@@ -608,6 +608,7 @@ def _render_project_members (
 	parents = subroutine.domain.accountability.account_parents_for_many(
 		session, list(accounts.values())
 	)
+	readable = subroutine.domain.users.reached_among(session, reader, list(accounts))
 
 	return [
 		subroutine.views.project_member(
@@ -616,6 +617,7 @@ def _render_project_members (
 			within=projects[row.project_id],
 			answers_to=answerable.get(row.user_id),
 			account_parent=parents.get(row.user_id),
+			readable=row.user_id in readable,
 		)
 		for row in rows
 	]

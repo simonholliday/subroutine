@@ -6758,7 +6758,15 @@ def _project_sharing (program: Program, *, key: str, json_output: bool) -> None:
 		for one in people:
 			whose = ""
 
-			if one.user.is_service_account:
+			# **One out of reach has no kind**, and is an agent where it answers to somebody
+			# (`SR#5103`); a whole row's ``answers_to`` names a person too, who answers for themselves.
+			agent = (
+				one.user.answers_to is not None
+				if one.user.is_service_account is None
+				else one.user.is_service_account
+			)
+
+			if agent:
 				whose = (
 					"  (agent)"
 					if one.user.answers_to is None

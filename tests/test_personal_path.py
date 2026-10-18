@@ -14621,3 +14621,37 @@ def test_show_says_a_link_to_something_hidden_as_unseen_and_counts_what_it_sees 
 
 	assert "something you cannot see" in shown, shown
 	assert "(1 of 1 blockers done)" in shown, shown
+
+
+def test_the_sharing_list_names_an_agent_out_of_reach_by_its_person (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5103`: a holder the reader cannot read is named with no kind, so an agent is told apart
+	by who it answers to alone, and a person by nothing."""
+
+	run("init", "--username", "keanu", "--workspace", "Metacortex")
+	run("project", "create", "secret", "Secret", "--private")
+
+	def named (username: str, answers_to: str | None) -> subroutine.views.ProjectMember:
+		"""Return a holder as the instance reports one out of the reader's reach."""
+
+		return subroutine.views.ProjectMember(
+			user=subroutine.views.User(
+				id=uuid.uuid4(), username=username, display_name=None, is_service_account=None,
+				is_superuser=None, is_active=None, answers_to=answers_to, timezone=None,
+				created_at=None,
+			),
+			project="secret",
+			created_at=datetime.datetime.now(datetime.UTC),
+		)
+
+	monkeypatch.setattr(
+		subroutine.clients.local.Client,
+		"project_members",
+		lambda _self, _key, *, workspace=None: [named("hugo", None), named("mouse", "hugo")],
+	)
+
+	listed = run("project", "sharing", "secret").output.splitlines()
+
+	assert "  mouse  (agent, @hugo)" in listed, listed
+	assert "  hugo" in listed, listed

@@ -615,11 +615,25 @@ def reached (
 	``None`` is an internal caller, which reads every account (`SR#5103`).
 	"""
 
+	return account.id in reached_among(session, actor, [account.id])
+
+
+def reached_among (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	accounts: list[uuid.UUID],
+) -> set[uuid.UUID]:
+	"""Return which of these accounts this principal may read, in one statement - `SR#5103`."""
+
 	model = subroutine.db.models.identity.User
 
-	return session.scalar(
-		sqlalchemy.select(model.id).where(model.id == account.id, within_reach(session, actor, model))
-	) is not None
+	return set(
+		session.scalars(
+			sqlalchemy.select(model.id).where(
+				model.id.in_(accounts), within_reach(session, actor, model)
+			)
+		)
+	)
 
 
 def read (

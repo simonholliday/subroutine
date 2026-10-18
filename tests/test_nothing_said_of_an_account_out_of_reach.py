@@ -16,10 +16,16 @@ import pytest
 import sqlalchemy.orm
 
 import api_support
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.domain.authentication
+import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.views
 
 users = subroutine.domain.users
 workspaces = subroutine.domain.workspaces
@@ -241,3 +247,164 @@ def test_a_caller_who_reads_the_account_still_hears_it_is_an_agent (
 
 	assert status == 403, said
 	assert str(said.get("detail")).startswith(f"{here.claude.username!r} is an agent"), said
+
+
+#: What a holder out of the reader's reach is reported with: which account, and an agent's person.
+NAMED = {"id", "username", "answers_to"}
+
+
+def _vault (here: Installation) -> tuple[subroutine.db.models.project.Project, User, User]:
+	"""Share MetaCortex's private vault with carrieanne, claude, hugo and mouse, then remove two.
+
+	hugo and mouse, an agent answering to him, are taken out of MetaCortex, the only workspace they
+	share with carrieanne, and keep their shares: what a steward removes when the owner has gone.
+	"""
+
+	session = here.session
+	hugo = here._person("hugo")
+	mouse = here._agent("mouse", hugo)
+
+	for member in (hugo, mouse):
+		workspaces.add_member(session, here.metacortex, member, role_key="member")
+
+	vault = subroutine.domain.projects.create(
+		session,
+		workspace_id=here.metacortex.id,
+		key=f"vault{here.suffix}",
+		title="The vault",
+		visibility="private",
+		owner_id=here.keanu.id,
+	)
+
+	for holder in (here.carrieanne, here.claude, hugo, mouse):
+		subroutine.domain.projects.share(session, vault, holder)
+
+	session.flush()
+
+	for leaving in (mouse, hugo):
+		workspaces.remove_member(session, here.metacortex, leaving)
+
+	session.flush()
+
+	return vault, hugo, mouse
+
+
+@pytest.mark.parametrize(
+	"narrowing",
+	[{}, {"read_only": True}, {"pinned": True}],
+	ids=["plain", "read-only", "pinned to the workspace"],
+)
+def test_a_project_member_out_of_reach_is_named_and_no_more (
+	session: sqlalchemy.orm.Session, narrowing: dict[str, bool]
+) -> None:
+	"""carrieanne reads hugo and mouse by id and username, mouse with his person, and nothing else.
+
+	**The listing gave each holder's whole account** - who administers the installation, who is
+	active, when they last signed in - for holders who had left every workspace the reader shares.
+	keanu and claude, within her reach, keep the whole row.
+	"""
+
+	here = Installation(session)
+	vault, hugo, mouse = _vault(here)
+	application = api_support.build_app(api_support.factory_for(session))
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=here.carrieanne,
+		title=f"carrieanne's {uuid.uuid4().hex[:6]}",
+		workspace_id=here.metacortex.id if narrowing.get("pinned") else None,
+	)
+	session.flush()
+	answer = api_support.call(
+		application,
+		"GET",
+		f"/v1/projects/{vault.key}/members",
+		headers={"Authorization": f"Bearer {issued.value.get_secret_value()}"},
+		params={"workspace_id": here.metacortex.slug}
+		| ({"read_only": "true"} if narrowing.get("read_only") else {}),
+	)
+
+	assert answer.status_code == 200, answer.text
+
+	listed = {row["user"]["username"]: row["user"] for row in answer.json()["items"]}
+
+	assert set(listed) == {
+		here.keanu.username, here.carrieanne.username, here.claude.username, hugo.username,
+		mouse.username,
+	}, listed
+
+	for gone, person in ((hugo, None), (mouse, hugo.username)):
+		said = listed[gone.username]
+
+		assert said["id"] == str(gone.id), said
+		assert said["answers_to"] == person, said
+		assert {name for name, value in said.items() if value is not None} <= NAMED, said
+
+	for kept in (here.keanu, here.claude):
+		said = listed[kept.username]
+
+		assert (said["is_active"], said["is_superuser"], said["created_at"] is not None) == (
+			True, False, True
+		), said
+
+	assert listed[here.claude.username]["is_service_account"] is True, listed
+
+
+def test_the_terminal_reads_the_same_names_through_its_own_client (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""carrieanne's terminal, on the database itself, names hugo and mouse as the route does."""
+
+	here = Installation(session)
+	vault, hugo, mouse = _vault(here)
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, local_user=here.carrieanne.username),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		listed = {
+			one.user.username: one.user.model_dump(mode="json")
+			for one in client.project_members(vault.key, workspace=here.metacortex.slug)
+		}
+
+	assert {name for name, value in listed[hugo.username].items() if value is not None} == {
+		"id", "username"
+	}, listed
+	assert listed[mouse.username]["answers_to"] == hugo.username, listed
+	assert listed[here.keanu.username]["is_active"] is True, listed
+
+
+def test_a_compact_line_names_an_agent_out_of_reach_by_its_person (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A compact line says mouse is an agent, from who he answers to, and says no kind of hugo."""
+
+	here = Installation(session)
+	_vault_row, hugo, mouse = _vault(here)
+	named = {
+		gone.username: subroutine.views.user_beyond_reach(
+			gone, answers_to=hugo.username if gone is mouse else None
+		)
+		for gone in (hugo, mouse)
+	}
+
+	def kind (account: User) -> str:
+		"""Return the kind cell a compact line of this holder prints."""
+
+		return subroutine.views.ProjectMember(
+			user=named[account.username], project="vault", created_at=account.created_at
+		).columns(None)[1]
+
+	assert (kind(hugo), kind(mouse)) == ("", "agent")
+
+	# A whole row's person answers for themselves, which says nothing of being an agent.
+	whole = subroutine.views.ProjectMember(
+		user=subroutine.views.user(
+			here.keanu, answers_to=here.keanu.username, account_parent=None
+		),
+		project="vault",
+		created_at=here.keanu.created_at,
+	)
+
+	assert whole.columns(None)[1] == "person", whole

@@ -2012,9 +2012,13 @@ class User(pydantic.BaseModel):
 	id: uuid.UUID
 	username: str
 	display_name: str | None
-	is_service_account: bool
-	is_superuser: bool
-	is_active: bool
+
+	#: **Null, with every field below but ``answers_to``, on an account the reader cannot read**
+	#: (`SR#5103`, decision `#5097`): a project's members listing names such a holder by id and
+	#: username, and an agent with who it answers to, which section 7.3a always shows.
+	is_service_account: bool | None
+	is_superuser: bool | None
+	is_active: bool | None
 
 	#: Who answers for this agent (decision `#473`). Null on a person, who answers for
 	#: themselves. **Null on a service account means nobody does**, which is a state the
@@ -2047,7 +2051,7 @@ class User(pydantic.BaseModel):
 	#: (§12.3). It is not a missing value to be helpfully defaulted.
 	timezone: str | None
 
-	created_at: datetime.datetime
+	created_at: datetime.datetime | None
 
 	#: When this account last **signed in** — a login link redeemed into a browser session
 	#: (`#526`). Null means never, which on a service account is the ordinary state: an agent
@@ -2745,11 +2749,16 @@ class ProjectMember(pydantic.BaseModel):
 	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return one shared-in person as the cells of one compact line."""
 
-		return (
-			self.user.username,
-			"agent" if self.user.is_service_account else "person",
-			self.user.display_name or "",
-		)
+		# **A holder out of the reader's reach states no kind** (`SR#5103`): an agent's is said by
+		# who it answers to, and a person's by nothing. A whole row's ``answers_to`` says nothing of
+		# its kind, since a person answers for themselves.
+		if self.user.is_service_account is None:
+			kind = "" if self.user.answers_to is None else "agent"
+
+		else:
+			kind = "agent" if self.user.is_service_account else "person"
+
+		return (self.user.username, kind, self.user.display_name or "")
 
 
 class Project(pydantic.BaseModel):
@@ -5575,6 +5584,30 @@ def user (
 	)
 
 
+def user_beyond_reach (
+	row: subroutine.db.models.identity.User, *, answers_to: str | None
+) -> User:
+	"""Render an account its reader cannot read: which account, and an agent's person - `SR#5103`.
+
+	**Named and no more** (decision `#5097`, "Who a project is shared with, past the reader's
+	reach"): its standing, its kind and its chain past the person are what decision `#4943`'s rule
+	2 withholds. Who an agent answers to is kept, which section 7.3a always shows of a project
+	shared with an agent. The one renderer for every answer naming such an account.
+	"""
+
+	return User(
+		id=row.id,
+		username=row.username,
+		display_name=None,
+		is_service_account=None,
+		is_superuser=None,
+		is_active=None,
+		answers_to=answers_to if row.is_service_account else None,
+		timezone=None,
+		created_at=None,
+	)
+
+
 def me (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
@@ -6903,10 +6936,13 @@ def project_member (
 	within: subroutine.db.models.project.Project,
 	answers_to: str | None,
 	account_parent: str | None,
+	readable: bool,
 ) -> ProjectMember:
 	"""Render one shared-in person, with the account and the project already resolved.
 
-	Handed the rows rather than fetching them, for the reason :func:`member` gives.
+	Handed the rows rather than fetching them, for the reason :func:`member` gives. ``readable``
+	says whether the reader may read the account, and is required for ``answers_to``'s reason: a
+	caller that had not asked would show the whole row of somebody out of reach (`SR#5103`).
 
 	The project is reported as its **key**, which is the address somebody types, rather than
 	as a ref object: this is only ever read from a route that already names the project, so a
@@ -6914,7 +6950,11 @@ def project_member (
 	"""
 
 	return ProjectMember(
-		user=user(account, answers_to=answers_to, account_parent=account_parent),
+		user=(
+			user(account, answers_to=answers_to, account_parent=account_parent)
+			if readable
+			else user_beyond_reach(account, answers_to=answers_to)
+		),
 		project=within.key,
 		project_id=within.id,
 		created_at=row.created_at,
