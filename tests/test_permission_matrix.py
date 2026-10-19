@@ -482,7 +482,11 @@ class Act:
 		somebody's own thing, everybody but them (`SR#4563`).
 		"""
 
-		return self.described.never_through_the_agent_tools() or (
+		# **An act the account's chain may take is beyond them for anybody else** (`SR#5123`): the
+		# administrator's verb is above them. The cast drives each on tank, whom nobody here answers
+		# for, so it is beyond them for every principal; `#5124` adds one who does.
+		return self.described.above_the_agent_tools() or (
+			# **Or whoever they answer to** (`SR#5183`), who is nobody here: each owner is a person.
 			self.theirs is not None and who.person != self.theirs
 		)
 
@@ -553,6 +557,7 @@ CAST_PLACES: dict[str | None, str | None] = {
 	subroutine.acts.WORKSPACE: "metacortex",
 	subroutine.acts.PROJECT: "web",
 	subroutine.acts.PRIVATE_PROJECT: "vault",
+	subroutine.acts.ACCOUNT: "account",
 }
 
 #: Acts driven on the cast's other project, which the credentials narrowed to it may act on.
@@ -1067,6 +1072,10 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.PROJECT_READ, "metacortex"): _ROLES | _OPS,
 	(P.PROJECT_WRITE, "metacortex"): _ROLES - {"contributor", "viewer"},
 	(P.TASK_READ, "metacortex"): _ROLES | _READING | _OPS,
+	(P.TASK_WRITE, "metacortex"): _ROLES - {"viewer"} | {"scoped to filing tasks"},
+	# **One's own account** (`SR#5123`, decision `#4527`): the role and the credential's permissions
+	# are asked, and not its places, so a credential narrowed to another project saves its views.
+	(P.TASK_WRITE, "account"): _ROLES - {"viewer"} | {"scoped to filing tasks"} | _OPS,
 	(P.PROJECT_READ, "web"): _ROLES | {"writing only in another project"},
 	(P.PROJECT_WRITE, "web"): _ROLES - {"contributor", "viewer"},
 	(P.TASK_READ, "web"): _ROLES | _READING | {"writing only in another project"},
@@ -1510,6 +1519,15 @@ def _decided (
 
 	if place == "instance":
 		return subroutine.domain.authorization.may_instance(principal, verb, reading=reading)
+
+	# **One's own account is asked in the workspace the act is in**, without the place test, as
+	# saving a view asks it (`SR#5123`).
+	if place == "account":
+		workspace_id, _project = cast.places["metacortex"]
+
+		return subroutine.domain.authorization.refusal(
+			cast.session, principal, verb, workspace_id=workspace_id, own_account=True
+		) is None
 
 	workspace_id, project = cast.places[place]
 

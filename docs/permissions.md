@@ -7,12 +7,12 @@ those answer to, whatever their role. [Section 7 of the
 design](design.md#7-identity-authentication-and-authorisation) sets out the whole model.
 
 **How to read a row.** *Asks* is what the permission check is asked, and *On* is where: the
-installation, the workspace, or the project the act lands in. An act asking no permission is
-answered without one, and one on the workspace still needs somebody who can reach it. *Also*
-is a rule of the act's own that can refuse what its permissions allow, and whether the agent
-tools can do it: a session through them is never handed a credential, a sign-in link or a
-calendar feed, and never holds a permission over the installation, `workspace:admin` or
-`workspace:delete`.
+installation, the workspace, the project the act lands in, or one's own account, which every
+credential reaches. An act asking no permission is answered without one, and one on the
+workspace still needs somebody who can reach it. *Also* is a rule of the act's own that can
+refuse what its permissions allow, and whether the agent tools can do it: a session through
+them is never handed a credential, a sign-in link or a calendar feed, and never holds a
+permission over the installation, `workspace:admin` or `workspace:delete`.
 
 **A listing holds only what its asker can see.** Reading the work of a workspace asks
 `task:read` once, and the work of a private project is still left out for anybody who cannot
@@ -111,7 +111,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Link a task to one in a private project | `task:read`, `task:write` | a project | Both ends must be work the asker can see. |
 | Withdraw a link | `task:read`, `task:write` | a project | - |
 | Comment on a task | `task:read`, `comment:write` | a project | - |
-| Delete a comment its author wrote | `task:read`, `comment:read`, `comment:write` | a project | A comment is deleted by its author or by an administrator. Through the agent tools, only on one's own. |
+| Delete a comment its author wrote | `task:read`, `comment:read`, `comment:write` | a project | A comment is deleted by its author, whoever they answer to, or an administrator. Through the agent tools, never as an administrator. |
 | Rewrite a comment | `task:read`, `comment:read`, `comment:write` | a project | Only the person who wrote a comment rewrites it. |
 | Write a document | `task:write` | a project | - |
 | Revise a document | `task:read`, `task:write` | a project | - |
@@ -130,10 +130,10 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Rename a tag | `tag:write` | the workspace | - |
 | Remove a tag | `tag:write` | the workspace | - |
 | Rename a tag used only on private work | `tag:write` | the workspace | A tag the asker cannot see is not there to rename. |
-| Save a view | - | the workspace | - |
-| Change somebody else's shared view | - | the workspace | A saved view is changed by whoever saved it. |
-| Forget somebody else's shared view | - | the workspace | A saved view is forgotten by whoever saved it. Through the agent tools, only on one's own. |
-| Take somebody else's shared view from in front of the workspace | - | the workspace | A shared view is managed by whoever saved it, or an administrator. Through the agent tools, only on one's own. |
+| Save a view | `task:write` | one's own account | - |
+| Change somebody else's shared view | `task:write` | the workspace | A saved view is changed by whoever saved it. |
+| Forget somebody else's shared view | `task:write` | the workspace | A saved view is forgotten by whoever saved it, whoever they answer to, or an administrator where it is shared. Through the agent tools, never as an administrator. |
+| Take somebody else's shared view from in front of the workspace | `task:write` | the workspace | A shared view is managed by whoever saved it, whoever they answer to, or an administrator. Through the agent tools, never as an administrator. |
 
 ## Projects
 
@@ -143,11 +143,11 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Retitle a project | `project:write` | a project | - |
 | Change a project's key | `project:write` | a project | - |
 | Put a project inside another | `project:write` | a project | The new parent is written into, so it is within reach too. |
-| Make a private project public | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, only on one's own. |
-| Share a private project with one more person | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, only on one's own. |
+| Make a private project public | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, never as an administrator. |
+| Share a private project with one more person | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, never as an administrator. |
 | Take a private project away from somebody | `project:write` | a private project | Whoever stewards a private project decides who sees it. |
-| Make a public project private | `project:write` | a project | Whoever stewards a project decides who sees it. Through the agent tools, only on one's own. |
-| Move a task out of a public project into a private one | `task:read`, `task:write` | a private project | Work leaves the sight of who can see it only by its project's steward. Through the agent tools, only on one's own. |
+| Make a public project private | `project:write` | a project | Whoever stewards a project decides who sees it. Through the agent tools, never as an administrator. |
+| Move a task out of a public project into a private one | `task:read`, `task:write` | a private project | Work leaves the sight of who can see it only by its project's steward. Through the agent tools, never as an administrator. |
 | Put a project in the trash | `project:delete` | a project | - |
 | Take a project out of the trash | `project:delete` | a project | - |
 
@@ -174,14 +174,14 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Mint a sign-in link for oneself | - | - | Only a person signs in, and only with a credential that never expires. Never through the agent tools. |
 | Mint a calendar feed for oneself | - | the workspace | A credential never mints a wider one. Never through the agent tools. |
 | Make an account for a person | `instance:user_create` | the installation | Only a person makes a person. Never through the agent tools. |
-| Mint a credential for somebody else | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
-| Mint a sign-in link for somebody else | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
-| Sign another person out everywhere | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
-| Revoke another person's credential | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
+| Mint a credential for somebody else | `instance:user_create` | the installation | Only an administrator of accounts does this for another account. Never through the agent tools. |
+| Mint a sign-in link for somebody else | `instance:user_create` | the installation | Only an administrator of accounts does this for another account. Never through the agent tools. |
+| Sign another person out everywhere | `instance:user_create` | the installation | An administrator of accounts does this, or whoever the account answers to. Through the agent tools, never as an administrator. |
+| Revoke another person's credential | `instance:user_create` | the installation | An administrator of accounts does this, or whoever the account answers to. Through the agent tools, never as an administrator. |
 | Reset another person's calendar feed | - | - | Only its owner resets a feed. Never through the agent tools. |
-| Revoke another person's calendar feed | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
-| Mark somebody as having left | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
-| Hand somebody's agent to another person | `instance:user_create` | the installation | A person administers another account, or that account's own chain does. Never through the agent tools. |
+| Revoke another person's calendar feed | `instance:user_create` | the installation | An administrator of accounts does this, or whoever the account answers to. Through the agent tools, never as an administrator. |
+| Mark somebody as having left | `instance:user_create` | the installation | An administrator of accounts does this, or whoever the account answers to. Through the agent tools, never as an administrator. |
+| Hand somebody's agent to another person | `instance:user_create` | the installation | Only an administrator of accounts does this for another account. Never through the agent tools. |
 | Rename the installation | `instance:admin` | the installation | Never through the agent tools. |
 | Take a backup of the installation | `instance:admin` | the installation | Never through the agent tools. |
 

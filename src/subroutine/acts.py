@@ -25,6 +25,10 @@ INSTALLATION = "the installation"
 WORKSPACE = "the workspace"
 PROJECT = "a project"
 PRIVATE_PROJECT = "a private project"
+#: **The asker's own account**, where an act lands that changes nothing anybody else sees, such as
+#: saving a view (decision `#4527`): every credential reaches it, so its permission is asked of the
+#: role, the credential and the session, and not of a place (`SR#5123`).
+ACCOUNT = "one's own account"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,8 +42,11 @@ class Act:
 
 	``secret`` says the answer is a credential, a sign-in link or a calendar feed, which no session
 	through the agent tools is handed (decision `#4520`). ``own`` says the act is on somebody's own
-	thing, which anybody else needs ``workspace:admin`` for - a verb the agent tools never hold
-	(`SR#4563`).
+	thing, which anybody but its owner and whoever they answer to needs ``workspace:admin`` for -
+	a verb the agent tools never hold (`SR#4563`, `SR#5183`). ``chain`` says whoever the account
+	acted on answers to may do it too, through every door, the agent tools included (decision
+	`#4516`, kept in `#5097`): the installation's verb it asks is an administrator's path, and not
+	the only one (`SR#5123`).
 	"""
 
 	key: str
@@ -50,10 +57,11 @@ class Act:
 	rule: str | None = None
 	secret: bool = False
 	own: bool = False
+	chain: bool = False
 	group: str = ""
 
-	def never_through_the_agent_tools (self) -> bool:
-		"""Say whether the agent tools refuse this act to everybody, whatever they hold.
+	def above_the_agent_tools (self) -> bool:
+		"""Say whether the agent tools refuse this act to whoever has nothing but what it asks.
 
 		Decision `#4520`: a session through ``/mcp`` or ``subroutine mcp`` is handed no secret,
 		holds no instance verb, and holds neither ``workspace:admin`` nor ``workspace:delete``.
@@ -65,6 +73,16 @@ class Act:
 			for verb in self.verbs
 		)
 
+	def never_through_the_agent_tools (self) -> bool:
+		"""Say whether the agent tools refuse this act to everybody, whatever they hold.
+
+		**Not an act an account's chain may take** (`SR#5123`, M-21 of the cold review of
+		2026-10-17): the chain asks none of its verbs, so the page said *never* of stopping an agent
+		its person may stop through the agent tools.
+		"""
+
+		return self.above_the_agent_tools() and not self.chain
+
 
 def _in (group: str, *acts: Act) -> tuple[Act, ...]:
 	"""Return these acts, filed under one heading of the page."""
@@ -72,8 +90,15 @@ def _in (group: str, *acts: Act) -> tuple[Act, ...]:
 	return tuple(dataclasses.replace(act, group=group) for act in acts)
 
 
-#: Somebody else's account, named by every act on one (decision `#4525`).
-SOMEBODY = "A person administers another account, or that account's own chain does."
+#: **Stopping another account**: revoking its credentials and feeds, signing it out and marking it
+#: as having left, which whoever it answers to may do as well as an administrator (decision `#4516`,
+#: kept in `#5097`). Stopping only removes, so it takes nothing from anybody else.
+STOPPING_SOMEBODY = "An administrator of accounts does this, or whoever the account answers to."
+
+#: **Starting anything for another account**: issuing it a credential, minting it a sign-in link and
+#: handing it over, which stay with the administrator of accounts (decision `#4524`). The page said
+#: the account's chain could, which the code has never let it (`SR#5123`).
+STARTING_FOR_SOMEBODY = "Only an administrator of accounts does this for another account."
 
 #: Every act, in the order the page lists them.
 ACTS: tuple[Act, ...] = (
@@ -444,7 +469,7 @@ ACTS: tuple[Act, ...] = (
 				subroutine.permissions.COMMENT_WRITE,
 			),
 			place=PROJECT,
-			rule="A comment is deleted by its author or by an administrator.",
+			rule="A comment is deleted by its author, whoever they answer to, or an administrator.",
 			own=True,
 		),
 		Act(
@@ -530,26 +555,41 @@ ACTS: tuple[Act, ...] = (
 			place=WORKSPACE,
 			rule="A tag the asker cannot see is not there to rename.",
 		),
-		Act("save view", "Save a view", place=WORKSPACE),
+		# **Each asks ``task:write``** (`SR#5123`), as the view acts do, so a viewer saves none and
+		# keeps none: one the asker keeps to themselves lands on their own account, and one in front
+		# of the workspace on the workspace (`#4558`).
+		Act(
+			"save view",
+			"Save a view",
+			verbs=(subroutine.permissions.TASK_WRITE,),
+			place=ACCOUNT,
+		),
 		Act(
 			"update saved view",
 			"Change somebody else's shared view",
+			verbs=(subroutine.permissions.TASK_WRITE,),
 			place=WORKSPACE,
 			rule="A saved view is changed by whoever saved it.",
 		),
 		Act(
 			"forget saved view",
 			"Forget somebody else's shared view",
+			verbs=(subroutine.permissions.TASK_WRITE,),
 			place=WORKSPACE,
-			rule="A saved view is forgotten by whoever saved it.",
+			# Decision `#4525`: an owned thing is managed by its owner, their chain and the place's
+			# administrator, who sees a view only once it is shared.
+			rule="A saved view is forgotten by whoever saved it, whoever they answer to, or an "
+			"administrator where it is shared.",
 			own=True,
 		),
 		Act(
 			"stop sharing a view",
 			"Take somebody else's shared view from in front of the workspace",
+			verbs=(subroutine.permissions.TASK_WRITE,),
 			place=WORKSPACE,
 			# Decision `#4525`.
-			rule="A shared view is managed by whoever saved it, or an administrator.",
+			rule="A shared view is managed by whoever saved it, whoever they answer to, or an "
+			"administrator.",
 			own=True,
 		),
 	),
@@ -735,7 +775,7 @@ ACTS: tuple[Act, ...] = (
 			"Mint a credential for somebody else",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STARTING_FOR_SOMEBODY,
 			secret=True,
 		),
 		Act(
@@ -743,7 +783,7 @@ ACTS: tuple[Act, ...] = (
 			"Mint a sign-in link for somebody else",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STARTING_FOR_SOMEBODY,
 			secret=True,
 		),
 		Act(
@@ -751,14 +791,16 @@ ACTS: tuple[Act, ...] = (
 			"Sign another person out everywhere",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STOPPING_SOMEBODY,
+			chain=True,
 		),
 		Act(
 			"revoke somebody's token",
 			"Revoke another person's credential",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STOPPING_SOMEBODY,
+			chain=True,
 		),
 		Act(
 			"reset somebody's feed",
@@ -772,21 +814,23 @@ ACTS: tuple[Act, ...] = (
 			"Revoke another person's calendar feed",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STOPPING_SOMEBODY,
+			chain=True,
 		),
 		Act(
 			"deactivate somebody",
 			"Mark somebody as having left",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STOPPING_SOMEBODY,
+			chain=True,
 		),
 		Act(
 			"transfer an agent",
 			"Hand somebody's agent to another person",
 			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
 			place=INSTALLATION,
-			rule=SOMEBODY,
+			rule=STARTING_FOR_SOMEBODY,
 		),
 		Act(
 			"update instance",
@@ -812,8 +856,11 @@ def _also (act: Act) -> str:
 	if act.never_through_the_agent_tools():
 		said.append("Never through the agent tools.")
 
-	elif act.own:
-		said.append("Through the agent tools, only on one's own.")
+	elif act.own or act.chain:
+		# **Everybody's part but an administrator's** (`SR#5123`, `SR#5183`): the owner, whoever they
+		# answer to and a project's stand-in ask nothing of the door, and an administrator's verb is
+		# above it. *Only on one's own* left out the chain and the stand-in.
+		said.append("Through the agent tools, never as an administrator.")
 
 	return " ".join(said) or "-"
 
@@ -829,7 +876,8 @@ INTRODUCTION = (
 	),
 	(
 		"**How to read a row.** *Asks* is what the permission check is asked, and *On* is where: "
-		"the installation, the workspace, or the project the act lands in. An act asking no "
+		"the installation, the workspace, the project the act lands in, or one's own account, "
+		"which every credential reaches. An act asking no "
 		"permission is answered without one, and one on the workspace still needs somebody who "
 		"can reach it. *Also* is a rule of the act's own that can refuse what its permissions "
 		"allow, and whether the agent tools can do it: a session through them is never handed a "
