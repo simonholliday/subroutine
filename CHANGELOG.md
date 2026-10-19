@@ -29,6 +29,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A credential that may not read comments learns nothing from them.** It was refused a
+  task's comments, and still found the task through a document's backlinks, its proposed links
+  and `touched_by`, each of which read a comment. They leave comments out for it now.
 - **`agent create` refuses the `colleague` profile.** It means a second person in one
   workspace, and `token create` pins it there; `agent create` did not, so the agent it made could
   reach everything its owner could. For an agent, `worker`, `collaborator` or `observer` says what

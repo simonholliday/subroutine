@@ -273,7 +273,12 @@ def backlinks (
 			)
 		]
 
-		# **A comment on it**, which resolves to the same item by a different route.
+		# **A comment on it**, which resolves to the same item by a different route - **and only for a
+		# credential that may read comments** (`SR#5121`, M-9 of the cold review of 2026-10-17): the
+		# comment is refused it everywhere else, and a backlink *via a comment* says what one named.
+		if not subroutine.domain.scoping.reads(principal, "comment"):
+			continue
+
 		found += [
 			Referring(
 				kind=kind, ref=row.ref, title=row.title, via="comment", at=row.created_at

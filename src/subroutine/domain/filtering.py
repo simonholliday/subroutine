@@ -2118,15 +2118,14 @@ def _touched (comparisons: list[Comparison], where: Where) -> typing.Any:
 
 	**The workspace clause is here for the index and not for visibility, and that is worth
 	saying plainly** because decision `#817` says to join through
-	:func:`subroutine.domain.scoping.visible_events` and this does not. That was written before
-	the code existed, and building it showed the join narrows nothing: this subquery correlates
+	:func:`subroutine.domain.scoping.visible_events` and this does not. This subquery correlates
 	on the outer row's **own identity**, the outer statement is already narrowed by
-	``readable_tasks``, and §5.11a makes an event exactly as visible as the entity it describes
-	— so every event it can match belongs to an item the reader may already read. Measured
-	rather than argued: removing it failed no test in ``test_isolation``, ``test_scoping``,
-	``test_multi_user`` or ``test_events_scoping``, which is what a control that does nothing
-	looks like. What it *would* have cost is real — several correlated ``EXISTS`` clauses
-	evaluated once per candidate row.
+	``readable_tasks``, and §5.11a makes an event exactly as visible as the entity it describes,
+	so an event it can match belongs to an item the reader may already read - **bar a comment's**,
+	which takes ``comment:read`` since `#4553`. That one clause of ``visible_events`` is asked here
+	(`SR#5121`, M-9 of the cold review of 2026-10-17): without it a credential refused a task's
+	comments found the task by who commented on it, and when. The rest of the join still narrows
+	nothing, and would cost several correlated ``EXISTS`` clauses evaluated once per candidate row.
 
 	``workspace_id`` stays because ``ix_event_workspace_id_created_at`` leads on it. Measured on
 	SQLite's planner, 2026-08-11: *SEARCH event USING INDEX ix_event_workspace_id_created_at
@@ -2167,6 +2166,11 @@ def _touched (comparisons: list[Comparison], where: Where) -> typing.Any:
 
 		if where.workspace_ids:
 			narrowing.append(event.workspace_id.in_(list(where.workspace_ids)))
+
+		if where.principal is not None and not subroutine.domain.scoping.reads(
+			where.principal, "comment"
+		):
+			narrowing.append(event.entity_type != "comment")
 
 		narrowing.extend(event.actor_user_id == actor for actor in actors)
 		narrowing.extend(

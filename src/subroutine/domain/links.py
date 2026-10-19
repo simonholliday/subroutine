@@ -1591,8 +1591,12 @@ def _citations (
 	workspace_id: uuid.UUID,
 	entity_type: str,
 	identifier: uuid.UUID,
+	comments: bool,
 ) -> dict[tuple[str, uuid.UUID], tuple[str, bool]]:
 	"""Return everything this item's prose names or is named by, and how.
+
+	``comments`` says whether a comment's words count, which they do only for a reader who may read
+	comments (`SR#5121`): one who may not was offered a proposal from a comment alone.
 
 	Keyed by the other end, valued by the direction of the citation and whether it was
 	written in a comment rather than in the item itself. **The nearest evidence wins**: an
@@ -1651,6 +1655,9 @@ def _citations (
 			"target",
 		),
 	):
+		if in_a_comment and not comments:
+			continue
+
 		rows = session.scalars(
 			sqlalchemy.select(mention).where(mention.workspace_id == workspace_id, clause)
 		).all()
@@ -1716,7 +1723,11 @@ def proposals (
 	"""
 
 	cited = _citations(
-		session, workspace_id=workspace_id, entity_type=entity_type, identifier=identifier
+		session,
+		workspace_id=workspace_id,
+		entity_type=entity_type,
+		identifier=identifier,
+		comments=subroutine.domain.scoping.reads(principal, "comment"),
 	)
 
 	if not cited:
