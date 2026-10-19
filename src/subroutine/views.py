@@ -4344,8 +4344,12 @@ def journal_entry (
 	unseen: typing.Mapping[uuid.UUID, str],
 	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
 	bodies: dict[uuid.UUID, subroutine.domain.journal.Said] | None = None,
+	zones: typing.Mapping[uuid.UUID, str] | None = None,
 ) -> JournalEntry:
 	"""Render one thing that happened — `#1430`, decision `#1429`.
+
+	``zones`` is :func:`subroutine.domain.events.zones_then`: the zone a row's dates were written
+	in, where the item's has moved since (`SR#5138`).
 
 	Three joins the audit log deliberately does not carry: what a comment said, who the actor
 	was, and what the values inside ``changes`` mean. **All three arrive as batches** loaded
@@ -4373,6 +4377,7 @@ def journal_entry (
 	if about is not None and about.type_id is not None:
 		kind = vocabulary.types.get(about.type_id)
 
+	written_in = None if zones is None else zones.get(row.id)
 	changed = []
 
 	# **The other end of a link the reader cannot see, said as unseen** (`SR#4575`), and required,
@@ -4410,9 +4415,11 @@ def journal_entry (
 				Change(
 					field=field,
 					before=_moved_in_words(
-						field, moved, "from", vocabulary=vocabulary, about=about
+						field, moved, "from", vocabulary=vocabulary, about=about, written_in=written_in
 					),
-					after=_moved_in_words(field, moved, "to", vocabulary=vocabulary, about=about),
+					after=_moved_in_words(
+						field, moved, "to", vocabulary=vocabulary, about=about, written_in=written_in
+					),
 					**shape,
 				)
 			)
@@ -4529,9 +4536,12 @@ def journal_entries (
 	)
 
 	unseen = subroutine.domain.events.unseen_ends(session, principal, rows)
+	zones = subroutine.domain.events.zones_then(session, rows, dated=_DATED)
 
 	return [
-		journal_entry(row, vocabulary=vocabulary, unseen=unseen, described=described, bodies=bodies)
+		journal_entry(
+			row, vocabulary=vocabulary, unseen=unseen, described=described, bodies=bodies, zones=zones
+		)
 		for row in rows
 	]
 
@@ -5197,11 +5207,13 @@ def _moved_in_words (
 	*,
 	vocabulary: Vocabulary,
 	about: subroutine.domain.events.Described | None,
+	written_in: str | None = None,
 ) -> str | None:
 	"""Return one side of one change as words, or ``None`` where it is empty — decision `#2823`.
 
 	``moved`` is the whole change, because a date is written by the flag that moved beside it
-	and a repeat's rule by the anchor that did. ``side`` is ``"from"`` or ``"to"``.
+	and a repeat's rule by the anchor that did. ``side`` is ``"from"`` or ``"to"``. ``written_in``
+	is the zone the change was made in where the item's has moved since (`SR#5138`).
 	"""
 
 	value = moved[field].get(side)
@@ -5215,7 +5227,7 @@ def _moved_in_words (
 		return subroutine.domain.scoping.UNSEEN
 
 	if field in _DATED:
-		return _dated_in_words(field, value, moved, side, about=about)
+		return _dated_in_words(field, value, moved, side, about=about, written_in=written_in)
 
 	if field in _DURATIONS:
 		try:
@@ -5268,6 +5280,7 @@ def _dated_in_words (
 	side: str,
 	*,
 	about: subroutine.domain.events.Described | None,
+	written_in: str | None = None,
 ) -> str:
 	"""Return a dated side as ``2026-09-18`` or ``2026-09-18T17:00``, in the item's own zone.
 
@@ -5277,7 +5290,9 @@ def _dated_in_words (
 	every one of them timed.
 
 	**In the item's zone**, like every date this product writes (decision `#1088`): converting to
-	a reader's clock would move an o'clock, and a whole day to a different day.
+	a reader's clock would move an o'clock, and a whole day to a different day. **The zone it had
+	when this was written** (`SR#5138`): its own side where the zone moved in this same change, as
+	the flag is read; ``written_in`` where it has moved since; and the item's zone now otherwise.
 	"""
 
 	try:
@@ -5298,7 +5313,16 @@ def _dated_in_words (
 	elif flag is not None and about is not None:
 		whole = bool(getattr(about, flag))
 
-	zone = (None if about is None else about.timezone) or subroutine.domain.schedule.DEFAULT_TIMEZONE
+	if "timezone" in moved:
+		written = moved["timezone"].get(side)
+
+	elif written_in is not None:
+		written = written_in
+
+	else:
+		written = None if about is None else about.timezone
+
+	zone = written or subroutine.domain.schedule.DEFAULT_TIMEZONE
 
 	if whole:
 		return subroutine.domain.schedule.day_in(instant, zone).isoformat()

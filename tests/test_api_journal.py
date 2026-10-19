@@ -967,6 +967,47 @@ def test_a_change_is_written_as_a_person_reads_it (
 	], agent
 
 
+@pytest.mark.parametrize(
+	"dates",
+	[
+		("2030-09-18", "2030-09-19", "2030-09-20"),
+		# Nine in the morning in each zone: London in summer time, New York, then Tokyo.
+		("2030-09-18T08:00:00Z", "2030-09-19T13:00:00Z", "2030-09-20T00:00:00Z"),
+	],
+	ids=["whole days", "o'clocks"],
+)
+def test_a_date_is_read_in_the_zone_it_was_written_in (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session, dates: tuple[str, str, str]
+) -> None:
+	"""`SR#5138`, M-14 of the cold review of 2026-10-17: every date in the journal was read in the
+	item's zone as it is now. A deadline written in London, moved in the same edit as the zone to New
+	York, then again to Tokyo, reads in each entry as it was written - the same edit's sides in their
+	own zones, and an earlier entry in the zone the item had until it next moved."""
+
+	created = world.call(
+		"POST", "/v1/tasks", json={"title": "Water the plants", "timezone": "Europe/London"}
+	)
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+
+	for due, zone in zip(dates, ("Europe/London", "America/New_York", "Asia/Tokyo"), strict=True):
+		answered = world.call("PATCH", f"/v1/tasks/{ref}", json={"due": due, "timezone": zone})
+
+		assert answered.status_code == 200, answered.text
+
+	read = [
+		(change.before, change.after)
+		for entry in _updated_lines(world, session, ref)
+		for change in entry.changed
+		if change.field == "due_at"
+	]
+	said = [due[:10] if len(due) == 10 else f"{due[:10]}T09:00" for due in dates]
+
+	assert read == [(None, said[0]), (said[0], said[1]), (said[1], said[2])], read
+
+
 def test_a_title_change_says_that_it_changed_and_carries_neither_title (
 	world: test_api_tasks.World, session: sqlalchemy.orm.Session
 ) -> None:

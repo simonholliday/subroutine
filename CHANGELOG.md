@@ -29,6 +29,9 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The journal reads each date in the zone it was written in.** One changed in the same edit as the
+  item's zone, or before the zone moved again, was read in the zone the item has now, so a whole day
+  could show as another day and a time as another hour.
 - **`/v1/me` says when a session is read-only.** A read-only superuser could list every workspace,
   credential and backup while `/v1/me` said it held no permission over the installation, and nothing
   said the session only read, so an agent learned it from its refusals. The credential in `/v1/me`

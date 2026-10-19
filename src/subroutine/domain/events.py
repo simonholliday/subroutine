@@ -1398,6 +1398,65 @@ def descriptions (
 	return found
 
 
+def zones_then (
+	session: sqlalchemy.orm.Session,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+	*,
+	dated: typing.Collection[str],
+) -> dict[uuid.UUID, str]:
+	"""Return, for each row dating a task whose zone moved after it, the zone it was written in.
+
+	**A date is read in the zone it was written in** (`SR#5138`, M-14 of the cold review of
+	2026-10-17). Every entry was read in the item's zone as it stands now, so a date written before
+	the zone moved was shown on another day, or at another o'clock. A zone moves only with a recorded
+	change to it, so a row's zone is the ``from`` of the next later change to it on that task. A row
+	absent from the answer was written in the item's zone as it is now.
+
+	**One statement for a page, and none where no row dates a task.** ``changes`` is never filtered
+	on in the database (:func:`subroutine.db.types.json_column`), so the tasks' later events are
+	read and the zone's changes are picked out here.
+	"""
+
+	asked = [
+		row
+		for row in rows
+		if row.entity_type == "task"
+		and isinstance(row.changes, dict)
+		and any(field in row.changes for field in dated)
+	]
+
+	if not asked:
+		return {}
+
+	event = subroutine.db.models.activity.Event
+	later = session.execute(
+		sqlalchemy.select(event.entity_id, event.seq, event.changes)
+		.where(
+			event.entity_type == "task",
+			event.entity_id.in_({row.entity_id for row in asked}),
+			event.seq > min(row.seq for row in asked),
+		)
+		.order_by(event.seq)
+	).all()
+	moves: dict[uuid.UUID, list[tuple[int, str]]] = {}
+
+	for identifier, seq, changes in later:
+		moved = changes.get("timezone") if isinstance(changes, dict) else None
+
+		if isinstance(moved, dict) and moved.get("from"):
+			moves.setdefault(identifier, []).append((seq, str(moved["from"])))
+
+	zones: dict[uuid.UUID, str] = {}
+
+	for row in asked:
+		following = [zone for seq, zone in moves.get(row.entity_id, []) if seq > row.seq]
+
+		if following:
+			zones[row.id] = following[0]
+
+	return zones
+
+
 def jsonable (value: typing.Any) -> typing.Any:
 	"""Convert a value into something the JSON column can hold.
 

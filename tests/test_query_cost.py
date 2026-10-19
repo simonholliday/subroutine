@@ -1221,11 +1221,14 @@ def test_a_page_with_no_milestone_asks_nothing_about_milestones (
 #: a second where one is hidden, to read which end it is. A page with nothing new on it — what a
 #: poll usually gets — asks the first and nothing else, and the test says so.
 #:
+#: **Thirteen since `SR#5138`**: the later changes to the tasks a page dates, one, so each date is
+#: read in the zone it was written in. The fixture dates every task so that it is counted.
+#:
 #: **It was fourteen until `SR#2765`**: ``Vocabulary`` ran the project settings walk, three
 #: statements here, for any page naming a project, and the journal draws no colour and hides no
 #: status. This said the walk was four and the addresses two; listing the statements a page
 #: sends is what showed otherwise.
-JOURNAL_STATEMENTS = 12
+JOURNAL_STATEMENTS = 13
 
 
 def test_the_journal_names_an_item_without_reading_its_text (
@@ -1313,6 +1316,7 @@ def test_a_journal_page_asks_the_same_few_questions_whatever_its_size (
 					"status": "in_progress",
 					"assignee": world.user.username,
 					"description": f"What task {number} is for.",
+					"due": "2030-09-18",
 				},
 			),
 			world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": "Started on it."}),
