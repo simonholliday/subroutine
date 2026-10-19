@@ -882,6 +882,53 @@ def reaches (
 	a query that already selects members or workspaces cannot correlate it away (`#3922`).
 	"""
 
+	statement = _memberships(session, principal, include_deleted=include_deleted, seated=True)
+
+	return sqlalchemy.false() if statement is None else workspace_id.in_(statement)
+
+
+def stopped_in (
+	session: sqlalchemy.orm.Session, principal: subroutine.domain.authentication.Principal
+) -> list[tuple[subroutine.db.models.identity.Workspace, str]]:
+	"""Return the workspaces this agent is a member of and stopped in, and whose absence stops it.
+
+	`SR#5105`, M-23 of the cold review of 2026-10-17, decision `#5097`. **What :func:`reaches` leaves
+	out of an agent's memberships because the person at the top of its chain is not seated there**,
+	so an agent told it reaches nothing can be told why. Narrowed by the credential as reach is, so a
+	pinned one names only its own workspace. Empty for a person, and for an agent nobody who can act
+	answers for, which is stopped everywhere and refused as it authenticates.
+	"""
+
+	statement = _memberships(session, principal, include_deleted=False, seated=False)
+
+	if statement is None:
+		return []
+
+	person = subroutine.domain.accountability.answers_for(session, principal.user).username
+	model = subroutine.db.models.identity.Workspace
+
+	return [
+		(found, person)
+		for found in session.scalars(
+			sqlalchemy.select(model).where(model.id.in_(statement)).order_by(model.slug)
+		)
+	]
+
+
+def _memberships (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	include_deleted: bool,
+	seated: bool,
+) -> sqlalchemy.Select[typing.Any] | None:
+	"""Return the ids of the workspaces a principal is a member of, as its credential narrows them.
+
+	For an agent, ``seated`` keeps those where the person at the top of its chain is a member too,
+	which is :func:`reaches`, or those where they are not, which is :func:`stopped_in` (`SR#5105`).
+	A person answers for themselves, so is stopped nowhere. ``None`` is no workspace at all.
+	"""
+
 	member = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
 	workspace = sqlalchemy.orm.aliased(subroutine.db.models.identity.Workspace)
 
@@ -908,18 +955,19 @@ def reaches (
 
 	if principal.user.is_service_account:
 		if not subroutine.domain.accountability.can_act(session, principal.user):
-			return sqlalchemy.false()
+			return None
 
 		person = subroutine.domain.accountability.answers_for(session, principal.user)
-		seated = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
-		statement = statement.where(
-			sqlalchemy.exists().where(
-				seated.workspace_id == member.workspace_id, seated.user_id == person.id
-			)
+		present = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
+		there = sqlalchemy.exists().where(
+			present.workspace_id == member.workspace_id, present.user_id == person.id
 		)
+		statement = statement.where(there if seated else ~there)
 
-	return workspace_id.in_(statement)
+	elif not seated:
+		return None
 
+	return statement
 
 def _reached (
 	session: sqlalchemy.orm.Session,

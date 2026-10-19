@@ -590,7 +590,9 @@ NOT_OWNERSHIP: dict[str, str] = {
 	"domain/authorization.py:visible_projects": (
 		"Which project rows are the caller's own memberships: sight of a private project, §7.3a."
 	),
-	"domain/authorization.py:reaches": "Which workspaces the caller is a member of: reach, `#4674`.",
+	"domain/authorization.py:_memberships": (
+		"Which workspaces the caller is a member of: reach, `#4674`, and where it is stopped, `SR#5105`."
+	),
 	"domain/authorization.py:_reached": "The caller's own role in a workspace, `#4674`.",
 	"domain/claims.py:claim": (
 		"Whether the caller already holds a lease: a claim is a fact apart from ownership, `#726`."

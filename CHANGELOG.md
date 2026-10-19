@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An agent stopped in a workspace is told so, and why.** An agent whose person had been taken
+  out of a workspace was told it was a member of no workspace, or could not reach one, and so told
+  its person the wrong thing to fix. It is told which workspace it is stopped in and whose absence
+  stops it, in the terminal too, and `/v1/me` lists them in a new `stopped_in`. Handing an agent
+  to somebody else also names the agents answering to it that stop with it.
 - **A refusal's hint offers only what you may do.** Handing work to somebody who could not see
   it offered the command to share the project with them, and removing a project's last viewer
   offered to make it public, to a credential that would then be refused either; a ring of links

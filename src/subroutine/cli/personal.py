@@ -1731,11 +1731,24 @@ def _writing_workspace (world: World) -> str:
 		return world.current.workspace
 
 	here = world.writing_to()
+	candidates = [workspace.slug for workspace in here.identity.workspaces]
+	stopped: list[subroutine.views.StoppedIn] = []
+
+	# **Reaching nothing, an agent asks the instance where it is stopped** (`SR#5105`, decision
+	# `#5097`): only as it is refused, so nothing else pays the request. An older instance answers
+	# with no such list, and a failure leaves the refusal as it was.
+	if not candidates:
+		try:
+			stopped = here.client.me().stopped_in
+
+		except subroutine.errors.SubroutineError:
+			stopped = []
 
 	subroutine.context.refuse(
 		world.roster,
 		world.current,
-		[workspace.slug for workspace in here.identity.workspaces],
+		candidates,
+		stopped=[(one.slug, one.answers_to) for one in stopped],
 	)
 
 
@@ -6585,11 +6598,17 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 		# while the person at the top of its chain is a member there too.
 		stops, unlisted = _where_it_stops(where.client, username, to)
 
-		if stops:
-			program.say(
-				f"{username} stops working in {', '.join(stops)}, where the person it now "
-				f"answers to is not a member."
-			)
+		for account, slugs in stops:
+			if account == username:
+				program.say(
+					f"{username} stops working in {', '.join(slugs)}, where the person it now "
+					f"answers to is not a member."
+				)
+
+			else:
+				program.say(
+					f"{account}, one of {username}'s agents, stops working in {', '.join(slugs)}."
+				)
 
 		if unlisted:
 			program.say(f"Workspaces this credential cannot list were not checked: {unlisted}")
@@ -10091,17 +10110,20 @@ def _agents_stopped_in (
 
 def _where_it_stops (
 	client: subroutine.clients.base.Client, agent: str, to: str
-) -> tuple[list[str], str | None]:
-	"""Return the workspaces an agent stops in once ``to`` answers for it, or why some went unasked.
+) -> tuple[list[tuple[str, list[str]]], str | None]:
+	"""Return where an agent, and each agent answering to it, stops once ``to`` answers for it.
 
 	**Where the agent is a member and the person who is now at the top of its chain is not** (`#4546`,
 	decision `#4518`). Every workspace on the instance is asked about where this credential may list
-	them, and its own otherwise, which is said.
+	them, and its own otherwise, which is said. **The agents answering to it stop with it** (`SR#5105`,
+	M-23 of the cold review of 2026-10-17): their chain runs through it, so each is named, after it,
+	with where it stops. The second of the pair is why some went unasked, if any did.
 	"""
 
 	try:
 		holder = client.user(username=to)
 		person = holder.answers_to if holder.is_service_account else holder.username
+		agents = [agent, *(one.username for one in client.users(answers_to=agent))]
 
 		try:
 			slugs = [one.slug for one in client.instance_workspaces()]
@@ -10111,18 +10133,22 @@ def _where_it_stops (
 			slugs = [one.slug for one in client.identity().workspaces]
 			unchecked = refused.detail
 
-		stops = []
+		stops: dict[str, list[str]] = {}
 
 		for slug in slugs:
 			names = {one.user.username for one in client.members(workspace=slug)}
 
-			if agent in names and person not in names:
-				stops.append(slug)
+			if person in names:
+				continue
+
+			for one in agents:
+				if one in names:
+					stops.setdefault(one, []).append(slug)
 
 	except subroutine.errors.SubroutineError as refused:
 		return [], refused.detail
 
-	return stops, unchecked
+	return [(one, stops[one]) for one in agents if one in stops], unchecked
 
 
 def _register_workspace (app: typer.Typer, program: Program) -> None:

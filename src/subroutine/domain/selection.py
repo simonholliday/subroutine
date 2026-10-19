@@ -26,6 +26,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.bootstrap
@@ -71,12 +72,16 @@ def workspace (
 			return _named(requested, reachable, field=field)
 
 		except subroutine.errors.NotFound:
+			_refuse_where_stopped(session, principal, reachable, requested=requested, field=field)
 			outside = _outside(session, principal, requested)
 
 			if outside is None:
 				raise
 
 			raise _not_a_member(principal, outside, field=field) from None
+
+	if not reachable:
+		_refuse_where_stopped(session, principal, reachable)
 
 	if principal.pinned_workspace_id is not None:
 		# The pin already narrowed `reachable` to one; this is only reporting it clearly if
@@ -260,6 +265,56 @@ def _not_a_member (
 				message=f"You do not belong to {workspace.slug}.",
 			)
 		],
+	)
+
+
+def _refuse_where_stopped (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	reachable: typing.Sequence[subroutine.db.models.identity.Workspace],
+	*,
+	requested: str | None = None,
+	field: str = "workspace_id",
+) -> None:
+	"""Refuse an agent where it is stopped, saying where and whose absence stops it - `SR#5105`.
+
+	**Told it was a member of no workspace, or could reach none, it told its person the wrong thing
+	to fix** (M-23 of the cold review of 2026-10-17, decision `#5097`). Where it reaches nothing at
+	all, wherever it is stopped is said, whatever it named; where it reaches some, only a workspace it
+	named and is stopped in. Anywhere else, the refusal it would have had stands.
+	"""
+
+	stopped = subroutine.domain.authorization.stopped_in(session, principal)
+
+	if requested is not None and reachable:
+		stopped = [
+			(found, person)
+			for found, person in stopped
+			if subroutine.addressing.names_workspace(requested, slug=found.slug, identifier=found.id)
+		]
+
+	if not stopped:
+		return
+
+	detail, hint = subroutine.domain.accountability.stopped_refusal(
+		[found.slug for found, _person in stopped], stopped[0][1]
+	)
+
+	raise subroutine.errors.NotFound(
+		detail,
+		hint=hint,
+		errors=(
+			[]
+			if requested is None
+			else [
+				subroutine.errors.FieldError(
+					field=field,
+					code="not_found",
+					message=f"No readable workspace matches {requested!r}.",
+					hint=hint,
+				)
+			]
+		),
 	)
 
 

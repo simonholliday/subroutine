@@ -235,6 +235,33 @@ def live (
 	return sqlalchemy.and_(model.is_active.is_(True), model.deleted_at.is_(None))
 
 
+def stopped_refusal (
+	slugs: typing.Sequence[str], person: str, *, on: str = ""
+) -> tuple[str, str]:
+	"""Return what an agent stopped in these workspaces is told, and what to do about it - `SR#5105`.
+
+	**One sentence for every surface** (M-23 of the cold review of 2026-10-17, decision `#5097`): the
+	instance's refusal, and the terminal's, which reads where it is stopped off ``/v1/me``. It names
+	which workspace and whose absence stops the agent there (`#4546`), so the agent tells its person
+	the right thing to fix. ``on`` is the connection, where the terminal has several.
+	"""
+
+	if len(slugs) == 1:
+		return (
+			f"You are a member of {slugs[0]}{on}, and stopped there because {person}, whom you "
+			f"answer to, is not a member.",
+			f"Ask an administrator of {slugs[0]} to add {person}.",
+		)
+
+	where = f"{', '.join(slugs[:-1])} and {slugs[-1]}"
+
+	return (
+		f"You are a member of {where}{on}, and stopped in each because {person}, whom you answer "
+		f"to, is not a member of any of them.",
+		f"Ask an administrator of one of them to add {person}.",
+	)
+
+
 def answers_for (
 	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
 ) -> subroutine.db.models.identity.User:

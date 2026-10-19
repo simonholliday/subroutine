@@ -266,9 +266,10 @@ NOT_DECIDING: dict[str, str] = {
 	"accountability.py:account_parents_for_many": (
 		"Renders each account's account parent, a page at a time. `#2789`."
 	),
-	"authorization.py:reaches": (
+	"authorization.py:_memberships": (
 		"An agent reaches a workspace only while the person at the top of its chain is a member "
-		"there - its standing in that workspace, the same for every act (decision `#4518`)."
+		"there, and is stopped in one where they are not - its standing in that workspace, the same "
+		"for every act (decision `#4518`, `SR#5105`)."
 	),
 	"local.py:_live_users": (
 		"Local mode is the sole person when nobody is named, so this counts people - which "

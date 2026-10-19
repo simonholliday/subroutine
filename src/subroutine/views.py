@@ -2349,6 +2349,21 @@ def release_news (watch: subroutine.releases.Watch | None) -> ReleaseNews:
 	)
 
 
+class StoppedIn(pydantic.BaseModel):
+	"""A workspace an agent is a member of and stopped in, and whose absence stops it.
+
+	An agent acts in a workspace only while the person at the top of its chain is a member there
+	too; this is one where they are not, which :class:`Me` lists so an agent told it reaches
+	nothing can say why.
+	"""
+
+	id: uuid.UUID
+	slug: str
+
+	#: The person at the top of the agent's chain, who is not a member there: who to add.
+	answers_to: str
+
+
 class Me(pydantic.BaseModel):
 	"""Who the caller is and exactly what they may do, in one round trip.
 
@@ -2406,6 +2421,12 @@ class Me(pydantic.BaseModel):
 	reader_timezone_set_by: str | None = None
 
 	workspaces: list[WorkspaceAccess]
+
+	#: **The workspaces this agent is a member of and stopped in** (`SR#5105`, decision `#5097`): each
+	#: one where the person at the top of its chain is not a member, with who that is. ``workspaces``
+	#: leaves them out, since nothing there can be reached; this says why. Empty for a person, and
+	#: narrowed by the credential as ``workspaces`` is. Defaulted for `#345`'s reason.
+	stopped_in: list[StoppedIn] = pydantic.Field(default_factory=list)
 
 	#: **What this instance has found out about releases** (`#2223`), so ``whoami``, the agent
 	#: tools and the browser learn it with no outbound request of their own - one instance asking
@@ -5669,6 +5690,10 @@ def me (
 				prioritised=focused.get(workspace.id),
 			)
 			for workspace in reachable
+		],
+		stopped_in=[
+			StoppedIn(id=found.id, slug=found.slug, answers_to=person)
+			for found, person in subroutine.domain.authorization.stopped_in(session, principal)
 		],
 		releases=release_news(releases),
 	)

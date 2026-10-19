@@ -50,6 +50,7 @@ import typing
 import subroutine.config
 import subroutine.connections
 import subroutine.directory
+import subroutine.domain.accountability
 import subroutine.domain.workspaces
 import subroutine.errors
 
@@ -361,8 +362,13 @@ def refuse (
 	roster: subroutine.connections.Roster,
 	current: Current,
 	candidates: typing.Sequence[str],
+	*,
+	stopped: typing.Sequence[tuple[str, str]] = (),
 ) -> typing.NoReturn:
 	"""Step 5: refuse an unsettled workspace, naming the ones there are.
+
+	``stopped`` is where an agent is a member and stopped, by short name and whose absence stops it,
+	as ``/v1/me`` lists them, so an agent that reaches nothing is told why (`SR#5105`).
 
 	Ambiguity is a refusal and never a guess. Until 2026-07-29 the CLI resolved a bare ref
 	with ``.first()`` on an unordered query across every readable workspace, so two workspaces
@@ -377,6 +383,15 @@ def refuse (
 	# where this refusal was meant to be. The sentence is the one the domain gives that state.
 	if not candidates:
 		on = f" on {current.connection}" if roster.qualifies else ""
+
+		# **An agent stopped where it is a member is told where, and why** (`SR#5105`, decision
+		# `#5097`), in the instance's own sentence.
+		if stopped:
+			detail, hint = subroutine.domain.accountability.stopped_refusal(
+				[slug for slug, _person in stopped], stopped[0][1], on=on
+			)
+
+			raise subroutine.errors.NotFound(detail, hint=hint)
 
 		raise subroutine.errors.NotFound(
 			f"You are not a member of any workspace{on}.",

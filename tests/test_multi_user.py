@@ -1846,3 +1846,48 @@ def test_handing_an_agent_over_names_before_and_after_what_nobody_could_see (
 		in unasked
 	), unasked
 	assert f"{operator} now answers for bot" in unasked, unasked
+
+
+def test_an_agent_stopped_in_its_workspace_is_told_why_at_the_terminal (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5105`, decision `#5097`: the terminal says what the instance says, read off ``/v1/me``.
+
+	bot answers to laurence, who has been taken out of Metacortex, so bot is stopped there. It was
+	told it was a member of no workspace, which sent its person to the wrong remedy.
+	"""
+
+	run("init", "--workspace", "Metacortex", "--username", "laurence")
+	run("user", "create", "keanu", "--role", "owner")
+	run("user", "create", "bot", "--agent")
+	run("user", "remove", "laurence")
+	monkeypatch.setenv("SUBROUTINE_LOCAL_USER", "bot")
+
+	refused = run("add", "Order a new phone for reception", expect=1).output
+
+	assert (
+		"You are a member of metacortex, and stopped there because laurence, whom you answer to, "
+		"is not a member." in " ".join(refused.split())
+	), refused
+	assert "not a member of any workspace" not in refused, refused
+
+
+def test_handing_an_agent_over_names_the_agents_that_stop_with_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5105`: an agent answering to the one handed over stops where it does, and is named."""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "remove", "thomas", "--workspace", "acme")
+	run("agent", "create", "deploy-bot", "--workspace", "acme")
+	run("agent", "create", "lint-bot", "--workspace", "acme")
+	run("user", "transfer", "lint-bot", "--to", "deploy-bot")
+
+	handed = " ".join(run("user", "transfer", "deploy-bot", "--to", "thomas").output.split())
+
+	assert (
+		"deploy-bot stops working in acme, where the person it now answers to is not a member."
+		in handed
+	), handed
+	assert "lint-bot, one of deploy-bot's agents, stops working in acme." in handed, handed
