@@ -18,6 +18,7 @@ existence rule protects.
 
 import dataclasses
 import datetime
+import itertools
 import typing
 import uuid
 
@@ -786,7 +787,16 @@ def _refuse_a_loop (
 
 	# **The ring keeps its length, and each step the caller cannot read is shown unseen**
 	# (`SR#4574`, decision `#4521`): it listed every ref in the chain, hidden ones included.
-	written = " → ".join(_named_for(session, actor, workspace_id=workspace_id, chain=chain))
+	named = _named_for(session, actor, workspace_id=workspace_id, chain=chain)
+	written = " → ".join(named)
+
+	# **Withdrawing a link is offered only where the caller may** (`SR#5106`, decision `#4521`): a
+	# link with an end out of their sight is not theirs to withdraw, so a ring every link of which
+	# runs through something unseen is somebody else's to break.
+	withdrawable = any(
+		subroutine.domain.scoping.UNSEEN not in pair for pair in itertools.pairwise(named)
+	)
+
 	here = subroutine.domain.refs.format_ref(source.ref)
 	there = subroutine.domain.refs.format_ref(target.ref)
 
@@ -814,7 +824,9 @@ def _refuse_a_loop (
 				message=f"The chain that comes back is {written}.",
 			)
 		],
-		hint=_why_a_ring_is_wrong(session, link_type, workspace_id=workspace_id, stuck=stuck),
+		hint=_why_a_ring_is_wrong(
+			session, link_type, workspace_id=workspace_id, stuck=stuck, withdrawable=withdrawable
+		),
 	)
 
 
@@ -861,8 +873,12 @@ def _why_a_ring_is_wrong (
 	*,
 	workspace_id: uuid.UUID,
 	stuck: bool,
+	withdrawable: bool,
 ) -> str:
 	"""Say what is actually wrong with this ring, and what to do instead.
+
+	``withdrawable`` says whether some link in it has both ends in the caller's sight; where none
+	does, withdrawing one is offered to somebody who can see both ends of it (`SR#5106`).
 
 	**The two categories are wrong in different ways and the hint said only one of them**
 	(`#1158`). *Neither could ever be started* is the cost of a ``gating`` ring and is **false**
@@ -880,9 +896,15 @@ def _why_a_ring_is_wrong (
 	# Neither of the two below is true of it: nothing is held up, and the cost is not abstract
 	# — it is that *which one is current* stops having an answer, which is the one question
 	# superseding exists to answer.
+	withdraw = (
+		"Withdraw a link in that chain"
+		if withdrawable
+		else "Somebody who can see both ends of a link in that chain may withdraw it"
+	)
+
 	if link_type.key == SUPERSEDING:
 		return (
-			"Then none of them would be the current one. Withdraw a link in that chain - "
+			f"Then none of them would be the current one. {withdraw} - "
 			"superseding runs one way, from the replacement to what it replaces."
 		)
 
@@ -891,7 +913,7 @@ def _why_a_ring_is_wrong (
 	if link_type.category == subroutine.domain.milestones.COUNTING:
 		return (
 			"A milestone cannot be inside itself, however many steps it takes to come back. "
-			"Withdraw a link in that chain."
+			f"{withdraw}."
 		)
 
 	# **Only a ring that gates all the way round holds work up** (`#3593`). A ring through
@@ -918,7 +940,14 @@ def _why_a_ring_is_wrong (
 	).first()
 
 	if instead is None:
-		return f"{wrong} Withdraw a link in that chain."
+		return f"{wrong} {withdraw}."
+
+	if not withdrawable:
+		return (
+			f"{wrong} Join them with {instead.title!r} instead, which says they are connected without "
+			"saying which is first, or ask somebody who can see both ends of a link in that chain to "
+			"withdraw it."
+		)
 
 	return (
 		f"{wrong} Withdraw a link in that chain, or join them with {instead.title!r}, "

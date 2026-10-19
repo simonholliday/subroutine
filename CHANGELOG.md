@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A refusal's hint offers only what you may do.** Handing work to somebody who could not see
+  it offered the command to share the project with them, and removing a project's last viewer
+  offered to make it public, to a credential that would then be refused either; a ring of links
+  that ran through something you cannot see offered to withdraw a link, which is not yours to
+  withdraw. Each now offers what you may do, or says who may.
 - **An administrator of the installation can restore a workspace they are not in.** They could
   delete any workspace, member or not, and only its owners could bring it back, so one whose
   owners had left stayed in the trash. Whoever may delete a workspace may now restore it, by its

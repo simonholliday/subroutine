@@ -242,6 +242,54 @@ def test_a_ring_keeps_its_length_and_shows_a_step_the_caller_cannot_see_as_unsee
 		f"The chain that comes back is #{first['ref']} → something you cannot see → #{last['ref']}."
 	), said
 
+	# **Every link in it has an end keanu cannot see**, so withdrawing one is not his to offer
+	# (`SR#5106`); the owner, who sees them all, is offered it.
+	assert "Withdraw a link in that chain" not in refused.json()["hint"], refused.text
+	assert "can see both ends of a link in that chain" in refused.json()["hint"], refused.text
+
 	told = world.call("POST", f"/v1/tasks/{last['ref']}/links", json=closing)
 
 	assert f"#{hidden['ref']}" in told.json()["errors"][0]["message"], told.text
+	assert "Withdraw a link in that chain" in told.json()["hint"], told.text
+
+
+def test_a_ring_with_one_link_in_sight_offers_withdrawing_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""keanu sees both ends of one link in the ring, so he may withdraw that one, and is offered it.
+
+	`SR#5106`: withdrawal is withheld only where *no* link has both ends in sight, so a ring that
+	runs through something unseen and also through two things keanu reads is still his to break.
+	"""
+
+	_keanu, member = _member(world, "keanu", "member")
+	_vault(world)
+
+	def task (title: str, **body: typing.Any) -> dict[str, typing.Any]:
+		"""Make a task as the world's own account."""
+
+		made = world.call("POST", "/v1/tasks", json={"title": title, **body})
+
+		assert made.status_code == 201, made.text
+
+		return dict(made.json())
+
+	first = task("Book the venue")
+	second = task("Choose the date")
+	hidden = task("Pay the deposit, quietly", project="vault")
+	last = task("Send the invitations")
+
+	for source, target in ((first, second), (second, hidden), (hidden, last)):
+		linked = world.call(
+			"POST",
+			f"/v1/tasks/{source['ref']}/links",
+			json={"target_type": "task", "target": target["ref"], "link_type": "blocks"},
+		)
+
+		assert linked.status_code == 201, linked.text
+
+	closing = {"target_type": "task", "target": first["ref"], "link_type": "blocks"}
+	refused = _as(world, member, "POST", f"/v1/tasks/{last['ref']}/links", json=closing)
+
+	assert refused.status_code == 409, refused.text
+	assert "Withdraw a link in that chain" in refused.json()["hint"], refused.text

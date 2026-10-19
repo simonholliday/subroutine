@@ -1245,6 +1245,24 @@ def member_who_sees (
 	if blocking is None:
 		return named
 
+	# **A share is offered only to a caller it would not refuse** (`SR#5106`, M-23 of the cold review
+	# of 2026-10-17, decision `#4521`): a steward on a credential that may not share was offered the
+	# command and then refused it. Somebody who is not the steward is pointed at the owner.
+	if may_share(session, actor, blocking):
+		hint = (
+			f"'subroutine project share {blocking.key} {named.username}' first, or choose somebody who "
+			"can see it."
+		)
+
+	elif subroutine.domain.stewardship.stewards(session, actor, blocking):
+		hint = "Choose somebody who can see it."
+
+	else:
+		hint = (
+			f"Choose somebody who can see it, or ask the owner of '{blocking.key}' to share it with "
+			"them."
+		)
+
 	raise subroutine.errors.ValidationError(
 		f"{named.username} cannot see {blocking.key}, so {what}.",
 		errors=[
@@ -1252,13 +1270,57 @@ def member_who_sees (
 				field=field,
 				code="invalid_field_value",
 				message=f"{named.username} is not shared into {blocking.key}.",
-				hint=f"'subroutine project share {blocking.key} {named.username}' first, or choose "
-				"somebody who can see it."
-				if subroutine.domain.stewardship.stewards(session, actor, blocking)
-				else f"Choose somebody who can see it, or ask the owner of '{blocking.key}' to share it "
-				"with them.",
+				hint=hint,
 			)
 		],
+	)
+
+
+def may_share (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether this caller may share ``project`` with somebody, as :func:`share` asks it.
+
+	**Asked rather than demanded, for a hint** (`SR#5106`, decision `#4521`: the hint offers only
+	what this caller can do): its steward, holding ``project:write`` there on this credential.
+	"""
+
+	if actor is None:
+		return True
+
+	return subroutine.domain.stewardship.stewards(session, actor, project) and (
+		subroutine.domain.authorization.refusal(
+			session,
+			actor,
+			subroutine.permissions.PROJECT_WRITE,
+			workspace_id=project.workspace_id,
+			project=project,
+		)
+		is None
+	)
+
+
+def may_publish (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether this caller may make ``project`` public, as :func:`update` asks it - `SR#5106`.
+
+	**Its steward, holding ``project:write`` at the workspace's place**, where who sees a project
+	is decided: a credential narrowed to some projects may share one and not publish it.
+	"""
+
+	if actor is None:
+		return True
+
+	return subroutine.domain.stewardship.stewards(session, actor, project) and (
+		subroutine.domain.authorization.refusal(
+			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=project.workspace_id
+		)
+		is None
 	)
 
 
@@ -1862,12 +1924,17 @@ def unshare (
 			inside = f"{inside} and only through their agent {user.username},"
 
 		# **A remedy this caller can take** (`SR#4570`): making it public and sharing it are its
-		# steward's now, so somebody removing themselves who is not is pointed at the one who is.
+		# steward's now, so somebody removing themselves who is not is pointed at the one who is. **And
+		# only what their credential may do** (`SR#5106`): making it public is asked at the workspace's
+		# place, which a credential narrowed to some projects does not reach.
 		if key is None:
 			hint = f"Ask {seer} to share it with somebody else first."
 
-		elif subroutine.domain.stewardship.stewards(session, actor, one):
+		elif may_publish(session, actor, one):
 			hint = f"'subroutine project update {key} --public' first, or share it with somebody else."
+
+		elif may_share(session, actor, one):
+			hint = "Share it with somebody else first."
 
 		else:
 			hint = f"Ask the owner of '{key}' to share it with somebody else first."
