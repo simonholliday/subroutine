@@ -157,6 +157,18 @@ const HELD = {
 	released: "released the claim",
 };
 
+/* What a link's end its reader cannot see is said as, where its number would be - `SR#5136`. The
+   instance sends these words in its place (`scoping.UNSEEN`), and `tests/test_web.py` holds the two
+   equal. */
+const UNSEEN = "something you cannot see";
+
+/* What a link says where its ends cannot be read at all, as an unlink written before its ends were
+   recorded - `SR#5184`. `views._HAPPENED`'s words for a link, held equal by `tests/test_web.py`. */
+const A_LINK = {
+	created: "linked it to something",
+	deleted: "unlinked it from something",
+};
+
 export function changeInWords (change) {
 	/*
 		One change as its line says it — `#2826`, Simon's example: *changed status*, then what it
@@ -204,8 +216,9 @@ export function linkOf (entry) {
 		whether it was made or undone — `#2826`.
 
 		**The other end, whichever end this is.** An entry about a link names the item it was made
-		from, and read through the other item it names that one. **Null for anything it cannot
-		read**, so the line says what happened rather than guessing at a number.
+		from, and read through the other item it names that one. **An end out of sight is `null`**,
+		said as unseen (`SR#5136`). **Null for anything it cannot read**, so the line says a link
+		was made or undone rather than guessing at a number.
 	*/
 	if (entry.entity_type !== "link") return null;
 
@@ -215,14 +228,23 @@ export function linkOf (entry) {
 
 		return change ? (made ? change.after : change.before) : null;
 	};
-	const source = Number(side("source"));
-	const target = Number(side("target"));
-	const other = source === entry.item_ref ? target : source;
+	const source = side("source");
+	const far = Number(source) === entry.item_ref ? side("target") : source;
 	const type = side("link_type");
 
-	if (!Number.isInteger(other) || other <= 0 || !type) return null;
+	if (!type) return null;
 
-	return { made, other, type: String(type).replaceAll("_", " ") };
+	const relation = String(type).replaceAll("_", " ");
+
+	/* The instance's words where the number would be: reading them as no number drew *created it*
+	   beside an item that had been linked. */
+	if (far === UNSEEN) return { made, other: null, type: relation };
+
+	const other = Number(far);
+
+	if (!Number.isInteger(other) || other <= 0) return null;
+
+	return { made, other, type: relation };
 }
 
 export function linesOf (entry) {
@@ -252,6 +274,12 @@ export function linesOf (entry) {
 	const link = linkOf(entry);
 
 	if (link) return [{ ...base, link }];
+
+	/* **A link it cannot read is still a link** (`SR#5184`), never *created it* or *deleted it*
+	   beside an item that was neither. */
+	if (entry.entity_type === "link" && A_LINK[entry.action]) {
+		return [{ ...base, text: A_LINK[entry.action] }];
+	}
 
 	if (entry.action === "updated" && (entry.changed || []).length > 0) {
 		return entry.changed.map((change) => ({ ...base, text: changeInWords(change) }));
@@ -355,8 +383,9 @@ function Line ({ line, workspace, address = null }) {
 	   served-module scan reads *from* and a quote after it as an import. */
 	const joined = line.link && line.link.made ? "linked it to" : "unlinked it from";
 	const others = line.link
-		? line.link.others.map((other, index) => html`${index === 0 ? "" : ", "}<a
-			href=${addressOf({ ref: other }, workspace)}>#${other}</a>`)
+		? line.link.others.map((other, index) => html`${index === 0 ? "" : ", "}${other === null
+			? UNSEEN
+			: html`<a href=${addressOf({ ref: other }, workspace)}>#${other}</a>`}`)
 		: null;
 
 	return html`

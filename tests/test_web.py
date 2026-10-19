@@ -61,6 +61,7 @@ import subroutine.domain.grammar
 import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.refs
+import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.tasks
 import subroutine.domain.workspaces
@@ -20110,6 +20111,62 @@ def test_a_link_never_reads_as_the_action_on_its_own_item (tmp_path: pathlib.Pat
 	assert subroutine.views.a_link_from_this_side(entry("created", "task", [])) is None, (
 		"null is what tells a caller this entry is not a link, so it must not be a link's answer"
 	)
+
+
+def test_the_journal_says_a_link_it_cannot_name_as_a_link (tmp_path: pathlib.Path) -> None:
+	"""`SR#5136` and `SR#5184`: a link entry whose far end is out of sight, and an unlink written
+	before its ends were recorded, each drew *created it* or *deleted it* beside an item that was
+	neither. **Drawn, and compared with what the terminal says of the same entry.**"""
+
+	def entry (seq: int, action: str, changed: list[subroutine.views.Change]) -> subroutine.views.JournalEntry:
+		"""One link entry under #42, built through the view the surfaces read."""
+
+		return subroutine.views.JournalEntry(
+			seq=seq, id=uuid.UUID(int=seq), item_ref=42, item_title="Fix the deploy script",
+			item_type="bug", item_project_path="web", actor="@si", actor_interface="browser",
+			action=action, entity_type="link", changed=changed,
+			created_at=datetime.datetime(2026, 9, 16, 10, seq, tzinfo=datetime.UTC),
+		)
+
+	unseen = entry(7, "created", [
+		subroutine.views.Change(field="link_type", said="link type", after="blocks"),
+		subroutine.views.Change(field="source", said="source", after=subroutine.domain.scoping.UNSEEN),
+		subroutine.views.Change(field="target", said="target", after="42"),
+	])
+	unrecorded = entry(5, "deleted", [])
+	sample = SAMPLES["Journal"]
+	drawn = _rendered(tmp_path, {"Journal": {
+		**sample,
+		"journal": {
+			**sample["journal"],
+			"entries": [one.model_dump(mode="json") for one in (unseen, unrecorded)],
+		},
+	}})["Journal"]
+
+	for one in (unseen, unrecorded):
+		said = subroutine.views.a_link_from_this_side(one)
+
+		assert said is not None and said in drawn, f"the terminal says {said!r} and the browser drew {drawn}"
+
+	assert "linked it to something you cannot see (blocks)" in drawn, drawn
+	assert "created it" not in drawn and "deleted it" not in drawn, drawn
+
+
+def test_the_journal_says_a_link_in_the_instances_words () -> None:
+	"""`SR#5136`, `SR#5184`: ``journal.js`` holds two of the instance's phrases for a link, read out
+	of its source as ``HELD`` is, so neither side can change them alone."""
+
+	source = (ASSETS / "journal.js").read_text(encoding="utf-8")
+	unseen = re.search(r'^const UNSEEN = "([^"]*)";', source, re.MULTILINE)
+	block = re.search(r"const A_LINK = \{(.*?)\};", source, re.DOTALL)
+
+	assert unseen is not None and block is not None, "journal.js holds no link words, so nothing is compared"
+	assert unseen.group(1) == subroutine.domain.scoping.UNSEEN
+
+	held = dict(re.findall(r'(\w+): "([^"]*)"', block.group(1)))
+	happened = {action: said for (kind, action), said in subroutine.views._HAPPENED.items() if kind == "link"}
+
+	assert held and held == happened, f"the browser says {held} and the terminal says {happened}"
 
 
 def test_a_journal_row_is_the_lists_row_or_a_plain_one_where_the_item_is_gone (

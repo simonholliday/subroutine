@@ -5209,6 +5209,11 @@ def _moved_in_words (
 	if value is None:
 		return None
 
+	# **A link's end its reader cannot see is said as unseen** (`SR#5136`), as every other surface
+	# says it: the journal's ``after`` for it was the stored marker's own repr, ``{'visible': False}``.
+	if value == subroutine.domain.events.UNSEEN_END:
+		return subroutine.domain.scoping.UNSEEN
+
 	if field in _DATED:
 		return _dated_in_words(field, value, moved, side, about=about)
 
@@ -5344,7 +5349,21 @@ def _a_link (event: Event) -> str | None:
 
 	verb = "linked" if event.action == "created" else "unlinked"
 
-	return f"{verb} #{source} {relation} #{target}"
+	return f"{verb} {_an_end(source)} {relation} {_an_end(target)}"
+
+
+def _an_end (end: typing.Any) -> str:
+	"""Return one end of a link as its ref, or as unseen where its reader cannot see it - `SR#5136`.
+
+	**The end a feed says nothing of** (decision `#4521`) arrives as
+	:data:`subroutine.domain.events.UNSEEN_END`, and was printed as the marker's own repr: *linked
+	#{'visible': False} blocks #12*.
+	"""
+
+	if end == subroutine.domain.events.UNSEEN_END:
+		return subroutine.domain.scoping.UNSEEN
+
+	return f"#{end}"
 
 
 def a_link_from_this_side (entry: JournalEntry) -> str | None:
@@ -5386,9 +5405,17 @@ def a_link_from_this_side (entry: JournalEntry) -> str | None:
 	made = entry.action != "deleted"
 	side = {one.field: (one.after if made else one.before) for one in entry.changed}
 	relation = side.get("link_type")
-	ends: dict[str, int] = {}
+	ends: dict[str, int | None] = {}
 
 	for field in ("source", "target"):
+		# **An end its reader cannot see is said as unseen** (`SR#5136`). The journal says it in
+		# :data:`subroutine.domain.scoping.UNSEEN`, and reading that as no number fell back to
+		# *linked it to something*, where the link and its kind were known.
+		if side.get(field) == subroutine.domain.scoping.UNSEEN:
+			ends[field] = None
+
+			continue
+
 		try:
 			ends[field] = int(str(side.get(field)))
 
@@ -5398,7 +5425,8 @@ def a_link_from_this_side (entry: JournalEntry) -> str | None:
 	if relation is None:
 		return generic or action_in_words(entry.action)
 
-	other = ends["target"] if ends["source"] == entry.item_ref else ends["source"]
+	far = ends["target"] if ends["source"] == entry.item_ref else ends["source"]
+	other = subroutine.domain.scoping.UNSEEN if far is None else f"#{far}"
 
 	# **Spaced, because `journal.js`'s `linkOf` spaces it** and this is the same reading on
 	# another surface - `relates_to` reads as *relates to* in the browser, and the two saying
@@ -5406,7 +5434,7 @@ def a_link_from_this_side (entry: JournalEntry) -> str | None:
 	# stored key (:func:`_a_link`), which is a different reading and stays as it is.
 	return (
 		f"{'linked it to' if made else 'unlinked it from'} "
-		f"#{other} ({str(relation).replace('_', ' ')})"
+		f"{other} ({str(relation).replace('_', ' ')})"
 	)
 
 
