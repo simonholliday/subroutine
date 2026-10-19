@@ -1080,7 +1080,8 @@ so the restriction above bounds the tools and nothing else.
 ### Saying what the credential is for
 
 `--profile` names a scenario instead of assembling one out of flags. It works on both
-`agent create` and `token create`, and it expands into exactly the flags below - there is
+`agent create` and `token create`, bar `colleague`, which is a second person rather than an
+agent and so is `token create`'s alone. It expands into exactly the flags below - there is
 nothing a profile can express that you could not have typed.
 
 | Profile | Reaches | Writes in | For |

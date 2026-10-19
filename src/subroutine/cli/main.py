@@ -2943,7 +2943,7 @@ def agent_create (
 		None, "--scope", help="Narrow it to these permissions. Repeatable."
 	),
 	profile: str = typer.Option(
-		"", "--profile", help=subroutine.domain.profiles.catalogue_help()
+		"", "--profile", help=subroutine.domain.profiles.catalogue_help(for_an_agent=True)
 	),
 	expires: str = typer.Option(
 		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
@@ -3019,6 +3019,14 @@ def agent_create (
 	"""
 
 	workspace = _named_on_the_command_line(workspace, "agent create")
+
+	# **Not a profile for an agent, refused before anything is issued** (`SR#5119`, decision `#5097`).
+	try:
+		subroutine.domain.profiles.refuse_for_an_agent(profile.strip())
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
 	shaped = _shaped_by_profile(
 		profile, project=project, write=write, scope=scope, workspace=workspace
 	)

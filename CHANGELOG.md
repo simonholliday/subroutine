@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`agent create` refuses the `colleague` profile.** It means a second person in one
+  workspace, and `token create` pins it there; `agent create` did not, so the agent it made could
+  reach everything its owner could. For an agent, `worker`, `collaborator` or `observer` says what
+  it is for, and `--pin` keeps it to one workspace. `token create --profile colleague` is
+  unchanged.
 - **A credential that may file tasks and not read them can file one from the terminal over
   HTTP.** Every command there opens by reading the instance's vocabulary, which counted each tag's
   uses over the tasks the credential could read, and refused one that could read none - so the

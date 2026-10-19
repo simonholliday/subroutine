@@ -278,3 +278,31 @@ class TestScopesBesideAProfile:
 		assert "name the scopes, projects and writes yourself" in (
 			refused.value.errors[0].hint or ""
 		)
+
+
+class TestForAnAgent:
+	"""`SR#5119`, decided in `#5097`: ``agent create`` refuses a profile that is not for an agent."""
+
+	def test_the_colleague_profile_is_refused_naming_the_ones_for_an_agent (self) -> None:
+		"""``colleague`` is a second person; the hint names the three for an agent and ``--pin``."""
+
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			subroutine.domain.profiles.refuse_for_an_agent("colleague")
+
+		assert refused.value.detail == "The 'colleague' profile is for another person, not an agent."
+		assert refused.value.errors[0].hint == (
+			"For an agent, use 'worker', 'collaborator' or 'observer', with '--pin' to keep it to one "
+			"workspace."
+		)
+
+	@pytest.mark.parametrize("key", ["worker", "collaborator", "observer", "nonesuch"])
+	def test_every_other_name_passes_it (self, key: str) -> None:
+		"""The three for an agent pass, and a name that is no profile is left to ``named``."""
+
+		subroutine.domain.profiles.refuse_for_an_agent(key)
+
+	def test_the_help_for_an_agent_leaves_it_out (self) -> None:
+		"""``agent create --help`` offers only what it accepts; ``token create``'s offers all four."""
+
+		assert "colleague" not in subroutine.domain.profiles.catalogue_help(for_an_agent=True)
+		assert "colleague" in subroutine.domain.profiles.catalogue_help()

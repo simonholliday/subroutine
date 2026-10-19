@@ -1891,3 +1891,29 @@ def test_handing_an_agent_over_names_the_agents_that_stop_with_it (
 		in handed
 	), handed
 	assert "lint-bot, one of deploy-bot's agents, stops working in acme." in handed, handed
+
+
+def test_agent_create_refuses_the_colleague_profile_and_issues_nothing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5119`, decision `#5097`: the profile pinned through ``token create`` and not through here.
+
+	So ``agent create --profile colleague --workspace acme`` made an agent reaching everything its
+	owner could. It is refused before anything is made, and ``token create`` still pins.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	refused = " ".join(
+		run("agent", "create", "carl", "--profile", "colleague", "--workspace", "acme", expect=1)
+		.output.split()
+	)
+
+	assert "The 'colleague' profile is for another person, not an agent." in refused, refused
+	assert "'--pin'" in refused, refused
+	assert "carl" not in run("user", "list").output, "an account was made before the refusal"
+
+	run("user", "create", "oli")
+	run("token", "create", "--username", "oli", "--profile", "colleague", "--workspace", "acme")
+
+	assert "in acme only" in run("token", "list").output

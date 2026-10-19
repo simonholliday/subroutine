@@ -82,6 +82,12 @@ class Profile:
 	#: is "this workspace and no other".
 	needs_a_workspace: bool = False
 
+	#: **Whether an agent may be made with it** (`SR#5119`, decision `#5097`). ``colleague`` is a
+	#: second person in one workspace, which ``token create`` pins; ``agent create``'s
+	#: ``--workspace`` is the agent's home and its pin is ``--pin``, so the same profile there
+	#: issued an agent its owner's whole reach.
+	for_an_agent: bool = True
+
 
 #: The four, in the order they appear in decision `#370`'s table.
 #:
@@ -114,6 +120,7 @@ CATALOGUE: tuple[Profile, ...] = (
 		reach=Reach.THE_WORKSPACE,
 		writes=Writes.EVERYTHING_IT_REACHES,
 		needs_a_workspace=True,
+		for_an_agent=False,
 	),
 )
 
@@ -127,6 +134,35 @@ class Shape:
 	scopes: list[str]
 	projects: list[str] | None
 	writes: list[str] | None
+
+
+def refuse_for_an_agent (key: str) -> None:
+	"""Refuse a profile that is not for an agent, naming the ones that are - `SR#5119`.
+
+	M-6 of the cold review of 2026-10-17, decided in `#5097`: ``agent create --profile colleague``
+	made an agent reaching everything its owner could, where ``token create`` pins the same
+	profile to its workspace. A name that is no profile at all is :func:`named`'s to refuse.
+	"""
+
+	found = BY_KEY.get(key)
+
+	if found is None or found.for_an_agent:
+		return
+
+	agents = [f"{one.key!r}" for one in CATALOGUE if one.for_an_agent]
+
+	raise subroutine.errors.ValidationError(
+		f"The {found.key!r} profile is for another person, not an agent.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="profile",
+				code="invalid_field_value",
+				message=f"{found.key!r} is {found.summary}.",
+				hint=f"For an agent, use {', '.join(agents[:-1])} or {agents[-1]}, with '--pin' to "
+				f"keep it to one workspace.",
+			)
+		],
+	)
 
 
 def named (key: str) -> Profile:
@@ -324,14 +360,17 @@ def _alternatives () -> str:
 	)
 
 
-def catalogue_help () -> str:
+def catalogue_help (*, for_an_agent: bool = False) -> str:
 	"""Describe every profile, for the ``--profile`` flag's own help text.
 
 	Built from :data:`CATALOGUE` rather than written out beside it, so a profile added later
 	appears in ``--help`` without anybody remembering to say so. The same argument
-	``docs/errors.md`` is generated for.
+	``docs/errors.md`` is generated for. ``for_an_agent`` leaves out the profiles an agent may not
+	be made with, for ``agent create`` (`SR#5119`).
 	"""
 
 	return "What the credential is for. " + "; ".join(
-		f"{profile.key}: {profile.summary}" for profile in CATALOGUE
+		f"{profile.key}: {profile.summary}"
+		for profile in CATALOGUE
+		if profile.for_an_agent or not for_an_agent
 	)
