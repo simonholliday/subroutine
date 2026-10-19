@@ -57,6 +57,7 @@ import subroutine.db.models.system
 import subroutine.db.session
 import subroutine.db.types
 import subroutine.directory
+import subroutine.domain.authentication
 import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.errors
@@ -2934,6 +2935,28 @@ def test_one_command_sets_an_agent_up_and_what_it_records_works (
 
 	assert "si (person)" in run("whoami").output
 	assert "Rotate the certificates" in run("list").output
+
+
+def test_whoami_on_a_read_only_local_connection_says_the_session_only_reads (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#5126`, decision `#5097`: a local connection presents no credential to carry the flag, so
+	the line is said from the connection's own setting - beside the installation's permissions, which
+	are listed as what the session reads with and would otherwise read as what it may change."""
+
+	run("init", "--username", "si", "--workspace", "Projects")
+
+	assert subroutine.domain.authentication.READ_ONLY not in run("whoami").output
+
+	settings = home / "xdg_config_home" / "subroutine" / "config.toml"
+
+	with settings.open("a", encoding="utf-8") as handle:
+		handle.write("\n[connections.local]\nread_only = true\n")
+
+	said = run("whoami").output
+
+	assert subroutine.domain.authentication.READ_ONLY in said, said
+	assert "instance:admin" in said, said
 
 
 def test_agent_create_says_whom_the_agent_answers_to (

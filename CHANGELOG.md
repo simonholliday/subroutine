@@ -29,6 +29,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`/v1/me` says when a session is read-only.** A read-only superuser could list every workspace,
+  credential and backup while `/v1/me` said it held no permission over the installation, and nothing
+  said the session only read, so an agent learned it from its refusals. The credential in `/v1/me`
+  now carries `read_only`, the installation's permissions are listed as what the session reads with,
+  and `whoami` and the agent tools say the session only reads. A credential that writes only in some
+  projects is offered its write permissions only in the workspaces those projects are in.
 - **Whether a rule binds the whole workspace is the instance's to say.** A credential narrowed
   to a project inside a private one was told a rule filed there bound the whole workspace, and the
   agent tools listed it among the conventions wherever the agent stood, because that was worked

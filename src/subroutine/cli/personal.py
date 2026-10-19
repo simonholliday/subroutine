@@ -60,6 +60,7 @@ import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.agenda
+import subroutine.domain.authentication
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.documents
@@ -2596,8 +2597,13 @@ def _agent_because (
 	return connection.agent_variable if resolved.by_agent else None
 
 
-def _whoami_lines (me: subroutine.views.Me, *, agent_because: str | None = None) -> list[str]:
+def _whoami_lines (
+	me: subroutine.views.Me, *, agent_because: str | None = None, read_only: bool = False
+) -> list[str]:
 	"""Describe one connection's answer to "who am I": the account, the credential, the room.
+
+	``read_only`` is the connection's own setting (`SR#5126`), which a local connection's session is
+	read-only by with no credential to carry the flag.
 
 	**What the credential withholds is stated; what it grants is not enumerated.** An
 	unnarrowed owner would otherwise get twenty permission keys they already have, and the
@@ -2634,6 +2640,13 @@ def _whoami_lines (me: subroutine.views.Me, *, agent_because: str | None = None)
 	# credential that stops working says so, though nothing else narrows it.
 	if credential is not None and (credential.narrows or credential.expires_at is not None):
 		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
+
+	# **A read-only session says so** (`SR#5126`, decision `#5097`), in the words its refusals use, so
+	# what follows is read as what it reads with. **By the connection's own setting**, which is what
+	# the instance was told, and which a local connection's session is read-only by with no credential
+	# to carry the flag.
+	if read_only:
+		lines.append(subroutine.domain.authentication.READ_ONLY)
 
 	# **Each with what it covers** (`SR#4568`, decision `#4524`): ``instance:user_create`` gated eight
 	# acts on accounts under a name that says *create*, and nothing said so to its holder.
@@ -7845,7 +7858,9 @@ def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
 
 			because = _agent_because(answer.connection, world.roster.default)
 
-			for line in _whoami_lines(answer.value, agent_because=because):
+			for line in _whoami_lines(
+				answer.value, agent_because=because, read_only=answer.connection.read_only
+			):
 				program.console.print(line)
 
 			# **A footer, and per connection rather than once** (`#381`). The program is

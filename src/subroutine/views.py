@@ -2195,6 +2195,13 @@ class Credential(pydantic.BaseModel):
 	expires_at: datetime.datetime | None
 	last_used_at: datetime.datetime | None
 
+	#: **Whether this session only reads** (`SR#5126`, decision `#5097`): it came through a
+	#: connection configured read-only, so the instance refuses it every change whatever the
+	#: credential holds, and the instance permissions listed beside it are what it reads with. An
+	#: agent behind such a connection learned it only from its refusals. **Defaulted** for `#345`'s
+	#: reason.
+	read_only: bool = False
+
 
 class WorkspaceOnInstance(pydantic.BaseModel):
 	"""One workspace as the installation sees it - what exists, rather than what is in it.
@@ -5777,6 +5784,7 @@ def credential (
 			narrows=False,
 			expires_at=held.expires_at,
 			last_used_at=held.last_used_at,
+			read_only=principal.read_only,
 		)
 
 	row = principal.token
@@ -5815,6 +5823,7 @@ def credential (
 		),
 		expires_at=row.expires_at,
 		last_used_at=row.last_used_at,
+		read_only=principal.read_only,
 	)
 
 

@@ -505,14 +505,18 @@ def _as_stated (
 	resolution of the same request (``api/mcp._acting_as``) is narrowed exactly as the route's was.
 	"""
 
-	if not _read_only_asked(request):
+	if not read_only_asked(request):
 		return found
 
 	return dataclasses.replace(found, read_only=True)
 
 
-def _read_only_asked (request: starlette.requests.Request) -> bool:
-	"""Report whether this request says its session is read-only, refusing a value that says neither."""
+def read_only_asked (request: starlette.requests.Request) -> bool:
+	"""Report whether this request says its session is read-only, refusing a value that says neither.
+
+	**Read by the agent tools' client too** (`SR#5126`), whose ``whoami`` says a read-only session
+	is one where no credential was presented to carry the flag.
+	"""
 
 	values = request.query_params.getlist(READ_ONLY_PARAMETER)
 	unclear = [value for value in values if value.lower() not in ("true", "false")]

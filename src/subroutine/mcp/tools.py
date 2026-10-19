@@ -36,6 +36,7 @@ import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.agenda
+import subroutine.domain.authentication
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.documents
@@ -1974,6 +1975,12 @@ def _whoami (
 
 	if credential is not None and (credential.narrows or credential.expires_at is not None):
 		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
+
+	# **A read-only session says so** (`SR#5126`), as the terminal's ``whoami`` says it: by the
+	# client's own connection, which carries the session's setting, since a session through a local
+	# connection presents no credential to carry the flag on.
+	if client.connection.read_only:
+		lines.append(subroutine.domain.authentication.READ_ONLY)
 
 	# **Each with what it covers** (`SR#4568`, decision `#4524`), as the terminal's ``whoami`` says it.
 	if me.instance_permissions:

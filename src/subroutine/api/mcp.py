@@ -320,8 +320,12 @@ def _client (
 	arriving after the caller has been told it worked.
 	"""
 
+	# **With the session's own read-only setting** (`SR#5126`), which the tools' ``whoami`` reads
+	# off its client: a session through a local connection presents no credential to carry the flag.
 	return subroutine.clients.local.Client(
-		subroutine.connections.Connection(name=name),
+		subroutine.connections.Connection(
+			name=name, read_only=subroutine.api.security.read_only_asked(request)
+		),
 		settings,
 		session_factory=request.app.state.session_factory,
 		principal=_acting_as(request),

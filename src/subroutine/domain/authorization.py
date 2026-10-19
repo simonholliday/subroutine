@@ -290,6 +290,11 @@ def explain (
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
 	candidates = held if not scopes else held & frozenset(scopes)
 
+	# **A verb is offered anywhere inside only where the credential writes there at all** (`SR#5126`,
+	# M-23 of the cold review of 2026-10-17): one writing in a project of another workspace was
+	# offered its write verbs here too, where it writes nothing.
+	anywhere_inside = project is None and _writes_inside(session, principal, workspace_id)
+
 	# Ask the real decision about each candidate rather than reproducing its checks here.
 	# Duplicating them is how the two answers drifted apart in the first place.
 	permitted = frozenset(
@@ -305,11 +310,48 @@ def explain (
 				known=reached,
 			),
 			permission,
-			anywhere_inside=project is None,
+			anywhere_inside=anywhere_inside,
 		)
 	)
 
 	return Grant(permissions=permitted, from_role=reached.title, narrowed_by_token=narrowed)
+
+
+def _writes_inside (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	workspace_id: uuid.UUID,
+) -> bool:
+	"""Report whether a credential's write places hold a project of this workspace - `SR#5126`.
+
+	``None`` is wherever it reaches, which holds every one. A place that is not a project's id
+	holds nothing, as the check would find.
+	"""
+
+	places = write_places(principal)
+
+	if places is None:
+		return True
+
+	identifiers = []
+
+	for place in places:
+		try:
+			identifiers.append(uuid.UUID(str(place)))
+
+		except ValueError:
+			continue
+
+	if not identifiers:
+		return False
+
+	project = subroutine.db.models.project.Project
+
+	return session.scalar(
+		sqlalchemy.select(project.id)
+		.where(project.workspace_id == workspace_id, project.id.in_(identifiers))
+		.limit(1)
+	) is not None
 
 
 def _offered (failure: AuthorizationFailure | None, permission: str, *, anywhere_inside: bool) -> bool:
@@ -548,12 +590,17 @@ def instance_permissions (
 	restated the superuser and scope rules and not the narrowing decision `#3802` added, so a
 	superuser's credential narrowed to some projects would have been offered the installation's
 	administration by ``/v1/me`` and then refused it.
+
+	**A read-only session is told what it reads with** (`SR#5126`, decision `#5097`): the
+	installation's verbs gate its listings as well as its changes, so a read-only superuser read
+	every workspace and backup while this said it held none. The credential's ``read_only`` says
+	that none of them changes anything.
 	"""
 
 	return frozenset(
 		permission
 		for permission in subroutine.permissions.INSTANCE_LEVEL
-		if _instance_refusal(principal, permission) is None
+		if _instance_refusal(principal, permission, reading=principal.read_only) is None
 	)
 
 

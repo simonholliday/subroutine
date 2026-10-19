@@ -592,3 +592,16 @@ def test_a_relay_to_an_instance_that_does_not_know_the_flag_says_it_is_too_old (
 
 	assert answered is not None and "error" in answered, answered
 	assert "does not know the 'read_only' setting" in json.dumps(answered), answered
+
+
+@pytest.mark.parametrize("path", ["in process", "remote"])
+def test_whoami_through_a_read_only_relay_says_the_session_only_reads (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+	"""Decision `#5097`'s line, through both relays - `SR#5126`. **In process** the session presents
+	no credential, so the flag ``/v1/me`` carries on one cannot say it, and the tools' client says it
+	from the session's own setting."""
+
+	said = json.dumps(_call(_relay(world, monkeypatch, path), "subroutine_whoami", {}))
+
+	assert READ_ONLY in said, said
