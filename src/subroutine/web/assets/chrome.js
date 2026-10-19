@@ -721,7 +721,8 @@ export function Facts ({
 	   every document binds its own project until somebody marks it, and a default nobody chose is
 	   not printed. **Marked, not binding** (`#4853`): a draft, a note, a rule in the trash and one
 	   inside a private project are marked for the whole workspace and bind nobody outside. Whether
-	   one does is worked out from more than this row holds, so this says the mark and no more. */
+	   one does is the row's `binds_everyone` since `#5120`, which this does not read yet (`#5182`),
+	   so this says the mark and no more. */
 	add("Marked to bind", item.binds === "workspace" && "the whole workspace");
 	add(
 		"Priority",

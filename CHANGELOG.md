@@ -29,6 +29,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Whether a rule binds the whole workspace is the instance's to say.** A credential narrowed
+  to a project inside a private one was told a rule filed there bound the whole workspace, and the
+  agent tools listed it among the conventions wherever the agent stood, because that was worked
+  out from the reader's own list of projects, which leaves the private one above out. A document
+  now carries `binds_everyone`, worked out by the instance from the whole tree, and `show` and
+  the agent tools read it.
 - **A credential that may not read comments learns nothing from them.** It was refused a
   task's comments, and still found the task through a document's backlinks, its proposed links
   and `touched_by`, each of which read a comment. They leave comments out for it now.

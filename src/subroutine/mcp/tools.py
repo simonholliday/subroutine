@@ -591,23 +591,12 @@ def _conventions (
 
 	project = None if landed is None else landed.sent
 	listed: list[subroutine.views.Document] = []
-	# **Which projects are private, read once and only where a rule is marked** (`#4853`).
-	read: list[frozenset[str] | None] = []
-
-	def private () -> frozenset[str] | None:
-		"""Return the private projects this reader can see, or ``None`` where it may list none."""
-
-		if not read:
-			read.append(subroutine.clients.base.private_places(client, workspace=workspace))
-
-		return read[0]
-
 	in_force = 0
 	cut = False
 
 	for kind in subroutine.domain.documents.GOVERNING:
 		section, found, held, more = _governing(
-			client, workspace, kind, project, place, own, private
+			client, workspace, kind, project, place, own
 		)
 
 		lines += section
@@ -671,7 +660,7 @@ def _conventions (
 	if listed:
 		lines += [
 			"",
-			f"{len(listed)} in force{_counted(listed, project, place, own, private, where)}. Findings and notes",
+			f"{len(listed)} in force{_counted(listed, project, place, own, where)}. Findings and notes",
 			"are not listed here: they describe rather than bind, and",
 			'`subroutine_list` with `filter={"type.eq": "finding"}`, or "note", finds those. A code',
 			"review's *Not issues* section is worth reading before re-raising something it already",
@@ -742,10 +731,6 @@ IN_ITS_TREE = "in its tree"
 ABOVE_IT = "above it"
 FOR_THE_WORKSPACE = "for the workspace"
 
-#: Asks which projects are private, for telling a rule that binds everybody from one only marked
-#: to (`#4853`). A callable, so the projects are read once and only where a rule is marked.
-Private = typing.Callable[[], frozenset[str] | None]
-
 
 def _place (
 	client: subroutine.clients.base.Client, workspace: str | None, named: str | None
@@ -809,7 +794,6 @@ def _why_shown (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
-	private: Private,
 ) -> str | None:
 	"""Return why a reader standing in ``named`` is shown a document, or ``None`` - `#3673`.
 
@@ -818,11 +802,12 @@ def _why_shown (
 	``own`` holds what the instance narrowed to instead. A document marked to bind the whole
 	workspace is shown wherever it is filed (decision `#4134`).
 
-	**Unless it is known to sit inside a private project** (`#4853`): such a rule binds nobody
-	standing outside that project, and a reader shared into it was shown it as one for the whole
-	workspace wherever they stood. Where this credential may not list projects that cannot be
-	told, and the rule stays listed: one shown that does not bind costs less than one hidden that
-	does.
+	**Unless the instance says it binds nobody here** (`#4853`, `SR#5120`): a rule inside a private
+	project binds nobody standing outside that project, and a reader shared into it was shown it as
+	one for the whole workspace wherever they stood. The instance says so from the whole tree, which
+	a credential narrowed to a project inside a private one could not see to tell. Where an older
+	instance does not say, the rule stays listed: one shown that does not bind costs less than one
+	hidden that does.
 	"""
 
 	if named is None:
@@ -837,12 +822,11 @@ def _why_shown (
 	if place is not None and path and place.startswith(f"{path}/"):
 		return ABOVE_IT
 
-	if getattr(document, "binds", None) == "workspace":
-		told = private()
-		said = subroutine.clients.base.said_to_bind(document, told)
-
-		if told is None or not path or said == subroutine.clients.base.BINDS_EVERYBODY:
-			return FOR_THE_WORKSPACE
+	if (
+		getattr(document, "binds", None) == "workspace"
+		and getattr(document, "binds_everyone", None) is not False
+	):
+		return FOR_THE_WORKSPACE
 
 	return None
 
@@ -852,7 +836,6 @@ def _counted (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
-	private: Private,
 	shown: str | None = None,
 ) -> str:
 	"""Return where a narrowed reader's entries come from, said after their count - `#3673`.
@@ -864,7 +847,7 @@ def _counted (
 	if named is None:
 		return ""
 
-	sides = [_why_shown(one, named, place, own, private) for one in listed]
+	sides = [_why_shown(one, named, place, own) for one in listed]
 	mine, above, marked = (sides.count(side) for side in (IN_ITS_TREE, ABOVE_IT, FOR_THE_WORKSPACE))
 	parts = []
 
@@ -875,12 +858,16 @@ def _counted (
 		parts.append(f"{above} in the projects above it")
 
 	if marked:
-		# **Bind, where that could be told** (`#4853`): a credential that may not list projects
-		# cannot tell a rule inside a private project from one that binds everybody.
+		# **Bind, where the instance said so** (`#4853`, `SR#5120`): an older instance does not say.
+		told = all(
+			getattr(one, "binds_everyone", None)
+			for one, side in zip(listed, sides, strict=True)
+			if side == FOR_THE_WORKSPACE
+		)
 		does = (
-			("is" if marked == 1 else "are") + " marked to bind"
-			if private() is None
-			else ("binds" if marked == 1 else "bind")
+			("binds" if marked == 1 else "bind")
+			if told
+			else ("is" if marked == 1 else "are") + " marked to bind"
 		)
 		parts.append(f"{marked} filed elsewhere that {does} the whole workspace")
 
@@ -900,7 +887,6 @@ def _governing (
 	named: str | None,
 	place: str | None,
 	own: frozenset[int],
-	private: Private,
 ) -> tuple[list[str], list[subroutine.views.Document], int, bool]:
 	"""Return one type's section, what it lists, how many are in force, and whether there were more.
 
@@ -931,7 +917,7 @@ def _governing (
 		limit=subroutine.clients.base.EVERY_ROW,
 	)
 	everything = list(listed)
-	found = [one for one in everything if _why_shown(one, named, place, own, private) is not None]
+	found = [one for one in everything if _why_shown(one, named, place, own) is not None]
 	cut = listed.has_more
 
 	if not found:
@@ -948,7 +934,7 @@ def _governing (
 		"",
 		kind.obliges,
 		"",
-		*[f"- **#{one.ref}**{_in_project(one, private)} - {_on_one_line(one.title)}" for one in found],
+		*[f"- **#{one.ref}**{_in_project(one)} - {_on_one_line(one.title)}" for one in found],
 	]
 
 	if cut:
@@ -973,7 +959,7 @@ def _governing (
 	return section, found, len(everything), cut
 
 
-def _in_project (document: subroutine.views.Document, private: Private) -> str:
+def _in_project (document: subroutine.views.Document) -> str:
 	"""Return where an entry is filed, as it is written after its number - `#3832`.
 
 	**On every entry**, because the index spans every project it is not narrowed from, and an
@@ -991,7 +977,7 @@ def _in_project (document: subroutine.views.Document, private: Private) -> str:
 	said = [path] if isinstance(path, str) and path else []
 
 	if getattr(document, "binds", None) == "workspace":
-		said.append(subroutine.clients.base.said_to_bind(document, private()) or "")
+		said.append(subroutine.clients.base.said_to_bind(document) or "")
 
 	return f" ({', '.join(said)})" if said else ""
 
@@ -3281,17 +3267,14 @@ def _bound (
 ) -> str | None:
 	"""Return what a document's mark amounts to, or ``None`` where it carries none - `#4853`.
 
-	The projects are read only for a document that is marked, which is the one case with
-	something to tell: a draft, a note, a rule in the trash and one inside a private project are
-	marked to bind the whole workspace and bind nobody outside.
+	A draft, a note, a rule in the trash and one inside a private project are marked to bind the
+	whole workspace and bind nobody outside, which the instance says on the document (`SR#5120`).
 	"""
 
 	if not isinstance(item, subroutine.views.Document) or item.binds != "workspace":
 		return None
 
-	return subroutine.clients.base.said_to_bind(
-		item, subroutine.clients.base.private_places(client, workspace=workspace)
-	)
+	return subroutine.clients.base.said_to_bind(item)
 
 
 def _more (

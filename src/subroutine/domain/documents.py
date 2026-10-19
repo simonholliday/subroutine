@@ -1154,6 +1154,35 @@ def _superseded_by (
 	)
 
 
+def binding_among (
+	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
+) -> dict[uuid.UUID, bool]:
+	"""Return whether each of these documents binds everyone in its workspace - `SR#5120`.
+
+	**The instance's answer, for the document view** (M-7 of the cold review of 2026-10-17, decision
+	`#5097`): :func:`binding_everyone` over the whole tree. A client worked it out from its own
+	listing of projects, which a credential narrowed to a project inside a private one never sees,
+	so it was told a rule there bound the whole workspace. One statement for the page.
+	"""
+
+	wanted = list(dict.fromkeys(identifiers))
+
+	if not wanted:
+		return {}
+
+	document = subroutine.db.models.work.Document
+	project = subroutine.db.models.project.Project
+	binding = set(
+		session.scalars(
+			sqlalchemy.select(document.id)
+			.join(project, project.id == document.project_id)
+			.where(document.id.in_(wanted), binding_everyone(document, project))
+		)
+	)
+
+	return {identifier: identifier in binding for identifier in wanted}
+
+
 def children_among (
 	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
 ) -> dict[uuid.UUID, int]:

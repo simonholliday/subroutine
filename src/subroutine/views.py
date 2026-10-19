@@ -2993,6 +2993,13 @@ class Document(pydantic.BaseModel):
 	#: is**, so a client reads an older instance's documents as binding their project, which they do.
 	binds: str = "project"
 
+	#: **Whether it binds everyone in its workspace** (`SR#5120`, decision `#5097`): marked
+	#: ``workspace``, of a governing type, in force, live and beneath no private project - worked out
+	#: by the instance, which sees the whole tree, where a reader narrowed to a project inside a
+	#: private one could not see that project to tell. **Null from an older instance**, which does
+	#: not say; defaulted for `#345`'s reason.
+	binds_everyone: bool | None = None
+
 	status: str
 	status_category: str
 	status_id: uuid.UUID
@@ -3686,6 +3693,10 @@ class Vocabulary:
 			session, document_ids
 		)
 
+		# **And whether each binds everyone in its workspace** (`SR#5120`): the instance's answer, from
+		# the whole tree, which a narrowed reader cannot see. One statement for the page, the same shape.
+		self.binding_everyone = subroutine.domain.documents.binding_among(session, document_ids)
+
 		# **And what each of those is filed under** — `#2201`. The task pair below has existed
 		# since `#510` for the reason its own comment gives; a document reported `parent_id`
 		# and nothing else, so the browser held a UUID and could not print an address from it.
@@ -4195,6 +4206,7 @@ def document (
 		parent_title=_parent_field(vocabulary.document_parents, row.parent_id, "title"),
 		sub_documents=vocabulary.documents_underneath.get(row.id, 0),
 		binds=row.binds,
+		binds_everyone=vocabulary.binding_everyone.get(row.id),
 		status=str(status.get("key", "")),
 		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),

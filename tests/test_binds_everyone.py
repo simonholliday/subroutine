@@ -402,99 +402,162 @@ def _marked (**facts: typing.Any) -> subroutine.views.Document:
 
 
 @pytest.mark.parametrize(
-	("facts", "private", "said"),
+	("facts", "said"),
 	[
-		({}, frozenset(), subroutine.clients.base.BINDS_EVERYBODY),
-		({}, frozenset({"ops"}), subroutine.clients.base.BINDS_EVERYBODY),
-		({"project_path": "webinar"}, frozenset({"web"}), subroutine.clients.base.BINDS_EVERYBODY),
-		({"binds": "project"}, frozenset(), None),
-		(
-			{"status_category": subroutine.domain.documents.DRAFT_CATEGORY},
-			frozenset(),
-			subroutine.clients.base.MARKED_TO_BIND,
-		),
-		({"type": "note"}, frozenset(), subroutine.clients.base.MARKED_TO_BIND),
-		(
-			{"deleted_at": subroutine.db.types.utcnow()},
-			frozenset(),
-			subroutine.clients.base.MARKED_TO_BIND,
-		),
-		({}, frozenset({"web/blog"}), subroutine.clients.base.MARKED_TO_BIND),
-		({}, frozenset({"web"}), subroutine.clients.base.MARKED_TO_BIND),
-		({}, None, subroutine.clients.base.MARKED_TO_BIND),
-		({"project_path": ""}, frozenset(), subroutine.clients.base.MARKED_TO_BIND),
+		({"binds_everyone": True}, subroutine.clients.base.BINDS_EVERYBODY),
+		({"binds_everyone": False}, subroutine.clients.base.MARKED_TO_BIND),
+		({"binds_everyone": None}, subroutine.clients.base.MARKED_TO_BIND),
+		({"binds": "project", "binds_everyone": False}, None),
 	],
 	ids=[
-		"in force and public",
-		"a private project elsewhere",
-		"a project whose name only starts the same",
+		"the instance says it binds everyone",
+		"the instance says it does not",
+		"an older instance, which does not say",
 		"not marked",
-		"a draft",
-		"a note",
-		"in the trash",
-		"in a private project",
-		"beneath a private project",
-		"projects that could not be listed",
-		"no path to place it by",
 	],
 )
-def test_a_mark_is_said_to_bind_only_where_the_one_predicate_says_it_does (
-	facts: dict[str, typing.Any], private: frozenset[str] | None, said: str | None
+def test_a_mark_is_said_to_bind_only_where_the_instance_says_it_does (
+	facts: dict[str, typing.Any], said: str | None
 ) -> None:
-	"""`SR#4853`: marked is not binding, and three surfaces read the mark alone.
+	"""`SR#4853`, `SR#5120`: marked is not binding, and whether it binds is the instance's to say.
 
 	``show``, the browser and the agent tools said *binds the whole workspace* of any marked
-	document: a draft, a note, a rule in the trash and one inside a private project, which bind
-	nobody outside. The words now follow :func:`subroutine.domain.documents.binds_everyone`, and
-	say only that it is marked where the predicate says no - or where it could not be asked,
-	because the projects could not be listed or the document names no path.
+	document. The words follow the view's ``binds_everyone``, which the instance works out from the
+	whole tree, and say only that it is marked where it says no - or where an older one does not say.
 	"""
 
-	assert subroutine.clients.base.said_to_bind(_marked(**facts), private) == said
+	assert subroutine.clients.base.said_to_bind(_marked(**facts)) == said
 
 
-def test_the_private_places_include_archived_ones_and_are_untold_where_listing_is_refused () -> None:
-	"""`SR#4853`: what :func:`said_to_bind` is told, and the difference between none and unknown.
 
-	Finishing with a project does not make it public, so the archived are asked for too. A
-	credential that may not list projects is answered ``None`` - not an empty set, which would say
-	every marked rule sits in the open.
+def _nested (world: test_api_tasks.World) -> dict[str, typing.Any]:
+	"""Make private ``vault`` with ``blog`` under it, public ``web``, and public ``ops`` with ``sub``.
+
+	keanu is shared into ``vault``, so he reads ``blog``; a marked decision sits in ``blog`` and one in
+	``ops/sub``. Returned are keanu, the projects' ids and the two decisions' refs, by name.
 	"""
 
-	class Listing:
-		"""A client that lists two projects, or refuses, and notes what it was asked."""
-
-		def __init__ (self, refuses: bool = False) -> None:
-			"""Remember whether to refuse."""
-
-			self.refuses = refuses
-			self.asked: dict[str, typing.Any] = {}
-
-		def projects (self, **asked: typing.Any) -> list[subroutine.views.Project]:
-			"""List a public project and a private one, as an instance would."""
-
-			self.asked = asked
-
-			if self.refuses:
-				raise subroutine.errors.Forbidden("You may not list projects here.")
-
-			# Only the two fields the reader takes, unpacked so the model's other fields are not asked for.
-			rows: list[dict[str, typing.Any]] = [
-				{"path": "web", "visibility": "public"},
-				{"path": "vault", "visibility": "private"},
-			]
-
-			return [subroutine.views.Project.model_construct(**row) for row in rows]
-
-	listing = Listing()
-	client = typing.cast(subroutine.clients.base.Client, listing)
-
-	assert subroutine.clients.base.private_places(client, workspace="metacortex") == frozenset(
-		{"vault"}
+	vault = _project(world, "vault", visibility="private")
+	web = _project(world, "web")
+	ops = _project(world, "ops")
+	session = world.session
+	blog = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="blog",
+		title="Blog",
+		parent=session.get(subroutine.db.models.project.Project, uuid.UUID(vault)),
 	)
-	assert listing.asked["include_archived"] is True, listing.asked
-	assert listing.asked["workspace"] == "metacortex", listing.asked
+	sub = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="sub",
+		title="Sub",
+		parent=session.get(subroutine.db.models.project.Project, uuid.UUID(ops)),
+	)
+	session.flush()
+	keanu, _secret = _member(world, "keanu", "member")
+	shared = world.call("POST", "/v1/projects/vault/members", json={"username": keanu.username})
 
-	refusing = typing.cast(subroutine.clients.base.Client, Listing(refuses=True))
+	assert shared.status_code < 300, shared.text
 
-	assert subroutine.clients.base.private_places(refusing) is None
+	hidden = _written(world, title="Draft posts in the vault", binds="workspace", project=str(blog.id))
+	open_rule = _written(world, title="Rotate the disks weekly", binds="workspace", project=str(sub.id))
+
+	return {
+		"keanu": keanu, "vault": vault, "web": web, "blog": str(blog.id), "sub": str(sub.id),
+		"hidden": hidden["ref"], "open": open_rule["ref"],
+	}
+
+
+def _over_http (world: test_api_tasks.World, secret: str) -> subroutine.clients.http.Client:
+	"""Return the real HTTP client with this credential, driving the world's own application."""
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://example.com"),
+		token=secret,
+		transport=api_support.SyncTransport(world.application),
+		base_url=api_support.BASE_URL,
+	)
+
+
+def test_a_reader_narrowed_inside_a_private_project_is_not_told_a_rule_there_binds_everyone (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#5120`, M-7 of the cold review of 2026-10-17: the instance says it, from the whole tree.
+
+	keanu's credential narrowed to ``blog`` never lists ``vault`` above it, so the client worked out
+	from its own listing that the rule in ``blog`` bound the whole workspace. Unnarrowed, and over
+	the instance's own answer, he is told it is marked and binds nobody outside.
+	"""
+
+	made = _nested(world)
+	keanu = made["keanu"]
+	path = f"/v1/documents/{made['hidden']}"
+
+	for secret in (_credential(world, keanu), _credential(world, keanu, project_scope=[made["blog"]])):
+		answer = _as(world, secret, "GET", path)
+
+		assert answer.status_code == 200, answer.text
+		assert answer.json()["binds_everyone"] is False, answer.text
+
+		with _over_http(world, secret) as client:
+			found = client.document(ref=made["hidden"], workspace=world.workspace.slug)
+
+		assert found is not None
+		assert subroutine.clients.base.said_to_bind(found) == subroutine.clients.base.MARKED_TO_BIND
+
+	assert world.call("GET", f"/v1/documents/{made['open']}").json()["binds_everyone"] is True
+
+
+def test_the_conventions_list_only_a_rule_that_binds_where_the_agent_stands (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#5120`: narrowed to ``blog`` and ``web``, standing in ``web``, the vault's rule is not listed.
+
+	And the review's warning measured the other way: narrowed to ``ops/sub`` and ``web``, the rule
+	under public ``ops`` binds everyone and is listed - the case a client-side guess that every
+	unlisted ancestor is private would have hidden.
+	"""
+
+	made = _nested(world)
+	keanu = made["keanu"]
+	standing = subroutine.mcp.tools.Standing(project="web")
+
+	for scope, shown, hidden in (
+		([made["blog"], made["web"]], None, "Draft posts in the vault"),
+		([made["sub"], made["web"]], "Rotate the disks weekly", None),
+	):
+		with _over_http(world, _credential(world, keanu, project_scope=scope)) as client:
+			index = subroutine.mcp.tools._conventions(client, world.workspace.slug, standing)
+
+		if shown is not None:
+			assert shown in index, index
+
+		if hidden is not None:
+			assert hidden not in index, index
+
+
+def test_an_older_instance_that_does_not_say_leaves_a_marked_rule_listed () -> None:
+	"""`SR#5120`: a view without ``binds_everyone`` is shown as marked, and still listed elsewhere.
+
+	And the count beside the index says *marked to bind* wherever one listed rule's answer was not
+	given, and *binds* only where every one of them was.
+	"""
+
+	older = _marked(ref=7, project_path="ops")
+	told = _marked(ref=9, project_path="ops", binds_everyone=True)
+	shown = subroutine.mcp.tools._why_shown(older, "web", "web", frozenset())
+
+	assert shown == subroutine.mcp.tools.FOR_THE_WORKSPACE
+	assert subroutine.clients.base.said_to_bind(older) == subroutine.clients.base.MARKED_TO_BIND
+	assert subroutine.mcp.tools._why_shown(
+		_marked(ref=8, project_path="ops", binds_everyone=False), "web", "web", frozenset()
+	) is None
+
+	for listed, said in (
+		([told], ": 1 filed elsewhere that binds the whole workspace"),
+		([older], ": 1 filed elsewhere that is marked to bind the whole workspace"),
+		([told, older], ": 2 filed elsewhere that are marked to bind the whole workspace"),
+	):
+		assert subroutine.mcp.tools._counted(listed, "web", "web", frozenset()) == said

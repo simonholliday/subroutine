@@ -2228,57 +2228,22 @@ BINDS_EVERYBODY = "binds the whole workspace"
 MARKED_TO_BIND = "marked to bind the whole workspace"
 
 
-def private_places (client: Client, *, workspace: str | None = None) -> frozenset[str] | None:
-	"""Return the paths of the private projects this credential can see, or ``None`` where it lists none.
-
-	For :func:`said_to_bind`, which has to know whether a document sits inside one. **Archived ones
-	too**, since finishing with a project does not make it public. ``None`` is a credential that may
-	not list projects, which is not the same as there being no private one.
-	"""
-
-	try:
-		listed = every_project(client, workspace=workspace, include_archived=True)
-
-	except subroutine.errors.Forbidden:
-		return None
-
-	return frozenset(row.path for row in listed if row.visibility == "private" and row.path)
-
-
-def said_to_bind (
-	document: subroutine.views.Document, private: frozenset[str] | None
-) -> str | None:
+def said_to_bind (document: subroutine.views.Document) -> str | None:
 	"""Return what a document's mark amounts to for its reader, or ``None`` where it carries none.
 
 	**Marked is not binding** (`#4853`). A draft, a note, a rule in the trash and one inside a private
 	project can each be marked for the whole workspace and bind nobody outside, and every surface
-	read the mark alone and said they bound everybody. This asks the one predicate,
-	:func:`subroutine.domain.documents.binds_everyone` (decision `#4134`), with the facts a view
-	carries, so the rule is not spelled a second time.
-
-	``private`` is :func:`private_places`: whether the document sits inside a private project is the
-	one fact no document view has. **Where that could not be read, only the mark is said**, as it is
-	against an instance too old to send a document's path.
+	read the mark alone and said they bound everybody. **Whether it binds everyone is the instance's
+	to say** (`SR#5120`, decision `#5097`), as the view's ``binds_everyone``: it sees the whole tree,
+	where this worked it out from the reader's own listing of projects, which a credential narrowed
+	to a project inside a private one never sees. **Where an older instance does not say, only the
+	mark is said.**
 	"""
 
 	if document.binds != subroutine.domain.documents.BINDS_THE_WORKSPACE:
 		return None
 
-	path = document.project_path
-
-	if private is None or not path:
-		return MARKED_TO_BIND
-
-	hidden = any(path == place or path.startswith(f"{place}/") for place in private)
-	binds = subroutine.domain.documents.binds_everyone(
-		binds=document.binds,
-		type_key=document.type,
-		category=document.status_category,
-		live=document.deleted_at is None,
-		public=not hidden,
-	)
-
-	return BINDS_EVERYBODY if binds else MARKED_TO_BIND
+	return BINDS_EVERYBODY if document.binds_everyone else MARKED_TO_BIND
 
 
 def from_this_end (links: typing.Sequence[subroutine.views.Link]) -> list[subroutine.views.Link]:

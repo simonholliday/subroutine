@@ -13377,9 +13377,8 @@ def _bound (client: subroutine.clients.base.Client, located: Located) -> str | N
 	"""Return what a document's mark amounts to, or ``None`` where it carries none - `#4853`.
 
 	**Marked is not binding**: a draft, a note, a rule in the trash and one inside a private project
-	bind nobody outside, and ``show`` said each bound the whole workspace. Whether it sits inside a
-	private project is not on the document, so the projects are read - only for a document that is
-	marked, which is the one case with something to tell.
+	bind nobody outside, and ``show`` said each bound the whole workspace. The instance says which on
+	the document (`SR#5120`), from the whole tree.
 	"""
 
 	item = located.item
@@ -13387,9 +13386,7 @@ def _bound (client: subroutine.clients.base.Client, located: Located) -> str | N
 	if not isinstance(item, subroutine.views.Document) or item.binds != "workspace":
 		return None
 
-	return subroutine.clients.base.said_to_bind(
-		item, subroutine.clients.base.private_places(client, workspace=located.workspace)
-	)
+	return subroutine.clients.base.said_to_bind(item)
 
 
 def _sections (

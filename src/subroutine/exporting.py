@@ -756,7 +756,7 @@ COMPUTED: dict[str, frozenset[str]] = {
 		"assignee_answers_to",
 	}),
 	"documents": frozenset({
-		"size_bytes", "project_colour", "sub_documents", "revisions", "relevance"
+		"size_bytes", "project_colour", "sub_documents", "revisions", "relevance", "binds_everyone"
 	}),
 	"comments": frozenset(),
 	"links": frozenset(),

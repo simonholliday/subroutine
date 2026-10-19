@@ -11888,7 +11888,8 @@ def test_a_rule_marked_inside_a_private_project_is_not_listed_as_one_for_the_who
 	elsewhere that binds the whole workspace*. It binds nobody outside the vault, so it is left out
 	and counted with what was; the rule in ``ops`` that does bind everybody is listed as before.
 	**Standing in the vault it is listed, as marked.** And where the credential may not list
-	projects, which of the two a marked rule is cannot be told: both stay listed, as marked.
+	projects the instance still says which of the two binds everybody (`SR#5120`): the agent guessed,
+	and listed both as marked, where the answer is the one the narrowed reader is given.
 	"""
 
 	slug = _a_line_of_projects(session)
@@ -11943,11 +11944,9 @@ def test_a_rule_marked_inside_a_private_project_is_not_listed_as_one_for_the_who
 	_marked_as(monkeypatch, "web/blog")
 	untold = _bound_to(session, slug)
 
-	assert "(ops, marked to bind the whole workspace)" in untold, untold
-	assert "(vault, marked to bind the whole workspace)" in untold, untold
-	assert "2 filed elsewhere that are marked to bind the whole workspace." in " ".join(
-		untold.split()
-	), untold
+	assert "The vault opens at six" not in untold, untold
+	assert "(ops, binds the whole workspace)" in untold, untold
+	assert "1 filed elsewhere that binds the whole workspace." in " ".join(untold.split()), untold
 
 
 def test_a_readers_draft_is_counted_however_many_other_drafts_the_workspace_holds (
