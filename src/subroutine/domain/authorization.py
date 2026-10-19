@@ -504,14 +504,25 @@ def _read_by (
 ) -> bool:
 	"""Return whether a principal reads a document - the one kind read outside a credential's projects.
 
-	**Reached late**, because ``domain.scoping`` imports this module at module scope, and asked only
-	once a write has already been refused.
+	**Reached late**, because ``domain.scoping`` and ``domain.links`` import this module at module
+	scope, and asked only once a write has already been refused. **A link's end is the item it
+	names** (`SR#5125`, M-23 of the cold review of 2026-10-17): linking to a rule that binds the
+	whole workspace was refused as a project nobody named, where every other write to it says it is
+	beyond the credential's places.
 	"""
+
+	from subroutine.domain import links
+	from subroutine.domain import scoping
+
+	if isinstance(item, links.End):
+		item = (
+			session.get(subroutine.db.models.work.Document, item.id)
+			if item.entity_type == "document"
+			else None
+		)
 
 	if not isinstance(item, subroutine.db.models.work.Document):
 		return False
-
-	from subroutine.domain import scoping
 
 	try:
 		statement = scoping.readable_documents(session, principal, workspace_ids=[item.workspace_id])

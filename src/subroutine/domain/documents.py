@@ -340,8 +340,16 @@ def create (
 
 	workspace_id = project.workspace_id
 
+	# **Of the document a section is filed under, where there is one** (`SR#5125`): it is in the same
+	# project, so the permission is the same, and a rule binding the whole workspace is read beyond a
+	# credential's places, so filing under it is refused as beyond them rather than as a project
+	# nobody named. Its trash is asked above, in its own words.
 	subroutine.domain.authorization.authorize_on(
-		session, actor, subroutine.permissions.TASK_WRITE, project
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		project if parent is None else parent,
+		doing=None,
 	)
 
 	item_type = item_type_for(session, workspace_id, type_key)
