@@ -104,6 +104,12 @@ PRINCIPALS: tuple[Who, ...] = (
 	Who("superuser pinned to another workspace", "laurence", pinned=True),
 	Who("agent", "claude"),
 	Who("read-only connection", "laurence", read_only=True),
+	Who(
+		"read-only connection narrowed to another project",
+		"hugo",
+		read_only=True,
+		project_scope="ops",
+	),
 	Who("local superuser", "laurence", local=True),
 	Who("local member", "hugo", local=True),
 )
@@ -176,6 +182,15 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 		is_service_account=True,
 		responsible_user_id=people["hugo"].id,
 	)
+	# **Scout, Claude's own agent, is acted on and never acts** (`SR#5124`, M-22 of the cold review of
+	# 2026-10-17): two levels below Hugo, so the acts whoever an account answers to may take on it are
+	# driven where two principals answer for it, and one of them only through Claude.
+	people["scout"] = subroutine.domain.users.create(
+		session,
+		username=f"scout-{suffix}",
+		is_service_account=True,
+		responsible_user_id=people["claude"].id,
+	)
 
 	for person, role in (
 		("keanu", "owner"),
@@ -185,6 +200,7 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 		("joe", "viewer"),
 		("claude", "member"),
 		("tank", "member"),
+		("scout", "member"),
 	):
 		subroutine.domain.workspaces.add_member(session, workspace, people[person], role_key=role)
 
@@ -239,7 +255,7 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 		)
 		secrets[who.key] = issued.value.get_secret_value()
 
-	for person in ("marcus", "tank"):
+	for person in ("marcus", "tank", "scout"):
 		_row, issued = subroutine.domain.authentication.issue_token(
 			session, user=people[person], title=f"{person}'s own"
 		)
@@ -275,6 +291,7 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 	hugo = _local_client(cast, Who("member", "hugo"), token=cast.secrets["member"])
 	marcus = _local_client(cast, Who("outsider", "marcus"), token=cast.secrets["marcus's own"])
 	tank = _local_client(cast, Who("tank", "tank"), token=cast.secrets["tank's own"])
+	scout = _local_client(cast, Who("scout", "scout"), token=cast.secrets["scout's own"])
 	slug = cast.slug
 
 	def task (key: str, title: str, project: str, then: str = "", **more: typing.Any) -> int:
@@ -290,7 +307,7 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 
 		return cast.refs[key]
 
-	with laurence, hugo, marcus, tank:
+	with laurence, hugo, marcus, tank, scout:
 		laurence.update_workspace(
 			slug,
 			description=cast.plant(f"Our company {suffix}", P.WORKSPACE_READ, "metacortex"),
@@ -396,11 +413,16 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 		cast.names["tank's token"] = next(
 			token.prefix for token in tank.tokens() if token.title == "tank's own"
 		)
+		scout.create_calendar(title="Scout's diary", workspace=slug)
+		cast.names["scout's feed"] = scout.calendars()[0].prefix
+		cast.names["scout's token"] = next(
+			token.prefix for token in scout.tokens() if token.title == "scout's own"
+		)
 		cast.refs["zion"] = marcus.capture(
 			text=cast.plant(f"Collect the package {suffix}", P.TASK_READ, "zion"), workspace=zion
 		).task.ref
 
-	for name in ("tank", "claude"):
+	for name in ("tank", "claude", "scout"):
 		cast.names[name] = cast.people[name].username
 
 
@@ -438,6 +460,7 @@ class Act:
 	tool: tuple[str, typing.Callable[[Cast], dict[str, typing.Any]]] | None
 	route: typing.Callable[[Cast, "Who"], dict[str, typing.Any]] | None
 	theirs: str | None
+	answering: frozenset[str] = frozenset()
 
 	@property
 	def key (self) -> str:
@@ -483,9 +506,10 @@ class Act:
 		"""
 
 		# **An act the account's chain may take is beyond them for anybody else** (`SR#5123`): the
-		# administrator's verb is above them. The cast drives each on tank, whom nobody here answers
-		# for, so it is beyond them for every principal; `#5124` adds one who does.
-		return self.described.above_the_agent_tools() or (
+		# administrator's verb is above them, and the chain asks nothing of the door (`SR#5124`).
+		chained = self.described.chain and who.person in self.answering
+
+		return (self.described.above_the_agent_tools() and not chained) or (
 			# **Or whoever they answer to** (`SR#5183`), who is nobody here: each owner is a person.
 			self.theirs is not None and who.person != self.theirs
 		)
@@ -931,20 +955,23 @@ DRIVES: dict[str, Drive] = {
 	"sign-in link for somebody": Drive(
 		lambda c, s: c.create_login_link(username=s.names["tank"]),
 	),
+	# **The acts whoever an account answers to may take are driven on scout** (`SR#5124`), whom
+	# Claude answers for and Hugo through Claude, so that path is driven as well as the
+	# administrator's; the rest stay on tank, whom nobody answers for.
 	"sign somebody out": Drive(
-		lambda c, s: c.sign_out_everywhere(username=s.names["tank"]),
+		lambda c, s: c.sign_out_everywhere(username=s.names["scout"]),
 	),
 	"revoke somebody's token": Drive(
-		lambda c, s: c.revoke_token(id_or_prefix=s.names["tank's token"]),
+		lambda c, s: c.revoke_token(id_or_prefix=s.names["scout's token"]),
 	),
 	"reset somebody's feed": Drive(
 		lambda c, s: c.reset_calendar(id_or_prefix=s.names["tank's feed"]),
 	),
 	"revoke somebody's feed": Drive(
-		lambda c, s: c.revoke_calendar(id_or_prefix=s.names["tank's feed"]),
+		lambda c, s: c.revoke_calendar(id_or_prefix=s.names["scout's feed"]),
 	),
 	"deactivate somebody": Drive(
-		lambda c, s: c.set_active(username=s.names["tank"], active=False),
+		lambda c, s: c.set_active(username=s.names["scout"], active=False),
 	),
 	"transfer an agent": Drive(
 		lambda c, s: c.transfer_agent(username=s.names["claude"], to=s.names["tank"]),
@@ -990,8 +1017,13 @@ def _driven (described: subroutine.acts.Act) -> Act:
 		tool=drive.tool,
 		route=drive.route,
 		theirs=THEIRS.get(described.key),
+		answering=SCOUT_ANSWERS_TO if described.chain else frozenset(),
 	)
 
+
+#: Whom scout answers to: Claude, and Hugo through Claude. The acts whoever an account answers to
+#: may take are driven on scout (`SR#5124`).
+SCOUT_ANSWERS_TO = frozenset({"claude", "hugo"})
 
 #: Every act of the table that is driven here. One that is not is a failure of its own, in
 #: ``test_every_act_is_driven_and_nothing_else``, rather than an error collecting this file.
@@ -1072,6 +1104,7 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 	(P.PROJECT_READ, "metacortex"): _ROLES | _OPS,
 	(P.PROJECT_WRITE, "metacortex"): _ROLES - {"contributor", "viewer"},
 	(P.TASK_READ, "metacortex"): _ROLES | _READING | _OPS,
+	(P.COMMENT_READ, "metacortex"): _ROLES | _OPS,
 	(P.TASK_WRITE, "metacortex"): _ROLES - {"viewer"} | {"scoped to filing tasks"},
 	# **One's own account** (`SR#5123`, decision `#4527`): the role and the credential's permissions
 	# are asked, and not its places, so a credential narrowed to another project saves its views.
@@ -1108,17 +1141,86 @@ DECIDED: dict[tuple[str, str], frozenset[str]] = {
 }
 
 
-def _plain (who: Who) -> Who:
-	"""Return the principal holding this one's person's credential with nothing narrowing it."""
+#: Who reaches MetaCortex at all: everybody but Marcus, who is not in it, and a credential pinned to
+#: Zion. An act asking no permission of the workspace is answered to each of them (`SR#5124`).
+_REACHING = frozenset(who.key for who in PRINCIPALS) - {
+	"outsider",
+	"pinned to another workspace",
+	"superuser pinned to another workspace",
+}
 
-	return next(
-		one
-		for one in PRINCIPALS
-		if one.person == who.person
-		and not (one.local or one.read_only or one.pinned or one.scopes)
-		and one.project_scope is None
-		and one.project_write_scope is None
-	)
+#: **Acts whose decision is not a permission on one of the cast's places**, written down by act,
+#: each with why (`SR#5124`). Deleting an entry hands its act back to its permissions.
+BY_ACT: dict[str, frozenset[str]] = {
+	# Decision `#5108`'s: an installation's administrator restores what they may delete, and the
+	# workspace is Laurence's, who administers the installation; nobody else reaches it.
+	"restore workspace": _INSTALLATION,
+	# The credential's scopes are asked and no place, since every workspace it reaches is listed.
+	"workspaces": frozenset(who.key for who in PRINCIPALS) - _READING - {"scoped to filing tasks"},
+}
+
+#: **The words each act's own rule refuses in**, any one of them, so an over-refusal a rule excuses
+#: is that rule's (`SR#5124`, M-22 of the cold review of 2026-10-17): over-refusals were excused
+#: wherever an act had a rule, and no rule's own refusal was asserted.
+RULE_SAYS: dict[str, tuple[str, ...]] = {
+	"user": ("There is no account called",),
+	"complete beneath the trash": ("which is in the trash",),
+	"link to private work": ("There is no task", "There is no #"),
+	"uncomment": ("Only the author of this comment",),
+	"edit comment": ("Only the person who wrote a comment",),
+	"rename a hidden tag": ("There is no tag with that id",),
+	"update saved view": ("belongs to somebody else",),
+	"forget saved view": ("Only the owner of the view",),
+	"stop sharing a view": ("Only the owner of the view",),
+	"create project": ("acts beyond the projects",),
+	"move project": ("There is no project 'web' here", "acts beyond the projects"),
+	"reveal a private project": ("Only the owner of",),
+	"share project": ("Only the owner of",),
+	"unshare project": ("Only the owner of",),
+	"hide a project": ("Only the owner of",),
+	"move work into a private project": ("Only the owner of",),
+	"restore workspace": ("Only a member of it",),
+	"issue own token": (
+		"cannot grant more",
+		"cannot reach more projects",
+		"cannot write in more projects",
+		"cannot issue one that is not",
+	),
+	"sign-in link for oneself": ("holds less than it would take to mint a sign-in link", "a person's act"),
+	"create calendar": ("holds less than it would take to mint this calendar feed",),
+	"create user": ("a person's act",),
+	"issue token for somebody": ("needs the 'instance:user_create'", "a person's act"),
+	"sign-in link for somebody": ("needs the 'instance:user_create'", "a person's act"),
+	"sign somebody out": ("needs the 'instance:user_create'", "holds less than it would take"),
+	"revoke somebody's token": ("No credential here answers to",),
+	"reset somebody's feed": ("No calendar here answers to",),
+	"revoke somebody's feed": (
+		"No calendar here answers to",
+		"holds less than it would take",
+	),
+	"deactivate somebody": ("needs the 'instance:user_create'", "holds less than it would take"),
+	"transfer an agent": ("needs the 'instance:user_create'", "a person's act"),
+}
+
+#: Rules nobody in the cast is refused by, each with why, so the rule test asks the rest.
+RULE_UNMET: dict[str, str] = {
+	"unshare project": "Everybody who sees the vault stewards it here - Laurence, its owner, and "
+	"Carrie-Anne, who administers MetaCortex - and unsharing is not an act on somebody's own "
+	"thing, so the agent tools refuse her nothing either.",
+}
+
+
+def _writable (who: Who) -> Who:
+	"""Return the principal holding this one's credential, narrowed alike, on a connection that writes.
+
+	**Narrowed alike** (`SR#5124`): the only read-only principal was an unnarrowed superuser, so this
+	returned the person's whole credential, and a read-only connection narrowed to a project would
+	have been held to reading every project its person can.
+	"""
+
+	twin = dataclasses.replace(who, read_only=False)
+
+	return next(one for one in PRINCIPALS if dataclasses.replace(one, key=twin.key) == twin)
 
 
 def _allowed (who: Who, verb: str, place: str, *, reading: bool) -> bool:
@@ -1131,7 +1233,7 @@ def _allowed (who: Who, verb: str, place: str, *, reading: bool) -> bool:
 	if who.read_only:
 		reads = verb in P.READS or (reading and verb in P.INSTANCE_LEVEL)
 
-		return reads and _allowed(_plain(who), verb, place, reading=reading)
+		return reads and _allowed(_writable(who), verb, place, reading=reading)
 
 	return who.key in DECIDED[(verb, place)]
 
@@ -1551,6 +1653,65 @@ def _one_line (outcomes: dict[str, Outcome]) -> str:
 	return "; ".join(f"{transport} {outcome}" for transport, outcome in outcomes.items())
 
 
+#: Of the principals scout answers to, those whose credential covers what each act stops (decision
+#: `#4527`): a credential stops only what it dominates. Signing scout out, marking it as having left
+#: and revoking its own credential, which nothing narrows, need the whole account; its feed reads
+#: tasks in the workspace, so a credential reading them there covers it.
+_WHOLE = frozenset({"member", "agent", "local member"})
+COVERS: dict[str, frozenset[str]] = {
+	"sign somebody out": _WHOLE,
+	"revoke somebody's token": _WHOLE,
+	"deactivate somebody": _WHOLE,
+	"revoke somebody's feed": _WHOLE
+	| {"scoped to reading tasks", "scoped to reading tasks and commenting", "writing only in another project"},
+}
+
+
+def _answers_for (who: Who, act: Act) -> bool:
+	"""Say whether this principal may take an act whoever its target answers to may (`SR#5124`).
+
+	Decision `#4516`, kept in `#5097`: whoever an account answers to may stop it, through every door,
+	with a credential that covers what it stops.
+	"""
+
+	return act.described.chain and who.person in act.answering and who.key in COVERS[act.key]
+
+
+def _decision (act: Act, who: Who) -> bool:
+	"""Say whether the decision, as written down, lets this principal take this act - `SR#5124`.
+
+	**Every act's**, where it was only those asking a permission on a place: 29 of 120 were never
+	checked (M-22 of the cold review of 2026-10-17). An act asking no permission is answered to
+	everybody who reaches its place, a read-only connection aside where it changes anything, so a
+	permission the table does not list is a refusal nothing here allows.
+	"""
+
+	if act.key in BY_ACT:
+		return who.key in BY_ACT[act.key]
+
+	# **A read-only session changes nothing** (decision `#4510`), whatever the act asks: minting a
+	# feed asks only ``task:read``.
+	if who.read_only and not act.reads:
+		return False
+
+	if act.verbs:
+		assert act.place is not None, f"{act.key} asks a permission on no place: write it in BY_ACT"
+
+		return all(_allowed(who, verb, act.place, reading=act.reads) for verb in act.verbs) or (
+			_answers_for(who, act)
+		)
+
+	assert act.place in (None, "metacortex"), act.key
+
+	return act.place is None or who.key in _REACHING
+
+
+def _by_its_rule (act: Act, outcome: Outcome) -> bool:
+	"""Say whether a refusal is the act's own rule speaking, in any of its words."""
+
+	return any(words in outcome.said for words in RULE_SAYS.get(act.key, ()))
+
+
 def _disagreements (act: Act, cast: Cast, who: Who, outcomes: dict[str, Outcome]) -> list[str]:
 	"""Say every way this cell breaks the matrix's three rules, or nothing."""
 
@@ -1575,17 +1736,19 @@ def _disagreements (act: Act, cast: Cast, who: Who, outcomes: dict[str, Outcome]
 	elif terminal.kind != tools.kind:
 		found.append(f"the terminal and the agent tools disagree: {_one_line(outcomes)}")
 
-	if act.verbs and act.place is not None:
-		allowed = all(_allowed(who, verb, act.place, reading=act.reads) for verb in act.verbs)
+	allowed = _decision(act, who)
 
-		for transport, outcome in outcomes.items():
-			if not allowed and not outcome.refused:
-				found.append(f"{transport} answered what the decision refuses ({act.verbs})")
+	for transport, outcome in outcomes.items():
+		if not allowed and not outcome.refused:
+			found.append(f"{transport} answered what the decision refuses ({act.verbs or 'nothing'})")
 
-			through_the_tools = transport in DOORS["the agent tools"]
+		if not allowed or not outcome.refused or (ceiling and transport in DOORS["the agent tools"]):
+			continue
 
-			if allowed and outcome.refused and act.rule is None and not (ceiling and through_the_tools):
-				found.append(f"{transport} refused what the decision allows ({act.verbs}): {outcome}")
+		# **A rule excuses only its own refusal** (`SR#5124`): a refusal in other words is a
+		# permission the table does not list, or a rule it does not say.
+		if not _by_its_rule(act, outcome):
+			found.append(f"{transport} refused what the decision allows ({act.verbs or 'nothing'}): {outcome}")
 
 	for canary in cast.canaries:
 		if _allowed(who, canary.verb, canary.place, reading=True):
@@ -1618,10 +1781,14 @@ def test_every_principal_meets_one_answer_through_every_transport (
 	_driving_the_cast(cast, monkeypatch)
 	route = {} if act.route is not None else _route(act, cast)
 	cells: dict[str, list[str]] = {}
+	ruled = False
 
 	for who in PRINCIPALS:
 		relay = _relay(cast, who, monkeypatch)
 		outcomes = _outcomes(act, cast, who, route, relay)
+		ruled = ruled or any(
+			outcome.refused and _by_its_rule(act, outcome) for outcome in outcomes.values()
+		)
 
 		# **A floor under the loop**, since "no cell disagreed" and "no cell ran" read alike: the two
 		# local principals arrive by two transports, and everybody else by four, or five with a tool.
@@ -1641,6 +1808,11 @@ def test_every_principal_meets_one_answer_through_every_transport (
 
 	assert not unexcused, f"{act.key} ({act.says}):\n{report}"
 	assert not stale, f"{act.key}: these now agree, so delete them from KNOWN: {stale}"
+
+	# **And the rule refuses somebody, in its own words** (`SR#5124`), or says why nobody here.
+	if act.rule is not None:
+		assert ruled or act.key in RULE_UNMET, f"{act.key}: nobody was refused in its rule's words"
+		assert not (ruled and act.key in RULE_UNMET), f"{act.key}: its rule refused somebody here"
 
 
 def test_the_decision_is_as_written (cast: Cast) -> None:
@@ -1668,6 +1840,17 @@ def test_the_decision_is_as_written (cast: Cast) -> None:
 				f"{verb} on {place}, {'reading' if reading else 'writing'}: "
 				f"{sorted(decided ^ written)} differ from the table"
 			)
+
+
+def test_every_rule_says_how_it_refuses () -> None:
+	"""`SR#5124`: every act with a rule of its own has the words it refuses in, and nothing else does."""
+
+	ruled = {act.key for act in subroutine.acts.ACTS if act.rule is not None}
+
+	assert set(RULE_SAYS) == ruled, sorted(set(RULE_SAYS) ^ ruled)
+	assert set(RULE_UNMET) <= ruled, sorted(set(RULE_UNMET) - ruled)
+	assert set(COVERS) == {act.key for act in subroutine.acts.ACTS if act.chain}
+	assert set(BY_ACT) <= {act.key for act in subroutine.acts.ACTS}
 
 
 def test_every_act_is_driven_and_nothing_else () -> None:

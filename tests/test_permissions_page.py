@@ -150,8 +150,12 @@ def test_every_view_act_asks_task_write () -> None:
 
 	assert len(views) == 4
 
-	for act in views.values():
-		assert act.verbs == (subroutine.permissions.TASK_WRITE,), act.key
+	assert views["save view"].verbs == (subroutine.permissions.TASK_WRITE,)
+
+	# **The three on a shared view find it first, which asks ``task:read``** (`SR#5124`).
+	for key, act in views.items():
+		if key != "save view":
+			assert act.verbs == (subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE), key
 
 	assert views["save view"].place == subroutine.acts.ACCOUNT
 	assert {act.place for key, act in views.items() if key != "save view"} == {subroutine.acts.WORKSPACE}

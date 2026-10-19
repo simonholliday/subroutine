@@ -152,7 +152,14 @@ ACTS: tuple[Act, ...] = (
 			place=INSTALLATION,
 			reads=True,
 		),
-		Act("workspaces", "List the workspaces one reaches", reads=True),
+		# **The credential's permission alone** (`SR#5124`): every workspace it reaches is listed, so no
+		# one place is asked.
+		Act(
+			"workspaces",
+			"List the workspaces one reaches",
+			verbs=(subroutine.permissions.WORKSPACE_READ,),
+			reads=True,
+		),
 	),
 	*_in(
 		"Reading a workspace",
@@ -180,8 +187,21 @@ ACTS: tuple[Act, ...] = (
 		Act("statuses", "List the statuses", place=WORKSPACE, reads=True),
 		Act("link types", "List the link types", place=WORKSPACE, reads=True),
 		Act("tags", "List the tags", place=WORKSPACE, reads=True),
-		Act("saved views", "List the saved views", place=WORKSPACE, reads=True),
-		Act("saved view", "Read a shared saved view", place=WORKSPACE, reads=True),
+		# **A saved view is a saved question about work** (`SR#5124`), so reading one asks ``task:read``.
+		Act(
+			"saved views",
+			"List the saved views",
+			verbs=(subroutine.permissions.TASK_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
+		Act(
+			"saved view",
+			"Read a shared saved view",
+			verbs=(subroutine.permissions.TASK_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
 		Act(
 			"projects",
 			"List the projects",
@@ -259,12 +279,50 @@ ACTS: tuple[Act, ...] = (
 			place=WORKSPACE,
 			reads=True,
 		),
-		Act("changes", "Read what changed", place=WORKSPACE, reads=True),
-		Act("journal", "Read what happened", place=WORKSPACE, reads=True),
-		Act("export workspace", "Take away every workspace row", place=WORKSPACE, reads=True),
-		Act("export tasks", "Take away every task row", place=WORKSPACE, reads=True),
-		Act("export comments", "Take away every comment row", place=WORKSPACE, reads=True),
-		Act("export events", "Take away every event row", place=WORKSPACE, reads=True),
+		# **Each asks the permission of what it reads** (`SR#5124`): the work's for what happened to it,
+		# and each export's for its kind of row.
+		Act(
+			"changes",
+			"Read what changed",
+			verbs=(subroutine.permissions.TASK_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
+		Act(
+			"journal",
+			"Read what happened",
+			verbs=(subroutine.permissions.TASK_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
+		Act(
+			"export workspace",
+			"Take away every workspace row",
+			verbs=(subroutine.permissions.WORKSPACE_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
+		Act(
+			"export tasks",
+			"Take away every task row",
+			verbs=(subroutine.permissions.TASK_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
+		Act(
+			"export comments",
+			"Take away every comment row",
+			verbs=(subroutine.permissions.COMMENT_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
+		Act(
+			"export events",
+			"Take away every event row",
+			verbs=(subroutine.permissions.TASK_READ,),
+			place=WORKSPACE,
+			reads=True,
+		),
 	),
 	*_in(
 		"Reading one item",
@@ -557,7 +615,8 @@ ACTS: tuple[Act, ...] = (
 		),
 		# **Each asks ``task:write``** (`SR#5123`), as the view acts do, so a viewer saves none and
 		# keeps none: one the asker keeps to themselves lands on their own account, and one in front
-		# of the workspace on the workspace (`#4558`).
+		# of the workspace on the workspace (`#4558`). **The three on a shared view find it first**,
+		# which asks ``task:read`` (`SR#5124`).
 		Act(
 			"save view",
 			"Save a view",
@@ -567,14 +626,14 @@ ACTS: tuple[Act, ...] = (
 		Act(
 			"update saved view",
 			"Change somebody else's shared view",
-			verbs=(subroutine.permissions.TASK_WRITE,),
+			verbs=(subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE),
 			place=WORKSPACE,
 			rule="A saved view is changed by whoever saved it.",
 		),
 		Act(
 			"forget saved view",
 			"Forget somebody else's shared view",
-			verbs=(subroutine.permissions.TASK_WRITE,),
+			verbs=(subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE),
 			place=WORKSPACE,
 			# Decision `#4525`: an owned thing is managed by its owner, their chain and the place's
 			# administrator, who sees a view only once it is shared.
@@ -585,7 +644,7 @@ ACTS: tuple[Act, ...] = (
 		Act(
 			"stop sharing a view",
 			"Take somebody else's shared view from in front of the workspace",
-			verbs=(subroutine.permissions.TASK_WRITE,),
+			verbs=(subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE),
 			place=WORKSPACE,
 			# Decision `#4525`.
 			rule="A shared view is managed by whoever saved it, whoever they answer to, or an "
@@ -757,6 +816,8 @@ ACTS: tuple[Act, ...] = (
 		Act(
 			"create calendar",
 			"Mint a calendar feed for oneself",
+			# A feed reads tasks with its holder's sight (`SR#5124`).
+			verbs=(subroutine.permissions.TASK_READ,),
 			place=WORKSPACE,
 			# Decision `#4527`.
 			rule="A credential never mints a wider one.",

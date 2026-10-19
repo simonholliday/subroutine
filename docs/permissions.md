@@ -41,7 +41,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | List the workspaces nobody can administer | `instance:admin` | the installation | Never through the agent tools. |
 | List the workspaces with no owner who can act | `instance:admin` | the installation | Never through the agent tools. |
 | List the installation's backups | `instance:admin` | the installation | Never through the agent tools. |
-| List the workspaces one reaches | - | - | - |
+| List the workspaces one reaches | `workspace:read` | - | - |
 
 ## Reading a workspace
 
@@ -53,8 +53,8 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | List the statuses | - | the workspace | - |
 | List the link types | - | the workspace | - |
 | List the tags | - | the workspace | - |
-| List the saved views | - | the workspace | - |
-| Read a shared saved view | - | the workspace | - |
+| List the saved views | `task:read` | the workspace | - |
+| Read a shared saved view | `task:read` | the workspace | - |
 | List the projects | `project:read` | the workspace | - |
 | Read a project | `project:read` | a project | - |
 | Read what happened to a project | `project:read` | a project | - |
@@ -66,12 +66,12 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Search the work | `task:read` | the workspace | - |
 | List the documents | `task:read` | the workspace | - |
 | Count the documents | `task:read` | the workspace | - |
-| Read what changed | - | the workspace | - |
-| Read what happened | - | the workspace | - |
-| Take away every workspace row | - | the workspace | - |
-| Take away every task row | - | the workspace | - |
-| Take away every comment row | - | the workspace | - |
-| Take away every event row | - | the workspace | - |
+| Read what changed | `task:read` | the workspace | - |
+| Read what happened | `task:read` | the workspace | - |
+| Take away every workspace row | `workspace:read` | the workspace | - |
+| Take away every task row | `task:read` | the workspace | - |
+| Take away every comment row | `comment:read` | the workspace | - |
+| Take away every event row | `task:read` | the workspace | - |
 
 ## Reading one item
 
@@ -131,9 +131,9 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Remove a tag | `tag:write` | the workspace | - |
 | Rename a tag used only on private work | `tag:write` | the workspace | A tag the asker cannot see is not there to rename. |
 | Save a view | `task:write` | one's own account | - |
-| Change somebody else's shared view | `task:write` | the workspace | A saved view is changed by whoever saved it. |
-| Forget somebody else's shared view | `task:write` | the workspace | A saved view is forgotten by whoever saved it, whoever they answer to, or an administrator where it is shared. Through the agent tools, never as an administrator. |
-| Take somebody else's shared view from in front of the workspace | `task:write` | the workspace | A shared view is managed by whoever saved it, whoever they answer to, or an administrator. Through the agent tools, never as an administrator. |
+| Change somebody else's shared view | `task:read`, `task:write` | the workspace | A saved view is changed by whoever saved it. |
+| Forget somebody else's shared view | `task:read`, `task:write` | the workspace | A saved view is forgotten by whoever saved it, whoever they answer to, or an administrator where it is shared. Through the agent tools, never as an administrator. |
+| Take somebody else's shared view from in front of the workspace | `task:read`, `task:write` | the workspace | A shared view is managed by whoever saved it, whoever they answer to, or an administrator. Through the agent tools, never as an administrator. |
 
 ## Projects
 
@@ -172,7 +172,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Say where one keeps one's diary | - | - | - |
 | Mint a credential for oneself | - | - | A credential never mints a wider one. Never through the agent tools. |
 | Mint a sign-in link for oneself | - | - | Only a person signs in, and only with a credential that never expires. Never through the agent tools. |
-| Mint a calendar feed for oneself | - | the workspace | A credential never mints a wider one. Never through the agent tools. |
+| Mint a calendar feed for oneself | `task:read` | the workspace | A credential never mints a wider one. Never through the agent tools. |
 | Make an account for a person | `instance:user_create` | the installation | Only a person makes a person. Never through the agent tools. |
 | Mint a credential for somebody else | `instance:user_create` | the installation | Only an administrator of accounts does this for another account. Never through the agent tools. |
 | Mint a sign-in link for somebody else | `instance:user_create` | the installation | Only an administrator of accounts does this for another account. Never through the agent tools. |
