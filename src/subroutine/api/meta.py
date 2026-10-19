@@ -724,7 +724,7 @@ def _tags (
 
 	tag = subroutine.db.models.vocabulary.Tag
 	joined = subroutine.db.models.work.TaskTag
-	visible = subroutine.domain.scoping.readable_tasks(
+	visible = subroutine.domain.scoping.tasks_a_tag_is_counted_over(
 		session, actor, workspace_ids=[workspace.id]
 	).subquery()
 

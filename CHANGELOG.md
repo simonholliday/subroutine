@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A credential that may file tasks and not read them can file one from the terminal over
+  HTTP.** Every command there opens by reading the instance's vocabulary, which counted each tag's
+  uses over the tasks the credential could read, and refused one that could read none - so the
+  write-only credential meant for capture could file nothing. It reads no counts now, as it sees
+  no tag in use.
 - **An agent stopped in a workspace is told so, and why.** An agent whose person had been taken
   out of a workspace was told it was a member of no workspace, or could not reach one, and so told
   its person the wrong thing to fix. It is told which workspace it is stopped in and whose absence

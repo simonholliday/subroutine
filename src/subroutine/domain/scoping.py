@@ -710,6 +710,27 @@ def tags_seen_by (
 	return sqlalchemy.and_(reached, sqlalchemy.or_(sqlalchemy.not_(carried), seen))
 
 
+def tasks_a_tag_is_counted_over (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID] | None = None,
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return the tasks a tag's uses are counted over for this principal - `SR#5118`.
+
+	**The tasks they may read, and none for a credential that may not read tasks**, as
+	:func:`tags_seen_by` sees for it only the tags nothing carries, rather than refusing it (M-2 of
+	the cold review of 2026-10-17). ``/v1/meta`` counted over :func:`readable_tasks`, which refuses
+	such a credential, and every terminal command over HTTP opens by reading ``/v1/meta``, so the
+	write-only capture credential decision `#4527` names could file nothing.
+	"""
+
+	if not reads(principal, "task"):
+		return sqlalchemy.select(subroutine.db.models.work.Task).where(sqlalchemy.false())
+
+	return readable_tasks(session, principal, workspace_ids=workspace_ids)
+
+
 def held_by_an_export (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
