@@ -665,10 +665,10 @@ export function collectionsFor (selection) {
 	/*
 		Which collections a selection reads, and the order the answers come back in.
 
-		**A selection on `status_category` reads one**, because only tasks have that axis at all:
-		`GET /v1/documents` refuses it outright — measured, 422 — and a document's categories are
-		`draft`, `current`, `superseded` and `archived`, none of which means *finished*. Asking
-		documents for it would not widen the page, it would be a page that does not load.
+		**A selection on `status_category` reads one**, because the categories it names are a
+		task's: `GET /v1/documents` refuses one by name - measured, 422 - since a document's are
+		`draft`, `current`, `superseded` and `archived` (`SR#5139`). Asking documents for it
+		would not widen the page, it would be a page that does not load.
 
 		**Keyed on the selection rather than on a view name** (`#738`). It used to ask whether
 		the arrangement was `done`, which stated the consequence and hid the reason — the reason
@@ -833,10 +833,11 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		one key: `accumulated` re-merges what arrives, and a client merging on a key the server
 		did not sort by is the disagreement keyset pagination exists to prevent.
 
-		Everything else in the selection is refused by `GET /v1/documents` — `status_category`
-		and `include_completed` are measured 422s — and `collectionsFor` drops the collection
-		rather than sending them. An order documents cannot answer takes the same route, so
-		anything reaching this line is one they can.
+		`include_completed` is refused by `GET /v1/documents` - a measured 422 - so the open
+		listing below is how documents are asked to leave their finished ones out (`SR#5139`).
+		A `status_category` selection, which names a task's categories, and an order documents
+		cannot answer are dropped by `collectionsFor`, so anything reaching this line is one
+		they can.
 	*/
 	/*
 		**No second check that documents can take this order**, because `collectionsFor` has

@@ -63,11 +63,10 @@ const DOCUMENT_COLUMNS = [
    and answering that by hiding it is `#515`'s shape. It is also where *Show finished work*
    lives (`FINISHED`), which is the board's only route to that selection.
 
-   **`superseded` and `archived` are here because nothing can ask them not to be.** `GET
-   /v1/documents` refuses `include_completed` and `status_category` alike — measured, 422 on
-   each — so every superseded document is in the response whether anybody wanted it or not.
-   `#713` is the filter that would let somebody genuinely not ask, on every surface rather than
-   only here; this should shrink when that lands rather than becoming a second way to say it. */
+   **`superseded` and `archived` are here as `cancelled` is**: a retired document is finished
+   (`#3549`), and the board's open listing leaves it out unless finished work is chosen. A document
+   column is drawn only when it holds a row (`columns`), so these appear with that choice, and
+   start shut as a cancelled one does (`SR#5139`). */
 export const CLOSED_BY_DEFAULT = new Set(["cancelled", "superseded", "archived"]);
 
 /* **What a column says when the selection left it out**, in one place because it is said

@@ -641,12 +641,11 @@ def test_a_column_left_out_is_read_from_the_rule_and_not_from_the_parameter (
 def test_a_document_board_has_no_column_anything_could_leave_out (
 	world: test_api_tasks.World,
 ) -> None:
-	"""A document's categories are not about finishing, so none of them is ever unreached.
+	"""A document listing that does not ask for the open listing reaches every column.
 
 	`SR#2293`'s rule is read through the axis's own keys rather than applied to whatever a
-	grouping happens to hold, and this is the case that says so: none of ``draft``,
-	``current``, ``superseded`` or ``archived`` means *finished*, and a document listing has no
-	completion rule to exclude one with.
+	grouping happens to hold. A document's completion rule is the open listing (`#3549`), and a
+	request that does not ask for it leaves nothing out; the one that does is below (`SR#5139`).
 	"""
 
 	response = world.call("GET", "/v1/documents?group_by=status_category")
@@ -655,6 +654,44 @@ def test_a_document_board_has_no_column_anything_could_leave_out (
 	assert [group["reached"] for group in response.json()["groups"]] == [True] * len(
 		subroutine.domain.grouping.keys_for("status_category", kind="document")
 	)
+
+
+def test_a_document_board_on_the_open_listing_says_its_retired_columns_were_left_out (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#5139`, M-18 of the cold review of 2026-10-17: the board asks for the open listing, and
+	its superseded and archived columns came back empty and reached, so it drew *Nothing* over
+	documents it had left out. They are unreached now, and the request that names one reaches it."""
+
+	for status in ("active", "superseded", "archived"):
+		written = world.call("POST", "/v1/documents", json={"title": f"The {status} one"})
+
+		assert written.status_code == 201, written.text
+		assert world.call(
+			"PATCH", f"/v1/documents/{written.json()['ref']}", json={"status": status}
+		).status_code == 200
+
+	grouped = "/v1/documents?group_by=status_category&group_limit=20"
+	opened = world.call("GET", f"{grouped}&open=true")
+
+	assert opened.status_code == 200, opened.text
+
+	reached = {group["key"]: group["reached"] for group in opened.json()["groups"]}
+
+	assert reached == {"draft": True, "current": True, "superseded": False, "archived": False}, reached
+	assert _drawn(opened.json())["current"] == 1
+
+	everything = world.call("GET", grouped)
+
+	assert all(group["reached"] for group in everything.json()["groups"]), everything.text
+	assert _drawn(everything.json())["superseded"] == 1
+
+	# **And the open listing that names a retired category reaches it**, by the completion rule.
+	named = world.call("GET", f"{grouped}&open=true&status_category=superseded")
+
+	assert named.status_code == 200, named.text
+	assert all(group["reached"] for group in named.json()["groups"]), named.text
+	assert _drawn(named.json())["superseded"] == 1
 
 
 def test_a_grouped_answer_carries_the_fields_its_model_declares_and_no_others (

@@ -41,6 +41,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
+import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.tasks
 import subroutine.errors
@@ -73,6 +74,16 @@ AXES: dict[str, dict[str, tuple[str, ...]]] = {
 	kind: subroutine.domain.filtering.axes(kind)
 	for kind in subroutine.domain.filtering.PROPERTIES
 	if subroutine.domain.filtering.axes(kind)
+}
+
+#: What each kind's completion rule counts as finished - `SR#5139`.
+#:
+#: **A document's are its retired categories** since `#3549` made the open listing its completion
+#: rule. :func:`unreached` read a task's alone, so a documents board asking for the open listing
+#: was told its superseded and archived columns held *Nothing*, where they were left out.
+FINISHED: dict[str, frozenset[str]] = {
+	"task": subroutine.domain.tasks.FINISHED_CATEGORIES,
+	"document": subroutine.domain.documents.RETIRED_CATEGORIES,
 }
 
 #: The axes whose keys are the rows' own values — `SR#1425`.
@@ -204,10 +215,9 @@ def unreached (axis: str, *, kind: str, reaching_finished: bool) -> frozenset[st
 	what stops each surface modelling the completion rule for itself: the browser carried such
 	a model and could only be right about the spellings it happened to know.
 
-	**Read through :func:`keys_for`, so the answer can only ever name groups the axis has.** A
-	kind whose categories are not about finishing — a document is ``draft``/``current``/
-	``superseded``/``archived`` — has none of these keys and gets an empty answer without a
-	branch saying so.
+	**Read through :func:`keys_for`, so the answer can only ever name groups the axis has**, and
+	against the kind's own finished set, :data:`FINISHED` (`SR#5139`): a document's open listing
+	leaves ``superseded`` and ``archived`` out as a task's leaves ``done`` and ``cancelled``.
 
 	**And there is deliberately no second guard on the axis.** One reading `axis !=
 	`:data:`STATUS_CATEGORY` was written here and then removed: every answer it changed was
@@ -222,7 +232,7 @@ def unreached (axis: str, *, kind: str, reaching_finished: bool) -> frozenset[st
 	return frozenset(
 		key
 		for key in keys_for(axis, kind=kind)
-		if key in subroutine.domain.tasks.FINISHED_CATEGORIES
+		if key in FINISHED.get(kind, frozenset())
 	)
 
 

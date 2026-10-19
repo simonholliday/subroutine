@@ -369,7 +369,10 @@ def listing (
 		)
 
 	# **The open listing, where the caller asked for it** (`#3549`): the domain says what it keeps,
-	# and the local client asks it the same question.
+	# and the local client asks it the same question. A grouped answer says which columns it left
+	# out (`SR#5139`).
+	reaching_retired = True
+
 	if open:
 		kept = subroutine.domain.documents.kept_open(
 			session,
@@ -380,6 +383,8 @@ def listing (
 			deleted=deleted,
 			words=q,
 		)
+
+		reaching_retired = kept is None
 
 		if kept is not None:
 			statement = statement.where(model.status_id.in_(kept))
@@ -486,6 +491,11 @@ def listing (
 			# **No `held_back` here and that is not an omission**: readiness is a property of
 			# work, so a document listing has no rule that holds rows back and nothing to say.
 			unread=dates.unread,
+			# **Which columns the open listing never looked at** (`SR#5139`), as the task listing
+			# says of its finished ones: a board drew *Nothing* over the retired columns it left out.
+			unreached=subroutine.domain.grouping.unreached(
+				axis, kind="document", reaching_finished=reaching_retired
+			),
 		)
 
 	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two
