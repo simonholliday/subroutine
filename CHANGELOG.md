@@ -29,6 +29,13 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An export taken by anybody but an administrator of accounts can be rebuilt.** Its
+  `users.jsonl` holds the accounts within your reach, while its tasks, comments and events still
+  named others, so once somebody it named had left there was nothing to point at. Each of those is
+  now in `users_beyond_reach.jsonl`, by id and username and, for an agent, whom it answers to. An
+  export also holds the links to a task beneath a project in the trash, which it left out while
+  holding the task.
+
 - **A number thousands of digits long is answered as any number too large already was.** Written
   after `#` in a description, a comment or a document, looked up or filtered on as an item, or
   counted in a date such as `today+<digits>d`, more than 4,300 digits answered 500 on a dozen

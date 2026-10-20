@@ -1314,12 +1314,16 @@ def edges_of (
 	*,
 	workspace_id: uuid.UUID,
 	links: typing.Sequence[subroutine.db.models.work.Link],
+	beneath_trash: bool = False,
 ) -> list[Edge]:
 	"""Return link rows already in hand as edges, an end this caller cannot see shown as unseen.
 
 	**For a caller that holds the rows rather than the items** - an export pages through a
 	workspace's links itself (`#4052`) - where :func:`edges` finds them from the items they
 	touch. One query for their types, and :func:`_as_edges`'s for their ends.
+
+	``beneath_trash`` takes in an end beneath a project or parent in the trash, as :func:`_ends`
+	does: an export holds those items, so it holds the links to them too (`SR#5151`).
 	"""
 
 	if not links:
@@ -1338,6 +1342,7 @@ def edges_of (
 		principal,
 		workspace_id=workspace_id,
 		rows=[(link, kinds[link.link_type_id]) for link in links],
+		beneath_trash=beneath_trash,
 	)
 
 
@@ -1347,10 +1352,13 @@ def _as_edges (
 	*,
 	workspace_id: uuid.UUID,
 	rows: typing.Sequence[tuple[typing.Any, typing.Any]],
+	beneath_trash: bool = False,
 ) -> list[Edge]:
 	"""Return links and their types as edges, each named by both its ends, in the order given."""
 
-	ends = _ends_by_key(session, principal, workspace_id=workspace_id, rows=rows)
+	ends = _ends_by_key(
+		session, principal, workspace_id=workspace_id, rows=rows, beneath_trash=beneath_trash
+	)
 	unseen = _unseen(session, principal, workspace_id=workspace_id, rows=rows, seen=ends)
 	found: list[Edge] = []
 
@@ -2165,6 +2173,7 @@ def _ends_by_key (
 	*,
 	workspace_id: uuid.UUID,
 	rows: typing.Sequence[tuple[typing.Any, typing.Any]],
+	beneath_trash: bool = False,
 ) -> dict[tuple[str, uuid.UUID], End]:
 	"""Return every end these links reach that this caller may see, keyed by type and id.
 
@@ -2186,7 +2195,12 @@ def _ends_by_key (
 		(end.entity_type, end.id): end
 		for kind, of_kind in reached.items()
 		for end in _ends(
-			session, principal, workspace_id=workspace_id, entity_type=kind, identifiers=of_kind
+			session,
+			principal,
+			workspace_id=workspace_id,
+			entity_type=kind,
+			identifiers=of_kind,
+			beneath_trash=beneath_trash,
 		)
 	}
 

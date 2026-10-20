@@ -8099,6 +8099,7 @@ EXPORTED: dict[str, type[pydantic.BaseModel]] = {
 	"link_types": LinkType,
 	"saved_views": SavedView,
 	"users": User,
+	"users_beyond_reach": User,
 	"members": Member,
 	"project_members": ProjectMember,
 }

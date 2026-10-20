@@ -20,7 +20,10 @@ import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
+import api_support
 import conftest
+import subroutine.clients.http
+import subroutine.connections
 import subroutine.db.base
 import subroutine.db.models
 import subroutine.db.models.activity
@@ -35,8 +38,10 @@ import subroutine.db.session
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.hierarchy
+import subroutine.domain.projects
 import subroutine.domain.tags
 import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.exporting
 import subroutine.views
 import test_authorization
@@ -179,9 +184,37 @@ def _rebuilt (session: sqlalchemy.orm.Session, lines: Lines) -> None:
 
 	session.add(subroutine.db.models.system.Instance(name="Rebuilt", timezone="UTC"))
 
+	# **An account a line names and the reader cannot read first, by its name alone** (`SR#5151`),
+	# so every account a line names is there to point at. Nothing else of its row is the reader's
+	# to know; an agent's chain is put on once every account it could answer to is here, below.
+	beyond = lines["users_beyond_reach"]
+
+	for line in beyond:
+		name = line["username"]
+		session.execute(
+			sqlalchemy.insert(user),
+			[
+				{
+					"id": uuid.UUID(line["id"]),
+					"username": name,
+					"username_normalized": subroutine.domain.users.normalize(name),
+				}
+			],
+		)
+
 	# **In an order that lets every reference be written as the row is**, never by an update
-	# afterwards, which moves the row's own ``updated_at`` and fails the comparison for it.
-	accounts = _paths(lines["users"], "responsible_user_id")
+	# afterwards, which moves the row's own ``updated_at`` and fails the comparison for it. One
+	# answering to an account out of reach goes first, since that account is already here.
+	inside = {line["id"] for line in lines["users"]}
+	accounts = _paths(
+		[
+			{**line, "responsible_user_id": None}
+			if line["responsible_user_id"] not in inside
+			else line
+			for line in lines["users"]
+		],
+		"responsible_user_id",
+	)
 
 	for line in sorted(lines["users"], key=lambda one: accounts[uuid.UUID(one["id"])][1]):
 		row = _row(
@@ -191,6 +224,16 @@ def _rebuilt (session: sqlalchemy.orm.Session, lines: Lines) -> None:
 			updated_at=_value(tables["user"].c.created_at, line["created_at"]),
 		)
 		session.execute(sqlalchemy.insert(user), [row])
+
+	named = {line["username"]: uuid.UUID(line["id"]) for line in [*lines["users"], *beyond]}
+
+	for line in beyond:
+		if line["answers_to"] is not None:
+			session.execute(
+				sqlalchemy.update(user)
+				.where(user.id == uuid.UUID(line["id"]))
+				.values(is_service_account=True, responsible_user_id=named.get(line["answers_to"]))
+			)
 
 	# **Seeded under its own id, short name and title, for its roles**, which no line carries:
 	# every workspace is seeded with the same ones and no route makes another. Its own values go
@@ -354,8 +397,6 @@ def _rebuilt (session: sqlalchemy.orm.Session, lines: Lines) -> None:
 			],
 		)
 
-	named = {line["username"]: uuid.UUID(line["id"]) for line in lines["users"]}
-
 	for line in lines["verifications"]:
 		session.execute(
 			sqlalchemy.insert(tables["verification"]),
@@ -448,7 +489,9 @@ def test_an_export_rebuilt_into_an_empty_database_gives_back_every_line (
 			],
 		)
 
-		assert exported, f"the seed made no {kind}, so this compared nothing"
+		assert exported or kind in test_export.NONE_FOR_A_SUPERUSER, (
+			f"the seed made no {kind}, so this compared nothing"
+		)
 		assert len(again) == len(exported), (kind, len(again), len(exported))
 
 		# Field by field, so a failure names what changed rather than printing two rows.
@@ -599,3 +642,102 @@ def test_everything_the_importer_supplies_names_the_item_that_would_carry_it () 
 
 	for name, reason in SUPPLIED.items():
 		assert reason.startswith("#"), name
+
+
+def _as (pair: Pair, account: subroutine.db.models.identity.User) -> subroutine.clients.http.Client:
+	"""Return an HTTP client acting as ``account`` on the pair's installation."""
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		pair.session, user=account, title="Leaving"
+	)
+	pair.session.flush()
+	application = api_support.build_app(api_support.factory_for(pair.session))
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=issued.value.get_secret_value(),
+		transport=api_support.SyncTransport(application),
+		base_url=api_support.BASE_URL,
+	)
+
+
+def test_an_export_taken_by_a_member_rebuilds_after_somebody_it_names_has_left (
+	pair: Pair, empty: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#5151`, M-11 of the cold review of 2026-10-17: the reader decision `#4049` was written for.
+
+	A member leaving with their work, after a colleague who filed and commented has left, beside an
+	agent whose person has left, and with a link to a task beneath a project in the trash. Their
+	``users`` holds the accounts within their reach, and the rebuild failed on a foreign key, or on
+	the agent's person: the suite's superuser export never reached it. **The rest a line names are
+	in ``users_beyond_reach``, by name**, and the link is exported with the task it leads to.
+	"""
+
+	_seeded(pair)
+	session, workspace = pair.session, pair.workspace
+	leaver = test_authorization._member(session, workspace, "member").user
+
+	with _as(pair, leaver) as theirs:
+		filed = theirs.capture(text="Return the projector to the AV cupboard", project="web").task
+		theirs.remark(ref=filed.ref, body="It is on the second shelf.")
+
+	minder = test_authorization._member(session, workspace, "member").user
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"projector-bot-{uuid.uuid4().hex[:6]}",
+		is_service_account=True,
+		responsible_user_id=minder.id,
+	)
+	session.add(
+		subroutine.db.models.identity.WorkspaceMember(
+			workspace_id=workspace.id,
+			user_id=agent.id,
+			role_id=test_authorization._role(session, workspace, "member").id,
+		)
+	)
+
+	pair.remote.create_project(key="attic", title="The attic")
+	boxed = pair.remote.capture(text="Label the boxes", project="attic").task
+	clearing = pair.remote.capture(text="Clear out the attic", project="web").task
+	pair.remote.link(ref=clearing.ref, link_type="blocks", target=boxed.ref)
+	project = subroutine.db.models.project.Project
+	attic = session.scalars(
+		sqlalchemy.select(project).where(project.workspace_id == workspace.id, project.key == "attic")
+	).one()
+	subroutine.domain.projects.delete(session, attic)
+
+	for gone in (leaver, minder):
+		subroutine.domain.workspaces.remove_member(session, workspace, gone)
+
+	reader = test_authorization._member(session, workspace, "member").user
+
+	with _as(pair, reader) as theirs:
+		before = {
+			kind: [subroutine.exporting.line(kind, row) for row in theirs.export(kind)]
+			for kind in subroutine.views.EXPORTED
+		}
+
+	assert before["users_beyond_reach"] == [
+		{"id": str(account.id), "username": account.username, "answers_to": None}
+		for account in sorted((leaver, minder), key=lambda account: account.id)
+	]
+	assert str(boxed.id) in {line["target"]["id"] for line in before["links"]}
+
+	_rebuilt(empty, before)
+	rebuilt = empty.get(subroutine.db.models.identity.User, reader.id)
+
+	assert rebuilt is not None, "the reader's account did not come back"
+
+	again = subroutine.domain.authentication.Principal(user=rebuilt)
+
+	for kind in subroutine.views.EXPORTED:
+		exported = _in_order(kind, before[kind])
+		read = _in_order(
+			kind,
+			[
+				subroutine.exporting.line(kind, row)
+				for row in _read(empty, again, workspace.id, kind)
+			],
+		)
+
+		assert read == exported, kind

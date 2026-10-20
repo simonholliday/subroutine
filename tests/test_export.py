@@ -12,6 +12,7 @@ import json
 import typing
 
 import pytest
+import sqlalchemy
 
 import subroutine.db.models.activity
 import subroutine.db.models.identity
@@ -112,6 +113,12 @@ def test_every_kind_has_its_view_named_once () -> None:
 	} == subroutine.views.EXPORTED
 
 
+#: **Kinds a superuser's export holds nothing of** (`SR#5151`): one reads every account, so no
+#: line of theirs names an account beyond their reach. ``test_export_round_trip.py`` exports as a
+#: member for that kind.
+NONE_FOR_A_SUPERUSER = frozenset({"users_beyond_reach"})
+
+
 def test_both_transports_export_the_same_rows_of_every_kind (pair: Pair) -> None:
 	"""One function behind both, so a difference here is in the paging or the parsing."""
 
@@ -122,7 +129,9 @@ def test_both_transports_export_the_same_rows_of_every_kind (pair: Pair) -> None
 		there = [row.model_dump(mode="json") for row in pair.remote.export(kind)]
 
 		assert here == there, kind
-		assert here, f"nothing was exported as {kind}, so this compared nothing"
+		assert here or kind in NONE_FOR_A_SUPERUSER, (
+			f"nothing was exported as {kind}, so this compared nothing"
+		)
 
 
 def test_an_export_holds_the_trash_what_is_done_and_the_templates (pair: Pair) -> None:
@@ -318,6 +327,7 @@ KIND_TABLES: dict[str, typing.Any] = {
 	"link_types": subroutine.db.models.vocabulary.LinkType,
 	"saved_views": subroutine.db.models.saved.SavedView,
 	"users": subroutine.db.models.identity.User,
+	"users_beyond_reach": subroutine.db.models.identity.User,
 	"members": subroutine.db.models.identity.WorkspaceMember,
 	"project_members": subroutine.db.models.project.ProjectMember,
 }
@@ -377,6 +387,7 @@ NAMED: dict[str, frozenset[str]] = {
 	"link_types": frozenset(),
 	"saved_views": frozenset({"owner"}),
 	"users": frozenset({"account_parent"}),
+	"users_beyond_reach": frozenset({"answers_to"}),
 	"members": frozenset({"user", "role", "workspace"}),
 	"project_members": frozenset({"user", "project"}),
 }
@@ -398,7 +409,8 @@ def test_every_field_of_every_kind_is_kept_or_left_out_on_purpose (kind: str) ->
 
 	fields = set(subroutine.views.EXPORTED[kind].model_fields)
 	left_out = subroutine.exporting.COMPUTED[kind]
-	unplaced = sorted(fields - _stored(kind) - left_out - NAMED[kind])
+	withheld = fields - subroutine.exporting.KEPT.get(kind, fields)
+	unplaced = sorted(fields - _stored(kind) - left_out - NAMED[kind] - withheld)
 
 	assert not unplaced, (
 		f"{kind} reports {unplaced}, which no column of its table holds. Keep each as a name "
@@ -491,3 +503,71 @@ def test_the_workspace_is_one_line_of_its_own_row (pair: Pair) -> None:
 	assert own["description"] == "Where the website rebuild lives."
 	assert own["timezone"] == "Europe/London" and own["prioritised_project"] == "web"
 	assert isinstance(own["settings"], dict)
+
+
+#: **Columns with a key to an account that no line carries**, so naming nobody to its reader, each
+#: with why (`SR#5151`). Deleting one says its line carries it now, and ``exporting.NAMING`` must.
+NOT_NAMED = {
+	("verifications", "updated_by"): "its line names who recorded it, not who last changed it",
+	("project_members", "created_by"): "who shared a project is not in an export (#4056)",
+	("users_beyond_reach", "responsible_user_id"): "an account out of reach is written by name",
+}
+
+#: **Columns ``exporting.NAMING`` reads that hold an account with no key to one**, each with why.
+WITHOUT_A_KEY = {("events", "actor_user_id"): "an event outlives its actor's account by design"}
+
+
+def _keyed (table: sqlalchemy.Table) -> set[str]:
+	"""Return the columns of a table with a foreign key to an account."""
+
+	return {
+		column.key
+		for column in table.columns
+		if any(key.column.table.name == "user" for key in column.foreign_keys)
+	}
+
+
+def test_every_column_naming_an_account_is_read_for_the_accounts_an_export_names () -> None:
+	"""`SR#5151`: a column with a key to an account is read, or excused here in writing.
+
+	``exporting.NAMING`` is what finds the accounts an export's lines name for
+	``users_beyond_reach``, and a column it missed is an account the rebuild cannot point at - which
+	only an export taken by a member, after that account had left, would show.
+	"""
+
+	read: set[tuple[str, str]] = set()
+
+	for name, kind in subroutine.exporting.KINDS.items():
+		keyed = {(name, column) for column in _keyed(kind.order.table)}
+		columns = subroutine.exporting.NAMING.get(name, (None, ()))[1]
+		here = {(name, column.key) for column in columns}
+		read |= here
+
+		assert keyed - NOT_NAMED.keys() == here - WITHOUT_A_KEY.keys(), name
+
+	for name, column in NOT_NAMED:
+		assert column in _keyed(subroutine.exporting.KINDS[name].order.table), (name, column)
+
+	for name, column in WITHOUT_A_KEY:
+		assert (name, column) in read, (name, column)
+		assert column not in _keyed(subroutine.exporting.KINDS[name].order.table), (name, column)
+
+
+def test_a_kind_its_reader_is_refused_names_nobody_and_refuses_nothing (pair: Pair) -> None:
+	"""`SR#5151`: a credential refused comments is still given the accounts the rest names.
+
+	Each kind's own statement says which accounts its lines name, and a kind the credential is
+	refused has no lines, so it names nobody rather than refusing the whole file.
+	"""
+
+	_seeded(pair)
+	reader = test_authorization._with_token(
+		pair.session,
+		test_authorization._member(pair.session, pair.workspace, "member"),
+		scopes=["task:read"],
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		_read(pair, reader, "comments")
+
+	assert _read(pair, reader, "users_beyond_reach") == []

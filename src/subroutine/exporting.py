@@ -22,6 +22,10 @@ listings check for themselves and so this does too.
 **Left out on purpose**: a withdrawn link and a deleted comment, which cannot be put back and are
 recorded as events; roles, which every workspace is seeded with and no route makes; and every
 credential, which no view carries.
+
+**An account a line names and the reader cannot read is written by its name** (`SR#5151`, decision
+`#5097`), in a kind of its own beside ``users``, so the export still rebuilds once somebody it
+names has left.
 """
 
 import dataclasses
@@ -47,6 +51,7 @@ import subroutine.domain.projects
 import subroutine.domain.saved
 import subroutine.domain.scoping
 import subroutine.domain.users
+import subroutine.errors
 import subroutine.permissions
 import subroutine.views
 
@@ -328,6 +333,55 @@ def _users (
 	return subroutine.domain.users.readable(session, actor=reader)
 
 
+def _users_beyond_reach (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return each account a line of this export names that ``users`` does not hold - `SR#5151`.
+
+	M-11 of the cold review of 2026-10-17: ``users`` answers the accounts within the reader's reach
+	(`SR#4945`), while the export's tasks, comments, events and agents still named accounts outside
+	it, so an export taken by anybody but an administrator of accounts could not be rebuilt once
+	somebody it named had left. **Each is written by name alone** (decision `#5097`), the shape
+	the members listing gives such an account, and names only what the lines already carry. An
+	account marked deleted is one ``users`` leaves out, so it is here when a line names it.
+	"""
+
+	model = subroutine.db.models.identity.User
+	held = _users(session, reader, workspace_id).with_only_columns(model.id)
+
+	return sqlalchemy.select(model).where(
+		model.id.in_(_accounts_named(session, reader, workspace_id)), model.id.not_in(held)
+	)
+
+
+def _accounts_named (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.CompoundSelect[typing.Any]:
+	"""Return the ids of every account a line of this export names, as one statement.
+
+	**From each kind's own statement**, so a row the reader may not take away names nobody, and a
+	kind the reader is refused - comments without ``comment:read`` - names nobody either, since
+	none of its lines are written.
+	"""
+
+	named: list[sqlalchemy.Select[typing.Any]] = []
+
+	for rows, columns in NAMING.values():
+		try:
+			statement = rows(session, reader, workspace_id)
+
+		except subroutine.errors.Forbidden:
+			continue
+
+		# **Read off the statement as a subquery**, whatever it selects from: the change feed's
+		# selects from an alias of the event table, and a column of the table itself beside it
+		# would join the two as a product.
+		every = statement.order_by(None).subquery()
+		named.extend(sqlalchemy.select(every.c[column.key]) for column in columns)
+
+	return sqlalchemy.union(*named)
+
+
 def _members (
 	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
 ) -> sqlalchemy.Select[typing.Any]:
@@ -371,6 +425,16 @@ def _project_members (
 
 	return sqlalchemy.select(model).where(
 		model.workspace_id == workspace_id, model.project_id.in_(held)
+	)
+
+
+def _feed (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID
+) -> sqlalchemy.Select[typing.Any]:
+	"""Return the statement :func:`_events` pages: the change feed's, every event held."""
+
+	return subroutine.domain.events.feed(
+		session, reader, workspace_ids=[workspace_id], everything=True
 	)
 
 
@@ -483,10 +547,14 @@ def _render_links (
 ) -> list[subroutine.views.Edge]:
 	"""Render a page of links as edges, each named by both its ends."""
 
+	# **With the export's own sight** (`SR#5151`), which takes in the trash and what is beneath it:
+	# a link to a task beneath a project in the trash was left out, while the task was exported.
 	return subroutine.views.edges(
 		session,
 		reader,
-		subroutine.domain.links.edges_of(session, reader, workspace_id=workspace_id, links=rows),
+		subroutine.domain.links.edges_of(
+			session, reader, workspace_id=workspace_id, links=rows, beneath_trash=True
+		),
 	)
 
 
@@ -558,6 +626,20 @@ def _render_users (
 			row, answers_to=answerable.get(row.id), account_parent=parents.get(row.id)
 		)
 		for row in rows
+	]
+
+
+def _render_users_beyond_reach (
+	session: sqlalchemy.orm.Session, reader: Principal, workspace_id: uuid.UUID, rows: Rows
+) -> list[subroutine.views.User]:
+	"""Render a page of accounts named and out of reach: which account, and an agent's person."""
+
+	answerable = subroutine.domain.accountability.answerable_for_many(
+		session, [row.id for row in rows]
+	)
+
+	return [
+		subroutine.views.user_beyond_reach(row, answers_to=answerable.get(row.id)) for row in rows
 	]
 
 
@@ -657,6 +739,35 @@ _User = subroutine.db.models.identity.User
 _WorkspaceMember = subroutine.db.models.identity.WorkspaceMember
 _ProjectMember = subroutine.db.models.project.ProjectMember
 
+#: **Every column through which a kind's lines name an account, with the statement of its rows**
+#: (`SR#5151`, decision `#5097`): what :func:`_users_beyond_reach` reads for the accounts an export
+#: names. A column a line carries as an id, or as the account nested by id and username, or as a
+#: username - a verification's ``recorded_by``. ``tests/test_export.py`` holds every column with a
+#: key to an account here or excused, and an event's actor is here with none: an event outlives
+#: its actor's account by design, and its line still names it.
+NAMING: dict[str, tuple[Statement, tuple[typing.Any, ...]]] = {
+	"projects": (_projects, (_Project.owner_id, _Project.created_by, _Project.updated_by)),
+	"tasks": (
+		_tasks,
+		(
+			_Task.assignee_id,
+			_Task.assigned_by_id,
+			_Task.claimed_by_id,
+			_Task.created_by,
+			_Task.updated_by,
+		),
+	),
+	"documents": (_documents, (_Document.owner_id, _Document.created_by, _Document.updated_by)),
+	"comments": (_comments, (_Comment.author_id,)),
+	"links": (_links, (_Link.created_by,)),
+	"verifications": (_verifications, (_Verification.created_by,)),
+	"events": (_feed, (_Event.actor_user_id,)),
+	"saved_views": (_saved_views, (_SavedView.owner_id,)),
+	"users": (_users, (_User.responsible_user_id,)),
+	"members": (_members, (_WorkspaceMember.user_id,)),
+	"project_members": (_project_members, (_ProjectMember.user_id,)),
+}
+
 #: Every kind an export holds, by the name its route and its file take. **The order is the order
 #: a reader meets them in**: the workspace and where the work lives in it, the work, what was said
 #: and joined about it, then the words it is described in, who is named, and who belongs where.
@@ -707,6 +818,10 @@ KINDS: dict[str, Kind] = {
 			_ordered(_SavedView.id, _saved_views), _render_saved_views,
 		),
 		Kind("users", subroutine.views.User, _User.id, _ordered(_User.id, _users), _render_users),
+		Kind(
+			"users_beyond_reach", subroutine.views.User, _User.id,
+			_ordered(_User.id, _users_beyond_reach), _render_users_beyond_reach,
+		),
 		Kind(
 			"members", subroutine.views.Member, _WorkspaceMember.id,
 			_ordered(_WorkspaceMember.id, _members), _render_members,
@@ -768,6 +883,7 @@ COMPUTED: dict[str, frozenset[str]] = {
 	"link_types": frozenset(),
 	"saved_views": frozenset({"about_the_reader", "may"}),
 	"users": frozenset({"answers_to"}),
+	"users_beyond_reach": frozenset(),
 	"members": frozenset({"stopped"}),
 	"project_members": frozenset(),
 }
@@ -790,11 +906,19 @@ NESTED_KEPT: dict[str, dict[str, frozenset[str]]] = {
 	"project_members": {"user": ACCOUNT_KEPT},
 }
 
+#: **What a kind's line keeps of its view, where its reader may not read the rest** (`SR#5151`,
+#: decision `#5097`): an account named and out of reach keeps which account it is, and whom it
+#: answers to for an agent. Its view carries the rest as nulls, which in a line would read as an
+#: account with no name to display rather than one whose row is not the reader's to know.
+KEPT: dict[str, frozenset[str]] = {"users_beyond_reach": ACCOUNT_KEPT | {"answers_to"}}
+
 #: What an export never holds, said in its manifest so that nobody takes a quiet absence for a
 #: complete record.
 NEVER_IN_IT = (
 	"Anything the credential could not read: a private project it is not a member of, and "
 	"everything in one.",
+	"The rest of an account the credential could not read: users_beyond_reach.jsonl names each "
+	"one another file names, by id and username, and for an agent by whom it answers to.",
 	"The last second of the event log, which the change feed holds back so a write still "
 	"being saved is never skipped.",
 	"A withdrawn link or a deleted comment, which cannot be put back; the event log records each.",
@@ -818,6 +942,9 @@ def line (kind: str, item: pydantic.BaseModel) -> dict[str, typing.Any]:
 	"""
 
 	left_out: dict[str, typing.Any] = dict.fromkeys(COMPUTED[kind], True)
+
+	if kind in KEPT:
+		left_out.update(dict.fromkeys(set(type(item).model_fields) - KEPT[kind], True))
 
 	for name, kept in NESTED_KEPT.get(kind, {}).items():
 		nested = type(getattr(item, name)).model_fields
