@@ -110,6 +110,8 @@ def _page (
 	statement = subroutine.domain.events.history(
 		session, principal, workspace_id=workspace_id, entity_type=entity_type, entity_id=entity_id
 	)
+	# **A cursor continues in the order it was made with** (`SR#5140`).
+	order = subroutine.api.pagination.continued(order, cursor, allowed=SORTABLE)
 
 	keys = subroutine.api.pagination.parse_order(
 		order,

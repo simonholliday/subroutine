@@ -38,6 +38,13 @@ import subroutine.errors
 #: appear inside either half.
 _SEPARATOR = "."
 
+#: Where a cursor carries the order it was made with (`SR#5140`, decision `#5097`). Not a word, so
+#: it can never be the name of a sort key beside it.
+_ORDER = "~order"
+
+#: The key :func:`parse_order` ends every ordering with, which nobody asks for.
+_TIEBREAK = ("id", False)
+
 
 #: A computed sort field, and the union a sortable map may hold. Both defined in
 #: ``domain.ordering`` because the *vocabulary* of an ordering is a fact about the domain
@@ -216,7 +223,11 @@ def encode (
 	written into the payload — see :func:`decode` for why that is the whole of the check.
 	"""
 
-	payload = {key.name: _to_json(key.value_of(row)) for key in keys}
+	payload: dict[str, typing.Any] = {key.name: _to_json(key.value_of(row)) for key in keys}
+	# **With the order it was made with, each key and its direction** (`SR#5140`, decision `#5097`),
+	# so a cursor followed with no order continues in its own, and one followed with another is
+	# told which it was made for.
+	payload[_ORDER] = [[key.name, key.descending] for key in keys]
 	body = base64.urlsafe_b64encode(
 		json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
 	).decode("ascii")
@@ -229,10 +240,17 @@ def decode (
 ) -> list[typing.Any]:
 	"""Return the sort values a cursor carries, refusing one that was not issued here.
 
-	Every failure — a bad signature, unreadable base64, a cursor from a different ordering
-	or from a different collection — reports the same way, because the caller's remedy is the
-	same in all of them: start the listing again. Naming which check failed would tell somebody
-	probing the signature how far they had got.
+	Every failure — a bad signature, unreadable base64, a cursor from a different collection,
+	or one made before cursors carried their order whose keys differ — reports the same way,
+	because the caller's remedy is the same in all of them: start the listing again. Naming which
+	check failed would tell somebody probing the signature how far they had got.
+
+	**Except a cursor followed in an order it was not made with** (`SR#5140`, decision `#5097`),
+	which is refused by name, saying which order it was made for. It is asked after the signature,
+	so the cursor is this instance's own and naming its order tells a prober nothing; and it is the
+	one failure whose remedy is not to start again. It compares the direction as well as the keys,
+	which the shape check below cannot: a cursor from ``order=created_at`` followed with
+	``order=-created_at`` answered one row already seen as the end, with every other row unreached.
 
 	**A cursor is bound to the collection it was minted for** (`SR#1564`). The shape check below
 	compares the *ordering* and could not tell two listings apart, and ``/v1/tasks`` and
@@ -265,12 +283,105 @@ def decode (
 	except (ValueError, TypeError) as error:
 		raise _unusable() from error
 
-	if not isinstance(payload, dict) or set(payload) != {key.name for key in keys}:
+	if not isinstance(payload, dict):
+		raise _unusable()
+
+	carried = _order_in(payload)
+	asked = [(key.name, key.descending) for key in keys]
+
+	if carried is not None and carried != asked:
+		raise _made_for(carried, asked)
+
+	if set(payload) - {_ORDER} != {key.name for key in keys}:
 		# The ordering changed between requests, so the cursor addresses a position in a
 		# sequence that no longer exists.
 		raise _unusable()
 
 	return [_from_json(key, payload[key.name]) for key in keys]
+
+
+def continued (
+	order: str | None, cursor: str | None, *, allowed: typing.Mapping[str, Sortable]
+) -> str | None:
+	"""Return the order a listing uses: the one asked for, or else the one its cursor carries.
+
+	**A cursor continues in its own order** (`SR#5140`, decision `#5097`). A listing's default can
+	depend on the rest of the request - asking for finished work sorts by when it finished - so a
+	group's cursor, followed with the group's key as the hint says, met another order and was
+	refused, and one followed with no order at all met the default and answered the wrong rows.
+	Asked before the default is chosen, and before anything reads the order.
+
+	**Read before the signature is checked, which costs nothing**: :func:`decode` checks it next and
+	refuses a cursor this instance did not issue. An order naming a field this listing cannot sort
+	by is not taken, so :func:`decode` says which order the cursor was made for rather than the
+	field being refused as one nobody sent.
+	"""
+
+	if order is not None or cursor is None:
+		return order
+
+	try:
+		payload = json.loads(base64.urlsafe_b64decode(cursor.partition(_SEPARATOR)[0].encode("ascii")))
+
+	except (ValueError, TypeError):
+		return order
+
+	carried = _order_in(payload) if isinstance(payload, dict) else None
+
+	if carried is None or any(name not in allowed for name, _descending in _asked(carried)):
+		return order
+
+	return _spoken(carried)
+
+
+def _order_in (payload: dict[str, typing.Any]) -> list[tuple[str, bool]] | None:
+	"""Return the order a cursor's payload says it was made with, or ``None`` where it says none."""
+
+	order = payload.get(_ORDER)
+
+	if not isinstance(order, list) or not all(
+		isinstance(pair, list)
+		and len(pair) == 2
+		and isinstance(pair[0], str)
+		and isinstance(pair[1], bool)
+		for pair in order
+	):
+		return None
+
+	return [(str(name), bool(descending)) for name, descending in order]
+
+
+def _asked (pairs: typing.Sequence[tuple[str, bool]]) -> typing.Sequence[tuple[str, bool]]:
+	"""Return an ordering's keys without the tiebreak every one of them ends with."""
+
+	return pairs[:-1] if pairs and tuple(pairs[-1]) == _TIEBREAK else pairs
+
+
+def _spoken (pairs: typing.Sequence[tuple[str, bool]]) -> str:
+	"""Return an ordering as a caller writes it in ``order=``."""
+
+	return ",".join(f"{'-' if descending else ''}{name}" for name, descending in _asked(pairs))
+
+
+def _made_for (
+	carried: typing.Sequence[tuple[str, bool]], asked: typing.Sequence[tuple[str, bool]]
+) -> subroutine.errors.ValidationError:
+	"""Return the refusal for a cursor followed in an order it was not made with - `SR#5140`."""
+
+	made = _spoken(carried)
+
+	return subroutine.errors.ValidationError(
+		f"That cursor was made for order={made}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="cursor",
+				code="invalid_field_value",
+				message=f"It continues a listing in order={made}, and this one asked for "
+				f"order={_spoken(asked)}.",
+				hint=f"Ask again with order={made}, or start again without the cursor.",
+			)
+		],
+	)
 
 
 def _same (key: SortKey, value: typing.Any) -> sqlalchemy.ColumnElement[bool]:

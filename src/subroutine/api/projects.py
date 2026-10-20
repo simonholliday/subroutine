@@ -235,6 +235,8 @@ def listing (
 	statement = subroutine.api.filters.narrowed(
 		statement, dates, session=session, actor=actor, workspace=workspace
 	)
+	# **A cursor continues in the order it was made with** (`SR#5140`).
+	order = subroutine.api.pagination.continued(order, cursor, allowed=SORTABLE)
 
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id

@@ -281,6 +281,8 @@ def listing (
 	statement = sqlalchemy.select(model).where(
 		model.id.in_(reachable), model.deleted_at.is_(None)
 	)
+	# **A cursor continues in the order it was made with** (`SR#5140`).
+	order = subroutine.api.pagination.continued(order, cursor, allowed=SORTABLE)
 
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id

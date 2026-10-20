@@ -450,6 +450,9 @@ def listing (
 		)
 		fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 
+	# **A cursor continues in the order it was made with** (`SR#5140`), as a task listing's does.
+	order = subroutine.api.pagination.continued(order, cursor, allowed=sortable)
+
 	# `#884`, and the endpoint above says why: a published name refused as unknown.
 	subroutine.domain.ordering.refuse_ranking_without_a_search(
 		order, searching=subroutine.domain.ordering.RELEVANCE in sortable

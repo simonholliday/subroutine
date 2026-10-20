@@ -1536,6 +1536,9 @@ def _page (
 	sortable = allowed
 	fallback = DEFAULT_ORDER if default is None else default
 	collection = subroutine.api.pagination.in_workspace("tasks", workspace_id)
+	# **A cursor continues in the order it was made with** (`SR#5140`), whatever this request's
+	# default would be, before the ordering is parsed or its loader options read.
+	order = subroutine.api.pagination.continued(order, cursor, allowed=sortable)
 
 	keys = subroutine.api.pagination.parse_order(
 		order,
