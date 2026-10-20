@@ -16,6 +16,7 @@ from alembic import op
 
 import sqlalchemy
 
+import subroutine.db.migrate
 import subroutine.db.types
 
 
@@ -54,7 +55,7 @@ def downgrade() -> None:
     ).scalars().all()
 
     if duplicates:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             f"This installation has more than one project keyed each of "
             f"{', '.join(repr(key) for key in duplicates)} in one workspace — which the "
             f"schema before this migration cannot represent, because it made every key "

@@ -41,6 +41,7 @@ from alembic import op
 
 import sqlalchemy
 
+import subroutine.db.migrate
 import subroutine.db.types
 
 
@@ -240,7 +241,7 @@ def downgrade () -> None:
     marked = _still_in_use(connection, task, task.c.status_id, statuses)
 
     if linked or marked:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             f"Cannot go back below this revision: {linked} link(s) use "
             f"'{LINK_TYPE['key']}' and {marked} task(s) are '{STATUS['key']}'. "
             f"Remove those links and give those tasks another status first."

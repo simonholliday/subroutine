@@ -1890,6 +1890,15 @@ def upgrade (
 	try:
 		subroutine.db.migrate.upgrade(settings.database_url)
 
+	# **A migration's refusal, with where it stopped and where the backup is** (`SR#5155`), as
+	# `init` and `db migrate` say it, where it reached the crash report.
+	except subroutine.errors.SubroutineError as error:
+		_stop(
+			error.detail,
+			f"{error.hint} What was there before the upgrade is at {written.path} - "
+			f"'subroutine db restore {written.path} --recover' puts it back.",
+		)
+
 	except sqlalchemy.exc.SQLAlchemyError as error:
 		# **Say where it stopped, never "the database is unchanged".** Alembic runs each
 		# migration in its own transaction, so a failure part-way along a chain of three leaves
@@ -2406,7 +2415,13 @@ def database_restore (
 		_say(f"That backup is on schema {head}; this version is at {newest}.")
 
 		if yes or subroutine.cli.personal.confirmed(UPGRADE_THE_RESTORED, default=True):
-			subroutine.db.migrate.upgrade(settings.database_url)
+			# Restored, and the upgrade of what was restored refused (`SR#5155`): said, not crashed.
+			try:
+				subroutine.db.migrate.upgrade(settings.database_url)
+
+			except subroutine.errors.SubroutineError as error:
+				_fail(error)
+
 			_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
 
 

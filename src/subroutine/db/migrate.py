@@ -32,6 +32,16 @@ import subroutine.errors
 MIGRATIONS_DIRECTORY = pathlib.Path(__file__).parent / "migrations"
 
 
+class Refused (RuntimeError):
+	"""A migration that will not run over what a database holds, saying why - `SR#5155`.
+
+	**Raised by a migration in place of a bare ``RuntimeError``** (decision `#5097`, M-20 of the
+	cold review of 2026-10-17), so that :func:`upgrade` says it in a sentence while a defect in a
+	migration still reaches the crash report. A ``RuntimeError`` still, so a caller driving
+	``alembic.command`` itself meets what it always met.
+	"""
+
+
 def build_config (database_url: str) -> alembic.config.Config:
 	"""Return an Alembic configuration pointed at ``database_url``.
 
@@ -71,9 +81,30 @@ def upgrade (database_url: str, revision: str = "head") -> None:
 	because it stops the next reader checking.
 	"""
 
-	alembic.command.upgrade(build_config(database_url), revision)
+	# **A migration's refusal is a schema mismatch, with where the upgrade stopped** (`SR#5155`,
+	# decision `#5097`). Read back rather than assumed: on SQLite each step before it has committed,
+	# and on PostgreSQL the whole run was one transaction, so none has.
+	try:
+		alembic.command.upgrade(build_config(database_url), revision)
+
+	except Refused as refusal:
+		raise subroutine.errors.SchemaMismatch(
+			str(refusal), hint=f"The upgrade stopped at {_revision_of(database_url)}."
+		) from None
 
 	_keep_the_database_private(database_url)
+
+
+def _revision_of (database_url: str) -> str | None:
+	"""Report which migration a database is at, over a connection of its own."""
+
+	engine = subroutine.db.session.create_engine(database_url)
+
+	try:
+		return current_revision(engine)
+
+	finally:
+		engine.dispose()
 
 
 def _keep_the_database_private (database_url: str) -> None:

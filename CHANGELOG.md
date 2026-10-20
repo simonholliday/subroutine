@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An upgrade a migration refuses is said, not reported as a crash.** `db upgrade`,
+  `db migrate`, `init` and the upgrade `db restore` offers print why, what settles it and the
+  revision the database stopped at, where they ended in the crash report - for an Inbox, below,
+  and on 0.10.0 already for documents whose `supersedes` chain had no link type to move into.
+
 - **A `credentials.toml` that is not UTF-8 is refused in a sentence.** One byte in another
   encoding - a Latin-1 `# café` - crashed every command that read it, and `subroutine mcp`
   exited before it answered, so a client saw a dead server. It now says which byte, as
@@ -428,9 +433,9 @@ upgrade involves.
   is**, and what to restore, as every other command does. It said there was no such task.
 - **The database holds every Inbox public, at the top level and out of the trash**, as the
   program already did. Before 0.10.0 an Inbox could be made private or moved under another
-  project; if one of yours was, `db upgrade` stops before changing anything, names the
-  workspace and prints the statements that settle it, since making it public shows its work to
-  everybody in the workspace and that is yours to choose.
+  project; if one of yours was, `db upgrade` stops at that step, names the workspace and the
+  revision the database is at, and prints the statements that settle it, since making it
+  public shows its work to everybody in the workspace and that is yours to choose.
 - **`/v1/me` no longer lists, under each workspace, the projects where you hold a role of the
   project's own.** Nothing in the program could give anybody such a role, and permission checks
   no longer read one, so a workspace's permissions in that answer are yours in each of its

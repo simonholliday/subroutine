@@ -16,6 +16,7 @@ from alembic import op
 
 import sqlalchemy
 
+import subroutine.db.migrate
 import subroutine.db.types
 
 
@@ -49,7 +50,7 @@ def downgrade() -> None:
     ).scalars().all()
 
     if duplicates:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             f"This installation has more than one workspace using each of "
             f"{', '.join(repr(slug) for slug in duplicates)} — which the schema before this "
             f"migration cannot represent, because it made every slug unique whether the "

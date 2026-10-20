@@ -28,6 +28,7 @@ import typing
 
 import sqlalchemy
 from alembic import op
+import subroutine.db.migrate
 
 
 revision: str = '4b82edddbc80'
@@ -91,10 +92,10 @@ def upgrade () -> None:
         lines = [
             "This installation has an Inbox that is not public, at the top level and out of the "
             "trash, which this version holds every Inbox to: everything filed in a workspace "
-            "without a project goes there, so everybody in it has to be able to reach it. Nothing "
-            "has been changed. Making an Inbox public shows its work to the whole workspace, so "
-            "that is yours to choose: run these statements against this database, then run this "
-            "again.",
+            "without a project goes there, so everybody in it has to be able to reach it. This step "
+            "changed nothing. Making an Inbox public shows its work to the whole workspace, so "
+            "that is yours to choose: run these statements against this database, then upgrade "
+            "it again.",
         ]
 
         for row in unsettled:
@@ -102,7 +103,7 @@ def upgrade () -> None:
             lines.append(f"The Inbox of '{row.slug}': {', and '.join(wrong)}.")
             lines.extend(f"    {statement}" for statement in statements)
 
-        raise RuntimeError("\n".join(lines))
+        raise subroutine.db.migrate.Refused("\n".join(lines))
 
     with op.batch_alter_table('project', schema=None) as batch_op:
         batch_op.create_check_constraint('inbox_settled', SETTLED)

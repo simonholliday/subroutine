@@ -18,6 +18,7 @@ from alembic import op
 
 import sqlalchemy
 
+import subroutine.db.migrate
 import subroutine.db.types
 
 
@@ -91,7 +92,7 @@ def _carry_the_chain_into_links(connection: sqlalchemy.engine.Connection) -> Non
     missing = sorted({str(row[1]) for row in chained if row[1] not in available})
 
     if missing:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             "These workspaces have documents with a supersedes chain and no 'supersedes' link "
             f"type to move it into: {', '.join(missing)}. Seed the link type in each, then run "
             "this again — the alternative is dropping the column and losing what it says."

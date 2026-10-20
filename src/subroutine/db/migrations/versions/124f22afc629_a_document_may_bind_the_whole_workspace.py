@@ -26,6 +26,7 @@ import typing
 
 import sqlalchemy
 from alembic import op
+import subroutine.db.migrate
 
 
 revision: str = '124f22afc629'
@@ -72,7 +73,7 @@ def downgrade () -> None:
     ) or 0
 
     if marked:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             f"Cannot go back below this revision: {marked} document(s) bind the whole "
             "workspace, which the revision before cannot say. Set each back to its project "
             "first: subroutine doc edit <ref> --binds project."

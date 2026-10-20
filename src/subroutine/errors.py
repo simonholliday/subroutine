@@ -178,8 +178,9 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"A database schema does not match the one this build expects. An older schema "
 			"can be migrated forward and the refusal says so; a *newer* one cannot, because "
 			"this version cannot interpret data it does not know the shape of and a partial "
-			"read is worse than a clear failure. Three things answer with it: a backup being "
-			"put back, any write against a live database that has not been migrated yet, and "
+			"read is worse than a clear failure. Four things answer with it: a backup being "
+			"put back, an upgrade a migration refuses until something in the database is settled "
+			"by hand, any write against a live database that has not been migrated yet, and "
 			"a read of one that could not be answered - every other read is still served, so "
 			"an instance mid-deploy stays readable where it can be read and refuses to be "
 			"changed. /readyz reports the same condition as "
@@ -517,7 +518,7 @@ class InUse(SubroutineError):
 
 
 class SchemaMismatch(SubroutineError):
-	"""A backup was taken on a schema this installation cannot put back."""
+	"""A schema this installation cannot use as it stands, or move to yet."""
 
 	CODE = "schema_mismatch"
 

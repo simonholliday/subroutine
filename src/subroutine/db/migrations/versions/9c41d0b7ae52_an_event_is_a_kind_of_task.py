@@ -37,6 +37,7 @@ from alembic import op
 
 import sqlalchemy
 
+import subroutine.db.migrate
 import subroutine.db.types
 
 
@@ -176,7 +177,7 @@ def downgrade () -> None:
         ) or 0
 
     if typed:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             f"Cannot go back below this revision: {typed} task(s) are "
             f"'{EVENT['key']}'. Give those items another type first."
         )

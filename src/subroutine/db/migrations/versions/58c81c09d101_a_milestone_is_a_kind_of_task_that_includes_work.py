@@ -46,6 +46,7 @@ from alembic import op
 
 import sqlalchemy
 
+import subroutine.db.migrate
 import subroutine.db.types
 
 
@@ -291,7 +292,7 @@ def downgrade () -> None:
     )
 
     if typed or linked or kept_types or kept_links:
-        raise RuntimeError(
+        raise subroutine.db.migrate.Refused(
             f"Cannot go back below this revision: {typed} task(s) are "
             f"'{MILESTONE['key']}', {linked} link(s) use {' or '.join(keys)}, and "
             f"{kept_types} type(s) and {kept_links} link type(s) of a workspace's own are in "
