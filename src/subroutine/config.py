@@ -1047,7 +1047,7 @@ class Settings(pydantic_settings.BaseSettings):
 	) -> tuple[pydantic_settings.PydanticBaseSettingsSource, ...]:
 		"""Order the sources: explicit arguments, environment, file, then defaults."""
 
-		return (init_settings, env_settings, TomlSettingsSource(settings_cls))
+		return (init_settings, _Environment(settings_cls), TomlSettingsSource(settings_cls))
 
 	@property
 	def is_sqlite (self) -> bool:
@@ -1393,6 +1393,27 @@ def ensure_secret_key (settings: Settings) -> tuple[str, pathlib.Path | None]:
 	key = generate_secret_key()
 
 	return key, store_setting("secret_key", key)
+
+
+class _Environment(pydantic_settings.EnvSettingsSource):
+	"""The environment, where the default connection's variable set empty is unsaid - `SR#5157`.
+
+	**An empty value overrode the file** (a bullet of L-7 of the cold review of 2026-10-17): read
+	as ``default_connection = ""``, it made the local connection the default, so ``add`` wrote to
+	another instance than the one ``config.toml`` names. Only this variable: an empty one is how a
+	shell or a project's settings leave it unset, where another setting's empty value can mean
+	something of its own.
+	"""
+
+	def __call__ (self) -> dict[str, typing.Any]:
+		"""Return what the environment sets, less a default connection set to nothing."""
+
+		said = super().__call__()
+
+		if not str(said.get("default_connection", "unsaid")).strip():
+			del said["default_connection"]
+
+		return said
 
 
 def load_settings (**overrides: typing.Any) -> Settings:

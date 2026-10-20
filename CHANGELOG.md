@@ -29,6 +29,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **An empty `SUBROUTINE_DEFAULT_CONNECTION` is read as unset.** Set and empty, it overrode
+  `default_connection` in `config.toml`, so `add` wrote to the local connection - another
+  instance than the one the file names - and `connections` and `doctor` put it first.
+
 - **An upgrade a migration refuses is said, not reported as a crash.** `db upgrade`,
   `db migrate`, `init` and the upgrade `db restore` offers print why, what settles it and the
   revision the database stopped at, where they ended in the crash report - for an Inbox, below,

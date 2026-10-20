@@ -5407,6 +5407,40 @@ def test_a_default_connection_the_environment_names_is_refused_by_that_name (
 	assert "Fix the deploy script" in run("list").output, "the file's own fallback is unchanged"
 
 
+def test_an_empty_default_connection_variable_leaves_the_file_s_default_standing (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5157`, a bullet of L-7 of the cold review of 2026-10-17: the variable set and empty.
+
+	It overrode the file's ``default_connection``, so ``add`` wrote to the local connection, another
+	instance than the one ``config.toml`` names, and ``connections`` and ``doctor`` put it first.
+	**An empty variable is unsaid**, so the file's default stands.
+	"""
+
+	_default_is(home, "work")
+
+	for empty in ("", "  "):
+		monkeypatch.setenv(subroutine.config.DEFAULT_CONNECTION_VARIABLE, empty)
+
+		assert subroutine.config.load_settings().default_connection == "work", repr(empty)
+
+	added = run("add", "Collect the package from reception").output
+
+	assert added.startswith("Added: work/"), added
+	assert run("connections").output.split()[0] == "work"
+
+	diagnosed = [
+		line.split()[0]
+		for line in run("doctor").output.splitlines()
+		if line.split()[:1] in (["work"], ["local"])
+	]
+
+	assert diagnosed == ["work", "local"], diagnosed
+
+
 def _a_git (directory: pathlib.Path, script: str | None) -> str:
 	"""Return a ``PATH`` whose git runs ``script``, or on which there is no git at all."""
 
