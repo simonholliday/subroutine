@@ -1071,6 +1071,46 @@ def test_a_configuration_file_that_is_not_utf_8_is_refused_in_a_sentence (
 	assert "is not UTF-8" in answers[0].get("error", {}).get("message", ""), answers
 
 
+def test_a_credentials_file_that_is_not_utf_8_is_refused_in_a_sentence (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5154`, M-17 of the cold review of 2026-10-17: the same line in ``credentials.toml``.
+
+	It crashed ``list``, ``whoami`` and ``connections``, ``doctor`` printed the decoder's own error,
+	and ``subroutine mcp`` exited before it answered, so a client saw a dead server. **Refused in
+	the sentence the configuration file is**, naming where the byte is, everywhere it is read.
+	"""
+
+	run("init")
+
+	credentials = home / "xdg_config_home" / "subroutine" / "credentials.toml"
+
+	with credentials.open("ab") as handle:
+		handle.write(b"\n# caf\xe9\n")
+
+	credentials.chmod(0o600)
+	said = "cannot be used: the byte at offset 6 is not UTF-8, which the file must be written in."
+
+	for command in ("list", "whoami"):
+		refused = run(command, expect=1)
+
+		assert isinstance(refused.exception, SystemExit), (command, repr(refused.exception))
+		assert said in " ".join(refused.output.split()), (command, refused.output)
+
+	# **The listing says it against the connection**, as it says any connection it cannot use.
+	listed = " ".join(run("connections").output.split())
+
+	assert f"unusable - {credentials} {said}" in listed, listed
+
+	diagnosed = " ".join(run("doctor", expect=1).output.split())
+
+	assert said in diagnosed and "codec" not in diagnosed, diagnosed
+
+	answers = answered(run("mcp", input=INITIALIZE))
+
+	assert said in answers[0].get("error", {}).get("message", ""), answers
+
+
 def test_the_connections_listing_leaves_out_an_address_s_password (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

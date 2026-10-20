@@ -29,6 +29,11 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A `credentials.toml` that is not UTF-8 is refused in a sentence.** One byte in another
+  encoding - a Latin-1 `# café` - crashed every command that read it, and `subroutine mcp`
+  exited before it answered, so a client saw a dead server. It now says which byte, as
+  `config.toml` already did.
+
 - **A command no longer waits for ever where nothing can answer it.** Run without what it
   needs - `done` with no number, `add` with no text, a rename without `--yes` - where its input
   is not a terminal, a pipe or a file, it stops at once with its usage and says to give it on

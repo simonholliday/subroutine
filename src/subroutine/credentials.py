@@ -468,6 +468,17 @@ def read_file () -> dict[str, Stored]:
 			'\'token = "sr_…"\'.',
 		) from None
 
+	# **Refused in a sentence where it is not UTF-8** (`SR#5154`, M-17 of the cold review of
+	# 2026-10-17), as the configuration file is (`#4022`): one Latin-1 ``# café`` crashed every
+	# command that reads it, and ``subroutine mcp`` before its handshake.
+	except UnicodeDecodeError as error:
+		raise subroutine.errors.ValidationError(
+			f"{path} cannot be used: the byte at offset {error.start} is not UTF-8, which the file "
+			"must be written in.",
+			code="invalid_field_value",
+			hint="Save it as UTF-8, which any editor can do.",
+		) from None
+
 	except OSError as error:
 		raise subroutine.errors.ValidationError(
 			f"{path} could not be read: {error}",
