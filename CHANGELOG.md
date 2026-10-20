@@ -225,9 +225,9 @@ upgrade involves.
 - **A document marked for the whole workspace is said to bind it only where it does.** `show`,
   the agent tools and the browser said *binds the whole workspace* of any marked document - a
   draft, a note, a rule in the trash, one inside a private project - which bind nobody outside.
-  `show` and the agent tools now say that only of a rule that does, and *marked to bind the whole
-  workspace* of the rest; the browser says *Marked to bind*. `subroutine://conventions` no longer
-  lists a rule marked inside a private project as one for the whole workspace.
+  `show`, the agent tools and the browser now say that only of a rule that does, and *marked to
+  bind the whole workspace* of the rest. `subroutine://conventions` no longer lists a rule marked
+  inside a private project as one for the whole workspace.
 - **`subroutine init --password-stdin` is gone, and no account has a password.** *This is a
   breaking change for a script that passes the flag*: it is refused before anything is set up.
   The flag stored a hash that nothing ever checked - a browser signs in with a sign-in link, and

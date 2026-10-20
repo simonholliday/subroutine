@@ -22531,23 +22531,39 @@ def test_an_arrangement_this_browser_does_not_draw_falls_back_rather_than_breaki
 	assert showing["view"] == "agenda", showing["view"]
 
 
-def test_the_document_page_says_when_a_document_is_marked_to_bind_the_whole_workspace (
+def test_the_document_page_says_when_a_document_binds_or_is_marked_to_bind_the_workspace (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""`SR#4133`, `SR#4853`: the mark, said only where there is one.
+	"""`SR#4133`, `SR#4853`, `SR#5182`: said only where there is a mark, and *Binds* only where the
+	instance says the document does.
 
-	Whether a marked document binds anybody takes more than its row holds - a draft, a note and a
-	rule inside a private project are marked and bind nobody outside - so the page says the mark
-	and no more, where it said the document bound the whole workspace.
+	A draft, a note and a rule inside a private project are marked and bind nobody outside, which
+	the instance says on the row (`SR#5120`) and ``show`` already reads. The page said the mark for
+	all of them; it says *Binds* where the row says so, and the mark alone where the row says not,
+	or an older instance does not say.
 	"""
 
 	item = {"ref": 42, "title": "Every agent reads this first", "kind": "document", "status": "active"}
+	marked = {**item, "binds": "workspace"}
 
-	marked = _rendered(tmp_path, {"Facts": {"item": {**item, "binds": "workspace"}}})["Facts"]
-	plain = _rendered(tmp_path, {"Facts": {"item": {**item, "binds": "project"}}})["Facts"]
+	def facts (shown: dict[str, typing.Any]) -> str:
+		"""Render the fact sheet of one document."""
 
-	assert "<dt>Marked to bind<dd>the whole workspace" in marked, marked
-	assert "<dt>Marked to bind" not in plain, plain
+		return _rendered(tmp_path, {"Facts": {"item": shown}})["Facts"]
+
+	binding = facts({**marked, "binds_everyone": True})
+	held_back = facts({**marked, "binds_everyone": False})
+	unsaid = facts(marked)
+	plain = facts({**item, "binds": "project", "binds_everyone": False})
+
+	assert "<dt>Binds<dd>the whole workspace" in binding, binding
+	assert "Marked to bind" not in binding, binding
+
+	for shown in (held_back, unsaid):
+		assert "<dt>Marked to bind<dd>the whole workspace" in shown, shown
+		assert "<dt>Binds<" not in shown, shown
+
+	assert "<dt>Marked to bind" not in plain and "<dt>Binds<" not in plain, plain
 
 
 def test_a_link_to_something_hidden_is_shown_as_unseen_and_not_offered_for_removal (

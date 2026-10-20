@@ -717,13 +717,16 @@ export function Facts ({
 				>${item.project_key}</a>`
 			: item.project_key}${raised ? " (prioritised)" : ""}
 	`);
-	/* **Whom a document is marked to be in force for, said only when it is everybody** (`#4133`):
-	   every document binds its own project until somebody marks it, and a default nobody chose is
-	   not printed. **Marked, not binding** (`#4853`): a draft, a note, a rule in the trash and one
-	   inside a private project are marked for the whole workspace and bind nobody outside. Whether
-	   one does is the row's `binds_everyone` since `#5120`, which this does not read yet (`#5182`),
-	   so this says the mark and no more. */
-	add("Marked to bind", item.binds === "workspace" && "the whole workspace");
+	/* **Whom a document is in force for, said only when it is everybody** (`#4133`): every document
+	   binds its own project until somebody marks it, and a default nobody chose is not printed.
+	   **Marked is not binding** (`#4853`): a draft, a note, a rule in the trash and one inside a
+	   private project are marked for the whole workspace and bind nobody outside. **Whether one does
+	   is the instance's to say** (`#5182`), as the row's `binds_everyone` (`#5120`): *Binds* where it
+	   does, and the mark alone where it does not or an older instance does not say, as `show` does. */
+	add(
+		item.binds_everyone ? "Binds" : "Marked to bind",
+		item.binds === "workspace" && "the whole workspace",
+	);
 	add(
 		"Priority",
 		rankOf(item),
