@@ -1946,7 +1946,8 @@ def _confirm_destructive (
 	if not settings.protected or yes:
 		return
 
-	if not sys.stdin.isatty():
+	# Asked of `personal`, where a closed input is no terminal rather than a crash (`SR#5187`).
+	if not subroutine.cli.personal.at_a_terminal():
 		_stop(
 			f"{_instance_label().capitalize()} is marked protected and this is not an "
 			f"interactive terminal.",
@@ -2376,6 +2377,12 @@ def database_restore (
 	except subroutine.errors.SubroutineError as error:
 		_fail(error)
 
+	# **And whether what is restored can be upgraded, where nothing could be asked once it is**
+	# (`SR#5153`, decision `#5097`, M-16): a backup on an older schema is offered an upgrade after
+	# the restore, and refusing that question then would follow a restore that succeeded.
+	if head != subroutine.db.migrate.head_revision() and not yes:
+		subroutine.cli.personal.answerable(UPGRADE_THE_RESTORED)
+
 	_confirm_destructive(settings, "About to replace the database of", yes=yes)
 
 	if safety_backup and not _nothing_to_save(settings):
@@ -2398,9 +2405,14 @@ def database_restore (
 	if head != newest:
 		_say(f"That backup is on schema {head}; this version is at {newest}.")
 
-		if yes or typer.confirm("Upgrade the restored database now?", default=True):
+		if yes or subroutine.cli.personal.confirmed(UPGRADE_THE_RESTORED, default=True):
 			subroutine.db.migrate.upgrade(settings.database_url)
 			_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
+
+
+#: The question ``db restore`` asks once it has restored a backup on an older schema, and the one
+#: it is refused with beforehand where nothing could answer it then (`SR#5153`).
+UPGRADE_THE_RESTORED = "Upgrade the restored database now?"
 
 
 @profile_app.command("list")
@@ -2453,7 +2465,7 @@ def profile_destroy (
 		)
 
 	if _profile_is_protected(wanted) and not yes:
-		if not sys.stdin.isatty():
+		if not subroutine.cli.personal.at_a_terminal():
 			_stop(
 				f"Instance '{wanted}' is marked protected and this is not an interactive "
 				f"terminal.",
@@ -4008,7 +4020,7 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 			"to stop - but it does mean there is no way back to the state it is in now."
 		)
 
-		if not (yes or typer.confirm("Restore anyway?", default=True)):
+		if not (yes or subroutine.cli.personal.confirmed("Restore anyway?", default=True)):
 			_stop(
 				"Nothing restored. The database is as it was.",
 				"To keep a way back, copy the database file somewhere by hand first. To skip "

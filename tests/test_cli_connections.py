@@ -1670,7 +1670,7 @@ def _configured (home: pathlib.Path) -> str:
 def test_a_connection_is_added_by_command_and_the_next_listing_spans_both (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""The whole of `#261`: reaching a server is a command, not a file somebody edits.
 
@@ -1699,7 +1699,7 @@ def test_a_connection_is_added_by_command_and_the_next_listing_spans_both (
 def test_the_token_goes_where_nothing_but_this_reads_it (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""§12.3a's split, which is the reason there are two files rather than one.
 
@@ -1747,7 +1747,7 @@ def test_a_token_is_never_asked_for_on_the_command_line () -> None:
 
 
 def test_nothing_is_written_when_the_instance_cannot_be_reached (
-	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result], piped: None
 ) -> None:
 	"""Checked before it is recorded, so a typo is refused where somebody can fix it.
 
@@ -1777,7 +1777,7 @@ def test_nothing_is_written_when_the_instance_cannot_be_reached (
 def test_a_credential_the_instance_refuses_leaves_nothing_behind (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""The address being right is half of it, and the other half is the token that was pasted."""
 
@@ -1802,7 +1802,7 @@ def test_a_credential_the_instance_refuses_leaves_nothing_behind (
 def test_the_same_instance_under_a_second_name_is_refused_before_it_lands (
 	two: Remote,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""The sharpest case of "refused where it can be fixed", and it was reachable in one command.
 
@@ -1910,7 +1910,7 @@ def test_init_is_unaffected_when_local_is_declared_and_left_on (
 def test_a_machine_with_no_list_of_its_own_starts_filing_to_the_connection (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""The machine this command was written for: a second laptop, reaching work.
 
@@ -1933,7 +1933,7 @@ def test_a_machine_with_no_list_of_its_own_starts_filing_to_the_connection (
 def test_a_machine_with_no_list_of_its_own_stops_being_told_to_make_one (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#1454`. The advice was wrong for exactly the person who was reading it.
 
@@ -1969,7 +1969,7 @@ def test_a_machine_with_no_list_of_its_own_stops_being_told_to_make_one (
 def test_a_connection_made_default_by_hand_leaves_an_existing_list_alone (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#1454`'s limit, and it is the one that makes the inference safe.
 
@@ -1996,7 +1996,7 @@ def test_a_connection_made_default_by_hand_leaves_an_existing_list_alone (
 def test_a_local_connection_somebody_declared_is_never_rewritten (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#1454`'s second limit, and it is also what stops a confusing refusal.
 
@@ -2026,7 +2026,7 @@ def test_a_local_connection_somebody_declared_is_never_rewritten (
 def test_a_machine_that_has_its_own_list_keeps_writing_to_it (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""Moving somebody's writes off their own to-do list is their call, not this command's."""
 
@@ -2096,7 +2096,7 @@ def test_an_address_whose_port_is_not_one_is_refused (
 def test_a_name_typed_in_capitals_is_the_name_in_lower_case (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""Every lookup already lower-cases, so refusing it here would be the one place that did not.
 
@@ -6173,7 +6173,7 @@ def test_a_token_crossing_the_network_in_the_clear_is_said_on_every_surface (
 def test_adding_a_connection_over_plain_http_says_so (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""The moment somebody is choosing, which is the one moment they can ask for an https one."""
 

@@ -451,7 +451,7 @@ def test_a_safety_copy_that_fails_is_said_out_loud (
 
 
 def test_declining_after_a_failed_safety_copy_restores_nothing (
-	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path, piped: None
 ) -> None:
 	"""It is the operator's call, which means "no" has to be a real answer.
 

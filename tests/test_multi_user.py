@@ -1049,7 +1049,7 @@ def test_a_superuser_credential_is_pinned_to_nothing (
 
 
 def test_deactivating_somebody_names_the_agents_it_will_stop (
-	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch, piped: None
 ) -> None:
 	"""The confirmation that decided `SR#2387`, and nothing covered it until now.
 
@@ -1150,7 +1150,7 @@ def test_handing_an_agent_to_somebody_outside_its_workspace_says_where_it_stops 
 
 
 def test_a_departure_that_cannot_be_checked_for_stranded_projects_says_so (
-	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch, piped: None
 ) -> None:
 	"""`SR#2636`: a refusal to say what a departure strands, and a *no*, were driven by nothing.
 
@@ -1186,7 +1186,7 @@ def test_a_departure_that_cannot_be_checked_for_stranded_projects_says_so (
 
 
 def test_deactivating_a_workspace_s_last_administrator_names_it_before_and_after (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#4154` and `SR#4144`, decided on `#3950`: allowed, and never silent.
 
@@ -1286,7 +1286,7 @@ def test_deactivating_with_yes_still_names_what_it_left (
 
 
 def test_a_line_after_the_agents_says_and (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#4314`: *And nobody* follows a line, and only a line."""
 
@@ -1777,7 +1777,7 @@ def test_a_new_credential_says_what_it_may_do_and_until_when (
 
 
 def test_handing_an_agent_over_names_before_and_after_what_nobody_could_see (
-	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch, piped: None
 ) -> None:
 	"""`SR#5101`, decision `#5097`: ``user transfer`` said only where the agent stops.
 

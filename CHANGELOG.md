@@ -29,6 +29,17 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A command no longer waits for ever where nothing can answer it.** Run without what it
+  needs - `done` with no number, `add` with no text, a rename without `--yes` - where its input
+  is not a terminal, a pipe or a file, it stops at once with its usage and says to give it on
+  the command line, or to pass `--yes`. An agent's shell hands a command a socket, and there
+  `done`, `add`, `comment` and `defer` waited for ever, as did a `-` for piped text such as
+  `--body -`, which now reads only from a pipe or a file. `echo 42 | subroutine done` still
+  answers. `connections add` reads a token only from a terminal, a pipe or a file; `db restore`
+  of a backup on an older schema refuses before it starts where it could not ask about upgrading
+  it; and `doc edit` with nothing named, and a protected instance's restore or removal, refuse
+  rather than crash when standard input is closed.
+
 - **An export taken by anybody but an administrator of accounts can be rebuilt.** Its
   `users.jsonl` holds the accounts within your reach, while its tasks, comments and events still
   named others, so once somebody it named had left there was nothing to point at. Each of those is

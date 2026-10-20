@@ -3259,7 +3259,7 @@ def test_output_is_plain_when_it_is_not_a_terminal (
 
 
 def test_a_missing_argument_asks_rather_than_erroring (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""§12.2a: a required-argument error is a dead end where a question would do."""
 
@@ -3274,7 +3274,7 @@ def test_a_missing_argument_asks_rather_than_erroring (
 
 
 def test_add_with_no_text_asks_for_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""The example §12.2a gives by name."""
 
@@ -3326,7 +3326,7 @@ def test_show_prints_the_record_of_what_happened (
 
 
 def test_a_comment_with_nothing_in_it_asks_rather_than_erroring (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""§12.2a again: a blank argument is a question, not a refusal.
 
@@ -6089,7 +6089,7 @@ def test_a_document_is_not_given_a_body_from_input_nobody_piped (
 
 
 def test_a_body_of_a_single_hyphen_reads_what_was_piped_rather_than_storing_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#2106`. `--body -` wrote one character over a document and answered *Revised*.
 
@@ -6168,7 +6168,7 @@ def test_a_hyphen_with_nothing_piped_says_so_instead_of_hanging (
 
 
 def test_a_hyphen_with_an_empty_pipe_is_refused_before_anything_changes (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#3587`: with no terminal, ``-`` read an empty pipe as nothing, and wrote it.
 
@@ -6196,10 +6196,10 @@ def test_a_hyphen_with_an_empty_pipe_is_refused_before_anything_changes (
 		("skip", "2", "--because", "-"),
 		("doc", "edit", "4", "--title", "Retitled", "--body", "-"),
 	):
-		for piped in ("", "\n"):
-			refused = run(*command, input=piped, expect=1)
+		for given in ("", "\n"):
+			refused = run(*command, input=given, expect=1)
 
-			assert "the pipe was empty" in refused.output, (command, piped, refused.output)
+			assert "the pipe was empty" in refused.output, (command, given, refused.output)
 
 	assert _stored_prose() == stored, "an empty pipe changed a description or recorded a reason"
 	assert run("list", "--json").output == listed, (
@@ -7647,7 +7647,7 @@ def test_a_project_can_be_renamed_and_nothing_recorded_moves (
 
 
 def test_a_rename_says_what_will_stop_working_before_it_does_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""Simon's decision: the old key just stops working, so this has to be said out loud.
 
@@ -7742,7 +7742,7 @@ def test_a_link_a_part_or_an_unlink_across_two_workspaces_on_one_instance_is_ref
 
 
 def test_a_rename_says_a_checkout_s_file_follows_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#3944`, L-12 of the cold review of 2026-09-28: it said a ``.subroutine`` file breaks.
 
@@ -8393,7 +8393,7 @@ def test_init_can_still_be_retried_after_it_failed_part_way (
 
 
 def test_project_move_counts_the_whole_subtree_before_asking (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`#246`. The count is the reason this is not a one-liner, so it has to be right.
 
@@ -9053,7 +9053,7 @@ def test_a_workspace_can_be_renamed_and_everything_keeps_its_number (
 
 
 def test_renaming_a_workspace_says_what_stops_working_before_it_does_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`#176`'s argument, applied one segment earlier in an address.
 
@@ -9100,7 +9100,7 @@ def test_a_workspace_can_be_deleted_and_restored_from_a_terminal (
 
 
 def test_deleting_a_workspace_says_what_goes_with_it_before_it_does_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`#176`'s argument again, and it has more to say here than a rename does.
 
@@ -9229,7 +9229,7 @@ def test_revising_a_document_does_not_read_stdin_when_it_was_told_what_to_write 
 
 
 def test_renaming_a_project_counts_past_a_page_and_agrees_with_itself (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""``#296``. The number is the whole point of the prompt, and it saturated at a page.
 
@@ -9254,7 +9254,7 @@ def test_renaming_a_project_counts_past_a_page_and_agrees_with_itself (
 
 
 def test_the_rename_prompt_agrees_when_there_is_one_item (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""``#296``'s other half: "1 item keep their numbers" pluralised the noun alone.
 
@@ -13015,7 +13015,7 @@ def test_a_milestone_says_it_includes_more_than_you_can_see (
 
 
 def test_a_rename_names_a_view_it_cannot_read_and_one_naming_the_project_in_a_path (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#3588`: one malformed shared view stopped every rename, and a path was read by its end.
 
@@ -14198,7 +14198,7 @@ def _stored_prose () -> dict[str, typing.Any]:
 
 
 def test_a_hyphen_reads_the_pipe_for_a_comment_and_every_description (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#3152`, driven: the five sites the walk above holds, each given ``-`` and a pipe."""
 
@@ -14227,7 +14227,7 @@ def test_a_hyphen_reads_the_pipe_for_a_comment_and_every_description (
 
 
 def test_a_reason_is_read_from_a_pipe_at_every_command_that_records_one (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#3166`: five commands stored ``-`` as the reason they recorded.
 
@@ -14441,7 +14441,7 @@ def test_an_account_made_and_not_joined_says_how_to_finish (
 
 
 def test_renaming_a_project_names_the_saved_views_that_will_stop_finding_it (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], piped: None,
 ) -> None:
 	"""`SR#3142`, Simon's decision of 2026-09-22: counted rather than rewritten.
 

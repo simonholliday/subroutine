@@ -5775,8 +5775,10 @@ def _asked_for_a_token (program: Program, name: str) -> str:
 	A pipe is the scripted path, so that 'pass show work' can supply one without either.
 	"""
 
-	if not sys.stdin.isatty():
-		piped = sys.stdin.readline().strip()
+	# **Read only from a pipe or a file** (`SR#5153`): a socket, which is an agent's shell, was
+	# read from and waited for ever on a line that was not coming.
+	if not _a_terminal_is_attached():
+		piped = sys.stdin.readline().strip() if _something_was_piped() else ""
 
 		if piped:
 			return piped
@@ -6172,7 +6174,7 @@ def _project_moved (program: Program, *, key: str, under: str, root: bool, yes: 
 			program.say(f"  {projects} move, and {items} {'goes' if held == 1 else 'go'} with them.")
 			program.say("  Every number stays the same, and nothing is refiled.")
 
-			if not typer.confirm("Go on?"):
+			if not confirmed("Go on?"):
 				program.stop("Nothing was moved.")
 
 		moved = place.client.move_project(
@@ -6217,7 +6219,7 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 					f"could not be read, and may name it too: {', '.join(unreadable)}."
 				)
 
-			if not typer.confirm("Go on?"):
+			if not confirmed("Go on?"):
 				program.stop("Nothing was renamed.")
 
 		renamed = where.client.rename_project(key, key=to, workspace=workspace)
@@ -6510,7 +6512,7 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 					f"{unowned_unasked}"
 				)
 
-			if not typer.confirm(f"Mark {username} as having left?"):
+			if not confirmed(f"Mark {username} as having left?"):
 				program.say("Left as they were.")
 
 				return
@@ -6595,7 +6597,7 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 			if unchecked:
 				program.say(f"Whether this strands a private project was not checked: {unchecked}")
 
-			if not typer.confirm(f"Hand {username} to {to}?"):
+			if not confirmed(f"Hand {username} to {to}?"):
 				program.say("Left as it was.")
 
 				return
@@ -6913,7 +6915,7 @@ def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> N
 			program.say(f"  '{slug}' stops working: in an address like '{slug}/42', and in")
 			program.say("  'subroutine use'. A .subroutine file follows it.")
 
-			if not typer.confirm("Go on?"):
+			if not confirmed("Go on?"):
 				program.stop("Nothing was renamed.")
 
 		renamed = where.client.rename_workspace(slug, slug=to)
@@ -6949,7 +6951,7 @@ def _workspace_deleted (program: Program, *, slug: str, yes: bool) -> None:
 			program.say(f"  '{slug}' becomes free, so something else can take the name.")
 			program.say(f"  Undo it with 'subroutine workspace restore {slug}'.")
 
-			if not typer.confirm("Go on?"):
+			if not confirmed("Go on?"):
 				program.stop("Nothing was deleted.")
 
 		removed = where.client.delete_workspace(slug)
@@ -8250,8 +8252,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				revised = said
 
 			elif not named:
-				# Nothing was said, so the text comes from the editor when there is a person.
-				if sys.stdin.isatty():
+				# Nothing was said, so the text comes from the editor when there is a person - and a
+				# closed input is nobody, where asking it raised (`SR#5187`).
+				if _a_terminal_is_attached():
 					revised = _in_an_editor(program, document.body or "")
 
 				else:
@@ -9501,7 +9504,7 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 
 			return
 
-		if not yes and not typer.confirm(f"Write a session-end hook into {where}?"):
+		if not yes and not confirmed(f"Write a session-end hook into {where}?"):
 			program.say("Nothing written.")
 
 			return
@@ -10474,12 +10477,10 @@ def register (
 
 		text = " ".join(words or [])
 
-		if not text.strip():
-			# A required-argument error is a dead end where a question would do (§12.2a) — but
-			# the question goes to **stderr**, because `typer.prompt` echoes to stdout by
-			# default and `add --json` then emitted `What do you need to do?: {…}`, which is not
-			# JSON. The scripted path is the agent's path, and `topics.py` advertises it.
-			text = typer.prompt("What do you need to do?", err=True)
+		# A required-argument error is a dead end where a question would do (§12.2a), asked as every
+		# command asks, where something can answer (`SR#5153`) and on stderr: `add --json` once
+		# emitted `What do you need to do?: {…}`, which is not JSON.
+		text = _asked(text, "What do you need to do?")
 
 		with program.opened() as world:
 			where = world.writing_to()
@@ -12299,6 +12300,19 @@ NOBODY_TO_ASK = (
 	f"Add {JUST_THIS_ONE}, or {FROM_NOW_ON} for every one after it too."
 )
 
+#: **What a command says where nothing can answer a question it would ask** (`SR#5153`, decision
+#: `#5097`, M-16 of the cold review of 2026-10-17): after the question itself, below its usage.
+NOTHING_CAN_ANSWER = "Nothing can answer a question here, so give it on the command line."
+
+#: And where the question is whether to go on, which every such command's ``--yes`` answers.
+NOTHING_CAN_CONFIRM = "Nothing can answer a question here, so pass --yes to go on."
+
+#: **The usage error of the Click this Typer runs on** (`SR#5153`), which prints a command's usage
+#: above a sentence. A Typer from 0.27 carries its own copy of Click, and the same error from the
+#: Click package beside it is not one it catches: it reached the crash report. Every Typer this
+#: supports exports ``BadParameter``, which is its own Click's usage error, refined.
+_UsageError = typing.cast(type[Exception], typer.BadParameter.__base__)
+
 
 #: The conventional spelling of *read standard input* — `#2106`.
 #:
@@ -12354,6 +12368,10 @@ def _text_or_standard_input (program: "Program", value: str | None, flag: str) -
 	somebody who typed this at a prompt would meet a hang with no message, which is the outcome
 	the comment on the piped path already calls the worst way for a first attempt to go. `#299`
 	settles the question before reading; so does this.
+
+	**And so is anything else that is not a pipe or a file** (`SR#5188`, decision `#4150`): a
+	socket, which is a bare command's input under an agent's shell and whose other end stays open,
+	was read and waited for ever. ``/dev/null`` is refused with them, since nothing was handed over.
 	"""
 
 	# **Nothing given is no text** (`#4149`): `--body` defaults to nothing on the commands where
@@ -12361,7 +12379,7 @@ def _text_or_standard_input (program: "Program", value: str | None, flag: str) -
 	if value != STANDARD_INPUT:
 		return value or ""
 
-	if _a_terminal_is_attached():
+	if not _something_was_piped():
 		program.stop(
 			f"'{flag} -' means read what is piped in, and nothing is.",
 			f"Pipe the text in - 'cat notes.md | subroutine … {flag} -' - or pass it as "
@@ -12435,9 +12453,16 @@ def _a_terminal_is_attached () -> bool:
 	recorded here already (`#299`) and this is the seam that makes the *other* half drivable:
 	the piped refusal is driven with this function untouched, so the real ``isatty`` is what
 	answers there, and only the prompt path is reached by substituting it.
+
+	**No input at all is no terminal** (`SR#5153`): a program started with standard input closed
+	is given ``None`` for it, which has no ``isatty``.
 	"""
 
-	return sys.stdin.isatty()
+	try:
+		return sys.stdin.isatty()
+
+	except (AttributeError, OSError, ValueError):
+		return False
 
 
 def _a_role (role: str) -> str:
@@ -12495,7 +12520,7 @@ def _which_occurrences (
 	"""Settle which occurrences an edit is for — decision `#1249` §5, and `#1251`.
 
 	**Three answers to one question, chosen by who is there.** A flag settles it. Otherwise a
-	terminal with somebody at it is asked, because being asked is the point of decision 1 —
+	terminal, or a pipe or a file (`SR#5153`), is asked, because being asked is the point of decision 1 —
 	and anything else is refused by name, which is `#299`'s rule that the question has to be
 	settled *before* stdin is read rather than by reading it. A script, a CI job or an agent
 	that blocked on a prompt would hang for ever on input that is not coming.
@@ -12523,7 +12548,7 @@ def _which_occurrences (
 	if not subroutine.views.repeats(task):
 		return None
 
-	if not _a_terminal_is_attached():
+	if not _somebody_can_answer():
 		program.stop(
 			"That repeats: is this one changing, or every one from now on?",
 			NOBODY_TO_ASK,
@@ -12547,17 +12572,73 @@ def _asked (given: str, question: str) -> str:
 	"""Return an argument, asking for it if it was left out.
 
 	docs/design.md §12.2a: bare commands prompt rather than error. A required-argument error is a
-	dead end where a question would do — and in a pipe, where there is nobody to ask, the
-	prompt fails with the usage anyway, which is the right answer there.
+	dead end where a question would do.
+
+	**Asked only where something can answer** (`SR#5153`, decision `#5097`): a terminal, or a
+	pipe or a file, so ``echo 42 | subroutine done`` still works. Anything else - a socket, which
+	is a bare command's input under an agent's shell, ``/dev/null`` or a closed input - is
+	refused at once with the usage, where asking waited for ever on an answer that was not coming.
 	"""
 
 	if given.strip():
 		return given
 
+	if not _somebody_can_answer():
+		raise _UsageError(f"{question} {NOTHING_CAN_ANSWER}")
+
 	# To stderr, so that a `--json` reader on stdout is never handed a prompt (see `add`).
 	answer: str = typer.prompt(question, err=True)
 
 	return answer
+
+
+def _somebody_can_answer () -> bool:
+	"""Say whether a question can be put: at a terminal, or to a pipe or a file - `SR#5153`.
+
+	Decision `#5097` (M-16 of the cold review of 2026-10-17): every prompt and confirmation asks
+	this first. A socket, which is a bare command's input under an agent's shell, waited for ever
+	on a question nothing could answer, and ``/dev/null`` and a closed input are refused with it.
+	**The one exception** is the question a protected instance asks before it is restored,
+	upgraded or destroyed, which is put only at a terminal, so a piped answer cannot reach it.
+	"""
+
+	return _a_terminal_is_attached() or _something_was_piped()
+
+
+def confirmed (question: str, *, default: bool = False) -> bool:
+	"""Ask whether to go on, or refuse at once where nothing can answer - `SR#5153`.
+
+	Every confirmation here has a ``--yes``, which is what the refusal names. Public because the
+	database commands in :mod:`subroutine.cli.main` ask through it too.
+	"""
+
+	answerable(question)
+
+	return typer.confirm(question, default=default)
+
+
+def answerable (question: str) -> None:
+	"""Refuse now where nothing could answer ``question`` when it comes to be asked - `SR#5153`.
+
+	**For a question a command asks after it has acted** (decision `#5097`, M-16): ``db restore``
+	asks whether to upgrade what it restored, and refusing there would come after a restore that
+	succeeded, which a re-run with ``--yes`` would repeat. So it is asked this before anything is
+	replaced, with the words the question itself would be refused with.
+	"""
+
+	if not _somebody_can_answer():
+		raise _UsageError(f"{question} {NOTHING_CAN_CONFIRM}")
+
+
+def at_a_terminal () -> bool:
+	"""Say whether somebody at a terminal could answer, for the question a pipe may not - `SR#5187`.
+
+	A protected instance asks before it is restored, upgraded or destroyed, and only at a terminal
+	(decision `#5097`). :mod:`subroutine.cli.main` asks here rather than of ``sys.stdin`` itself,
+	which a program started with its standard input closed is given as ``None``: that raised.
+	"""
+
+	return _a_terminal_is_attached()
 
 
 def agenda_rows (
