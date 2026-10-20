@@ -29,6 +29,10 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A request body sent in pieces past `max_body_bytes` is refused as too large.** With no
+  `Content-Length` it was answered 400 `malformed_request`, which said nothing about why; it is
+  413 `payload_too_large` now, as a body that declared its length already was.
+
 - **An empty `SUBROUTINE_DEFAULT_CONNECTION` is read as unset.** Set and empty, it overrode
   `default_connection` in `config.toml`, so `add` wrote to the local connection - another
   instance than the one the file names - and `connections` and `doctor` put it first.

@@ -121,9 +121,11 @@ def apply_headers (
 		response.headers["Vary"] = "Cookie, Authorization, Accept-Encoding"
 
 
-#: Set on the ASGI scope when a body ran past the limit while being read. Named as an
+#: Holds a mark on the ASGI scope once a body ran past the limit while being read. Named as an
 #: extension key rather than put on ``request.state``, because it is set before anything has
-#: built a request — and read by ``api/problems``, which cannot import this module.
+#: built a request — and read by ``api/problems``, which cannot import this module. **A list put
+#: in before the request goes on, never a value set after** (`SR#5156`), so a copy of the scope
+#: made further in holds the same mark.
 TOO_LARGE = "subroutine.body_too_large"
 
 
@@ -175,6 +177,13 @@ class BodyLimit:
 
 		read = 0
 
+		# **In place before the application is called, and filled when the body runs over**
+		# (`SR#5156`, L-1 of the cold review of 2026-10-17). `CompressAnswers` hands a shallow copy
+		# of the scope down, so a key set here afterwards never reached the route's, and a chunked
+		# body past the limit was answered 400 rather than 413. A list is one object both hold.
+		ran_over: list[bool] = []
+		scope[TOO_LARGE] = ran_over
+
 		async def counted () -> typing.Any:
 			"""Return the next piece of the body, marking the request once there is too much."""
 
@@ -191,7 +200,7 @@ class BodyLimit:
 					# 400 that tells the caller nothing about why. The mark is what lets
 					# `problems` answer the question that was actually asked; the body is
 					# truncated here so nothing further is read.
-					scope[TOO_LARGE] = True
+					ran_over.append(True)
 					message = {"type": "http.request", "body": b"", "more_body": False}
 
 			return message

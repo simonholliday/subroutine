@@ -655,6 +655,70 @@ def test_a_body_with_no_declared_length_is_bounded_too () -> None:
 	)
 
 
+def test_a_body_with_no_declared_length_is_refused_as_too_large_by_the_whole_application (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5156`, L-1 of the cold review of 2026-10-17: the test above wraps ``BodyLimit`` alone.
+
+	Through the application the mark landed on a scope ``CompressAnswers`` had already copied, so
+	the route never saw it and the answer was a 400 ``malformed_request``. Driven at the ASGI layer,
+	for the reason above: every HTTP client here declares a length.
+	"""
+
+	world = test_api_tasks._world(session, instance={"max_body_bytes": 1_000})
+
+	def answered (payload: bytes, *, declared: bool) -> tuple[int, dict[str, typing.Any]]:
+		"""Send ``payload`` in 400-byte pieces, declaring its length or not, and read the answer."""
+
+		sending = iter([payload[at:at + 400] for at in range(0, len(payload), 400)])
+		sent: list[typing.Any] = []
+
+		async def receive () -> typing.Any:
+			"""Hand over one piece at a time."""
+
+			piece = next(sending, None)
+
+			if piece is None:
+				return {"type": "http.request", "body": b"", "more_body": False}
+
+			return {"type": "http.request", "body": piece, "more_body": True}
+
+		async def send (message: typing.Any) -> None:
+			"""Keep what the application answered."""
+
+			sent.append(message)
+
+		headers = [
+			(b"host", b"testserver"),
+			(b"authorization", f"Bearer {world.secret}".encode()),
+			(b"content-type", b"application/json"),
+		]
+
+		if declared:
+			headers.append((b"content-length", str(len(payload)).encode()))
+
+		scope = {
+			"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST",
+			"scheme": "http", "path": "/v1/tasks", "raw_path": b"/v1/tasks", "query_string": b"",
+			"root_path": "", "headers": headers, "client": ("127.0.0.1", 50000),
+			"server": ("testserver", 80),
+		}
+
+		asyncio.run(world.application(scope, receive, send))
+
+		status = next(one["status"] for one in sent if one["type"] == "http.response.start")
+		content = b"".join(one.get("body", b"") for one in sent if one["type"] == "http.response.body")
+
+		return status, json.loads(content)
+
+	large = json.dumps({"text": "Collect the package from reception " + "x" * 3_000}).encode()
+	status, problem = answered(large, declared=False)
+
+	assert (status, problem.get("code")) == (413, "payload_too_large"), (status, problem)
+	assert answered(large, declared=True)[0] == 413
+	assert answered(json.dumps({"text": "Feed the cat"}).encode(), declared=False)[0] == 201
+
+
 def test_an_announced_body_is_refused_without_being_read () -> None:
 	"""Which is the whole point on the request this exists for.
 
