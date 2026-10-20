@@ -69,6 +69,13 @@ BUSY: dict[str, str] = {
 	"SQLITE_LOCKED": "something sharing this connection's cache held a table in it",
 }
 
+#: How each backend says a row would repeat a key that must be unique (`SR#5159`): PostgreSQL in
+#: a state, SQLite in an extended error name. **A primary key as well**, which PostgreSQL reports
+#: in the same state, so the two backends answer alike. Every other constraint is left out: a
+#: missing value or a reference to nothing is not something another request did.
+DUPLICATED_STATES = frozenset({"23505"})
+DUPLICATED_NAMES = frozenset({"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"})
+
 
 def sqlstate (exception: BaseException) -> str:
 	"""Return the five-character state the database reported, or the empty string.
@@ -132,6 +139,29 @@ def busy (
 	return subroutine.errors.DatabaseBusy(
 		f"The database was busy: {said}.{took}",
 		hint="This request changed nothing. Try it again - a busy database clears on its own.",
+	)
+
+
+def duplicated (exception: BaseException) -> subroutine.errors.Conflict | None:
+	"""Return the refusal for a key another request wrote first, or ``None`` for anything else.
+
+	**A race, answered as the later request would have been a moment later** (`SR#5159`, decision
+	`#5097`). A key this program refuses by name is checked before it is written, so meeting the
+	index instead means another request's row landed in between: two requests making project
+	``web`` at once left the second a 500 on both backends. It is ``versions.raced``' rule for a
+	lost update, one constraint over - what a caller does about it does not change with when it lost.
+
+	**Naming no index and no value** (`#161`): the index's name is this program's, and the value is
+	the caller's own. Any other integrity fault answers ``None``, so it is reported as the defect
+	it is.
+	"""
+
+	if sqlstate(exception) not in DUPLICATED_STATES and errorname(exception) not in DUPLICATED_NAMES:
+		return None
+
+	return subroutine.errors.Conflict(
+		"Somebody else made one by the same name while yours was being written.",
+		hint="Nothing was changed. Look at what is there now, then use it or choose another name.",
 	)
 
 

@@ -350,6 +350,23 @@ def handle_a_value_the_database_would_not_take (
 	return respond(request, answer)
 
 
+def handle_a_key_taken_meanwhile (
+	request: starlette.requests.Request, exception: Exception
+) -> starlette.responses.Response:
+	"""Report a unique key another request wrote first, rather than a bug (`SR#5159`).
+
+	:func:`subroutine.db.failures.duplicated` decides, and any other integrity fault is handed on
+	unchanged, as :func:`handle_a_request_that_did_not_finish` hands on what it does not recognise.
+	"""
+
+	answer = subroutine.db.failures.duplicated(exception)
+
+	if answer is None:
+		return handle_unexpected_error(request, exception)
+
+	return respond(request, answer)
+
+
 def handle_unexpected_error (
 	request: starlette.requests.Request, exception: Exception
 ) -> starlette.responses.Response:
@@ -418,6 +435,9 @@ def install (application: fastapi.FastAPI) -> None:
 	)
 	application.add_exception_handler(
 		sqlalchemy.exc.DataError, handle_a_value_the_database_would_not_take
+	)
+	application.add_exception_handler(
+		sqlalchemy.exc.IntegrityError, handle_a_key_taken_meanwhile
 	)
 	# **Half a character a driver could not encode** (`#4428`), which arrives as the codec's own
 	# error rather than as a database's, so the line above never saw it.

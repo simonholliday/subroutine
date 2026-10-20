@@ -578,3 +578,45 @@ def test_a_database_holding_somebody_elses_tables_is_refused (
 		subroutine.db.transfer.copy_into(sqlite_url, postgres_database)
 
 	assert "invoices" in str(refused.value)
+
+
+def test_a_table_named_for_a_reserved_word_has_its_sequence_restarted (
+	postgres_database: str,
+) -> None:
+	"""`SR#5159`, a bullet of L-7 of the cold review of 2026-10-17: the names went in unquoted.
+
+	The restart is written as text, so a table named for a reserved word - the models hold
+	``user`` - failed there the day it gained an integer key. A table of the test's own named
+	``Group`` and keyed by a column named ``order``: both reserved, and the table in capitals,
+	which ``pg_get_serial_sequence`` lowers unless it is quoted. Its rows' keys were written
+	rather than drawn, and the next row drawn takes the key after them.
+	"""
+
+	metadata = sqlalchemy.MetaData()
+	table = sqlalchemy.Table(
+		"Group",
+		metadata,
+		sqlalchemy.Column("order", sqlalchemy.Integer, primary_key=True),
+		sqlalchemy.Column("what", sqlalchemy.String(32), nullable=False),
+	)
+	engine = subroutine.db.session.create_engine(postgres_database)
+
+	try:
+		metadata.create_all(engine)
+
+		with engine.begin() as writing:
+			writing.execute(
+				table.insert(), [{"order": n, "what": "spoon"} for n in (1, 2, 3)]
+			)
+			subroutine.db.transfer._restart_sequences(engine, writing, tables=[table])
+
+		with engine.begin() as writing:
+			drawn: int = writing.execute(
+				table.insert().values(what="red pill").returning(table.c["order"])
+			).scalar_one()
+
+		assert drawn == 4, drawn
+
+	finally:
+		metadata.drop_all(engine)
+		engine.dispose()

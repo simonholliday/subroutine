@@ -4151,6 +4151,14 @@ class Client:
 			raise subroutine.domain.versions.raced() from None
 
 		except sqlalchemy.exc.SQLAlchemyError as error:
+			# **A key another request wrote first is an answer, not an unreachable database**
+			# (`SR#5159`), which the last branch below called it, under advice to check
+			# `database_url`.
+			taken = subroutine.db.failures.duplicated(error)
+
+			if taken is not None:
+				raise taken from None
+
 			# **Before the branch below, for the third time at this one site** (`#3117`, after
 			# `#165` and `#927`'s H-12). A busy database is reachable - it answered, and said
 			# it was busy - so *"could not be read: database is locked"* under a hint to check

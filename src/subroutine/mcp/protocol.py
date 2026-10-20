@@ -666,6 +666,11 @@ def _explained (failure: BaseException, tool: Tool | None = None) -> str:
 			# than a failure of the database, and the parameters stay out of the answer.
 			stopped = subroutine.db.failures.unreadable(failure)
 
+		if stopped is None:
+			# **A key another request wrote first** (`SR#5159`), said as the later request would
+			# have been, where the text below names the index and the values bound.
+			stopped = subroutine.db.failures.duplicated(failure)
+
 		if stopped is not None:
 			return _explained(stopped, tool)
 

@@ -29,6 +29,15 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **Two requests making one new tag at once both get it.** The second had read that the tag
+  was not there and failed on the database's own check - a 500, or at the terminal *could not be
+  read*; it takes the tag the first made now.
+
+- **A name two requests take at once is refused to the second as `duplicate_key`.** Two projects
+  made with one key, two accounts with one username and the like left the second a 500 over
+  HTTP, *could not be read* at the terminal, and the database's own error, with what was sent, in
+  an agent's tool. It is answered 409 now, as it would have been a moment later.
+
 - **`serve` refuses a log level it cannot use before saying it is serving.**
   `--log-level verbose`, or a `log_level` setting of the same, printed where it was serving and
   then the crash report; it is refused first now, naming the levels, and the setting where that

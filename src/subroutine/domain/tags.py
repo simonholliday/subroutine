@@ -15,6 +15,8 @@ import typing
 import uuid
 
 import sqlalchemy
+import sqlalchemy.dialects.postgresql
+import sqlalchemy.dialects.sqlite
 import sqlalchemy.orm
 
 import subroutine.db.models.vocabulary
@@ -178,25 +180,45 @@ def ensure (
 		)
 	}
 
-	resolved = []
+	missing = [key for key in wanted if key not in existing]
 
-	for key, written in wanted.items():
-		tag = existing.get(key)
-
-		if tag is None:
-			tag = model(
-				id=subroutine.db.types.new_uuid(),
-				workspace_id=workspace_id,
-				name=written,
-				name_normalized=key,
+	# **An insert that does nothing where another request has just made the tag** (`SR#5159`,
+	# decision `#5097`), as `events._keep` keeps a text: two items given one new tag at once both
+	# read that it was not there, and the second failed its whole request on the unique index. Both
+	# succeed now, with one tag, the first's spelling, which is what each asked for. **Not a
+	# savepoint**: on SQLite here, one that opens the transaction commits when it is released, and
+	# a request that failed afterwards would have kept the tag - measured.
+	if missing:
+		table = typing.cast(sqlalchemy.Table, model.__table__)
+		insert = (
+			sqlalchemy.dialects.postgresql.insert(table)
+			if session.get_bind().dialect.name == "postgresql"
+			else sqlalchemy.dialects.sqlite.insert(table)
+		)
+		session.execute(
+			insert.on_conflict_do_nothing(index_elements=["workspace_id", "name_normalized"]),
+			[
+				{
+					"id": subroutine.db.types.new_uuid(),
+					"workspace_id": workspace_id,
+					"name": wanted[key],
+					"name_normalized": key,
+				}
+				for key in missing
+			],
+		)
+		existing.update(
+			(tag.name_normalized, tag)
+			for tag in session.scalars(
+				sqlalchemy.select(model).where(
+					model.workspace_id == workspace_id, model.name_normalized.in_(missing)
+				)
 			)
-			session.add(tag)
-
-		resolved.append(tag)
+		)
 
 	session.flush()
 
-	return resolved
+	return [existing[key] for key in wanted]
 
 
 class Joined (typing.NamedTuple):

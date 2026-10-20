@@ -361,7 +361,10 @@ def _points_ahead (table: sqlalchemy.Table, written: typing.AbstractSet[str]) ->
 
 
 def _restart_sequences (
-	target: sqlalchemy.engine.Engine, writing: sqlalchemy.Connection
+	target: sqlalchemy.engine.Engine,
+	writing: sqlalchemy.Connection,
+	*,
+	tables: typing.Sequence[sqlalchemy.Table] | None = None,
 ) -> None:
 	"""Move PostgreSQL's sequences past the ids that were just inserted.
 
@@ -372,12 +375,19 @@ def _restart_sequences (
 
 	SQLite has nothing to do here: its ``INTEGER PRIMARY KEY`` derives the next row id from
 	the table itself.
+
+	**Every name quoted** (`SR#5159`, a bullet of L-7 of the cold review of 2026-10-17): the
+	statement is text, and a table named for a reserved word - the models hold ``user`` - would
+	have failed here the day it gained an integer key. ``tables`` is every table, unless a test
+	names its own.
 	"""
 
 	if target.dialect.name != "postgresql":
 		return
 
-	for table in _tables():
+	quoted = writing.dialect.identifier_preparer.quote_identifier
+
+	for table in _tables() if tables is None else tables:
 		for column in table.primary_key.columns:
 			if not isinstance(column.type, sqlalchemy.BigInteger | sqlalchemy.Integer):
 				continue
@@ -389,10 +399,11 @@ def _restart_sequences (
 				sqlalchemy.text(
 					"SELECT setval(s.name, GREATEST(s.top, 1), s.top > 0) "
 					"FROM (SELECT pg_get_serial_sequence(:table, :column) AS name, "
-					f"COALESCE((SELECT MAX({column.name}) FROM {table.name}), 0) AS top) AS s "
-					"WHERE s.name IS NOT NULL"
+					f"COALESCE((SELECT MAX({quoted(column.name)}) FROM {quoted(table.name)}), 0) "
+					"AS top) AS s WHERE s.name IS NOT NULL"
 				),
-				{"table": table.name, "column": column.name},
+				# The table is parsed as a name, so it is quoted; the column is read as it is.
+				{"table": quoted(table.name), "column": column.name},
 			)
 
 
