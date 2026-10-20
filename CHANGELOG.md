@@ -29,6 +29,17 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`serve` refuses a log level it cannot use before saying it is serving.**
+  `--log-level verbose`, or a `log_level` setting of the same, printed where it was serving and
+  then the crash report; it is refused first now, naming the levels, and the setting where that
+  is where the level came from.
+
+- **`setup claude` refuses a settings file it cannot add its hook to, and writes it whole.** A
+  `.claude/settings.json` holding a list, written in Latin-1, or with `hooks` in another shape
+  than Claude Code reads ended in the crash report; each is refused by name and the file is left
+  as it was. It wrote the file in place, so an interrupted write could leave your settings half
+  there; it writes a new file and renames it over the old one now, keeping its permissions.
+
 - **A request body sent in pieces past `max_body_bytes` is refused as too large.** With no
   `Content-Length` it was answered 400 `malformed_request`, which said nothing about why; it is
   413 `payload_too_large` now, as a body that declared its length already was.

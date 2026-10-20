@@ -37,6 +37,7 @@ import pytest
 import sqlalchemy
 import typer.main
 import typer.testing
+import uvicorn.config
 
 import instance_templates
 import subroutine
@@ -2334,6 +2335,43 @@ def test_serve_refuses_an_address_it_cannot_bind_by_name (
 	assert "nothing was started" in refused.output, refused.output
 	assert "Something went wrong" not in refused.output, refused.output
 	assert "Serving on" not in refused.output, refused.output
+
+
+def test_serve_refuses_a_log_level_before_it_says_it_is_serving (
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5158`, a bullet of L-7 of the cold review of 2026-10-17: the banner, then the crash.
+
+	uvicorn refuses a level it does not take after this has said where it is serving. Refused
+	before that, naming the levels, and naming the setting where that is where it came from.
+	"""
+
+	run("init")
+	reached: list[dict[str, typing.Any]] = []
+	monkeypatch.setattr("uvicorn.run", lambda app, **given: reached.append(given))
+	# **Nor is the port asked of this machine** (`SR#3911`), whose own instance may hold it, so
+	# the code before this stopped there rather than at the banner.
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
+
+	flagged = run("serve", "--log-level", "verbose", expect=1)
+
+	assert "'verbose' is not a log level." in flagged.output, flagged.output
+	assert "A log level is critical, error, warning, info, debug or trace." in flagged.output
+	assert "Serving on" not in flagged.output and "Something went wrong" not in flagged.output
+
+	monkeypatch.setenv("SUBROUTINE_LOG_LEVEL", "verbose")
+	set_so = " ".join(run("serve", expect=1).output.split())
+
+	assert "The log_level setting is 'verbose', which is not a log level." in set_so, set_so
+	assert reached == [], "serve handed uvicorn a level it does not take"
+
+
+def test_the_log_levels_serve_names_are_the_ones_uvicorn_takes () -> None:
+	"""Written out for the refusal, so held to uvicorn's own here."""
+
+	assert tuple(uvicorn.config.LOG_LEVELS) == subroutine.cli.main.LOG_LEVELS
 
 
 def test_serve_refuses_a_public_url_that_is_not_an_address (

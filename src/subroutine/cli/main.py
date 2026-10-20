@@ -845,6 +845,11 @@ def mcp (
 	)
 
 
+#: The levels uvicorn takes, in its order (`SR#5158`): written out so the refusal names them,
+#: and held to uvicorn's own by a test.
+LOG_LEVELS = ("critical", "error", "warning", "info", "debug", "trace")
+
+
 @app.command()
 def serve (
 	host: str = typer.Option("", "--host", help="What to listen on. Defaults to 127.0.0.1."),
@@ -919,6 +924,20 @@ def serve (
 	# problems — sending somebody to write a setting when what they need is `init`. The order is
 	# the one they meet things in.
 	_refuse_without_a_signing_key(settings)
+
+	# **A level uvicorn does not take is refused before anything is printed** (`SR#5158`, a bullet
+	# of L-7 of the cold review of 2026-10-17): it printed the banner and then the crash report.
+	# Checked where the flag and the setting meet, since either can name one.
+	given = log_level.strip()
+	level = (given or settings.log_level).lower()
+
+	if level not in LOG_LEVELS:
+		_stop(
+			f"{given!r} is not a log level."
+			if given
+			else f"The log_level setting is {settings.log_level!r}, which is not a log level.",
+			"A log level is critical, error, warning, info, debug or trace.",
+		)
 
 	# **Imported here rather than at the top of the module**, and measured rather than
 	# assumed: FastAPI and uvicorn together cost 0.3 seconds of this program's 0.8-second
@@ -1000,8 +1019,6 @@ def serve (
 			api.released(application)
 
 	_warn_about_a_schema_this_build_does_not_expect(asked)
-
-	level = (log_level.strip() or settings.log_level).lower()
 
 	uvicorn.run(
 		application,

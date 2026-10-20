@@ -108,7 +108,7 @@ def prepare (directory: pathlib.Path) -> Handover:
 	"""
 
 	settings = directory / SETTINGS
-	held = _held(settings)
+	held = settings_in(settings)
 	repository = _repository(directory)
 
 	if repository is None:
@@ -228,20 +228,45 @@ def write (
 	# put the token at a path git had not been asked about - and, where the link was committed,
 	# into the next `git commit -a`.
 	destination = handover.settings.resolve()
+	whole(destination, held, mode=0o600)
+
+	mode = stat.S_IMODE(destination.stat().st_mode)
+	parsed = subroutine.auth.parse_token(before) if isinstance(before, str) else None
+
+	return Written(
+		path=handover.settings,
+		replaced=parsed[0] if parsed is not None and before != token else None,
+		private=not mode & (stat.S_IRWXG | stat.S_IRWXO),
+		named=connection,
+		named_before=(
+			named_before if isinstance(named_before, str) and named_before != connection else None
+		),
+	)
+
+
+def whole (destination: pathlib.Path, held: dict[str, typing.Any], *, mode: int) -> None:
+	"""Write ``held`` to ``destination`` as JSON, through a new file and a rename.
+
+	**Never in place**, for the reasons :func:`write` gives. Out of it since `SR#5158`, so ``setup
+	claude`` writes ``.claude/settings.json`` this way too, where an interrupted write could leave
+	somebody's settings half there. ``mode`` is the new file's, set before a byte is in it: its
+	owner's alone for a credential, and what the old file had otherwise.
+	"""
+
 	destination.parent.mkdir(parents=True, exist_ok=True)
 
 	# **Staged in a directory git ignores whole** (`#3585`), which is how pytest keeps its cache
 	# out of a repository. The file used to be staged beside the settings, under a name no rule was
 	# asked about, so a process killed before the rename left the credential where `git add -A`
 	# takes it. ``mkdtemp`` makes the directory its owner's alone before anything is in it.
-	staging = pathlib.Path(tempfile.mkdtemp(dir=destination.parent, prefix=".settings.local."))
+	staging = pathlib.Path(tempfile.mkdtemp(dir=destination.parent, prefix=f".{destination.stem}."))
 	staged = staging / destination.name
 
 	try:
 		with open(staging / ".gitignore", "x", encoding="utf-8") as handle:
 			handle.write("*\n")
 
-		descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+		descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
 
 		# **On the disk before its name moves**, as ``config.write_private`` has it, so a crash
 		# cannot leave the settings file's name on a file that is not all there.
@@ -260,19 +285,6 @@ def write (
 
 		with contextlib.suppress(OSError):
 			staging.rmdir()
-
-	mode = stat.S_IMODE(destination.stat().st_mode)
-	parsed = subroutine.auth.parse_token(before) if isinstance(before, str) else None
-
-	return Written(
-		path=handover.settings,
-		replaced=parsed[0] if parsed is not None and before != token else None,
-		private=not mode & (stat.S_IRWXG | stat.S_IRWXO),
-		named=connection,
-		named_before=(
-			named_before if isinstance(named_before, str) and named_before != connection else None
-		),
-	)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -319,7 +331,7 @@ def unused (
 	# **Refused where it is written, not here**: ``--here`` will not write back a file it could
 	# not parse, and a question about who answers is no place to refuse one.
 	try:
-		environment: dict[str, typing.Any] = _held(settings).get("env", {})
+		environment: dict[str, typing.Any] = settings_in(settings).get("env", {})
 
 	except subroutine.errors.SubroutineError:
 		return []
@@ -388,12 +400,17 @@ def _settings_above (directory: pathlib.Path) -> pathlib.Path | None:
 	return None
 
 
-def _held (settings: pathlib.Path) -> dict[str, typing.Any]:
+def settings_in (settings: pathlib.Path, *, env: bool = True) -> dict[str, typing.Any]:
 	"""Return what the settings file holds, refusing one that could not be written back whole.
 
 	**Refused rather than replaced.** The file is Claude Code's and may carry permissions and
 	hooks somebody chose, and rewriting one that did not parse would lose all of them to make
 	room for one line.
+
+	**The one reader of this format** (`SR#5158`): ``setup claude`` reads ``.claude/settings.json``
+	through it, where it read the file itself and crashed on two of the faults refused here. It
+	adds a hook rather than a variable, so it passes ``env=False``, and an ``env`` that is not an
+	object is not refused for it in words about adding one.
 	"""
 
 	try:
@@ -435,7 +452,7 @@ def _held (settings: pathlib.Path) -> dict[str, typing.Any]:
 			hint="Correct it, or move it aside, and run this again. Nothing was created.",
 		)
 
-	if not isinstance(held.get("env", {}), dict):
+	if env and not isinstance(held.get("env", {}), dict):
 		raise subroutine.errors.ValidationError(
 			f"The 'env' in {settings} is not an object, so a variable cannot be added to it.",
 			hint="Correct it, or move it aside, and run this again. Nothing was created.",

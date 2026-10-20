@@ -8501,6 +8501,42 @@ SESSION_END_COMMAND = (
 HARNESSES: dict[str, str] = {"claude": ".claude/settings.json"}
 
 
+def _misshapen_hooks (settings: dict[str, typing.Any]) -> tuple[str, str] | None:
+	"""Name the first part of ``hooks`` a session-end hook cannot be added to, and what it must be.
+
+	**The path :func:`_hooked` and :func:`_with_the_hook` walk** (`SR#5191`), in the shape Claude
+	Code reads: ``hooks`` an object, its ``SessionEnd`` a list, and each entry an object whose
+	``hooks`` is a list of objects. Both assumed it, so any other shape ended in the crash report.
+	"""
+
+	hooks = settings.get("hooks", {})
+
+	if not isinstance(hooks, dict):
+		return "hooks", "an object"
+
+	at_the_end = hooks.get("SessionEnd", [])
+
+	if not isinstance(at_the_end, list):
+		return "hooks.SessionEnd", "a list"
+
+	for place, entry in enumerate(at_the_end):
+		named = f"hooks.SessionEnd[{place}]"
+
+		if not isinstance(entry, dict):
+			return named, "an object"
+
+		inner = entry.get("hooks", [])
+
+		if not isinstance(inner, list):
+			return f"{named}.hooks", "a list"
+
+		for step, hook in enumerate(inner):
+			if not isinstance(hook, dict):
+				return f"{named}.hooks[{step}]", "an object"
+
+	return None
+
+
 def _hooked (settings: dict[str, typing.Any]) -> bool:
 	"""Report whether this settings object already runs the release command at session end."""
 
@@ -9484,20 +9520,28 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 
 		root = pathlib.Path.cwd()
 		where = root / HARNESSES["claude"]
-		existing: dict[str, typing.Any] = {}
 
-		if where.is_file():
-			try:
-				existing = json.loads(where.read_text(encoding="utf-8"))
+		# **Refused rather than overwritten, as `agent create --here` refuses the same format**
+		# (`SR#5158`, a bullet of L-7 of the cold review of 2026-10-17). The file is the reader's and
+		# holds their permissions and their other hooks. This read it itself and caught two of the
+		# ways it can be wrong, so a file holding a list, or written in Latin-1, crashed.
+		try:
+			existing = subroutine.claude_code.settings_in(where, env=False)
 
-			except (OSError, json.JSONDecodeError) as unreadable:
-				# **Refused rather than overwritten.** The file is the reader's and holds
-				# their permissions and their other hooks; replacing one this cannot parse
-				# would be taking a shared store for our own on the strength of a syntax error.
-				program.stop(
-					f"{where} is there and cannot be read: {unreadable}",
-					"Fix or move it, then run this again. Nothing has been written.",
-				)
+		except subroutine.errors.SubroutineError as unreadable:
+			program.fail(unreadable)
+
+		# **And refused where a hook cannot be added** (`SR#5191`, found building `SR#5158`): what
+		# follows walks ``hooks`` in the shape Claude Code reads, so five other shapes crashed. An
+		# ``env`` this never touches is left as it is (decision `#5097`).
+		misshapen = _misshapen_hooks(existing)
+
+		if misshapen is not None:
+			part, shape = misshapen
+			program.stop(
+				f"The '{part}' in {where} is not {shape}, so a hook cannot be added to it.",
+				"Correct it, or move it aside, and run this again. Nothing was created.",
+			)
 
 		if _hooked(existing):
 			program.say(f"Already wired: {where}")
@@ -9509,10 +9553,11 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 
 			return
 
-		where.parent.mkdir(parents=True, exist_ok=True)
-		where.write_text(
-			json.dumps(_with_the_hook(existing), indent=2) + "\n", encoding="utf-8"
-		)
+		# **Through a new file and a rename** (`SR#5158`), as `--here` writes its settings: written
+		# in place, an interrupted write could leave the reader's settings half there. The file keeps
+		# its own permissions, being one to commit and holding no credential.
+		kept = stat.S_IMODE(where.stat().st_mode) if where.is_file() else 0o644
+		subroutine.claude_code.whole(where.resolve(), _with_the_hook(existing), mode=kept)
 
 		# **Read back rather than assumed** (`#236`). Installing something and its taking
 		# effect are separate moments and only the first one reports — so this checks the file

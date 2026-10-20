@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import typing
 
@@ -269,21 +270,115 @@ def test_it_keeps_everything_already_in_the_file (
 	assert subroutine.cli.personal._hooked(after)
 
 
+@pytest.mark.parametrize(
+	("written", "said"),
+	[
+		(b"{ this is not json", "is not valid JSON"),
+		(b"[]", "holds a JSON list, where Claude Code reads an object."),
+		('{"note": "caf\u00e9"}'.encode("latin-1"), "is not UTF-8 text, from byte 13."),
+	],
+	ids=["not json", "a list", "latin-1"],
+)
 def test_it_refuses_a_settings_file_it_cannot_read (
-	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path, written: bytes, said: str
 ) -> None:
 	"""Rather than replacing one on the strength of a syntax error.
 
 	The worst outcome here is not a refusal; it is silently taking a shared store for our own
-	and losing whatever the reader had in it.
+	and losing whatever the reader had in it. **Each fault by name, as `agent create --here`
+	names it** (`SR#5158`): a list and a Latin-1 file ended in the crash report.
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
 	where = home / ".claude" / "settings.json"
 	where.parent.mkdir(parents=True, exist_ok=True)
-	where.write_text("{ this is not json", encoding="utf-8")
+	where.write_bytes(written)
 
 	refused = run("setup", "claude", "--yes", expect=1)
 
-	assert "cannot be read" in refused.output
-	assert where.read_text(encoding="utf-8") == "{ this is not json", "it wrote anyway"
+	assert isinstance(refused.exception, SystemExit), repr(refused.exception)
+	assert said in " ".join(refused.output.split()), refused.output
+	assert where.read_bytes() == written, "it wrote anyway"
+
+
+@pytest.mark.parametrize(
+	("written", "part", "shape"),
+	[
+		('{"hooks": []}', "hooks", "an object"),
+		('{"hooks": "x"}', "hooks", "an object"),
+		('{"hooks": {"SessionEnd": "x"}}', "hooks.SessionEnd", "a list"),
+		('{"hooks": {"SessionEnd": ["x"]}}', "hooks.SessionEnd[0]", "an object"),
+		('{"hooks": {"SessionEnd": [{"hooks": "x"}]}}', "hooks.SessionEnd[0].hooks", "a list"),
+		('{"hooks": {"SessionEnd": [{"hooks": ["x"]}]}}', "hooks.SessionEnd[0].hooks[0]", "an object"),
+	],
+	ids=["a list", "a string", "an event", "an entry", "an entry's hooks", "a hook"],
+)
+def test_it_refuses_hooks_it_cannot_add_a_hook_to (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	written: str,
+	part: str,
+	shape: str,
+) -> None:
+	"""`SR#5191`, found building `SR#5158`: it walked ``hooks`` in the shape Claude Code reads.
+
+	So each of these ended in the crash report. Refused naming the part, leaving the file as it was.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	where = home / ".claude" / "settings.json"
+	where.parent.mkdir(parents=True, exist_ok=True)
+	where.write_text(written, encoding="utf-8")
+
+	refused = run("setup", "claude", "--yes", expect=1)
+	said = " ".join(refused.output.split())
+
+	assert isinstance(refused.exception, SystemExit), repr(refused.exception)
+	assert f"The '{part}' in" in said, said
+	assert f"is not {shape}, so a hook cannot be added to it." in said, said
+	assert where.read_text(encoding="utf-8") == written, "it wrote anyway"
+
+
+def test_it_leaves_an_env_it_does_not_add_to_as_it_is (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5158`: ``agent create --here`` refuses an ``env`` that is not an object, adding a variable.
+
+	This adds a hook, and that refusal says a variable cannot be added, so it is not asked here
+	(decision `#5097`).
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	where = home / ".claude" / "settings.json"
+	where.parent.mkdir(parents=True, exist_ok=True)
+	where.write_text('{"env": ["SUBROUTINE_TOKEN"]}', encoding="utf-8")
+
+	run("setup", "claude", "--yes")
+	after = _settings(home)
+
+	assert after["env"] == ["SUBROUTINE_TOKEN"]
+	assert subroutine.cli.personal._hooked(after)
+
+
+def test_it_writes_the_settings_through_a_new_file_keeping_their_permissions (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5158`: written in place, an interrupted write could leave the settings half there.
+
+	**A new file renamed over the old** is what makes that impossible, and it is a new file on the
+	disk. It keeps the old one's permissions, being a file to commit that holds no credential.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	where = home / ".claude" / "settings.json"
+	where.parent.mkdir(parents=True, exist_ok=True)
+	where.write_text('{"permissions": {"allow": ["Bash(ls:*)"]}}\n', encoding="utf-8")
+	where.chmod(0o640)
+	before = where.stat().st_ino
+
+	run("setup", "claude", "--yes")
+
+	assert where.stat().st_ino != before, "written in place"
+	assert stat.S_IMODE(where.stat().st_mode) == 0o640
+	assert _settings(home)["permissions"] == {"allow": ["Bash(ls:*)"]}
+	assert sorted(path.name for path in where.parent.iterdir()) == ["settings.json"]
