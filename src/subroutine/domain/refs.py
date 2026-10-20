@@ -56,6 +56,11 @@ MAX_REF = 2_147_483_647
 #: in both directions.
 _TYPED = re.compile(r"\A#?([1-9][0-9]*)\Z")
 
+#: How many digits the largest ref has (`SR#5150`). Every grammar that reads a ref forbids a
+#: leading zero, so a longer run is a larger number and is refused by its length, before ``int``
+#: is asked to read it.
+_MOST_DIGITS = len(str(MAX_REF))
+
 
 def allocate (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> int:
 	"""Claim the next ref in a workspace.
@@ -122,7 +127,22 @@ def parse_ref (text: str) -> int | None:
 	if match is None:
 		return None
 
-	ref = int(match.group(1))
+	return from_digits(match.group(1))
+
+
+def from_digits (digits: str) -> int | None:
+	"""Return a run of digits as a ref, or ``None`` where it is too large to be one.
+
+	**Measured by its length before it is read** (`SR#5150`): ``int`` refuses more than 4,300
+	digits with an error of its own, so a run that long answered 500 wherever a ref is read - a
+	path, a filter, a body, a mention - and ended a terminal command in its crash report. The
+	run has no leading zero, which every caller's grammar forbids, so its length is exact.
+	"""
+
+	if len(digits) > _MOST_DIGITS:
+		return None
+
+	ref = int(digits)
 
 	return None if ref > MAX_REF else ref
 

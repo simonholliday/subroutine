@@ -88,15 +88,16 @@ def candidates (*texts: str | None) -> list[int]:
 		)
 
 		for match in matches:
-			ref = int(match.group(1))
+			ref = subroutine.domain.refs.from_digits(match.group(1))
 
 			# **A number too large to be a ref is prose, not a reference** (`#978`). This
 			# pattern shares :func:`subroutine.domain.refs.parse_ref`'s grammar and did not
 			# share its bound, so a ten-digit number written after the sigil reached an
 			# ``INTEGER`` column: ``DataError`` on PostgreSQL, silently nothing on SQLite.
 			# :data:`subroutine.domain.refs.MAX_REF` carries the reasoning, and this is a
-			# second reader of that rule rather than a second copy of it.
-			if ref > subroutine.domain.refs.MAX_REF:
+			# second reader of that rule rather than a second copy of it - and of its length,
+			# since a run too long for ``int`` to read answered 500 here (`SR#5150`).
+			if ref is None:
 				continue
 
 			if ref in seen:

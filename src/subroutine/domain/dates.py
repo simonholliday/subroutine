@@ -59,6 +59,11 @@ UNITS: tuple[str, ...] = ("m", "h", "d", "w", "M", "y")
 _ELAPSED = frozenset({"m", "h"})
 _CALENDAR = frozenset({"d", "w", "M", "y"})
 
+#: The most digits a count in a date expression can have and still land on the calendar
+#: (`SR#5150`). The calendar holds fewer than 10,000 years, which in its smallest unit, a minute,
+#: is a ten-digit count; a longer one lands off it from any day and in either direction.
+_LONGEST_COUNT = len(str(10_000 * 366 * 24 * 60))
+
 #: Weekday names and their abbreviations, mapped to ``datetime.date.weekday()`` numbers.
 #:
 #: **Not part of `resolve`, and that is a decision rather than an omission** (`#167`). This is
@@ -550,11 +555,22 @@ def _offset (
 ) -> datetime.datetime:
 	"""Apply one ``+7d``-style term, by the clock or by the calendar as the unit requires."""
 
-	sign, count, unit = match.group(1), int(match.group(2)), match.group(3)
-	amount = -count if sign == "-" else count
+	sign, digits, unit = match.group(1), match.group(2), match.group(3)
 
 	if unit not in _ELAPSED and unit not in _CALENDAR:
 		raise _invalid(expression, field, _unit_hint(unit))
+
+	# **A count too long to land on the calendar is refused as one, before it is read**
+	# (`SR#5150`): ``int`` refuses more than 4,300 digits with an error of its own, so a run that
+	# long answered 500 on every field and filter taking a date. Counted without its leading
+	# zeros, which that limit counts too and which change nothing.
+	significant = digits.lstrip("0") or "0"
+
+	if len(significant) > _LONGEST_COUNT:
+		raise _off_the_calendar(expression, field)
+
+	count = int(significant)
+	amount = -count if sign == "-" else count
 
 	# **A date has a last day, and the arithmetic has to say so rather than crash** (`SR#1562`).
 	# `today+99999y` left the 1..9999 years a `datetime` can hold and raised out of the domain
@@ -589,11 +605,17 @@ def _offset (
 		return (local.replace(tzinfo=None) + step).replace(tzinfo=zone)
 
 	except (ValueError, OverflowError) as why:
-		raise _invalid(
-			expression,
-			field,
-			f"{expression!r} lands outside the years a date can hold, which are 1 to 9999.",
-		) from why
+		raise _off_the_calendar(expression, field) from why
+
+
+def _off_the_calendar (expression: str, field: str) -> subroutine.errors.ValidationError:
+	"""Return the refusal for an expression whose offset lands before year 1 or after 9999."""
+
+	return _invalid(
+		expression,
+		field,
+		f"{expression!r} lands outside the years a date can hold, which are 1 to 9999.",
+	)
 
 
 def _step (unit: str, amount: int) -> dateutil.relativedelta.relativedelta:

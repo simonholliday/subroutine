@@ -29,6 +29,13 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A number thousands of digits long is answered as any number too large already was.** Written
+  after `#` in a description, a comment or a document, looked up or filtered on as an item, or
+  counted in a date such as `today+<digits>d`, more than 4,300 digits answered 500 on a dozen
+  routes, and ended `show` and `comment` in the terminal's crash report. A mention of one is kept
+  as prose, no item answers to one, and a date counting one is refused as landing off the
+  calendar.
+
 - **A cursor continues in the order it was made with.** A grouped listing's next cursor for done or
   cancelled work, followed with the group's key as the answer says, was refused, and a cursor
   followed in the reverse order answered rows already seen and said there were no more. A cursor
