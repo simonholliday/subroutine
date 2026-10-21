@@ -285,7 +285,15 @@ def explain (
 	# check below raises for a name it does not know, which is right for one the code passes
 	# and made `/v1/me` a 500 for every owner and administrator in that window. A name that
 	# gates nothing grants nothing, so it is left out.
-	held = reached.permissions & subroutine.permissions.WORKSPACE_LEVEL
+	#
+	# **With what the instance lets an administrator do in any live workspace** (`SR#5161`, a bullet
+	# of L-7 of the cold review of 2026-10-17). Asked only about the role's verbs, a superuser holding
+	# ``viewer`` was offered less than the decision grants them, and the browser hid the controls for
+	# the rest. Each is still decided below, so a credential the instance clause does not reach is
+	# offered none of them.
+	held = (
+		reached.permissions | subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
+	) & subroutine.permissions.WORKSPACE_LEVEL
 
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
 	candidates = held if not scopes else held & frozenset(scopes)

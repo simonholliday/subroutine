@@ -883,6 +883,54 @@ def test_a_superuser_acts_by_their_role_inside_a_workspace (
 	) == subroutine.domain.authorization.AuthorizationFailure.ROLE_LACKS_PERMISSION
 
 
+def test_a_superuser_holding_a_lesser_role_is_offered_what_the_instance_lets_them_do (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5161`, a bullet of L-7 of the cold review of 2026-10-17: offered their role's verbs alone.
+
+	``explain`` asked the decision only about the verbs the role holds, while the decision grants
+	an instance administrator three in any live workspace, so ``/v1/me``, ``whoami`` and the
+	browser showed a superuser holding ``viewer`` less than they may do there. **What it offers is
+	what the decision grants, verb by verb, over every workspace verb**, and a credential the
+	instance clause does not reach is offered none of the clause's.
+	"""
+
+	workspace = _seeded_workspace(session)
+	viewer = _member(session, workspace, "viewer")
+	viewer.user.is_superuser = True
+	session.flush()
+
+	def offered_as_granted (principal: subroutine.domain.authentication.Principal) -> frozenset[str]:
+		"""Return what ``explain`` offers, asserting the decision grants exactly that."""
+
+		offered = subroutine.domain.authorization.explain(session, principal, workspace.id).permissions
+		granted = frozenset(
+			verb
+			for verb in subroutine.permissions.WORKSPACE_LEVEL
+			if subroutine.domain.authorization.refusal(
+				session, principal, verb, workspace_id=workspace.id
+			)
+			is None
+		)
+
+		assert offered == granted, sorted(offered ^ granted)
+
+		return offered
+
+	assert offered_as_granted(viewer) >= subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
+
+	reading = _with_token(
+		session,
+		viewer,
+		scopes=[subroutine.permissions.TASK_READ, subroutine.permissions.WORKSPACE_READ],
+	)
+
+	assert not offered_as_granted(reading) & {
+		subroutine.permissions.USER_ADMIN,
+		subroutine.permissions.WORKSPACE_DELETE,
+	}
+
+
 def _document_permissions () -> set[str]:
 	"""Return the permissions ``domain/documents.py`` actually checks, read from its source.
 
