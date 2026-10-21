@@ -246,7 +246,8 @@ def matching (
 
 	**Half a character is refused as text** (`#4428`): the database driver cannot encode one, so a
 	search for it ended in a codec error to an agent and a crash report in the terminal. Only that:
-	a NUL is searched for, and said.
+	a NUL in a word is dropped (:func:`terms`), and one in a term's value is searched for as text
+	and said (:func:`subroutine.domain.grammar.read`).
 	"""
 
 	subroutine.domain.text.whole(query, field="q", label="search")

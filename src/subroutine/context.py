@@ -24,7 +24,7 @@ Resolution order, extending the server's own (``requested → pinned → sole �
 Steps 1 to 4 are answered here. **Step 3 is above the stored context and below the
 environment**, which is the only ordering that works: a marker describes *this checkout* and so
 must beat a machine-global `use`, while a flag or an exported variable is somebody saying
-something now and must beat a file they may have forgotten about. Steps 4 and 5 need a connection to have been asked what it
+something now and must beat a file they may have forgotten about. Steps 5 and 6 need a connection to have been asked what it
 reaches, so they belong to whoever holds a client.
 
 **``use`` changes what a bare number means. It never changes what you can see.** That is the
@@ -162,10 +162,10 @@ def resolve (
 	workspace: str | None = None,
 	marker: subroutine.directory.Marker | None = None,
 ) -> Current:
-	"""Answer steps 1 to 3 of §13.7's resolution order.
+	"""Answer steps 1 to 4 of §13.7's resolution order.
 
-	The two halves are resolved *independently*, which is deliberate: ``-w acme`` on a command
-	should not throw away the connection somebody chose with ``use``, and exporting
+	The two halves are resolved *independently*, which is deliberate: ``-w metacortex`` on a
+	command should not throw away the connection somebody chose with ``use``, and exporting
 	``SUBROUTINE_WORKSPACE`` in one terminal should not silently move which instance writes
 	land on.
 
@@ -365,7 +365,7 @@ def refuse (
 	*,
 	stopped: typing.Sequence[tuple[str, str]] = (),
 ) -> typing.NoReturn:
-	"""Step 5: refuse an unsettled workspace, naming the ones there are.
+	"""Step 6: refuse an unsettled workspace, naming the ones there are.
 
 	``stopped`` is where an agent is a member and stopped, by short name and whose absence stops it,
 	as ``/v1/me`` lists them, so an agent that reaches nothing is told why (`SR#5105`).

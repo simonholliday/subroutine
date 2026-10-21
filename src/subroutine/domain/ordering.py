@@ -817,8 +817,11 @@ def merge_order (
 	if not ranked:
 		return parsed
 
-	# **Descending, and the tiebreak ascending beneath it**, exactly as `clauses` builds it for
-	# the query — the whole point of `#879` being that these two agree.
+	# **Descending, and the ref ascending beneath it.** The query's own tiebreak is the row's id,
+	# oldest first (`clauses`); a ref is allocated in the same order within a workspace and is
+	# what every merged row carries, so it is the nearest separator a merge can read — not the
+	# same column, and rows from two workspaces were never ordered against each other by any
+	# server.
 	return ((RELEVANCE, True), ("ref", False))
 
 

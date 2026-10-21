@@ -396,9 +396,10 @@ def project (
 	resolver — which is the divergence S3-07 removed for the task shape, and ``domain/links``
 	for the link view.
 
-	Narrowed by :func:`subroutine.domain.scoping.readable_projects`, so a private project
-	somebody is not a member of is *not found* rather than forbidden, and a token's project
-	scope narrows this exactly as it narrows a listing.
+	Narrowed by :func:`subroutine.domain.scoping.nameable_projects` — reach, privacy and the
+	credential's project scope, without asking ``project:read`` — so a private project somebody
+	is not a member of is *not found* rather than forbidden, and a token's project scope narrows
+	this exactly as it narrows a listing.
 
 	**A project the caller names, never a list of them** (`#3909`): resolving where to file,
 	move or narrow to asks nothing of a credential's ``project:read``, which gates asking *for*
@@ -1458,7 +1459,7 @@ def token_projects (
 	**Here rather than in the CLI, for the reason ``expires_on`` is in the domain**: the
 	grammar has to be the same grammar whichever surface took it, and this is where a project
 	name is already turned into a project. It also keeps the resolution narrowed through
-	:func:`subroutine.domain.scoping.readable_projects`, so a project the operator cannot see
+	:func:`subroutine.domain.scoping.nameable_projects`, so a project the operator cannot see
 	is not one they can scope a credential to.
 	"""
 

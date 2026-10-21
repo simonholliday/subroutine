@@ -361,8 +361,9 @@ def _takes_many (annotation: typing.Any) -> bool:
 #:
 #: **``q``'s grammar refuses nothing, by its own rule** (:func:`subroutine.domain.grammar.read`):
 #: words are searched for, and a term it cannot read is searched for too and reported. So a NUL
-#: in a word finds nothing, as the rest of the awkward text a URL can carry does, and a NUL in a
-#: term (``q=tag:%00``, a 500 on PostgreSQL) is one of the terms it cannot read.
+#: in a word is dropped before the search (:func:`subroutine.domain.search.terms`) - ``Wa%00ter``
+#: finds *Water*, and a NUL alone narrows nothing - and a NUL in a term (``q=tag:%00``, a 500 on
+#: PostgreSQL) is one of the terms it cannot read.
 READ_AS_TYPED = frozenset({"q"})
 
 
@@ -407,9 +408,9 @@ def _asked_once_and_by_name (request: starlette.requests.Request) -> None:
 	refuse_unreadable(request)
 
 
-#: Declared on every collection endpoint and on the agenda. A dependency rather than a call in
-#: each handler, so it runs before the body of the endpoint and cannot be forgotten half-way
-#: down one.
+#: Attached to every router by the mounting loop in ``api/app.create_app`` (`#898`), bar the
+#: routes in :data:`NOT_REFUSED`. A dependency rather than a call in each handler, so it runs
+#: before the body of the endpoint and cannot be forgotten half-way down one.
 UnknownQueryDep = fastapi.Depends(_asked_once_and_by_name)
 
 

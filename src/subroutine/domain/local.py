@@ -15,16 +15,17 @@ somebody setting up a to-do list meet a token.
 
 Resolution order:
 
-1. ``SUBROUTINE_TOKEN``, if set — resolved through the same :func:`authenticate` the API
-   uses, minus the HTTP. **This is what lets an agent be constrained without running a
-   server**: hand it a project-scoped token and the CLI refuses out-of-scope work at the
-   same place, with the same message. Without it, an agent invoking the CLI locally holds
-   unrestricted authority over everything in the database.
-2. The only user, if the database holds exactly one. The ordinary personal case, which
-   asks nothing of anybody.
-3. ``local_user`` from the configuration, naming which one. Absent, the command stops and
-   lists the candidates — guessing whose to-do list is on screen is not an error that
-   announces itself.
+1. The connection's token, if it has one — from wherever :func:`subroutine.credentials.resolve`
+   found it — resolved through the same :func:`authenticate` the API uses, minus the HTTP.
+   **This is what lets an agent be constrained without running a server**: hand it a
+   project-scoped token and the CLI refuses out-of-scope work at the same place, with the same
+   message. Without it, an agent invoking the CLI locally holds unrestricted authority over
+   everything in the database.
+2. ``local_user`` from the configuration, when it is set, naming which account.
+3. Otherwise the only person, if the database holds exactly one: the ordinary personal case,
+   which asks nothing of anybody. Agents are not counted (:func:`_live_users`). With more than
+   one, the command stops and lists the candidates — guessing whose to-do list is on screen is
+   not an error that announces itself.
 """
 
 import dataclasses

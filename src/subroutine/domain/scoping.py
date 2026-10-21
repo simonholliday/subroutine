@@ -399,12 +399,13 @@ def prioritised_projects (
 	page. **It is not `#856` and item `#986` claimed it was**; the correction and the reason the
 	two differ are written beside the ordering term, which is where somebody will be tempted.
 
-	**Narrowed through :func:`readable_projects`, which is what makes the disclosure question go
-	away rather than needing an argument.** The pointer is a workspace-level fact, so reading it
-	unnarrowed would tell a caller who is not a member of a private project which project a
-	workspace is focused on — and the surfaces say its name out loud. Narrowing costs nothing
-	real: privacy inherits down the tree, so no task a caller can see is inside a project they
-	cannot, and a bonus they never receive is one they need not be told about.
+	**Narrowed through :func:`nameable_projects` (reach, privacy and the project scope, without
+	:func:`readable_projects`' ``project:read`` refusal), which is what makes the disclosure
+	question go away rather than needing an argument.** The pointer is a workspace-level fact,
+	so reading it unnarrowed would tell a caller who is not a member of a private project which
+	project a workspace is focused on — and the surfaces say its name out loud. Narrowing costs
+	nothing real: privacy inherits down the tree, so no task a caller can see is inside a
+	project they cannot, and a bonus they never receive is one they need not be told about.
 
 	**Here rather than in ``ordering``, on this module's own seam**: what a caller may see is
 	this file's question and what an order *means* is that one's. ``ordering`` takes no session,
@@ -442,7 +443,7 @@ def prioritised_projects (
 	#
 	# **The visibility narrowing below still applies**, which is what keeps the disclosure
 	# argument in this function's docstring true: `visible_projects` and `within_project_scope`
-	# are inside `readable_projects` regardless, so a project the caller cannot see is absent
+	# are inside `nameable_projects` regardless, so a project the caller cannot see is absent
 	# rather than named. What is given up is narrower than it looks — a credential without
 	# `project:read` learns the *address* of a project it can already see.
 	#
