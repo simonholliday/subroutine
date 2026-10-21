@@ -124,27 +124,74 @@ def secret_path_patterns () -> tuple[re.Pattern[str], ...]:
 	Cached because this runs on every logged line and the routes cannot change inside a process.
 	"""
 
-	patterns = []
+	return tuple(
+		re.compile(f"^{_spelled(path, secret='([^/]+)')}$") for path in _carrying_a_secret()
+	)
 
-	for path, _methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
-		if not any(f"{{{name}}}" in path for name in SECRET_PATH_PARAMETERS):
-			continue
 
-		built = ""
+@functools.cache
+def secret_path_prefixes () -> tuple[re.Pattern[str], ...]:
+	"""Return a matcher for whatever follows the fixed part of each route before its secret.
 
-		for piece in re.split(r"(\{[^{}]+\})", path):
-			if not piece.startswith("{") or not piece.endswith("}"):
-				built += re.escape(piece)
+	**A near miss of the route still carries the credential** (`SR#5164`, a bullet of L-7 of the
+	cold review of 2026-10-17, decided in `#5097`): the route's own spelling was the only one
+	redacted, so a feed's secret was written whole with no ``.ics``, with a trailing slash, in
+	capitals and with a segment after it. What follows ``/v1/calendars/<prefix>/`` is the capture,
+	whatever it is, and :func:`_without_a_secret_segment` leaves it where it is another route.
+	"""
 
-			elif piece[1:-1] in SECRET_PATH_PARAMETERS:
-				built += "([^/]+)"
+	prefixes = []
 
-			else:
-				built += "[^/]+"
+	for path in _carrying_a_secret():
+		first = min(
+			path.index(f"{{{name}}}") for name in SECRET_PATH_PARAMETERS if f"{{{name}}}" in path
+		)
+		prefixes.append(re.compile(f"^{_spelled(path[:first], secret='')}(.+)$"))
 
-		patterns.append(re.compile(f"^{built}$"))
+	return tuple(prefixes)
 
-	return tuple(patterns)
+
+@functools.cache
+def _other_routes () -> tuple[re.Pattern[str], ...]:
+	"""Return a matcher for every mounted route that carries no secret, whole."""
+
+	carrying = set(_carrying_a_secret())
+
+	return tuple(
+		re.compile(f"^{_spelled(path, secret='')}$")
+		for path, _methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+		if path not in carrying
+	)
+
+
+def _carrying_a_secret () -> list[str]:
+	"""Return every mounted route whose path names a parameter in :data:`SECRET_PATH_PARAMETERS`."""
+
+	return [
+		path
+		for path, _methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+		if any(f"{{{name}}}" in path for name in SECRET_PATH_PARAMETERS)
+	]
+
+
+def _spelled (template: str, *, secret: str) -> str:
+	"""Return a route's path as a pattern: each parameter one segment, a secret ``secret``, and
+	everything between escaped, so a literal ``.ics`` cannot match a character the route did not
+	put there."""
+
+	built = ""
+
+	for piece in re.split(r"(\{[^{}]+\})", template):
+		if not piece.startswith("{") or not piece.endswith("}"):
+			built += re.escape(piece)
+
+		elif piece[1:-1] in SECRET_PATH_PARAMETERS:
+			built += secret
+
+		else:
+			built += "[^/]+"
+
+	return built
 
 
 def _without_a_secret_segment (path: str) -> str:
@@ -164,6 +211,14 @@ def _without_a_secret_segment (path: str) -> str:
 		start, end = found.span(1)
 
 		return path[:start] + REDACTED + path[end:]
+
+	# **And a near miss of one, unless it is another route** (`SR#5164`, decision `#5097`): what
+	# follows the fixed part goes whole, while ``/v1/calendars/<prefix>/reset`` stays readable.
+	for pattern in secret_path_prefixes():
+		found = pattern.match(path)
+
+		if found is not None and not any(route.match(path) for route in _other_routes()):
+			return path[: found.start(1)] + REDACTED
 
 	return path
 

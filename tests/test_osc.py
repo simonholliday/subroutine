@@ -115,6 +115,12 @@ def test_a_destination_is_read_in_every_form_it_is_written (
 		("osc.udp://169.254.0.0:9000", "is in 169.254.0.0/16"),
 		("169.254.255.255:9000", "is in 169.254.0.0/16"),
 		("[::ffff:169.254.169.254]:9000", "is in 169.254.0.0/16"),
+		# **And in IPv6** (`SR#5164`): OpenStack's metadata address, however it is written, AWS's
+		# and Google's, each named as itself.
+		("[fe80::a9fe:a9fe]:9000", "is fe80::a9fe:a9fe, where"),
+		("[FE80::A9FE:A9FE%eth0]:80", "is fe80::a9fe:a9fe, where"),
+		("[fd00:ec2::254]:80", "is fd00:ec2::254, where"),
+		("[fd20:ce::254]:80", "is fd20:ce::254, where"),
 	],
 )
 def test_a_destination_that_is_not_one_is_refused_saying_why (written: str, said: str) -> None:
@@ -122,6 +128,23 @@ def test_a_destination_that_is_not_one_is_refused_saying_why (written: str, said
 
 	with pytest.raises(ValueError, match=said):
 		subroutine.osc.destination(written)
+
+
+@pytest.mark.parametrize(
+	"written",
+	["[fe80::1%eth0]:9000", "[fe80::a9fe:a9ff]:9000", "[fd00:ec2::253]:9000", "[fd20:ce::1]:9000"],
+)
+def test_an_address_beside_one_refused_is_sent_to (written: str) -> None:
+	"""`SR#5164`'s twin, decided in `#5097`: each address is refused, not the block around it.
+
+	**IPv6's link-local block above all**, since every IPv6 machine has an address there and a
+	``.local`` name can be answered with one first: refusing it would stop OSC to music software
+	on the same network with nothing said.
+	"""
+
+	host, port = subroutine.osc.destination(written)
+
+	assert f"[{host}]:{port}" == written, (host, port)
 
 
 def test_a_datagram_reaches_a_socket_that_is_listening () -> None:

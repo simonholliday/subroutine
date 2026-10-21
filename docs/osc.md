@@ -30,10 +30,10 @@ sets `osc_enabled = true` in its configuration and restarts it, because there th
 administrator need not be the person whose network the messages leave from. The settings page says
 so while it is off, and what you set there is kept.
 
-**Nothing is sent to an address in `169.254.0.0/16`**, where a cloud server answers questions about
-itself. Two computers joined by a cable, with nothing on it handing out addresses, give themselves
-addresses in that range too; join them through a router instead, or give each an address of its
-own.
+**Nothing is sent to an address in `169.254.0.0/16`, or to `fe80::a9fe:a9fe`, `fd00:ec2::254` or
+`fd20:ce::254`**, where a cloud server answers questions about itself. Two computers joined by a
+cable, with nothing on it handing out addresses, give themselves addresses in `169.254.0.0/16` too;
+join them through a router instead, or give each an address of its own.
 
 Saving the address is itself something that happens in the workspace, so the music software hears
 `/subroutine/workspace/edited` straight away - a quick way to see that the two can reach each other.

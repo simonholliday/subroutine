@@ -153,10 +153,29 @@ def test_a_path_that_merely_resembles_a_feed_is_left_alone () -> None:
 	for ordinary in (
 		"/v1/calendars",
 		"/v1/calendars/145ed614/reset",
-		"/v1/calendars/145ed614/JJFjVTs4jjak.ics/extra",
 		"/v1/tasks/JJFjVTs4jjak_qGOXkucTeZdt3OSwTQkLKQ22GAl9bc.ics",
 	):
 		assert subroutine.api.logs.redacted(ordinary) == ordinary, ordinary
+
+
+@pytest.mark.parametrize(
+	"after",
+	["{}", "{}/", "{}.ICS", "{}.ics/", "{}.ics/extra", "{}.Ics?refresh=1"],
+	ids=["no suffix", "a slash", "capitals", "a slash after", "a segment after", "a query"],
+)
+def test_a_near_miss_of_a_feed_s_address_does_not_put_its_secret_in_the_log (after: str) -> None:
+	"""`SR#5164`, a bullet of L-7 of the cold review of 2026-10-17, decided in `#5097`.
+
+	Only the route's own spelling was redacted, so each of these wrote a real secret whole - a
+	client that drops the ``.ics``, or adds a slash, still sends the credential. **Everything after
+	the fixed part goes**, the prefix stays, and another route there - ``reset`` - is left as it is.
+	"""
+
+	secret = "JJFjVTs4jjak_qGOXkucTeZdt3OSwTQkLKQ22GAl9bc"
+	line = _logged("/v1/calendars/145ed614/" + after.format(secret))
+
+	assert secret not in line, f"a feed credential was written to the access log:\n{line}"
+	assert subroutine.api.logs.REDACTED in line and "145ed614" in line, line
 
 
 def test_a_feed_secret_is_removed_even_when_the_line_also_carries_a_query () -> None:

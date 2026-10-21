@@ -40,8 +40,16 @@ SCHEME = "osc.udp://"
 
 #: Where a cloud server answers questions about itself, its credentials among them, and so where
 #: nothing is sent, whoever asks (decision `#3804`). Refused where it is written, and again where a
-#: name leads, since a name is looked up long after it was set.
-REFUSED = ipaddress.ip_network("169.254.0.0/16")
+#: name leads, since a name is looked up long after it was set. **In IPv6 too, each address by
+#: name** (`SR#5164`, a bullet of L-7 of the cold review of 2026-10-17, decided in `#5097`):
+#: OpenStack's, AWS's and Google's. Not IPv6's link-local block, as IPv4's is refused: every IPv6
+#: machine has an address in it, and a ``.local`` name can be answered with one first.
+REFUSED: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+	ipaddress.ip_network("169.254.0.0/16"),
+	ipaddress.ip_network("fe80::a9fe:a9fe/128"),
+	ipaddress.ip_network("fd00:ec2::254/128"),
+	ipaddress.ip_network("fd20:ce::254/128"),
+)
 
 #: What a message carries: OSC's 32-bit integers and its strings, which is everything
 #: :mod:`subroutine.domain.sounds` sends.
@@ -103,9 +111,15 @@ def destination (written: str) -> tuple[str, int]:
 	if not port.isdigit() or not 1 <= int(port) <= 65_535:
 		raise ValueError(f"{written!r} ends in no port, which is a number from 1 to 65535.")
 
-	if _refused(host):
+	refused = _refused(host)
+
+	if refused is not None:
+		# **One address is named as itself** (`SR#5164`): ``/128`` is notation somebody setting up
+		# music software need not know.
+		where = str(refused.network_address) if refused.num_addresses == 1 else f"in {refused}"
+
 		raise ValueError(
-			f"{written!r} is in {REFUSED}, where a cloud server answers questions about itself, "
+			f"{written!r} is {where}, where a cloud server answers questions about itself, "
 			"so nothing is sent there."
 		)
 
@@ -205,7 +219,7 @@ class Sender:
 
 		# **Where a name led is checked as well as what was written** (decision `#3804`), since a
 		# name is looked up here, long after anybody set it.
-		if _refused(address[0]):
+		if _refused(address[0]) is not None:
 			return
 
 		connection = self._sockets.get(family)
@@ -252,8 +266,9 @@ class Sender:
 SENDER = Sender()
 
 
-def _refused (host: str) -> bool:
-	"""Say whether a host is an address in :data:`REFUSED`, however it is written.
+def _refused (host: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network | None:
+	"""Return the network in :data:`REFUSED` a host's address is in, however it is written, or
+	``None`` where it is in none.
 
 	**An IPv6 address carrying an IPv4 one is read as that one**, since ``::ffff:169.254.169.254``
 	goes to the same machine. A name is not an address, and is checked where it leads.
@@ -263,12 +278,12 @@ def _refused (host: str) -> bool:
 		found: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(host)
 
 	except ValueError:
-		return False
+		return None
 
 	if isinstance(found, ipaddress.IPv6Address) and found.ipv4_mapped is not None:
 		found = found.ipv4_mapped
 
-	return found in REFUSED
+	return next((network for network in REFUSED if found in network), None)
 
 
 def _padded (text: str) -> bytes:

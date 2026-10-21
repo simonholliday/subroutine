@@ -29,6 +29,17 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A calendar feed's secret stays out of the access log however its address is written.** Only
+  the feed's own address had its secret redacted, so one asked for without `.ics`, with a slash
+  after it, in capitals or with more after it was written to the log whole. Everything after
+  `/v1/calendars/<prefix>/` is redacted now, unless it is another address this instance answers,
+  as `reset` is.
+
+- **OSC is not sent to the IPv6 addresses where a cloud server answers questions about itself.**
+  Only `169.254.0.0/16` was refused, so OpenStack's `fe80::a9fe:a9fe`, AWS's `fd00:ec2::254` and
+  Google's `fd20:ce::254` were accepted as destinations. Each is refused now, as `169.254.0.0/16`
+  is: a destination there is refused, saying which, and one already set sends nothing.
+
 - **The agent tools' claim and release replies name your workspace's own statuses.** Claiming
   unstarted work, or giving back work in progress, ended with the call to make next, naming the
   seeded `in_progress` or `open`; in a workspace that had renamed them, an agent that made the
