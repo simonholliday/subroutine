@@ -10,8 +10,9 @@ found it changed nothing at all.
 blocking question was *what are the fixed categories of an item type* — `#906`'s question to
 `#826` — and that until somebody answered it, adding a type would mean adding something no
 client can branch on. **`#1134` answered it** four commits later in the same range: ``ItemType``
-publishes a ``category`` of its own now, NOT NULL and held to six values, exactly as ``Status``
-does one vocabulary along.
+publishes a ``category`` of its own now, NOT NULL and held to
+:data:`subroutine.db.mixins.ITEM_TYPE_CATEGORIES`, exactly as ``Status`` does one vocabulary
+along.
 
 So what is left is the work rather than the design, and it is `#1129`. **One thing has to move
 with it**: :data:`subroutine.domain.documents.GOVERNS` still decides which end of a link may

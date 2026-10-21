@@ -32,7 +32,8 @@ UNITS: tuple[tuple[str, int], ...] = (
 #: the number happily — the same divergence :mod:`subroutine.domain.text` exists for.
 MAX_MINUTES = 2_147_483_647
 
-#: One ``<number><unit>`` term. Anchored by :func:`_terms`, never used on its own.
+#: One ``<number><unit>`` term. Held to the whole text by :func:`_sum_terms`, never used on
+#: its own.
 _TERM = re.compile(r"(\d+)([a-zA-Z]+)")
 
 _UNIT_MINUTES = dict(UNITS)

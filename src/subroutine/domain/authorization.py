@@ -880,10 +880,10 @@ def visible_projects (
 	:func:`subroutine.domain.accountability.sees_as` says whose rows those are, in the same
 	statement, so no listing gains one.
 
-	This is the same reasoning :func:`_within_project_scope` applies to a token's project
-	restriction, and the two disagreeing was a finding in the slice-2 review. They agree now
-	— both read the materialised ``path``, which is what makes an ancestor test a string
-	comparison rather than a recursive query.
+	This is the same reasoning :func:`subroutine.domain.hierarchy.beneath_any` applies to a
+	token's project restriction in :func:`_reached`, and the two disagreeing was a finding in
+	the slice-2 review. They agree now — both read the materialised ``path``, which is what
+	makes an ancestor test a string comparison rather than a recursive query.
 
 	Written as a predicate rather than a function of one project so that the agenda, search
 	and every future listing narrow with the same rule instead of reimplementing it.

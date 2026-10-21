@@ -246,7 +246,7 @@ def order_for (bucket: str) -> tuple[tuple[str, bool], ...]:
 	"""Return one bucket's ordering as ``(field, descending)`` pairs, tiebreak included.
 
 	For a caller sorting rows it has already been given — :func:`subroutine.domain.ordering.
-	merged` is the other half. The SQL side of the same declaration is :func:`_ordered`, and
+	merged` is the other half. The SQL side of the same declaration is :func:`_run`, and
 	the two appending the same tiebreak is the whole reason it has a name.
 	"""
 

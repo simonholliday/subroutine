@@ -1479,7 +1479,7 @@ def beneath (
 	to* and *documents* do not order anything: a tree drawn through them would put a decision
 	document under a phase as though the phase were waiting on it.
 
-	**One query per level, not one per node**, which is :func:`_blocks_reaching`'s measured
+	**One query per level, not one per node**, which is :func:`_chain_reaching`'s measured
 	shape — a plan six deep costs six statements however wide it is. Flat with a ``depth``
 	rather than nested, so the renderer is a loop and the wire format is a list: a nested shape
 	would need a recursive model on three surfaces to say the same thing.
@@ -1490,7 +1490,7 @@ def beneath (
 
 	# **Gathered breadth-first and emitted depth-first, which are two different orders and both
 	# are needed.** Asking level by level is what keeps this one query per level rather than one
-	# per node (:func:`_blocks_reaching`'s measured shape); reading it out depth-first is what
+	# per node (:func:`_chain_reaching`'s measured shape); reading it out depth-first is what
 	# makes a flat list with a ``depth`` render as an indented tree at all. Written the other way
 	# first, where every level came out together and the indentation described nothing.
 	children: dict[uuid.UUID, list[End]] = {}
