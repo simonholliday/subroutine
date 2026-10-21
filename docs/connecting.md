@@ -304,7 +304,8 @@ never changes what you can *see*: reads always span everything you can reach, wh
 switching safe.
 
 **If it does not:** `subroutine connections` lists what this machine reaches and, for each,
-which of the four places its token came from. It is worth knowing about because it stays out of
+where its token came from - a variable, the plugin's field, `token_command` or
+`credentials.toml` - or `nowhere`. It is worth knowing about because it stays out of
 `subroutine --help` until a second connection exists - which is to say, until the thing you are
 checking has already worked. `connections add` is hidden alongside it, which is why this page
 names them both.

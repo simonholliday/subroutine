@@ -125,9 +125,13 @@ database and the signing key land where the service will look for them:
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine init
+    /opt/subroutine/bin/subroutine init --username laurence --workspace metacortex
   Ready. Try: subroutine add "something to do"
 ```
+
+**`--username` is who you are**: without it the first account, which administers the instance, is
+named after the account running the command - here `subroutine`, the service, not you.
+`--workspace` names the first workspace, which is otherwise `Projects`.
 
 One line, because `init` is written for somebody setting up a to-do list. It has made the
 database, the first workspace, an Inbox and the first user - who is this instance's
@@ -341,7 +345,7 @@ afternoon when it is skipped.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     SUBROUTINE_DATABASE_URL=postgresql+psycopg:///subroutine \
-    /opt/subroutine/bin/subroutine init
+    /opt/subroutine/bin/subroutine init --username laurence --workspace metacortex
 ```
 
 **2. Note that it says the value is recorded nowhere**, because it is not:
@@ -838,8 +842,8 @@ breath.
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine user create keanu --name "Keanu Reeves" --email keanu@example.com
   Created keanu
-  keanu is now a member of acme
-  What is filed in acme without naming a project goes to its Inbox, which everybody in acme can see.
+  keanu is now a member of metacortex
+  What is filed in metacortex without naming a project goes to its Inbox, which everybody in metacortex can see.
   Local commands will go on acting as laurence.
 
   They cannot get in yet. Either of these hands it over, and both is fine:
@@ -853,7 +857,7 @@ breath.
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine user list --workspace acme
+    /opt/subroutine/bin/subroutine user list --workspace metacortex
   laurence  owner
   keanu     member  Keanu Reeves
 ```
@@ -955,7 +959,7 @@ are two decisions:
 
 ```console
 $ subroutine user role keanu admin
-keanu is now an admin of acme
+keanu is now an admin of metacortex
 ```
 
 It moves an existing member and turns down somebody who is not one yet, pointing at `user add` -
@@ -984,7 +988,7 @@ there and says so. Setting somebody up should not take something away from you.
 role**, and it needs nothing built:
 
 ```console
-# … subroutine user create standup --role viewer --workspace acme --browser
+# … subroutine user create standup --role viewer --workspace metacortex --browser
 ```
 
 **The browser genuinely hides the controls rather than refusing them.** What a reader may do is
@@ -1305,13 +1309,13 @@ a token is shown once and stored nowhere, so there is nothing to go back and loo
 ```console
 $ subroutine connections add work --url http://127.0.0.1:8471
 Token for work:
-Reached workshop as laurence, in acme.
+Reached workshop as laurence, in metacortex.
 Added work to …/config.toml
 Its token is in …/credentials.toml, readable only by you.
 ```
 
 The name - `work` here - is *yours*. It is the first segment of every address the server's
-items print as, so `work/acme/#42`, and two people connected to the same server may call it
+items print as, so `work/metacortex/#42`, and two people connected to the same server may call it
 different things. A name must start with a letter, because one made only of digits would read
 as a ref.
 
@@ -1370,12 +1374,12 @@ Then it just appears, with each row saying where it lives:
 ```console
 $ subroutine list
   Local
-              #1  Pay the gas bill
+                    #1  Pay the gas bill
 
   work
-    work/acme/#1  Fix the deploy script
+    work/metacortex/#1  Fix the deploy script
 
-    Tip: subroutine show work/acme/1 - read one of them in full
+    Tip: subroutine show work/metacortex/1 - read one of them in full
 ```
 
 **`subroutine connections` is how you check it**, and it is worth knowing about because it
@@ -1384,7 +1388,8 @@ thing you are checking has already worked. `connections add` is hidden with it, 
 reason and with the opposite effect, which is why this page names it: nothing on a machine can
 tell "not set up yet" from "never will be", so the command that fixes the second cannot
 announce itself to the first. It lists what this machine reaches and, for each, *which of the
-four places its token came from*, which is the question that actually bites:
+steps in [An agent that can also run a shell](#an-agent-that-can-also-run-a-shell) its token came
+from*, which is the question that actually bites:
 
 ```console
 $ subroutine connections
@@ -1785,7 +1790,7 @@ there is nothing in that listing to leak, and the prefix is what revoking takes:
   a1b2c3d4  laurence  My laptop        no expiry
             everything its owner can do · last used 2026-07-31
   e5f6a7b8  claude    claude's token   until 2026-08-30
-            task:read, task:write; in acme only · never used
+            task:read, task:write; in metacortex only · never used
 
 # sudo -u subroutine env \
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
