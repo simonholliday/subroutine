@@ -385,6 +385,25 @@ def _no_inherited_reading_past (monkeypatch: pytest.MonkeyPatch) -> None:
 	monkeypatch.setattr(subroutine.config, "_reading_past", False)
 
 
+@pytest.fixture(autouse=True)
+def _no_inherited_account (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Make every ``init`` answer as a person's would, whoever runs the suite - `SR#5171`.
+
+	``init`` reads this system's own record of the account running it, and says so when that
+	looks like a service's. Run as root, as the suite may be - its ``geteuid() == 0`` skips say
+	so - every test comparing what ``init`` printed would meet a sentence about the machine
+	rather than the program. `tests/test_a_service_named_the_first_account.py` puts the real
+	check back where it is the subject.
+	"""
+
+	def a_person (name: str) -> bool:
+		"""Say that no account looks like a service's."""
+
+		return False
+
+	monkeypatch.setattr(subroutine.cli.main, "_looks_like_a_service", a_person)
+
+
 def with_database (url: str | sqlalchemy.engine.URL, name: str) -> str:
 	"""Return ``url`` pointed at a different database, with its password intact.
 

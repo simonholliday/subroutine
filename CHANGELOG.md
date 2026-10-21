@@ -37,6 +37,15 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **`init` says so when it names the first account after a service.** Run without `--username` by
+  an account nobody signs in as - one with no login shell, `root`, or one numbered below the
+  system's people - it named the instance's administrator after that account and said nothing. It
+  now says so after *Ready.*, with the two commands that let you administer it as yourself:
+  `subroutine user create <you> --superuser`, then `subroutine user add <you> --role admin`. **If
+  you set up a served instance by following the hosting guide, its administrator is named
+  `subroutine`, after the service**, since the guide ran `init` as the service without
+  `--username`; the same two commands let you administer it as yourself.
+
 - **`plan` with no day asks which day.** It refused, quoting a day nobody had given as *not
   given* after a control character, and asked nothing.
 

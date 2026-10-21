@@ -669,6 +669,88 @@ def _system_username () -> str:
 		)
 
 
+#: The shells an account is given so that nobody can sign in as it.
+NO_LOGIN_SHELLS = frozenset({"nologin", "false"})
+
+#: Where a Linux system states the least user id it gives a person.
+LOGIN_DEFS = pathlib.Path("/etc/login.defs")
+
+
+def _warn_a_service_named_the_first_account (system: str, named: str) -> None:
+	"""Say that the first account was named after a service rather than a person - `SR#5171`.
+
+	**Decided in `#5097`**: on a service install ``init`` runs as the service's account, and
+	without ``--username`` the first account, which administers the instance and owns its first
+	workspace, is named after it - an account nobody signs in as - and nothing said so. Said
+	after *Ready.*, naming both steps that make the reader what that account is: ``--superuser``
+	joins no workspace and refuses ``--role`` beside it, so a role alone leaves the service the
+	only account that can make others.
+	"""
+
+	if not _looks_like_a_service(system):
+		return
+
+	_warn(
+		f"The first account, which administers this instance, is named {named}, after the "
+		"system account running this, which looks like a service rather than a person. To "
+		"administer it as yourself: subroutine user create <you> --superuser, then subroutine "
+		"user add <you> --role admin"
+	)
+
+
+def _looks_like_a_service (name: str) -> bool:
+	"""Say whether a system account looks like a service's rather than a person's - `SR#5171`.
+
+	**Any of three signals, measured**: a shell that refuses a login, ``/usr/sbin/nologin``, which
+	is what the hosting guide's ``useradd`` gives the service; ``root``; or a
+	user id below the least this system gives a person, which catches a service given a real
+	shell - ``postgres`` has one here, at 122 against 1000. A person's own login has a shell and
+	an ordinary id, so is not warned. **No ``/etc/login.defs``, as on macOS, and the id is not
+	asked**: its people start at 501, and its services already have ``/usr/bin/false``. An
+	account the system cannot look up is not guessed at, and neither is one on Windows, which
+	has no password database: ``pwd`` is imported here, not with the module, so the program
+	still imports there.
+	"""
+
+	if sys.platform == "win32":
+		return False
+
+	import pwd
+
+	try:
+		account = pwd.getpwnam(name)
+
+	except KeyError:
+		return False
+
+	least = _least_ordinary_user_id()
+
+	return (
+		pathlib.Path(account.pw_shell).name in NO_LOGIN_SHELLS
+		or account.pw_uid == 0
+		or (least is not None and account.pw_uid < least)
+	)
+
+
+def _least_ordinary_user_id () -> int | None:
+	"""Return the least user id this system gives a person, as ``/etc/login.defs`` states it, or
+	``None`` where it states none."""
+
+	try:
+		written = LOGIN_DEFS.read_text(encoding="utf-8", errors="replace")
+
+	except OSError:
+		return None
+
+	for line in written.splitlines():
+		words = line.split()
+
+		if len(words) >= 2 and words[0] == "UID_MIN" and words[1].isdigit():
+			return int(words[1])
+
+	return None
+
+
 #: What `init` calls the first workspace when nobody says - and so how it tells a name somebody
 #: gave from its own default, for an instance that already has one (`#3932`).
 _FIRST_WORKSPACE = "Projects"
@@ -769,6 +851,10 @@ def init (
 				return
 
 	_say('Ready. Try: subroutine add "something to do"')
+
+	if not username:
+		_warn_a_service_named_the_first_account(_system_username(), result.user.username)
+
 	_warn_an_environment_database_is_not_recorded(settings)
 
 
