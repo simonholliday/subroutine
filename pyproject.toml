@@ -214,6 +214,10 @@ line-length = 100
 indent-width = 4
 target-version = "py311"
 src = ["src", "tests"]
+# **And a file named on the command line, or as --stdin-filename, is excluded too** (`SR#5168`):
+# ruff applies `exclude` to the files it finds and not to one it is handed, and an editor's
+# format-on-save hands it one. The linter excludes nothing, so this changes only the formatter.
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RUF"]

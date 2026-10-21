@@ -19,6 +19,8 @@ import ast
 import importlib.util
 import pathlib
 import re
+import subprocess
+import sys
 import typing
 
 import pytest
@@ -27,6 +29,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: Where the house style applies. Everything tracked and written by hand.
 CHECKED = ("src", "tests", "scripts")
+
+
+#: A file the formatter would change throughout: tabs, and ``def chosen (``.
+FORMATTED = ROOT / "src" / "subroutine" / "domain" / "search.py"
 
 
 def _files () -> list[pathlib.Path]:
@@ -450,3 +456,36 @@ def test_each_rule_catches_its_own_defect (
 		broke.append("tabs")
 
 	assert broke == [rule], f"a file planted to break {rule!r} was read as breaking {broke}"
+
+
+@pytest.mark.parametrize("handed", ["named", "piped"])
+def test_ruff_format_leaves_a_file_named_to_it_alone (handed: str) -> None:
+	"""`SR#5168`, NEW-E-3 of the verification of the cold review of 2026-10-17.
+
+	The configuration excludes every file from ``ruff format``, and ruff applied that to the files
+	it found and not to one named on its command line or piped in as ``--stdin-filename`` - which
+	is what an editor's format-on-save does: it re-indented the file with spaces and took the space
+	out of ``def chosen (``. **Run rather than read**, so a ruff that reads the setting another way
+	is caught here; ``--diff`` writes nothing whatever it finds.
+	"""
+
+	before = FORMATTED.read_text(encoding="utf-8")
+	command = [sys.executable, "-m", "ruff", "format"]
+
+	if handed == "named":
+		ran = subprocess.run(
+			[*command, "--diff", str(FORMATTED)],
+			cwd=ROOT, capture_output=True, text=True, check=False,
+		)
+
+		assert ran.returncode == 0 and not ran.stdout.strip(), ran.stdout[:2000]
+
+	else:
+		ran = subprocess.run(
+			[*command, "--stdin-filename", str(FORMATTED)],
+			cwd=ROOT, input=before, capture_output=True, text=True, check=False,
+		)
+
+		assert ran.returncode == 0 and ran.stdout == before, ran.stderr
+
+	assert FORMATTED.read_text(encoding="utf-8") == before
