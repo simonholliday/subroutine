@@ -1191,3 +1191,85 @@ def test_a_package_that_is_reachable_but_not_installed_falls_back_to_the_one_nam
 	monkeypatch.setattr(importlib.metadata, "distribution", _missing)
 
 	assert deep_clean.installed_names() == [subroutine.config.APPLICATION_NAME]
+
+
+def _an_install_under (home: pathlib.Path, *, configured: str, database: int) -> pathlib.Path:
+	"""Put a configuration and a database of ``database`` bytes where an install under ``home``
+	keeps them with the XDG variables unset, and return the database."""
+
+	config = home / ".config" / subroutine.config.APPLICATION_NAME
+	data = home / ".local" / "share" / subroutine.config.APPLICATION_NAME
+
+	for directory in (config, data):
+		directory.mkdir(parents=True, exist_ok=True)
+
+	(config / "config.toml").write_text(configured, encoding="utf-8")
+	held = data / f"{subroutine.config.APPLICATION_NAME}.db"
+	held.write_bytes(b"\x00" * database)
+
+	return held
+
+
+def test_a_run_pointed_at_a_scratch_home_reads_and_names_nothing_of_the_real_one (
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""`SR#5160`, a bullet of L-7 of the cold review of 2026-10-17: four helpers read the real home.
+
+	With a home named and the XDG variables unset, what this removes has come from that home since
+	`SR#1349`, while the settings, the connections and the database its question measures were read
+	through :mod:`subroutine.config`, which falls back to the real ``~``. **The real home here is a
+	decoy** that ``HOME`` names, holding a server connection, a database kept elsewhere, a backup
+	directory and a database of its own, so the code before this can be driven safely: a dry run
+	removes nothing, and a question answered *no* stops before anything is removed.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+		monkeypatch.delenv(variable, raising=False)
+
+	real = tmp_path / "real"
+	scratch = tmp_path / "scratch"
+	monkeypatch.setenv("HOME", str(real))
+	decoy = _an_install_under(
+		real,
+		configured=(
+			f"database_url = \"sqlite:///{real / 'kept' / 'zion.db'}\"\n"
+			f"backup_directory = \"{real / 'backups'}\"\n"
+			"[connections.zion]\nurl = \"https://zion.example\"\n"
+		),
+		database=1111,
+	)
+
+	# **The scratch home's own settings name its database and a server**, so a read pointed
+	# anywhere else, or a database compared with the real home's, shows in the report.
+	name = subroutine.config.APPLICATION_NAME
+	held = scratch / ".local" / "share" / name / f"{name}.db"
+	_an_install_under(
+		scratch,
+		configured=(
+			f"database_url = \"sqlite:///{held}\"\n"
+			"[connections.matrix]\nurl = \"https://matrix.example\"\n"
+		),
+		database=2222,
+	)
+
+	ran = deep_clean.main(["--dry-run"], home=scratch)
+	reported = capsys.readouterr().out
+
+	assert str(real) not in reported, reported
+	assert "zion" not in reported, reported
+	assert "names https://matrix.example" in reported, reported
+	assert ran == 0, reported
+
+	monkeypatch.setattr("builtins.input", lambda: "no")
+
+	assert deep_clean.main([], home=scratch) == 1
+	asked = capsys.readouterr().out
+
+	assert "The database is 2,222 bytes" in asked, asked
+	assert "1,111" not in asked, asked
+	assert decoy.exists() and held.exists(), "something was removed"
+	assert not {"XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"} & set(os.environ), (
+		"the variables the reads were pointed with were left behind"
+	)

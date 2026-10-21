@@ -27,6 +27,7 @@ There is no undo. The database goes with everything else.
 """
 
 import argparse
+import contextlib
 import dataclasses
 import errno
 import importlib.metadata
@@ -148,6 +149,39 @@ def _refuse_a_home_the_environment_escapes (
 		+ " outside it. Nothing has been removed. Set XDG_CONFIG_HOME, XDG_STATE_HOME and "
 		"XDG_DATA_HOME under that directory, or unset them so they fall back to it."
 	)
+
+
+#: The variable each root is found from, so a read can be pointed where the roots are.
+VARIABLES = {"config": "XDG_CONFIG_HOME", "state": "XDG_STATE_HOME", "data": "XDG_DATA_HOME"}
+
+
+@contextlib.contextmanager
+def _reading_under (roots: typing.Sequence[tuple[str, pathlib.Path]]) -> typing.Iterator[None]:
+	"""Point :mod:`subroutine.config`'s reads at these roots while they run - `SR#5160`.
+
+	**What this removes has come from the roots since `#1349`; what it read did not.** The
+	settings and the connections were read through :mod:`subroutine.config`, which falls back to
+	the real ``~`` with the XDG variables unset, so a run pointed at a scratch home reported the
+	real home's database, backups and connections - with a command to remove each - beside a
+	removal of the scratch one. Each variable is set to its root's parent, which is what it was
+	found from, so where the variables were set already nothing changes; and put back after.
+	"""
+
+	before = {variable: os.environ.get(variable) for variable in VARIABLES.values()}
+
+	try:
+		for kind, path in roots:
+			os.environ[VARIABLES[kind]] = str(path.parent)
+
+		yield
+
+	finally:
+		for variable, value in before.items():
+			if value is None:
+				os.environ.pop(variable, None)
+
+			else:
+				os.environ[variable] = value
 
 
 def _settings_before_removal () -> typing.Any:
@@ -604,6 +638,7 @@ def _things_nobody_else_may_decide (
 	connections: typing.Sequence[tuple[str, str]],
 	*,
 	data: pathlib.Path,
+	database: pathlib.Path,
 ) -> list[Step]:
 	"""Report what this will not touch, and say how to deal with each.
 
@@ -615,7 +650,6 @@ def _things_nobody_else_may_decide (
 	"""
 
 	steps: list[Step] = []
-	default = subroutine.config.default_database_path()
 
 	if settings is not None:
 		url = (getattr(settings, "database_url", "") or "").strip()
@@ -632,7 +666,9 @@ def _things_nobody_else_may_decide (
 			))
 		# **Compared once followed** (`#4029`, a5 NEW-3), as the backup directory is below: the
 		# default file named through a link was called one somewhere this tool did not put it.
-		elif url and _followed(settings.sqlite_path) != _followed(default):
+		# **Against the database under the data root this run computed** (`SR#5160`), as the
+		# backups are, where it was the real home's whatever home this was pointed at.
+		elif url and _followed(settings.sqlite_path) != _followed(database):
 			steps.append(Step(
 				"database",
 				url,
@@ -822,15 +858,17 @@ def _report (steps: typing.Sequence[Step]) -> int:
 	return sum(1 for one in steps if one.outcome in {"SKIPPED", "FAILED"})
 
 
-def _confirmed (roots: typing.Sequence[tuple[str, pathlib.Path]]) -> bool:
+def _confirmed (roots: typing.Sequence[tuple[str, pathlib.Path]], database: pathlib.Path) -> bool:
 	"""Say what is about to go, and require it to be typed back.
 
 	**Named before asked**, because *are you sure* is a question nobody can answer without being
 	told what about — and the thing most likely to be irreplaceable here is a database somebody
 	has been keeping real work in.
-	"""
 
-	database = subroutine.config.default_database_path()
+	**``database`` is the one under the data root being removed** (`SR#5160`). It was read from
+	:mod:`subroutine.config`, so a run pointed at a scratch home measured the real home's database
+	in the question that asks for the scratch one's removal.
+	"""
 
 	print("This removes a Subroutine install and everything in it. There is no undo.\n")
 
@@ -889,31 +927,36 @@ def main (
 
 		return 1
 
-	if not options.dry_run and not options.yes and not _confirmed(roots):
+	# **Derived from the data root above rather than from `config.default_database_path()`**
+	# (`#1349`). That function reads `data_home()`, which reads the environment and has never
+	# heard of `home` — so a run pointed at a scratch directory named the *real* database in
+	# its report while removing the scratch one, which is the one line of the report somebody
+	# reads most carefully. One root, two readers. **Before the question, which measures it too**
+	# (`SR#5160`), and before what decides whether a configured database is this one.
+	database = dict(roots)["data"] / f"{subroutine.config.APPLICATION_NAME}.db"
+
+	if not options.dry_run and not options.yes and not _confirmed(roots, database):
 		print("\nNothing was removed.")
 
 		return 1
 
 	print()
 
-	settings = _settings_before_removal()
-	# **Both read before anything is deleted, for the same reason.** `_settings_before_removal`
-	# says why; this is the same file, and asking after the removal returned an empty mapping
-	# and reported no connections at all — a machine mid-migration told that everything it had
-	# was local. Written as one line beside the other so the pairing is visible.
-	connections = _elsewhere()
+	# **Read under the roots being removed** (`SR#5160`), so a run pointed at a scratch home
+	# reports that home's settings and connections rather than the real one's.
+	with _reading_under(roots):
+		settings = _settings_before_removal()
+		# **Both read before anything is deleted, for the same reason.** `_settings_before_removal`
+		# says why; this is the same file, and asking after the removal returned an empty mapping
+		# and reported no connections at all — a machine mid-migration told that everything it had
+		# was local. Written as one line beside the other so the pairing is visible.
+		connections = _elsewhere()
+
 	steps: list[Step] = []
 
 	# **Named on its own line before the directory that contains it.** Removing the data root
 	# takes the database with it, and a report that only says *data* leaves the one
 	# irreplaceable thing in this whole operation unmentioned.
-	#
-	# **Derived from the data root above rather than from `config.default_database_path()`**
-	# (`#1349`). That function reads `data_home()`, which reads the environment and has never
-	# heard of `home` — so a run pointed at a scratch directory named the *real* database in
-	# its report while removing the scratch one, which is the one line of the report somebody
-	# reads most carefully. One root, two readers.
-	database = dict(roots)["data"] / f"{subroutine.config.APPLICATION_NAME}.db"
 	size = database.stat().st_size if database.exists() else None
 	# **Where each root that is a link leads, read before anything goes** (`#4029`, L-9 (1) of the
 	# cold review of 2026-09-30). Removing a link takes the link and leaves what it pointed at, and
@@ -960,7 +1003,9 @@ def main (
 	steps.extend(_executable(home, dry_run=options.dry_run))
 	steps.extend(_claude(home, dry_run=options.dry_run))
 	steps.extend(
-		_things_nobody_else_may_decide(settings, connections, data=dict(roots)["data"])
+		_things_nobody_else_may_decide(
+			settings, connections, data=dict(roots)["data"], database=database
+		)
 	)
 	steps.extend(_markers(home))
 
