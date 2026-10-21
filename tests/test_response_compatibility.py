@@ -26,8 +26,10 @@ module.
 """
 
 import ast
+import os
 import pathlib
 import subprocess
+import sys
 import typing
 
 import pydantic
@@ -38,9 +40,10 @@ import subroutine.domain.links
 import subroutine.domain.readiness
 import subroutine.views
 
-ROOT = subprocess.run(
-	["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
-).stdout.strip()
+#: The tree this module is in. **Found from the file rather than asked of git** (`SR#5167`, NEW-E-2
+#: of the verification of the cold review of 2026-10-17): asked at import, outside a checkout - an
+#: unpacked source release among them - collection failed, and so the whole suite ran nothing.
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: Where the shared response models live. One path, because that is what the client parses.
 VIEWS = "src/subroutine/views.py"
@@ -73,18 +76,26 @@ def last_release () -> str | None:
 	``HEAD^`` rather than filtering the tag list, because it asks the question directly — *what
 	was released before whatever this is* — and it is the same answer on an ordinary commit,
 	where nothing points at ``HEAD`` anyway.
+
+	**``None`` where git cannot answer** (`SR#5167`): outside a repository both reads fail and
+	name no tag, and without git at all there is nobody to ask, so each comparison skips as it
+	does in a checkout with no tag.
 	"""
 
-	pointing = subprocess.run(
-		["git", "tag", "--points-at", "HEAD"],
-		cwd=ROOT, capture_output=True, text=True, check=False,
-	)
-	start = "HEAD^" if pointing.stdout.strip() else "HEAD"
+	try:
+		pointing = subprocess.run(
+			["git", "tag", "--points-at", "HEAD"],
+			cwd=ROOT, capture_output=True, text=True, check=False,
+		)
+		start = "HEAD^" if pointing.stdout.strip() else "HEAD"
 
-	found = subprocess.run(
-		["git", "describe", "--tags", "--abbrev=0", start],
-		cwd=ROOT, capture_output=True, text=True, check=False,
-	)
+		found = subprocess.run(
+			["git", "describe", "--tags", "--abbrev=0", start],
+			cwd=ROOT, capture_output=True, text=True, check=False,
+		)
+
+	except FileNotFoundError:
+		return None
 
 	return found.stdout.strip() or None
 
@@ -685,6 +696,33 @@ def test_a_0_8_0_instance_is_outside_the_range_this_client_reads () -> None:
 	assert listing.order == [] and listing.fields == []
 	assert "sortable" not in subroutine.views.Listing.model_fields
 	assert "selectable" not in subroutine.views.Listing.model_fields
+
+
+def test_this_module_is_read_outside_a_checkout_and_without_git (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5167`: imported where git is not on the ``PATH`` and from outside a repository, it
+	collects and names no release; and asked of a tree that is not a repository, it names none.
+
+	**In a process of its own**, since importing is what failed: an unpacked source release ran
+	no test at all.
+	"""
+
+	imported = subprocess.run(
+		[sys.executable, "-c", "import test_response_compatibility as m; print(m.last_release())"],
+		cwd=tmp_path,
+		env={"PATH": str(tmp_path), "PYTHONPATH": os.pathsep.join(sys.path)},
+		capture_output=True,
+		text=True,
+		check=False,
+	)
+
+	assert imported.returncode == 0, imported.stderr
+	assert imported.stdout.strip() == "None", imported.stdout
+
+	monkeypatch.setitem(globals(), "ROOT", tmp_path)
+
+	assert last_release() is None
 
 
 def test_unparsed_models_do_not_silently_widen_the_scope () -> None:
