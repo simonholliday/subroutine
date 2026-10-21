@@ -1327,7 +1327,7 @@ def _files_where (
 	# the one spelling the check uses (`#4558`), so what a credential is *offered* here and what it
 	# is *allowed* at the check cannot come apart.
 	writes = actor.project_write_scope
-	pointed = subroutine.domain.authorization.write_places(actor)
+	pointed = subroutine.domain.authentication.write_places(actor)
 	candidates = _named_within(session, actor, workspace, pointed)
 
 	if len(candidates) == 1:

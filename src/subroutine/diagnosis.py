@@ -702,8 +702,8 @@ def _past_the_floor (
 		one = waiting.held == 1
 
 		return (
-			f"{waiting.held:,} event{'' if one else 's'} older than that {'is' if one else 'are'} "
-			f"held behind newer ones, and move{'s' if one else ''} when those are old enough too"
+			f"{waiting.held:,} event{'' if one else 's'} older than that "
+			f"{subroutine.domain.retention.held_behind(waiting.held)}"
 		)
 
 	return "nothing older is in the change feed"

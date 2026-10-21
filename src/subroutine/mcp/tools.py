@@ -977,8 +977,10 @@ def _in_project (document: subroutine.views.Document) -> str:
 	path = getattr(document, "project_path", None)
 	said = [path] if isinstance(path, str) and path else []
 
-	if getattr(document, "binds", None) == "workspace":
-		said.append(subroutine.clients.base.said_to_bind(document) or "")
+	bound = subroutine.clients.base.said_to_bind(document)
+
+	if bound is not None:
+		said.append(bound)
 
 	return f" ({', '.join(said)})" if said else ""
 
@@ -3296,23 +3298,6 @@ def _item (
 	return document, "document"
 
 
-def _bound (
-	client: subroutine.clients.base.Client,
-	item: subroutine.views.Task | subroutine.views.Document,
-	workspace: str | None,
-) -> str | None:
-	"""Return what a document's mark amounts to, or ``None`` where it carries none - `#4853`.
-
-	A draft, a note, a rule in the trash and one inside a private project are marked to bind the
-	whole workspace and bind nobody outside, which the instance says on the document (`SR#5120`).
-	"""
-
-	if not isinstance(item, subroutine.views.Document) or item.binds != "workspace":
-		return None
-
-	return subroutine.clients.base.said_to_bind(item)
-
-
 def _more (
 	item: subroutine.views.Task | subroutine.views.Document, bound: str | None = None
 ) -> list[str]:
@@ -3477,7 +3462,7 @@ def _shown (
 	reading = _account_zone(client, workspace)
 
 	parts = [_line(found, now=subroutine.db.types.utcnow())]
-	more = _more(found, _bound(client, found, workspace))
+	more = _more(found, subroutine.clients.base.said_to_bind(found))
 
 	# **And the status everything starts in, which `_more` leaves out** (`#3674`). Silence is
 	# `#168`'s rule for a row, where most items are open and saying so is noise. On the one tool
@@ -4613,7 +4598,7 @@ def _wrote (
 
 		# **What its mark amounts to as written** (`#4853`): a draft marked for the workspace, or a
 		# rule written inside a private project, is marked to bind and binds nobody outside yet.
-		bound = _bound(client, document, workspace)
+		bound = subroutine.clients.base.said_to_bind(document)
 
 		if bound is not None:
 			answer = f"{answer}\n  {bound}"

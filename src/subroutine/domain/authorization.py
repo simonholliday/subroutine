@@ -336,7 +336,7 @@ def _writes_inside (
 	holds nothing, as the check would find.
 	"""
 
-	places = write_places(principal)
+	places = subroutine.domain.authentication.write_places(principal)
 
 	if places is None:
 		return True
@@ -648,25 +648,6 @@ def authorize_instance (
 	raise AuthorizationError(failure, permission=permission)
 
 
-def write_places (
-	principal: subroutine.domain.authentication.Principal,
-) -> typing.Sequence[str] | None:
-	"""Return the projects a credential may change things in, ``None`` being wherever it reaches.
-
-	**Its write set, else its reach** (`#371`, decision `#4527`): ``project_write_scope`` where it
-	has one, ``project_scope`` where it does not, and ``None`` for neither. A workspace and the
-	installation are places of their own, beyond every project, so **only a credential whose write
-	places are ``None`` holds them** - which is how a credential narrowed to some projects
-	administers nothing beyond them (decision `#3802`). One spelling, for the check and for what a
-	refusal or a filing offers instead, which each wrote out for themselves (`#4558`).
-	"""
-
-	if principal.project_write_scope is not None:
-		return principal.project_write_scope
-
-	return principal.project_scope
-
-
 def outside_token_scope (
 	principal: subroutine.domain.authentication.Principal, permission: str
 ) -> bool:
@@ -733,7 +714,7 @@ def _instance_refusal (
 	# the installation's listings span every workspace on it, which a credential narrowed even only
 	# in what it changes was issued to stop short of. Everything that acts on the installation asks
 	# here.
-	if write_places(principal) is not None:
+	if subroutine.domain.authentication.write_places(principal) is not None:
 		return AuthorizationFailure.BEYOND_ITS_PLACES
 
 	# **Nor a pin to one workspace** (`#4006`, M-9 of the cold review of 2026-09-30, the half of
@@ -838,7 +819,9 @@ def _refusal (
 		return None
 
 	if project is None:
-		return None if write_places(principal) is None else AuthorizationFailure.BEYOND_ITS_PLACES
+		places = subroutine.domain.authentication.write_places(principal)
+
+		return None if places is None else AuthorizationFailure.BEYOND_ITS_PLACES
 
 	return None if reached.writes_here else AuthorizationFailure.BEYOND_ITS_PLACES
 

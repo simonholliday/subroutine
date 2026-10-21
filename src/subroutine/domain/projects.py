@@ -811,7 +811,7 @@ def _inside_instead (
 	"""
 
 	named = ", ".join(
-		keys_for(session, actor, list(subroutine.domain.authorization.write_places(actor) or ()))
+		keys_for(session, actor, list(subroutine.domain.authentication.write_places(actor) or ()))
 	)
 	inside = f"inside a project it may change ({named})" if named else "inside a project"
 

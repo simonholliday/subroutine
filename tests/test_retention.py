@@ -935,12 +935,14 @@ def test_db_archive_says_what_waits_and_how_a_client_carries_on (
 	# `SR#4934`: the verb agreed with several events only, so one was said to "move" where
 	# doctor's line for the same state says "moves".
 	assert "and moves when those are old enough too. Nothing moved." in said, said
+	assert subroutine.domain.retention.held_behind(1) in said, said
 
 	age(3)
 	said = run("db", "archive")
 
 	assert "2 events older than 30 days" in said, said
 	assert "are held behind newer ones, and move when those are old enough too." in said, said
+	assert subroutine.domain.retention.held_behind(2) in said, said
 
 	with pytest.raises(subroutine.errors.ValidationError) as refused:
 		subroutine.domain.events.refuse_unusable_cursor(since=0)

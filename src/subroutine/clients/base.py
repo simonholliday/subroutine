@@ -2228,8 +2228,8 @@ BINDS_EVERYBODY = "binds the whole workspace"
 MARKED_TO_BIND = "marked to bind the whole workspace"
 
 
-def said_to_bind (document: subroutine.views.Document) -> str | None:
-	"""Return what a document's mark amounts to for its reader, or ``None`` where it carries none.
+def said_to_bind (item: subroutine.views.Task | subroutine.views.Document) -> str | None:
+	"""Return what an item's mark amounts to for its reader, or ``None`` where it carries none.
 
 	**Marked is not binding** (`#4853`). A draft, a note, a rule in the trash and one inside a private
 	project can each be marked for the whole workspace and bind nobody outside, and every surface
@@ -2238,12 +2238,19 @@ def said_to_bind (document: subroutine.views.Document) -> str | None:
 	where this worked it out from the reader's own listing of projects, which a credential narrowed
 	to a project inside a private one never sees. **Where an older instance does not say, only the
 	mark is said.**
+
+	**A task carries no mark**, and is asked here rather than by every caller (`SR#5176`): ``show``
+	and both agent tools that print an item each asked again whether it was a document marked for
+	the workspace before calling this.
 	"""
 
-	if document.binds != subroutine.domain.documents.BINDS_THE_WORKSPACE:
+	if not isinstance(item, subroutine.views.Document):
 		return None
 
-	return BINDS_EVERYBODY if document.binds_everyone else MARKED_TO_BIND
+	if item.binds != subroutine.domain.documents.BINDS_THE_WORKSPACE:
+		return None
+
+	return BINDS_EVERYBODY if item.binds_everyone else MARKED_TO_BIND
 
 
 def from_this_end (links: typing.Sequence[subroutine.views.Link]) -> list[subroutine.views.Link]:

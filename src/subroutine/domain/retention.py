@@ -135,6 +135,22 @@ def held_back (session: sqlalchemy.orm.Session, *, days: int, now: datetime.date
 	)
 
 
+def held_behind (count: int) -> str:
+	"""Say why events past the floor stay, after their count - `SR#5176`, `#4442`.
+
+	**One sentence for ``db archive`` and ``doctor``**, which each wrote it out: a run moves only a
+	run of old events, so these wait for a younger one numbered before them (:func:`held_back`),
+	and no command moves them sooner.
+	"""
+
+	one = count == 1
+
+	return (
+		f"{'is' if one else 'are'} held behind newer ones, and {'moves' if one else 'move'} when "
+		"those are old enough too"
+	)
+
+
 @dataclasses.dataclass(frozen=True)
 class Waiting:
 	"""What a run would find now: what it would move, and what would wait - `#4248`."""

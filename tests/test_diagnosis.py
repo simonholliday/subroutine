@@ -910,8 +910,13 @@ class TestTheRetentionFloor:
 
 		waiting = subroutine.domain.retention.Waiting(movable=movable, oldest=oldest, held=held)
 		now = datetime.datetime(2026, 10, 11, 14, 0, tzinfo=datetime.UTC)
+		told = subroutine.diagnosis._past_the_floor(waiting, now=now)
 
-		assert subroutine.diagnosis._past_the_floor(waiting, now=now) == said
+		assert told == said
+
+		# One sentence with ``db archive``'s (`SR#5176`), which `test_retention` drives through it.
+		if held and not movable:
+			assert subroutine.domain.retention.held_behind(held) in told, told
 
 	def test_the_year_is_judged_where_the_instance_is (self) -> None:
 		"""A day last year is given its year, and *this year* is the instance's own, not UTC's.

@@ -676,6 +676,26 @@ class Bounds:
 		)
 
 
+def write_places (holder: Principal | Bounds) -> typing.Sequence[str] | None:
+	"""Return the projects a credential may change things in, ``None`` being wherever it reaches.
+
+	**Its write set, else its reach** (`#371`, decision `#4527`): ``project_write_scope`` where it
+	has one, ``project_scope`` where it does not, and ``None`` for neither. A workspace and the
+	installation are places of their own, beyond every project, so **only a credential whose write
+	places are ``None`` holds them** - which is how a credential narrowed to some projects
+	administers nothing beyond them (decision `#3802`). One spelling, for the check and for what a
+	refusal or a filing offers instead (`#4558`), and for both sides of :func:`undominated`, which
+	worked it out by hand for each (`SR#5176`). **Here rather than in
+	:mod:`subroutine.domain.authorization`**, which imports this module for :class:`Principal`, so
+	that :func:`undominated` asks it of a :class:`Bounds` as well.
+	"""
+
+	if holder.project_write_scope is not None:
+		return holder.project_write_scope
+
+	return holder.project_scope
+
+
 def undominated (
 	session: sqlalchemy.orm.Session,
 	presenter: Principal,
@@ -728,18 +748,10 @@ def undominated (
 		)
 
 	changes = not target.scopes or bool(set(target.scopes) - subroutine.permissions.READS)
-	writes = (
-		presenter.project_write_scope
-		if presenter.project_write_scope is not None
-		else presenter.project_scope
-	)
+	writes = write_places(presenter)
 
 	if changes and writes is not None:
-		asked = (
-			target.project_write_scope
-			if target.project_write_scope is not None
-			else target.project_scope
-		)
+		asked = write_places(target)
 
 		if asked is None or _outside(session, set(writes), _canonical_project_scope(list(asked))):
 			return subroutine.errors.FieldError(

@@ -13554,22 +13554,6 @@ def _if_the_instance_can_answer (
 		return []
 
 
-def _bound (client: subroutine.clients.base.Client, located: Located) -> str | None:
-	"""Return what a document's mark amounts to, or ``None`` where it carries none - `#4853`.
-
-	**Marked is not binding**: a draft, a note, a rule in the trash and one inside a private project
-	bind nobody outside, and ``show`` said each bound the whole workspace. The instance says which on
-	the document (`SR#5120`), from the whole tree.
-	"""
-
-	item = located.item
-
-	if not isinstance(item, subroutine.views.Document) or item.binds != "workspace":
-		return None
-
-	return subroutine.clients.base.said_to_bind(item)
-
-
 def _sections (
 	client: subroutine.clients.base.Client, located: Located, *, history: bool
 ) -> Sections:
@@ -13593,7 +13577,7 @@ def _sections (
 
 	return Sections(
 		comments_left_out=left_out,
-		bound=_bound(client, located),
+		bound=subroutine.clients.base.said_to_bind(located.item),
 		links=client.links(ref=located.ref, **where),
 		remarks=remarks,
 		referring=_if_the_instance_can_answer(
