@@ -30,6 +30,7 @@ import typing
 import uuid
 
 import sqlalchemy
+import sqlalchemy.event
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
@@ -43,6 +44,9 @@ import subroutine.permissions
 #: where its chain, or the chain of an agent below it, would be longer than this.
 MAX_DEPTH = 16
 
+#: Where a session keeps the chains it has walked, by account - :func:`chain`.
+WALKED = "subroutine.accountability.walked"
+
 
 def chain (
 	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
@@ -55,7 +59,33 @@ def chain (
 
 	A person answers for themselves, so their chain is one entry long whatever
 	``responsible_user_id`` happens to say.
+
+	**Walked once a session** (`SR#5174`, decision `#5097`), which over HTTP is once a request and
+	at a terminal once a command. Every check an agent's request asked walked it again, a fresh
+	select per level, since a session holds a row nobody refers to only weakly: a journal page cost
+	an agent twice what it cost its person and an agent's agent three times. The walk is kept in the
+	session, holding its rows, and **forgotten wherever a chain can change** - an account handed on,
+	deactivated or brought back, however that is written (:func:`_changed`), and a rollback
+	(:func:`_rolled_back`). A walk that raises is not kept, so a broken chain is refused each time.
 	"""
+
+	walked: dict[uuid.UUID, tuple[subroutine.db.models.identity.User, ...]]
+	walked = session.info.setdefault(WALKED, {})
+	known = walked.get(user.id)
+
+	if known is not None:
+		return [user, *known[1:]]
+
+	found = _walk(session, user)
+	walked[user.id] = tuple(found)
+
+	return found
+
+
+def _walk (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> list[subroutine.db.models.identity.User]:
+	"""Walk ``user``'s chain from the rows themselves, raising where it reaches no person."""
 
 	walked: list[subroutine.db.models.identity.User] = [user]
 	seen: set[uuid.UUID] = {user.id}
@@ -101,6 +131,43 @@ def chain (
 		current = following
 
 	return walked
+
+
+def _changed (
+	account: subroutine.db.models.identity.User, value: object, previous: object, initiator: object
+) -> None:
+	"""Forget every chain the account's session has walked, once something a chain reads is set.
+
+	**Every chain, not the account's own**: an agent's chain runs through each account above it, so
+	handing on one agent changes the chain of every agent below it. **On the attributes, not in the
+	three acts** that set them (:func:`subroutine.domain.users.transfer` and ``set_active``), so a
+	value written any other way - the suite sets them by hand in dozens of places - is read by the
+	next check in the same session too.
+	"""
+
+	session = sqlalchemy.orm.object_session(account)
+
+	if session is not None:
+		session.info.pop(WALKED, None)
+
+
+def _rolled_back (session: sqlalchemy.orm.Session, previous_transaction: typing.Any) -> None:
+	"""Forget the session's walks after any rollback, a savepoint's included.
+
+	A change rolled back leaves the rows as they were and the walk made after it as it is, so a
+	chain read after a handover that was undone would name the account it was handed to.
+	"""
+
+	session.info.pop(WALKED, None)
+
+
+# **On the class and the columns, so every session has them** - a served instance's, a command's
+# and a test's alike: who an account answers to, and whether it is active, which the decision names
+# with it. Whether an account is an agent is written once, as the account is made.
+sqlalchemy.event.listen(subroutine.db.models.identity.User.responsible_user_id, "set", _changed)
+sqlalchemy.event.listen(subroutine.db.models.identity.User.is_active, "set", _changed)
+
+sqlalchemy.event.listen(sqlalchemy.orm.Session, "after_soft_rollback", _rolled_back)
 
 
 #: Why an account cannot act: it has been deactivated, or it is an agent that nobody active answers

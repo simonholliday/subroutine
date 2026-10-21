@@ -239,7 +239,7 @@ def test_an_agent_acts_on_its_own_agents (session: sqlalchemy.orm.Session) -> No
 #: rule (decision `#4515`) is that a person's acts are refused in one place, and a second place
 #: branching on an agent is how seven of them came to disagree.
 NOT_DECIDING: dict[str, str] = {
-	"accountability.py:chain": (
+	"accountability.py:_walk": (
 		"Walks the chain of responsibility, which an agent has and a person ends - what the "
 		"guard and every door ask of, not a decision about one act. `#473`."
 	),
