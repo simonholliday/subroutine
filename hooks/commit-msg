@@ -9,7 +9,11 @@
 #
 # Install it for this clone with:
 #
-#     git config core.hooksPath hooks
+#     python scripts/install_hooks.py
+#
+# which points core.hooksPath at a shim outside the working tree that runs this file by path.
+# `git config core.hooksPath hooks` works only where the working tree can hold an executable
+# file: on a share mounted file_mode=0666 git skips the hook without saying so.
 #
 # Bypass it deliberately with `git commit --no-verify`. That is the design and not a
 # weakness: the rule exists to catch forgetting, not to police, and a check that cannot be

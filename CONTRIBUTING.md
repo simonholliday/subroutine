@@ -75,14 +75,14 @@ Each run creates and drops its own database, named with a random suffix, so two 
 processes on one machine do not destroy each other's schema.
 
 That is also what makes the suite safe to spread across every core, which is worth doing -
-it is over four thousand tests and the great majority of them are fast:
+it is a large suite, every test run on both backends, and the great majority of them are fast:
 
 ```console
 $ pytest -n auto --dist worksteal
 ```
 
-Measured on eight cores, with both backends and the browser app: **two minutes rather than
-twelve**. `--dist worksteal` rather than the default matters more than it looks, because a
+On eight cores, with both backends and the browser app, it is several times faster than a
+serial run. `--dist worksteal` rather than the default matters more than it looks, because a
 handful of tests here cost seconds of fixture setup while a typical one costs milliseconds,
 and the default scheduler strands workers at the tail waiting for them.
 
@@ -143,7 +143,11 @@ it would convert the whole codebase to spaces and strip the space in `def foo (x
 
 **Imports are `import x` only, never `from x import y`,** and things are called by their
 fully-qualified names: `sqlalchemy.select`, not `select`. The exceptions are
-`from __future__ import annotations` and imports inside `if typing.TYPE_CHECKING:`.
+`from __future__ import annotations` and imports inside `if typing.TYPE_CHECKING:`. One more,
+inside a function only: `from subroutine.x import y as z`, where a module-level import would be
+circular or would slow every command's start, its alias saying what the module is for there. A
+plain `import subroutine.x.y` in a function binds `subroutine` as a local name and shadows every
+other use of it in that function.
 
 Note the consequence: `import a.b.c` binds only `a`, so Ruff's unused-import check cannot
 see a stale `import subroutine.x.y`, and in the other direction `a.b.c.thing` resolves

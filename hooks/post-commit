@@ -18,7 +18,9 @@
 #
 # Installed with the `commit-msg` hook beside it:
 #
-#     git config core.hooksPath hooks
+#     python scripts/install_hooks.py
+#
+# `commit-msg`'s header says why not `git config core.hooksPath hooks`.
 
 set -u
 

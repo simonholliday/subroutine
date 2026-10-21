@@ -482,7 +482,8 @@ def _refuse_acting_on_the_account (
 	acts on their access** rather than on their work, so they are asked what every act on an account
 	is asked: your own is yours, whoever it answers to may stop it, and starting anything for it is
 	the instance tier's. Here only for the import, which ``domain.stewardship`` makes a cycle at
-	the top of this module; the alias keeps ``subroutine`` from being rebound as a local name.
+	the top of this module; the ``from`` form keeps ``subroutine`` from being rebound as a local
+	name.
 	"""
 
 	from subroutine.domain import stewardship as permits

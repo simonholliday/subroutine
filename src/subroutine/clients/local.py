@@ -252,12 +252,12 @@ class Client:
 		verb = subroutine.clients.base.require_a_method(method)
 
 		from subroutine.api import app as building
-		from subroutine.api import inprocess
+		from subroutine.api import inprocess as calling
 
 		# **No session is held open around this.** The request opens its own, exactly as it
 		# would over a socket; wrapping it in one of ours nests its transaction inside a
 		# savepoint we then discard, which reports success and writes nothing.
-		answer = inprocess.call(
+		answer = calling.call(
 			building.create_app(settings=self.settings, session_factory=self._sessions),
 			self._principal,
 			method=verb,

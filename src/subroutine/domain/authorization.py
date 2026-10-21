@@ -561,10 +561,10 @@ def _read_by (
 	beyond the credential's places.
 	"""
 
-	from subroutine.domain import links
-	from subroutine.domain import scoping
+	from subroutine.domain import links as linking
+	from subroutine.domain import scoping as reading
 
-	if isinstance(item, links.End):
+	if isinstance(item, linking.End):
 		item = (
 			session.get(subroutine.db.models.work.Document, item.id)
 			if item.entity_type == "document"
@@ -575,7 +575,7 @@ def _read_by (
 		return False
 
 	try:
-		statement = scoping.readable_documents(session, principal, workspace_ids=[item.workspace_id])
+		statement = reading.readable_documents(session, principal, workspace_ids=[item.workspace_id])
 
 	except subroutine.errors.Forbidden:
 		return False

@@ -128,7 +128,10 @@ ABSENT: dict[str, Absent] = {
 		# failure message, beside the four already there that name the file so a red gate says
 		# which one is wrong. The constant's own docstring was reworded to *the notes* instead,
 		# so this is the one that could not be avoided rather than the two it started as.
-		ceiling=23,
+		#
+		# **22 for `SR#5169`**: a comment in `domain/authentication.py` pointed at it for the house
+		# style's import exception, which CONTRIBUTING.md states now.
+		ceiling=22,
 		why=(
 			"Stays a file and stays out of the repository (#411). It is loaded from a known "
 			"path at session start, which an instance document would not be."

@@ -197,6 +197,9 @@ def _values_imported (path: pathlib.Path) -> tuple[int, list[str]]:
 	2026-09-21). This asked only whether the name was a module, so ``from subroutine.api
 	import app`` at the top of a file passed - which is the plain ``import`` rule broken, with
 	none of the reason the exception exists for.
+
+	**And with an alias** (`SR#5169`, L-10 of the cold review of 2026-10-17, decided in `#5097`),
+	saying what the module is for there, as CONTRIBUTING.md says: three of nineteen had none.
 	"""
 
 	tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -225,7 +228,7 @@ def _values_imported (path: pathlib.Path) -> tuple[int, list[str]]:
 			except (ImportError, ValueError):
 				module = False
 
-			if not module or id(node) not in nested:
+			if not module or id(node) not in nested or alias.asname is None:
 				values.append(f"{node.lineno} from {node.module} import {alias.name}")
 
 	return seen, values
@@ -309,7 +312,10 @@ def test_a_from_import_brings_in_a_module () -> None:
 		found.extend(f"{path.relative_to(ROOT)}:{value}" for value in values)
 
 	assert examined >= 10, f"only {examined} from-imports were examined, so this checks little"
-	assert not found, "a from-import of something that is not a module:\n" + "\n".join(found)
+	assert not found, (
+		"a from-import of something that is not a module, or not in a function, or with no "
+		"alias:\n" + "\n".join(found)
+	)
 
 
 def test_no_docstring_holds_half_a_character () -> None:
@@ -370,9 +376,17 @@ def test_the_docstring_rule_catches_half_a_character_and_passes_the_rest (
 			[],
 			["3 from subroutine.api import app"],
 		),
-		# The documented exception, which must pass: a module, from its package, in a function.
+		# **Without an alias, it is not the exception** (`SR#5169`), though in a function.
 		(
 			'"""A module."""\n\n\ndef serve ():\n\t"""Start it."""\n\n\tfrom subroutine.api import app\n',
+			[],
+			["7 from subroutine.api import app"],
+		),
+		# The documented exception, which must pass: a module, from its package, in a function,
+		# with an alias.
+		(
+			'"""A module."""\n\n\ndef serve ():\n\t"""Start it."""\n\n'
+			'\tfrom subroutine.api import app as api\n',
 			[],
 			[],
 		),

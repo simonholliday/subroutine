@@ -855,9 +855,9 @@ def _refuse_amplification (
 
 	# **Starting anything for another account is the instance tier's** (`SR#4566`, decision `#4516`),
 	# asked by the one rule for acts on accounts. Imported here, not at the top: `domain.stewardship`
-	# imports *this* module for `Principal`, so a module-level import is the circular-import trap
-	# CLAUDE.md records. The house style's documented exception for a nested `from X import Y as
-	# alias` exists for exactly this, and the alias keeps `subroutine` from being rebound as a local.
+	# imports *this* module for `Principal`, so a module-level import is circular. CONTRIBUTING.md's
+	# exception for a nested `from X import Y as alias` exists for exactly this: the `from` form keeps
+	# `subroutine` from being rebound as a local name, and the alias says what the module is for here.
 	from subroutine.domain import stewardship as permits
 
 	permits.refuse_acting_on_an_account(session, actor, user, stopping=False)

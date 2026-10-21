@@ -95,7 +95,7 @@ dev = [
 	"playwright>=1.44",
 	"pytest>=8.2",
 	"pytest-cov>=5.0",
-	# **Running the suite across every core, which takes the gate from 12 minutes to 2**
+	# **Running the suite across every core, which took the gate from 12 minutes to 2**
 	# (`#936`). Measured here on 8 cores, both backends, browser app included: 742s serial
 	# against 125s, with the same 4231 passed and 21 skipped either way.
 	#
