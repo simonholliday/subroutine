@@ -29,6 +29,17 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **`plan` with no day asks which day.** It refused, quoting a day nobody had given as *not
+  given* after a control character, and asked nothing.
+
+- **`update` with nothing to change names every field it takes.** It named eight of fifteen,
+  leaving out `--remind`, `--project`, `--assignee`, `--tags`, `--due`, `--timezone` and
+  `--repeat-from`.
+
+- **`workspace rename` asks about the short name it will store.** It quoted the new name in lower
+  case as typed, so `" Matrix "` was asked about with its spaces, though `matrix` is what is
+  stored.
+
 - **A calendar feed's secret stays out of the access log however its address is written.** Only
   the feed's own address had its secret redacted, so one asked for without `.ics`, with a slash
   after it, in capitals or with more after it was written to the log whole. Everything after

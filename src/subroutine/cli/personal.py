@@ -3132,7 +3132,15 @@ def _planned (
 			starts=None
 			if cleared
 			else subroutine.domain.schedule.on_the_day(
-				_starting(world, _asked(when, "Which day?"), until=until, at=located, timezone=zone),
+				_starting(
+					world,
+					# **Left out is asked for** (`SR#5165`): the marker telling it from ``''`` was
+					# handed on as the day, so its NUL byte reached the terminal and nothing asked.
+					_asked("" if when is UNGIVEN else when, "Which day?"),
+					until=until,
+					at=located,
+					timezone=zone,
+				),
 				keeping=task.starts_at,
 				all_day=task.starts_is_all_day,
 				timezone=zone,
@@ -6904,7 +6912,11 @@ def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> N
 		people = where.client.members(workspace=slug)
 
 		if not yes:
-			program.say(f"Renaming {slug} to {to.lower()}.")
+			# **The short name that will be stored** (`SR#5165`): ``.lower()`` kept the spaces of
+			# `` Matrix `` and dotted the ``i`` of ``İnbox``, which are stored as ``matrix`` and
+			# ``i-nbox``. As typed only where nothing of it can be stored, which is then refused.
+			stored = subroutine.domain.workspaces.normalize_slug(to) or to.strip()
+			program.say(f"Renaming {slug} to {stored}.")
 			program.say(f"  {_kept(held)}.")
 
 			if len(people) > 1:
@@ -11274,6 +11286,7 @@ def register (
 
 	@app.command()
 	def update (
+		context: typer.Context,
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		title: str = typer.Option("", "--title", help="What it is called."),
 		# **`show_default=False` on every sentinel-defaulted option** (`#170`). Typer prints a
@@ -11386,6 +11399,7 @@ def register (
 
 		changes = _named_changes(
 			program,
+			context=context,
 			title=title,
 			# `#2106`. `UNGIVEN` is not `-`, so *not given* still reaches the client as it was.
 			description=_text_or_standard_input(program, description, "--description"),
@@ -11850,7 +11864,9 @@ def register (
 	return functools.partial(_show_today, program, selected), selected, program
 
 
-def _named_changes (program: Program, **given: typing.Any) -> dict[str, typing.Any]:
+def _named_changes (
+	program: Program, *, context: typer.Context, **given: typing.Any
+) -> dict[str, typing.Any]:
 	"""Return the fields a caller actually named, from options that each mean *unset* differently.
 
 	**Out of `register`'s closure to pay for an option that grew it** (`#943`'s ratchet,
@@ -11867,6 +11883,8 @@ def _named_changes (program: Program, **given: typing.Any) -> dict[str, typing.A
 	spelling them again here would be a second copy of that list free to disagree with it —
 	and a signature nobody could read. What makes that safe is that the caller is the single
 	command these belong to, and a name this does not read is a name it does not write.
+
+	``context`` is that command's, read for the fields its refusal names.
 	"""
 
 	title = given["title"]
@@ -11978,11 +11996,7 @@ def _named_changes (program: Program, **given: typing.Any) -> dict[str, typing.A
 	# this and named no field meant to change something, and "unchanged" would hide the
 	# mistake at exactly the moment it could still be corrected.
 	if not changes:
-		program.stop(
-			"Nothing to change.",
-			"Name a field: --title, --description, --importance, --urgency, "
-			"--estimate, --type, --status or --repeat.",
-		)
+		program.stop("Nothing to change.", f"Name a field: {_fields_of_update(context)}.")
 
 
 	return changes
@@ -12314,6 +12328,32 @@ OCCURRENCE_ANSWERS = {
 
 JUST_THIS_ONE = "--just-this-one"
 FROM_NOW_ON = "--from-now-on"
+
+#: The options of ``update`` that say how a change is made or printed rather than what changes,
+#: so its refusal of a change naming nothing leaves them out (`SR#5165`).
+UPDATE_MODIFIERS = frozenset(
+	{JUST_THIS_ONE, FROM_NOW_ON, "--expected-version", "--because", "--json"}
+)
+
+
+def _fields_of_update (context: typer.Context) -> str:
+	"""Return the options of ``update`` that each name a field, as a list ending in *or*.
+
+	**Read off the command rather than written out** (`SR#5165`, a bullet of L-7 of the cold
+	review of 2026-10-17): the list was written once and named eight of fifteen, so ``--due``,
+	``--project`` and ``--assignee`` among the rest were never offered. An option is named the
+	day it is declared, unless :data:`UPDATE_MODIFIERS` says it changes nothing by itself.
+	"""
+
+	flags = [
+		max(parameter.opts, key=len)
+		for parameter in context.command.params
+		if parameter.param_type_name == "option"
+		and not getattr(parameter, "hidden", False)
+		and max(parameter.opts, key=len) not in UPDATE_MODIFIERS
+	]
+
+	return f"{', '.join(flags[:-1])} or {flags[-1]}"
 
 #: Decision `#1249`'s two answers as command-line flags, declared once for the three commands
 #: that write a field with two answers on it.
