@@ -559,8 +559,131 @@ def probe_sqlite_locking (directory: pathlib.Path) -> str | None:
 	return None
 
 
+class SettingInsideAConnection (subroutine.errors.ValidationError):
+	"""A setting of the instance written inside a ``[connections.<name>]`` table - `SR#5166`.
+
+	**A type of its own** so that ``serve`` and ``mcp``, which say it and read past it, can tell it
+	from every other reason the file cannot be used; to everybody else it is the refusal it reads
+	as, with the code every refusal of a value has.
+	"""
+
+
+#: Whether this process reads past a setting of the instance inside a connection's table rather
+#: than refusing the file (`SR#5166`): set once, by :func:`read_past_settings_inside_a_connection`.
+_reading_past = False
+
+
 def read_config_file () -> dict[str, typing.Any]:
-	"""Read the configuration file, returning an empty mapping when there is none."""
+	"""Read the configuration file, returning an empty mapping when there is none.
+
+	**And refusing one with a setting of the instance inside a connection's table** (`SR#5166`,
+	decision `#5097`), where every reader meets it, as it meets a file that is not UTF-8. TOML files
+	every key after a ``[connections.local]`` header into that table, so ``protected = true``
+	written below one protected nothing, and ``db restore`` replaced a database unasked. A process
+	that has said so and goes on reads the file as though the line were not there.
+	"""
+
+	written = _written()
+	inside = _inside_a_connection(written)
+
+	if not inside:
+		return written
+
+	if not _reading_past:
+		raise _refused_inside(config_file_path(), inside)
+
+	for name, key in inside:
+		del written["connections"][name][key]
+
+	return written
+
+
+def inside_a_connection () -> SettingInsideAConnection | None:
+	"""Return the refusal of a setting of the instance inside a connection's table, read from
+	the file whether or not this process reads past it, or ``None`` where there is none - or the
+	file cannot be read at all, which is refused in its own words."""
+
+	try:
+		inside = _inside_a_connection(_written())
+
+	except (tomllib.TOMLDecodeError, subroutine.errors.ValidationError):
+		return None
+
+	return _refused_inside(config_file_path(), inside) if inside else None
+
+
+def read_past_settings_inside_a_connection () -> SettingInsideAConnection | None:
+	"""Read this process's configuration as though no setting of the instance were written
+	inside a connection's table, and return the refusal that would have been, for the caller to
+	say - `SR#5166`. ``None`` where there is none, or where this process already reads past.
+
+	**``serve``'s and ``mcp``'s, and ``doctor``'s**, which names it among its findings:
+	``protected`` guards neither of the first two, and refusing there would stop a served instance
+	starting after an upgrade, and an agent's tools answering, over a line that protects neither.
+	"""
+
+	global _reading_past
+
+	if _reading_past:
+		return None
+
+	_reading_past = True
+
+	return inside_a_connection()
+
+
+def _inside_a_connection (written: dict[str, typing.Any]) -> list[tuple[str, str]]:
+	"""Return each setting of the instance written inside a connection's table, as the table's
+	name and the key.
+
+	**Only the instance's**: a key that is neither a connection's nor the instance's is
+	:mod:`subroutine.connections`' to refuse, and no name is both.
+	"""
+
+	connections = written.get("connections")
+
+	if not isinstance(connections, dict):
+		return []
+
+	return [
+		(name, key)
+		for name, table in connections.items()
+		if isinstance(table, dict)
+		for key in table
+		if key in Settings.model_fields
+	]
+
+
+def _refused_inside (path: pathlib.Path, inside: list[tuple[str, str]]) -> SettingInsideAConnection:
+	"""Return the one refusal of every setting of the instance inside a connection's table."""
+
+	if len(inside) == 1:
+		((name, key),) = inside
+		said = f"'{key}' is written inside [connections.{name}], where it sets nothing."
+		hint = "Move it above the first [connections.…] table."
+
+	else:
+		named = [f"'{key}' inside [connections.{name}]" for name, key in inside]
+		said = f"{', '.join(named[:-1])} and {named[-1]} are written where they set nothing."
+		hint = "Move them above the first [connections.…] table."
+
+	return SettingInsideAConnection(
+		f"{path} cannot be used: {said}",
+		errors=[
+			subroutine.errors.FieldError(
+				field=f"connections.{name}.{key}",
+				code="invalid_field_value",
+				message=f"'{key}' is a setting of the instance, and sets nothing inside "
+				f"[connections.{name}].",
+			)
+			for name, key in inside
+		],
+		hint=hint,
+	)
+
+
+def _written () -> dict[str, typing.Any]:
+	"""Return the configuration file as TOML reads it, or an empty mapping when there is none."""
 
 	path = config_file_path()
 
@@ -615,6 +738,11 @@ def unknown_settings () -> list[tuple[str, str | None]]:
 	Refusing outright was the other candidate and is wrong here: it would make a stray key in
 	a file stop ``db restore``, and a recovery path blocked by the thing you are recovering
 	from is the defect `#173` was about.
+
+	**Bar one case, which is refused** (`SR#5166`, decision `#5097`): a setting of the instance
+	written inside a connection's table, refused by :func:`read_config_file`. There ``db restore``
+	going on is what loses the data: ``protected = true`` below ``[connections.local]`` protects
+	nothing, and a restore replaced the database unasked.
 	"""
 
 	known = set(Settings.model_fields) | TABLES
@@ -642,22 +770,6 @@ def unknown_settings () -> list[tuple[str, str | None]]:
 
 			nearest = difflib.get_close_matches(key, inner, n=1, cutoff=0.7)
 			found.append((f"releases.{key}", f"releases.{nearest[0]}" if nearest else None))
-
-	# **And a setting of the instance written inside a connection's table** (`#3944`). TOML files
-	# every key after a ``[connections.work]`` header in that table, so ``protected = true``
-	# written below one set nothing: ``db restore`` replaced a database without asking, and
-	# ``config show`` said *protected False*, neither with a word. The connection's own keys are
-	# ``subroutine.connections``' to check, and this names only the instance's.
-	connections = written.get("connections")
-
-	if isinstance(connections, dict):
-		for name, table in connections.items():
-			if not isinstance(table, dict):
-				continue
-
-			for key in table:
-				if key in Settings.model_fields:
-					found.append((f"connections.{name}.{key}", key))
 
 	return found
 

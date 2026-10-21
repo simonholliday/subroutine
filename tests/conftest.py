@@ -374,6 +374,17 @@ def _no_inherited_profile () -> typing.Iterator[None]:
 		os.environ[subroutine.config.PROFILE_VARIABLE] = before
 
 
+@pytest.fixture(autouse=True)
+def _no_inherited_reading_past (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Make every test refuse a setting inside a connection's table, whatever ran before it.
+
+	``serve``, ``mcp`` and ``doctor`` read past one for the rest of their process (`SR#5166`), and
+	in one pytest process that is every test after the first of them.
+	"""
+
+	monkeypatch.setattr(subroutine.config, "_reading_past", False)
+
+
 def with_database (url: str | sqlalchemy.engine.URL, name: str) -> str:
 	"""Return ``url`` pointed at a different database, with its password intact.
 

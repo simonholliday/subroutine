@@ -502,15 +502,16 @@ def test_a_connection_table_is_not_reported_as_an_ignored_setting (
 	assert reported["protectd"] == "protected"
 
 
-def test_an_instance_setting_inside_a_connection_s_table_is_named (
+def test_an_instance_setting_inside_a_connection_s_table_is_refused_where_it_is_read (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""`SR#3944`, L-12 of the cold review of 2026-09-28: ``protected = true`` below a table.
 
 	TOML files every key after a ``[connections.work]`` header in that table, so ``protected``
 	written beneath one set nothing: ``db restore`` then replaced the database with no ``--yes``,
-	and ``config show`` said *protected False*, neither with a word. **Named, with the setting it
-	would have been**, so every command says so - ``db restore`` among them.
+	and ``config show`` said *protected False*, neither with a word. It was named as having no
+	effect; **it is refused where the file is read now** (`SR#5166`, decision `#5097`), naming the
+	key where it is, and never as having no effect.
 	"""
 
 	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -522,9 +523,16 @@ def test_an_instance_setting_inside_a_connection_s_table_is_named (
 		encoding="utf-8",
 	)
 
-	reported = dict(subroutine.config.unknown_settings())
+	with pytest.raises(subroutine.config.SettingInsideAConnection) as refused:
+		subroutine.config.read_config_file()
 
-	assert reported == {"connections.work.protected": "protected"}, reported
+	assert [one.field for one in refused.value.errors] == ["connections.work.protected"]
+	assert "'protected' is written inside [connections.work]" in refused.value.detail
+
+	subroutine.config.read_past_settings_inside_a_connection()
+
+	assert subroutine.config.unknown_settings() == [], "said as having no effect too"
+	assert "protected" not in subroutine.config.read_config_file()["connections"]["work"]
 
 
 def test_a_loopback_instance_can_say_where_a_browser_reaches_it () -> None:

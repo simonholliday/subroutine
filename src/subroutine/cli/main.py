@@ -569,6 +569,21 @@ def _settings_or_why_not () -> subroutine.config.Settings | subroutine.errors.Va
 		)
 
 
+def _read_past_a_setting_inside_a_connection () -> None:
+	"""Say once that a setting of the instance is written inside a connection's table, and read
+	past it - `SR#5166`, decision `#5097`.
+
+	**``serve`` and ``mcp`` alone**, before they read anything, where every other command refuses
+	the file: ``protected`` guards neither, and refusing would stop a served instance starting
+	after an upgrade, and an agent's tools answering, over a line that protects neither.
+	"""
+
+	inside = subroutine.config.read_past_settings_inside_a_connection()
+
+	if inside is not None:
+		_warn(f"{inside.detail} {inside.hint}")
+
+
 @contextlib.contextmanager
 def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalchemy.engine.Engine]:
 	"""Yield an engine, turning connection failures into sentences.
@@ -801,6 +816,8 @@ def mcp (
 	# invocation is a command line where it would.
 	import subroutine.mcp.relay
 
+	_read_past_a_setting_inside_a_connection()
+
 	# **Answered at the handshake, as an unreadable configuration is** (`#4314`, of the cold review
 	# of 2026-10-03): a command line naming two workspaces or two connections stopped here with
 	# the sentence on standard error, which a plugin's client never shows.
@@ -883,6 +900,7 @@ def serve (
 	anything is the bind address, and its default is loopback.
 	"""
 
+	_read_past_a_setting_inside_a_connection()
 	settings = _settings()
 	# Brackets are how a *URL* writes an IPv6 address, not how a socket takes one. `is_loopback`
 	# strips them so `[::1]` is recognised; handing them on unstripped made uvicorn die in
@@ -1718,6 +1736,8 @@ def doctor () -> None:
 	exists is a different question, asked with 'subroutine db upgrade --check'.
 	"""
 
+	# **Read past, so it is named among the findings** (`SR#5166`) rather than refused before any.
+	subroutine.config.read_past_settings_inside_a_connection()
 	findings = subroutine.diagnosis.examine(_settings())
 	width = max(len(finding.area) for finding in findings)
 

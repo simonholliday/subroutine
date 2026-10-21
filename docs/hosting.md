@@ -1734,8 +1734,9 @@ protected = true
 ```
 
 Put it at the top of `config.toml`, above any `[connections.…]` table: TOML files every key
-after a table's header into that table, where `protected` protects nothing. A setting of the
-instance written there is named on every command, `db restore` included.
+after a table's header into that table, where `protected` protects nothing. Every command refuses a
+file with a setting of the instance written there until it is moved, `db restore` included; `serve`
+and `mcp` say so and go on, since `protected` guards neither.
 
 A setting Subroutine does not recognise is named on every command rather than ignored, with
 the nearest real one suggested. `protectd = true` is not a protected instance and never was;

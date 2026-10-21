@@ -29,6 +29,14 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **A setting of the instance written inside a `[connections.…]` table stops every command but
+  `serve` and `mcp` until it is moved - check `config.toml` before upgrading.** TOML files every
+  key after a table's header into that table, so `protected = true` written below one protected
+  nothing: every command said it had no effect, those that read a connection then refused the file
+  anyway, and `db restore` replaced the database without asking. Each command now refuses the file
+  in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
+  the same and go on, and `doctor` names it.
+
 - **`plan` with no day asks which day.** It refused, quoting a day nobody had given as *not
   given* after a control character, and asked nothing.
 

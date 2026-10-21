@@ -3039,6 +3039,11 @@ NOT_IN_THE_DOCTOR_TRANSCRIPT = {
 		"sets none: unset is the default, every event then stays in the change feed, and "
 		"`_the_retention` has nothing to state"
 	),
+	"config.toml": (
+		"the failure case of a setting of the instance written inside a connection's table "
+		"(`SR#5166`), which always needs attention, and the transcript is a healthy machine's, "
+		"ending *Nothing here needs attention*"
+	),
 }
 
 

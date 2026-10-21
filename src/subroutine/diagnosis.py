@@ -79,6 +79,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 	return [
 		*_the_program(),
 		*_the_directories(),
+		*_the_configuration_file(),
 		*_the_signing_key(resolved),
 		*_the_settings(resolved),
 		*connections,
@@ -133,6 +134,22 @@ def _the_directories () -> list[Finding]:
 		Finding(area="data", detail=str(subroutine.config.data_home())),
 		Finding(area="state", detail=str(subroutine.config.state_home())),
 	]
+
+
+def _the_configuration_file () -> list[Finding]:
+	"""Name a setting of the instance written inside a connection's table - `SR#5166`.
+
+	Every command but ``serve`` and ``mcp`` refuses the file over it, and ``doctor`` reads past it
+	so as to say it here, beside everything else that needs attention, rather than instead of it.
+	Silent where there is none.
+	"""
+
+	inside = subroutine.config.inside_a_connection()
+
+	if inside is None:
+		return []
+
+	return [Finding(area="config.toml", detail=f"{inside.detail} {inside.hint}", ok=False)]
 
 
 def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
