@@ -121,8 +121,6 @@ def mint_link (
 			],
 		)
 
-	_refuse_an_account_that_cannot_sign_in(session, user)
-
 	moment = now if now is not None else subroutine.db.types.utcnow()
 
 	_refuse_a_credential_that_would_be_widened(session, actor, now=moment)

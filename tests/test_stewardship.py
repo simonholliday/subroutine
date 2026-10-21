@@ -598,7 +598,6 @@ NOT_OWNERSHIP: dict[str, str] = {
 		"Whether the caller already holds a lease: a claim is a fact apart from ownership, `#726`."
 	),
 	"domain/claims.py:renewed": "Whether the caller holds the lease it is renewing, `#726`.",
-	"domain/local.py:workspace_for": "The workspaces the account at the terminal belongs to, `#3091`.",
 	"domain/projects.py:unreachable": (
 		"Which workspaces the caller is inside, to say whether joining comes first, `#2626`."
 	),

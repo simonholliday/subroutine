@@ -2778,10 +2778,12 @@ def _as_date (
 		return value
 
 	try:
-		return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now) or now.date()
+		found = subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now)
 
 	except subroutine.errors.ValidationError:
 		return value
+
+	return value if found is None else found
 
 
 def _overlaps (span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:

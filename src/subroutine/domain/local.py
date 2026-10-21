@@ -80,42 +80,6 @@ def principal (
 	return dataclasses.replace(found, read_only=True)
 
 
-def workspace_for (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-) -> subroutine.db.models.identity.Workspace:
-	"""Return the workspace the personal path works in.
-
-	The oldest one this person belongs to, which for anybody who has run ``init`` and
-	nothing else is the only one. Personal commands never name a workspace (§1.4), so this
-	is where the word stops — and a token pinned to one workspace narrows it here, which is
-	the same rule the API applies.
-	"""
-
-	workspace = subroutine.db.models.identity.Workspace
-	member = subroutine.db.models.identity.WorkspaceMember
-
-	statement = (
-		sqlalchemy.select(workspace)
-		.join(member, member.workspace_id == workspace.id)
-		.where(member.user_id == principal.user.id, workspace.deleted_at.is_(None))
-		.order_by(workspace.created_at)
-	)
-
-	if principal.pinned_workspace_id is not None:
-		statement = statement.where(workspace.id == principal.pinned_workspace_id)
-
-	found = session.scalars(statement).first()
-
-	if found is not None:
-		return found
-
-	raise subroutine.errors.NotFound(
-		f"{principal.user.username} does not belong to any workspace.",
-		hint="Run 'subroutine init' to set one up, or ask an administrator to add you.",
-	)
-
-
 def _from_token (
 	session: sqlalchemy.orm.Session, token: str, *, source: str | None = None
 ) -> subroutine.domain.authentication.Principal:

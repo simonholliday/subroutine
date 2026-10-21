@@ -473,7 +473,6 @@ def refuse_acting_on_an_account (
 	*,
 	stopping: bool,
 	its_own: bool = True,
-	reading: bool = False,
 ) -> None:
 	"""Refuse acting on ``account`` unless this actor may - `SR#4566`, decisions `#4516` and `#4524`.
 
@@ -495,7 +494,7 @@ def refuse_acting_on_an_account (
 
 	**An agent is held to its own agents before this is asked**, by
 	:func:`subroutine.domain.accountability.refuse_a_person_act`, so nothing here asks what kind of
-	account the actor is. ``reading`` is a listing's question, which a read-only session may ask.
+	account the actor is.
 	"""
 
 	if actor is None:
@@ -507,9 +506,7 @@ def refuse_acting_on_an_account (
 	if stopping and subroutine.domain.accountability.answers_to(session, account, actor.user):
 		return
 
-	subroutine.domain.authorization.authorize_instance(
-		actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=reading
-	)
+	subroutine.domain.authorization.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
 
 
 def accounts_acted_on (

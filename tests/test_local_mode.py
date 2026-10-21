@@ -207,27 +207,9 @@ def test_a_pinned_token_narrows_which_workspace_local_mode_uses (
 		session, token=issued.value.get_secret_value()
 	)
 
-	assert subroutine.domain.local.workspace_for(session, principal).id == second.id
 	assert [found.id for found in subroutine.domain.workspaces.readable(session, principal)] == [
 		second.id
 	]
-
-
-def test_the_workspace_is_the_oldest_one_you_belong_to (
-	session: sqlalchemy.orm.Session,
-) -> None:
-	"""Personal commands never name a workspace, so this is where the word stops."""
-
-	installed = _installed(session)
-	subroutine.domain.workspaces.create(
-		session,
-		slug=f"ws-{uuid.uuid4().hex[:8]}",
-		title="Later",
-		owner=installed.user,
-	)
-	principal = subroutine.domain.local.principal(session)
-
-	assert subroutine.domain.local.workspace_for(session, principal).id == installed.workspace.id
 
 
 def test_a_tag_is_created_the_first_time_it_is_used (
