@@ -1824,11 +1824,14 @@ def _claimed (
 		# (`#2486`), which anybody looking at it cannot tell apart from somebody working on it.
 		# Said only then, so giving back something never started stays one line.
 		if freed.status_category == "in_progress":
-			said += (
-				f"\nIt still shows as {freed.status_label or freed.status}, now with nobody "
-				f"holding it. If the work has stopped: "
-				f"subroutine_update(ref={freed.ref}, status=\"open\")."
-			)
+			waiting = _a_status_of(client, freed.workspace or workspace, "todo")
+
+			if waiting is not None:
+				said += (
+					f"\nIt still shows as {freed.status_label or freed.status}, now with nobody "
+					f"holding it. If the work has stopped: "
+					f"subroutine_update(ref={freed.ref}, status=\"{waiting}\")."
+				)
 
 		return said
 
@@ -1854,16 +1857,42 @@ def _claimed (
 	# Measured over a fortnight, agents that claimed an item and later finished it had left it
 	# unstarted the whole time for 37% and 78% of them: the claim landed and the start did not,
 	# because nothing seen at this moment said the start was a second act. **Only while it is
-	# unstarted**, so renewing the lease on work in progress stays one line. The key is the
-	# seeded one, which no workspace can rename today — `#826` holds that obligation.
+	# unstarted**, so renewing the lease on work in progress stays one line. **The key is the
+	# workspace's own** (`SR#5162`): it named the seeded one, which a workspace can rename.
 	if held.status_category == "todo":
-		said += (
-			f"\nStill {held.status_label or held.status} to anybody looking - a claim does not "
-			f"say work has begun. When you begin: "
-			f"subroutine_update(ref={held.ref}, status=\"in_progress\")."
-		)
+		beginning = _a_status_of(client, held.workspace or workspace, "in_progress")
+
+		if beginning is not None:
+			said += (
+				f"\nStill {held.status_label or held.status} to anybody looking - a claim does "
+				f"not say work has begun. When you begin: "
+				f"subroutine_update(ref={held.ref}, status=\"{beginning}\")."
+			)
 
 	return said
+
+
+def _a_status_of (
+	client: subroutine.clients.base.Client, workspace: str | None, category: str
+) -> str | None:
+	"""Return the key of a task status of ``category`` in this workspace, to name in a hint.
+
+	**The workspace's own, read rather than assumed** (`SR#5162`, a bullet of L-7 of the cold
+	review of 2026-10-17). A status's key can be renamed, so the seeded ``open`` and
+	``in_progress`` these hints named could be keys the workspace no longer has, and an agent
+	following one was refused. Its default where that is of the category, and otherwise the first
+	of the category in the workspace's order; ``None`` where it has none, and the hint then names
+	no call it would be refused.
+	"""
+
+	found = [
+		status
+		for status in client.statuses(workspace=workspace, entity_type="task").items
+		if status.category == category
+	]
+	chosen = next((status for status in found if status.is_default), None) or next(iter(found), None)
+
+	return None if chosen is None else chosen.key
 
 
 def _here_reaches (caller: subroutine.installations.Caller) -> bool:

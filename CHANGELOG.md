@@ -29,6 +29,12 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+- **The agent tools' claim and release replies name your workspace's own statuses.** Claiming
+  unstarted work, or giving back work in progress, ended with the call to make next, naming the
+  seeded `in_progress` or `open`; in a workspace that had renamed them, an agent that made the
+  call was refused. Each names the workspace's own status of that kind now, and no call where it
+  has none.
+
 - **Two requests making one new tag at once both get it.** The second had read that the tag
   was not there and failed on the database's own check - a 500, or at the terminal *could not be
   read*; it takes the tag the first made now.

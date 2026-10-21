@@ -558,10 +558,6 @@ NOT_IN_MCP: dict[str, Excuse] = {
 	"share_project": ("budget", SHARING_IS_A_PERSONS_ACT),
 	"unshare_project": ("budget", SHARING_IS_A_PERSONS_ACT),
 	"project_members": ("budget", SHARING_IS_A_PERSONS_ACT),
-	"statuses": (
-		"budget",
-		VOCABULARY_IS_NOT_DAILY_WORK,
-	),
 	"create_status": (
 		"budget",
 		VOCABULARY_IS_NOT_DAILY_WORK,

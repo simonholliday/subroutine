@@ -1353,6 +1353,83 @@ def test_a_claim_on_unstarted_work_names_the_call_that_says_it_has_begun (
 	assert "in_progress" not in renewed, f"a renewal on started work was nudged: {renewed!r}"
 
 
+def test_the_claim_hints_name_the_workspace_s_own_status_keys (
+	bound: subroutine.mcp.protocol.Server, local_client: subroutine.clients.local.Client
+) -> None:
+	"""`SR#5162`, a bullet of L-7 of the cold review of 2026-10-17: the hints named seeded keys.
+
+	A status's key can be renamed, so ``open`` and ``in_progress`` could be keys the workspace no
+	longer has, and an agent following either hint was refused. **In a workspace that renamed
+	both**, each hint names the workspace's own, and the call it names is taken; giving back
+	names the default of the category, ahead of one ordered before it.
+	"""
+
+	renamed = {"open": "queued", "in_progress": "underway"}
+
+	for status in local_client.statuses(entity_type="task").items:
+		if status.key in renamed:
+			local_client.update_status(which=str(status.id), key=renamed[status.key])
+
+	local_client.create_status(
+		entity_type="task", key="someday", label="Someday", category="todo", position=0
+	)
+	ordered = [one.key for one in local_client.statuses(entity_type="task").items]
+
+	assert ordered.index("someday") < ordered.index("queued"), ordered
+
+	ref = _added(bound, "Rewire the parser")
+	taken, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, taken
+	assert f'subroutine_update(ref={ref}, status="underway")' in taken, taken
+	assert not _called(bound, "subroutine_update", ref=ref, status="underway")[1]
+
+	freed, failed = _called(bound, "subroutine_claim", ref=ref, release=True)
+
+	assert not failed, freed
+	assert f'subroutine_update(ref={ref}, status="queued")' in freed, freed
+	assert not _called(bound, "subroutine_update", ref=ref, status="queued")[1]
+
+
+def test_a_claim_names_no_call_where_the_workspace_has_no_status_for_it (
+	bound: subroutine.mcp.protocol.Server, local_client: subroutine.clients.local.Client
+) -> None:
+	"""`SR#5162`: with no status of the category, there is no key to name, so no call is named."""
+
+	for status in local_client.statuses(entity_type="task").items:
+		if status.category == "in_progress":
+			local_client.delete_status(which=str(status.id))
+
+	ref = _added(bound, "Rewire the parser")
+	taken, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, taken
+	assert "subroutine_update(" not in taken and "None" not in taken, taken
+
+
+def test_giving_back_names_no_call_where_the_workspace_has_no_status_for_it (
+	bound: subroutine.mcp.protocol.Server, local_client: subroutine.clients.local.Client
+) -> None:
+	"""`SR#5162`, the other side: a workspace whose default is in progress may keep no status to
+	wait in, and giving back then names no call."""
+
+	statuses = local_client.statuses(entity_type="task").items
+	(underway,) = [one for one in statuses if one.key == "in_progress"]
+	local_client.update_status(which=str(underway.id), is_default=True)
+
+	for status in statuses:
+		if status.category == "todo":
+			local_client.delete_status(which=str(status.id))
+
+	ref = _added(bound, "Rewire the parser")
+	_called(bound, "subroutine_claim", ref=ref)
+	freed, failed = _called(bound, "subroutine_claim", ref=ref, release=True)
+
+	assert not failed, freed
+	assert freed.startswith(f"Released #{ref}"), freed
+	assert "subroutine_update(" not in freed and "None" not in freed, freed
+
+
 def test_giving_back_started_work_says_it_still_shows_as_started (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
