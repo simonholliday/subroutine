@@ -1501,6 +1501,15 @@ def test_event_changes_survive_json (session: sqlalchemy.orm.Session) -> None:
 	assert sorted(converted["tags"]) == ["a", "b"]
 
 
+def test_a_set_in_an_event_is_written_in_one_order () -> None:
+	"""`SR#5178`: a set's own order follows string hashing, which changes from process to process."""
+
+	tags = {f"tag-{letter}" for letter in "zyxwvutsrqponmlkjihgfedcba"}
+
+	assert subroutine.domain.events.jsonable(tags) == sorted(tags)
+	assert subroutine.domain.events.jsonable(frozenset(tags)) == sorted(tags)
+
+
 def test_seq_orders_events_across_entities (session: sqlalchemy.orm.Session) -> None:
 	"""The change cursor has to increase, or syncing has nothing to page on."""
 

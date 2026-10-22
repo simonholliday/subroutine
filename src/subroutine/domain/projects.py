@@ -55,6 +55,9 @@ import subroutine.permissions
 #: the hyphenated compounds `#508` added it for — `service-marketing` is seventeen.
 MAX_KEY_LENGTH = 32
 
+#: How long a project's title may be: the width of its column, ``project.title`` (`SR#5178`).
+MAX_TITLE_LENGTH = 512
+
 #: What a project key may be — lower case, digits and interior hyphens (`#508`).
 #:
 #: **Lower case, matching a workspace slug.** §13.7 writes an address as
@@ -131,7 +134,7 @@ def create (
 	"""Create a project, placed in the tree and stamped with its template's defaults."""
 
 	title = subroutine.domain.text.fit(
-		subroutine.domain.text.require(title, field="title"), field="title", limit=512
+		subroutine.domain.text.require(title, field="title"), field="title", limit=MAX_TITLE_LENGTH
 	)
 	# Bounded as well as readable since `#1601` — `text.summary` is where both rules meet,
 	# and it is what lets a listing render this with a worst case somebody chose.
@@ -603,7 +606,7 @@ def update (
 
 	if title is not subroutine.domain.patch.UNSET:
 		cleaned_title = subroutine.domain.text.fit(
-			subroutine.domain.text.require(title, field="title"), field="title", limit=512
+			subroutine.domain.text.require(title, field="title"), field="title", limit=MAX_TITLE_LENGTH
 		)
 
 	if description is not subroutine.domain.patch.UNSET:

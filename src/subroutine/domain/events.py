@@ -1475,8 +1475,13 @@ def jsonable (value: typing.Any) -> typing.Any:
 	if isinstance(value, datetime.datetime | datetime.date):
 		return value.isoformat()
 
-	if isinstance(value, list | tuple | set | frozenset):
+	if isinstance(value, list | tuple):
 		return [jsonable(item) for item in value]
+
+	# **A set in one order** (`SR#5178`): its own follows string hashing, which changes from one
+	# process to the next, so one change stored twice could differ byte for byte.
+	if isinstance(value, set | frozenset):
+		return sorted((jsonable(item) for item in value), key=str)
 
 	if isinstance(value, dict):
 		return {str(key): jsonable(item) for key, item in value.items()}

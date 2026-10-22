@@ -469,9 +469,9 @@ def create (
 	# not to the private project the task lives in may not join the two. **The trash is asked
 	# below**, after a link already made is answered (`#3798`): an end is not an item to the
 	# permission check's gate, which ``trash`` says.
-	for end in (source, target):
+	for each in (source, target):
 		subroutine.domain.authorization.authorize_on(
-			session, actor, subroutine.permissions.TASK_WRITE, end
+			session, actor, subroutine.permissions.TASK_WRITE, each
 		)
 
 	# **The link that is already there is answered before anything is checked** (`#3798`). A
@@ -528,11 +528,11 @@ def create (
 	# both its ends, and the API can make one stored row from either item's page, so refusing one
 	# direction only would turn the same link away from one page and take it from the other. After
 	# the lookup above, so a link already made is answered as `#3798` answers every one.
-	for end in (source, target):
+	for each in (source, target):
 		reached: subroutine.domain.trash.Item | None = (
-			session.get(subroutine.db.models.work.Task, end.id)
-			if end.entity_type == "task"
-			else session.get(subroutine.db.models.work.Document, end.id)
+			session.get(subroutine.db.models.work.Task, each.id)
+			if each.entity_type == "task"
+			else session.get(subroutine.db.models.work.Document, each.id)
 		)
 
 		if reached is not None:
@@ -545,10 +545,10 @@ def create (
 	# somebody acted from is the address's, ``ref``, and the other is the body's ``target``.
 	named = acted_on or source
 
-	for end in (source, target):
+	for each in (source, target):
 		row = (
-			session.get(subroutine.db.models.work.Task, end.id)
-			if end.entity_type == "task"
+			session.get(subroutine.db.models.work.Task, each.id)
+			if each.entity_type == "task"
 			else None
 		)
 
@@ -556,7 +556,7 @@ def create (
 			subroutine.domain.tasks.refuse_linking_the_repeat_itself(
 				session,
 				row,
-				field="ref" if (end.entity_type, end.id) == (named.entity_type, named.id) else "target",
+				field="ref" if (each.entity_type, each.id) == (named.entity_type, named.id) else "target",
 			)
 
 	_refuse_what_cannot_count(
@@ -1100,7 +1100,7 @@ def remove (
 		("source", link.source_type, link.source_id),
 		("target", link.target_type, link.target_id),
 	):
-		end = resolve(
+		each = resolve(
 			session,
 			actor,
 			workspace_id=link.workspace_id,
@@ -1114,17 +1114,17 @@ def remove (
 		# links on an item removed one whose far end had moved into a private project, and the owner's
 		# item lost its blocker. Resolved beneath the trash as well, so a link to work in a trashed
 		# project is still the owner's to remove.
-		if end is None and actor is not None and entity_type in LINKABLE:
+		if each is None and actor is not None and entity_type in LINKABLE:
 			out_of_sight += 1
 			continue
 
 		# **In or beneath the trash too** - one of the three withdrawals ``trash`` names, and an
 		# end is not an item to the permission check's gate, so nothing here asks it.
-		if end is not None:
+		if each is not None:
 			subroutine.domain.authorization.authorize_on(
-				session, actor, subroutine.permissions.TASK_WRITE, end
+				session, actor, subroutine.permissions.TASK_WRITE, each
 			)
-			withdrawn_ends[side] = end
+			withdrawn_ends[side] = each
 
 	# **One end out of sight is an honest refusal, and both is no link at all** (`SR#4575`, decision
 	# `#4521`): a link whose other end the caller cannot see is shown to them as unseen, so "there is
@@ -1543,27 +1543,27 @@ def beneath (
 			# ``again`` is a property of a drawing rather than of an item, so re-ordering
 			# siblings moves the mark to whichever drawing now comes first. Still correct, and
 			# the output moves.
-			ends.sort(key=lambda end: (1 if settled(end) else 0, end.ref))
+			ends.sort(key=lambda each: (1 if settled(each) else 0, each.ref))
 			children[one] = ends
 
-			for end in ends:
+			for each in ends:
 				# **Seen means *do not walk it twice*, and nothing more** (`#1410`). Recording
 				# *again* here was wrong because ``stopped`` is keyed by item and *again* is a
 				# property of an **appearance**: an item that turns up at two levels was marked
 				# once, and the mark reached its **first** drawing as well as its second. Met on
 				# the real roadmap, where the very first row read *(shown above)* with nothing
 				# above it. :func:`emit` decides it from ``drawn``, which is per drawing.
-				if end.id in seen:
+				if each.id in seen:
 					continue
 
-				seen.add(end.id)
+				seen.add(each.id)
 
 				if level >= depth:
-					stopped[end.id] = "deeper"
+					stopped[each.id] = "deeper"
 
 					continue
 
-				frontier.append(end.id)
+				frontier.append(each.id)
 
 	found: list[Beneath] = []
 	# **The root is drawn before anything under it** (`#3798`). A ring stored before its check
@@ -1574,19 +1574,19 @@ def beneath (
 	def emit (one: uuid.UUID, at: int) -> None:
 		"""Read the gathered map out in the order somebody looks at it."""
 
-		for end in children.get(one, ()):
-			why = stopped.get(end.id)
+		for each in children.get(one, ()):
+			why = stopped.get(each.id)
 
 			# **Drawn once, and the second sighting says so rather than repeating the
 			# subtree.** Two milestones sharing a blocker is ordinary; rendering its whole
 			# subtree under both would say there are two of them.
-			found.append(Beneath(end=end, depth=at, stopped="again" if end.id in drawn else why))
+			found.append(Beneath(end=each, depth=at, stopped="again" if each.id in drawn else why))
 
-			if end.id in drawn:
+			if each.id in drawn:
 				continue
 
-			drawn.add(end.id)
-			emit(end.id, at + 1)
+			drawn.add(each.id)
+			emit(each.id, at + 1)
 
 	emit(identifier, 1)
 
@@ -1809,9 +1809,9 @@ def proposals (
 		return []
 
 	visible = {
-		(end.entity_type, end.id): end
+		(each.entity_type, each.id): each
 		for entity in {key[0] for key in wanted}
-		for end in _ends(
+		for each in _ends(
 			session,
 			principal,
 			workspace_id=workspace_id,
@@ -2009,15 +2009,15 @@ def governing (
 	said_it = {ancestor.id: ancestor for ancestor in standing}
 	found = [
 		(
-			far[end.id][0],
-			-end.ref,
+			far[each.id][0],
+			-each.ref,
 			Governs(
-				link_type=far[end.id][1],
-				document=end,
-				inherited_from=said_it.get(far[end.id][2]),
+				link_type=far[each.id][1],
+				document=each,
+				inherited_from=said_it.get(far[each.id][2]),
 			),
 		)
-		for end in _ends(
+		for each in _ends(
 			session,
 			principal,
 			workspace_id=workspace_id,
@@ -2081,8 +2081,8 @@ def _filed_under (
 		return []
 
 	seen = {
-		end.id: end
-		for end in _ends(
+		each.id: each
+		for each in _ends(
 			session,
 			principal,
 			workspace_id=workspace_id,
@@ -2192,9 +2192,9 @@ def _ends_by_key (
 			reached.setdefault(side_type, set()).add(side_id)
 
 	return {
-		(end.entity_type, end.id): end
+		(each.entity_type, each.id): each
 		for kind, of_kind in reached.items()
-		for end in _ends(
+		for each in _ends(
 			session,
 			principal,
 			workspace_id=workspace_id,
@@ -2236,9 +2236,9 @@ def _unseen (
 		return frozenset()
 
 	reached = {
-		(end.entity_type, end.id)
+		(each.entity_type, each.id)
 		for kind, identifiers in missing.items()
-		for end in _ends(
+		for each in _ends(
 			session,
 			principal,
 			workspace_id=workspace_id,
