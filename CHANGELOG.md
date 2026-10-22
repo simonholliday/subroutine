@@ -37,6 +37,12 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **An account or a project that cannot be found is said to be out of reach, not missing.** A
+  refusal said "There is no project 'web' here." of a private project the reader is not a member
+  of, and "There is no account called 'keanu' here." of an account outside their workspaces - a
+  cause it had not established. It says "There is no project 'web' that you can reach." now,
+  naming where it looked when that was more than one workspace, and the same of an account.
+
 - **`init` says so when it names the first account after a service.** Run without `--username` by
   an account nobody signs in as - one with no login shell, `root`, or one numbered below the
   system's people - it named the instance's administrator after that account and said nothing. It

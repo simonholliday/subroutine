@@ -905,7 +905,7 @@ def test_an_ordinary_address_that_misses_is_refused_as_it_always_was (
 	refused = world.call("GET", "/v1/projects/nope/deeper")
 
 	assert refused.status_code == 404, refused.text
-	assert "There is no project 'nope/deeper' here." in refused.text
+	assert "There is no project 'nope/deeper' that you can reach." in refused.text
 	assert "workspace you are in" not in refused.text
 	assert "another workspace" not in refused.text
 

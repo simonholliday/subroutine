@@ -998,7 +998,7 @@ def addressed (
 		)
 
 		raise subroutine.errors.NotFound(
-			misread or f"There is no project {wanted!r} here.",
+			misread or f"There is no project {wanted!r} that you can reach.",
 			errors=[
 				subroutine.errors.FieldError(
 					field=field,
@@ -1499,7 +1499,7 @@ def _sole_project (
 
 	if not found:
 		raise subroutine.errors.NotFound(
-			f"There is no project {wanted!r} here.",
+			f"There is no project {wanted!r} that you can reach.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="project",

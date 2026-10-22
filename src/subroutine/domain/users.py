@@ -694,7 +694,7 @@ def _nobody_called (username: str) -> subroutine.errors.NotFound:
 	"""
 
 	return subroutine.errors.NotFound(
-		f"There is no account called {username!r} here.",
+		f"There is no account called {username!r} that you can reach.",
 		hint="Run 'subroutine user list' to see who there is.",
 	)
 

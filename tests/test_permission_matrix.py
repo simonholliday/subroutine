@@ -1173,7 +1173,7 @@ RULE_SAYS: dict[str, tuple[str, ...]] = {
 	"forget saved view": ("Only the owner of the view",),
 	"stop sharing a view": ("Only the owner of the view",),
 	"create project": ("acts beyond the projects",),
-	"move project": ("There is no project 'web' here", "acts beyond the projects"),
+	"move project": ("There is no project 'web' that you can reach", "acts beyond the projects"),
 	"reveal a private project": ("Only the owner of",),
 	"share project": ("Only the owner of",),
 	"unshare project": ("Only the owner of",),

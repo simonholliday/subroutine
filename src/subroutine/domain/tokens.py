@@ -439,7 +439,7 @@ def _owner_for (
 			)
 
 		raise subroutine.errors.NotFound(
-			f"There is no account called {wanted!r} here.",
+			f"There is no account called {wanted!r} that you can reach.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="username",

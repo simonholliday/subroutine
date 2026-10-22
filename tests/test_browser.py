@@ -5739,7 +5739,7 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 		content_type="application/problem+json",
 		body=json.dumps({
 			"type": "about:blank", "title": "Not found", "status": 404, "code": "not_found",
-			"detail": "There is no project 'subroutine/ui' here.",
+			"detail": "There is no project 'subroutine/ui' that you can reach.",
 			"errors": [{"field": "query.project", "code": "not_found",
 				"message": "No project in projects answers to 'subroutine/ui'.", "hint": None}],
 		}),
@@ -5803,7 +5803,7 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 				content_type="application/problem+json",
 				body=json.dumps({
 					"type": "about:blank", "title": "Not found", "status": 404, "code": "not_found",
-					"detail": "There is no project 'subroutine/ui' here.",
+					"detail": "There is no project 'subroutine/ui' that you can reach.",
 					"errors": [{"field": "query.project", "code": "not_found",
 						"message": "No project in projects answers to 'subroutine/ui'.", "hint": None}],
 				}),
@@ -7038,7 +7038,7 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 		"**/v1/agenda?**",
 		lambda route: route.fulfill(
 			status=404,
-			body=json.dumps({"status": 404, "detail": "There is no project 'websites' here."}),
+			body=json.dumps({"status": 404, "detail": "There is no project 'websites' that you can reach."}),
 			content_type="application/problem+json",
 		),
 	)

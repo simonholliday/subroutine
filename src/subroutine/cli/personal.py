@@ -5505,15 +5505,15 @@ def _no_such_project (
 	"""Refuse a project nobody can find, saying where it was looked for — `#1501`.
 
 	**Where matters as soon as there is more than one place.** *"There is no project 'web'
-	here"* is a complete answer on an instance with one workspace and an assertion the reader
+	that you can reach"* is a complete answer on an instance with one workspace and an assertion the reader
 	cannot check on an instance with four — they cannot tell a key they got wrong from a key
 	in a workspace this credential does not reach.
 	"""
 
 	program.stop(
-		f"There is no project {wanted!r} in {_names_in_words(searched)}."
+		f"There is no project {wanted!r} that you can reach in {_names_in_words(searched)}."
 		if len(searched) > 1
-		else f"There is no project {wanted!r} here.",
+		else f"There is no project {wanted!r} that you can reach.",
 		"Run 'subroutine project list' to see them, or "
 		f"'subroutine project create {wanted.rsplit('/', 1)[-1]} \"A title\"' to make it.",
 	)
@@ -6157,7 +6157,7 @@ def _project_moved (program: Program, *, key: str, under: str, root: bool, yes: 
 				# Named as they typed it, never as we would have stored it: telling
 				# somebody 'WEB' is not here when they wrote 'web' reads as the program
 				# mangling their input and then blaming them for it.
-				f"There is no project called {key!r} here.",
+				f"There is no project {key!r} that you can reach.",
 				"Run 'subroutine project list' to see what there is.",
 			)
 

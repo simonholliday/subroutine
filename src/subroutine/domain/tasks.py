@@ -1424,7 +1424,7 @@ def create_from_text (
 
 	if project is None:
 		raise subroutine.errors.NotFound(
-			f"There is no project {captured.project_key!r} in this workspace.",
+			f"There is no project {captured.project_key!r} that you can reach in this workspace.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="text",
