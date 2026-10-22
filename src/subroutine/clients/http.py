@@ -1860,7 +1860,6 @@ class Client:
 
 		return self._parsed(subroutine.views.Reading, body)
 
-
 	def occurrences (
 		self,
 		*,
@@ -1892,7 +1891,6 @@ class Client:
 		)
 
 		return self._parsed(subroutine.views.Task, body)
-
 
 	def remark (
 		self,

@@ -81,7 +81,6 @@ def create (
 			actor, subroutine.permissions.INSTANCE_WORKSPACE_CREATE
 		)
 
-
 	title = subroutine.domain.text.fit(
 		subroutine.domain.text.require(title, field="title"),
 		field="title",
@@ -1408,7 +1407,6 @@ def validated_slug (
 				)
 			],
 		)
-
 
 	return normalized
 

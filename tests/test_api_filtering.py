@@ -650,6 +650,7 @@ _A_REF = "1"
 #: first document, and asking a document listing about a task's ref is refused by name.
 _A_DOCUMENT_REF = "4"
 
+
 def _default_status (entity_type: str) -> str:
 	"""Return the status something of this kind gets when nobody says.
 

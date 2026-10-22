@@ -1018,6 +1018,7 @@ def _memberships (
 
 	return statement
 
+
 def _reached (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,

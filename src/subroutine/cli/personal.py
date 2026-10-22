@@ -168,6 +168,7 @@ OWN_A_WORKSPACE = "subroutine user role <somebody> owner -w <workspace>"
 #: about tasks would report that ``#4`` does not exist while it sits in the same listing.
 Item = subroutine.views.Task | subroutine.views.Document
 
+
 @dataclasses.dataclass
 class Selected:
 	"""What the options before the subcommand chose.
@@ -430,7 +431,6 @@ class World:
 				return item
 
 		return None
-
 
 	def refusal_of (self, name: str) -> subroutine.errors.SubroutineError | None:
 		"""Return why the connection called ``name`` could not be opened, or ``None`` - `#5060`.
@@ -2111,6 +2111,7 @@ def _handed_over (
 		)
 
 	return said, None
+
 
 def _kept (held: int) -> str:
 	"""Say how many items survive a rename, with the verb and the possessive agreeing.
@@ -6191,6 +6192,7 @@ def _project_moved (program: Program, *, key: str, under: str, root: bool, yes: 
 
 		program.say(f"Moved {moved.key} - {moved.title}")
 
+
 def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None:
 	"""Retire a project's short name, saying what stops working first — `#176`."""
 
@@ -8366,7 +8368,6 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			)
 
 
-
 def _register_links (app: typer.Typer, program: Program) -> None:
 	"""Add ``link`` and ``unlink`` to the application.
 
@@ -8488,7 +8489,6 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 				other=_asked(other, "And the other one?"),
 				relation=relation,
 			)
-
 
 
 #: What a `SessionEnd` hook runs when a session using Subroutine finishes.
@@ -9005,7 +9005,6 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		"""
 
 		_project_moved(program, key=key, under=under, root=root, yes=yes)
-
 
 
 #: The one arrangement a terminal can draw, out of ``db.models.saved.ARRANGEMENTS``. Named
@@ -10152,7 +10151,6 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 			if unchecked:
 				program.say(f"Whether this stops any of their agents here was not checked: {unchecked}")
-
 
 
 def _agents_stopped_in (
@@ -11997,7 +11995,6 @@ def _named_changes (
 	# mistake at exactly the moment it could still be corrected.
 	if not changes:
 		program.stop("Nothing to change.", f"Name a field: {_fields_of_update(context)}.")
-
 
 	return changes
 

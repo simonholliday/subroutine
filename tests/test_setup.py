@@ -75,7 +75,6 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 	return invoke
 
 
-
 def _settings (home: pathlib.Path) -> dict[str, typing.Any]:
 	"""Read the settings file a run wrote."""
 

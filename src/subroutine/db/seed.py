@@ -389,6 +389,7 @@ SEEDED_STATUSES: tuple[StatusSeed, ...] = tuple(
 	seed for version in sorted(SEED_SETS) for seed in SEED_SETS[version].statuses
 )
 
+
 def named_types (entity_type: str) -> str:
 	"""Return one kind of item's seeded types, as prose a help text can carry — `#1240`.
 

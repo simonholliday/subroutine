@@ -921,6 +921,7 @@ def _refuse_amplification (
 
 	raise subroutine.errors.Forbidden(refused, errors=[dataclasses.replace(failure, hint=advice)])
 
+
 def authenticate (
 	session: sqlalchemy.orm.Session,
 	presented: str,
@@ -983,7 +984,6 @@ def authenticate (
 
 	if record_use:
 		_record_use(token, moment)
-
 
 	return Principal(user=user, token=token, interface=interface)
 

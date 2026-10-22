@@ -40,7 +40,6 @@ import subroutine.permissions
 SERVICE_ACCOUNT_ROLE = "contributor"
 
 
-
 #: What a credential's title may hold, matching ``api_token.title``'s column — `SR#1555`.
 #:
 #: **Declared where the row is written, not here** (`SR#1571`). This module used to hold the

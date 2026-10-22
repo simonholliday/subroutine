@@ -2658,7 +2658,6 @@ def _read_phrase (
 	return written, None
 
 
-
 def _repeat_in (phrase: str) -> tuple[str, str] | None:
 	"""Return the longest readable repeat in a claimed phrase, and the words it used.
 

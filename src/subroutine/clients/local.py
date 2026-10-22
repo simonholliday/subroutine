@@ -3425,7 +3425,6 @@ class Client:
 			timezone=zone,
 		)
 
-
 	def occurrences (
 		self,
 		*,
@@ -3492,7 +3491,6 @@ class Client:
 				has_more=len(found) > wanted,
 			)
 
-
 	def skip (
 		self,
 		*,
@@ -3517,7 +3515,6 @@ class Client:
 				),
 				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
-
 
 	def remark (
 		self,

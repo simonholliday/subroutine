@@ -774,7 +774,6 @@ def test_going_back_below_events_refuses_while_anything_is_one (migrated_url: st
 		engine.dispose()
 
 
-
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
 def test_going_back_below_superseding_refuses_while_anything_uses_it (
 	migrated_url: str,

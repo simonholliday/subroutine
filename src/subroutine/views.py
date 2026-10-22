@@ -1141,7 +1141,6 @@ class Task(pydantic.BaseModel):
 	created_by: uuid.UUID | None
 	updated_by: uuid.UUID | None
 
-
 	#: The concurrency token (docs/design.md §8.9), reported so a caller can send it back.
 	version: int
 
@@ -1502,7 +1501,6 @@ class Event(pydantic.BaseModel):
 			self.action,
 			self.entity_type,
 		)
-
 
 
 class Change(pydantic.BaseModel):
@@ -3053,7 +3051,6 @@ class Document(pydantic.BaseModel):
 	#: which is why this field is new on a table that is not.
 	tags: list[str] = pydantic.Field(default_factory=list)
 
-
 	#: How well this row answered the search that selected it — the same field :class:`Task`
 	#: carries, for the same reason, and it has to be on **both** or a merged list is back to
 	#: having no shared key (`#875`). §6.2 gives the two kinds one ref counter, so a search
@@ -3890,7 +3887,6 @@ class Vocabulary:
 		)
 
 
-
 def _prose_bytes (text: str | None) -> int:
 	"""Return how many bytes this item's prose takes, as a caller will receive it — `#595`.
 
@@ -4619,7 +4615,6 @@ def event (
 		actor_interface=row.actor_interface,
 		created_at=row.created_at,
 	)
-
 
 
 def edge (found: subroutine.domain.links.Edge, vocabulary: Vocabulary) -> Edge:

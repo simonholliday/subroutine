@@ -503,7 +503,6 @@ def test_a_dry_run_names_only_the_files_that_would_change (
 	)
 
 
-
 def test_a_dry_run_still_names_a_pin_that_would_move (
 	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
 ) -> None:
@@ -797,7 +796,6 @@ def test_the_gate_runs_before_the_tag_rather_than_after_it (
 
 	assert subject == "Release 0.2.0", f"the gate did not run on the release commit: {subject!r}"
 	assert not tags, f"the tag existed before the gate ran, so it could have been pushed: {tags!r}"
-
 
 
 def test_a_release_whose_rehearsal_fails_writes_nothing (

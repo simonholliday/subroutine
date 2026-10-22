@@ -301,7 +301,6 @@ def _repeat (
 	)
 
 
-
 def own_day_field (category: str) -> str:
 	"""Return the column a rule that names its own day fills, for an item of this category.
 
@@ -2474,7 +2473,6 @@ def complete (
 	)
 
 
-
 def _the_deferral_it_has (
 	task: subroutine.db.models.work.Task, defer: subroutine.domain.schedule.Moment
 ) -> bool:
@@ -2611,7 +2609,6 @@ def skip (
 		expected_version=expected_version,
 		actor=actor,
 	)
-
 
 
 #: What an edit to a repeating item can apply to — decision `#1249` §2.
@@ -3786,7 +3783,6 @@ def stop_repeating (
 	return task
 
 
-
 def begin_repeating (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
@@ -3879,7 +3875,6 @@ def begin_repeating (
 	session.flush()
 
 	return template
-
 
 
 class _Repeating (typing.NamedTuple):

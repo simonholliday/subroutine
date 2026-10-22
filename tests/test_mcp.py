@@ -3005,7 +3005,6 @@ def test_the_whole_tool_surface_stays_small (
 	)
 
 
-
 def test_no_published_tool_text_carries_an_empty_list (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

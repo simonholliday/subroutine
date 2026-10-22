@@ -331,8 +331,6 @@ def test_the_clean_reads_its_paths_from_the_product (
 		assert not path.exists(), f"{what} survived when the roots were moved: {path}"
 
 
-
-
 def test_a_home_the_environment_escapes_is_refused_before_anything_is_removed (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

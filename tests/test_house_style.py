@@ -278,6 +278,84 @@ def test_every_except_has_a_blank_line_above_it () -> None:
 	assert not found, "an except with no blank line above it:\n" + "\n".join(found)
 
 
+def _spacing (path: pathlib.Path) -> tuple[int, list[str]]:
+	"""Return how many top-level definitions one file has, and every blank line out of place.
+
+	**Three rules the tree already keeps almost everywhere** (`SR#5179`, L-10 of the cold review of
+	2026-10-17), held by nothing until now: **never three blank lines in a row; never two inside a
+	body**, before indented code; and **two before every top-level definition that follows code**,
+	counted above the comment block that leads it, a decorator's included. Blank lines inside a
+	string are its own business.
+	"""
+
+	source = path.read_text(encoding="utf-8")
+	lines = source.splitlines()
+	tree = ast.parse(source)
+	inside: set[int] = set()
+
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Constant | ast.JoinedStr) and node.end_lineno is not None:
+			inside.update(range(node.lineno + 1, node.end_lineno + 1))
+
+	found: list[str] = []
+	run = 0
+
+	for number, line in enumerate(lines, start=1):
+		if not line.strip() and number not in inside:
+			run += 1
+
+			continue
+
+		if run >= 3:
+			found.append(f"{number - run}: {run} blank lines in a row")
+
+		elif run == 2 and line[:1].isspace():
+			found.append(f"{number - run}: two blank lines inside a body")
+
+		run = 0
+
+	if run >= 3:
+		found.append(f"{len(lines) - run + 1}: {run} blank lines in a row")
+
+	examined = 0
+
+	for node in tree.body:
+		if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+			continue
+
+		examined += 1
+		above = min([node.lineno, *(one.lineno for one in node.decorator_list)]) - 2
+
+		while above >= 0 and lines[above].startswith("#"):
+			above -= 1
+
+		blank = 0
+
+		while above >= 0 and not lines[above].strip():
+			blank += 1
+			above -= 1
+
+		if above >= 0 and blank < 2:
+			found.append(f"{node.lineno}: {blank or 'no'} blank line{'' if blank == 1 else 's'} above it")
+
+	return examined, found
+
+
+def test_blank_lines_keep_the_house_spacing () -> None:
+	"""`SR#5179`: never three in a row, never two inside a body, two above every top-level definition."""
+
+	examined = 0
+	found: list[str] = []
+
+	for path in _files():
+		seen, wrong = _spacing(path)
+		examined += seen
+		found.extend(f"{path.relative_to(ROOT)}:{one}" for one in wrong)
+
+	assert examined >= 5000, f"only {examined} top-level definitions were examined, so this checks little"
+	assert not found, "blank lines out of place:\n" + "\n".join(found)
+
+
 def test_every_class_and_module_has_a_docstring () -> None:
 	"""`SR#2898`: the house style's *mandatory* covered functions only.
 
@@ -429,6 +507,15 @@ def test_the_except_rule_catches_a_crowded_clause_and_passes_a_commented_one (
 		("docstring", "def helper ():\n\treturn 1\n"),
 		("definition space", 'def helper():\n\t"""Do a thing."""\n\n\treturn 1\n'),
 		("tabs", 'def helper ():\n    """Do a thing."""\n\n    return 1\n'),
+		(
+			"three blank lines",
+			'"""A module."""\n\n\n\ndef helper ():\n\t"""Do a thing."""\n\n\treturn 1\n',
+		),
+		("two in a body", 'def helper ():\n\t"""Do a thing."""\n\n\n\treturn 1\n'),
+		(
+			"one above a definition",
+			'"""A module."""\n\nimport os\n\ndef helper ():\n\t"""Do a thing."""\n\n\treturn os.sep\n',
+		),
 	],
 )
 def test_each_rule_catches_its_own_defect (
@@ -468,6 +555,15 @@ def test_each_rule_catches_its_own_defect (
 		if number not in prose and line.strip()
 	):
 		broke.append("tabs")
+
+	# `SR#5179`'s three, named by what each found.
+	for said, named in (
+		("in a row", "three blank lines"),
+		("inside a body", "two in a body"),
+		("above it", "one above a definition"),
+	):
+		if any(said in one for one in _spacing(path)[1]):
+			broke.append(named)
 
 	assert broke == [rule], f"a file planted to break {rule!r} was read as breaking {broke}"
 

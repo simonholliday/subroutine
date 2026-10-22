@@ -70,6 +70,7 @@ CREDENTIAL_PARAMETERS = frozenset(name.lower() for name in TOKEN_PARAMETERS)
 #: without anybody remembering it.
 READ_ONLY_PARAMETER = "read_only"
 
+
 def misplaced_credentials (request: starlette.requests.Request) -> list[str]:
 	"""Return the query parameters of this request that are places a credential must not be.
 

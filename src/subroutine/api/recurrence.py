@@ -39,6 +39,7 @@ router = fastapi.APIRouter(
 	route_class=subroutine.api.routing.Transactional,
 )
 
+
 class Parse(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/recurrence/parse`` accepts."""
 

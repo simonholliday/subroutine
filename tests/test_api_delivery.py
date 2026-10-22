@@ -411,6 +411,7 @@ def test_every_guarded_surface_is_driven_here_or_says_why_not () -> None:
 
 CASES = [one for one in _cases() if one[2] not in NOT_STORED]
 
+
 #: Values that can only be named once the instance exists — a project to move to, a person to
 #: assign to, an item to sit under. Kept apart from :data:`CHANGES` rather than folded in, so
 #: that one is a table anybody can read and this is the handful that genuinely cannot be.
@@ -637,7 +638,6 @@ def test_the_cases_come_from_the_models_rather_than_from_a_list () -> None:
 		f"only {len(_cases())} fields were found across every changing model, so the walk has "
 		f"stopped reading them and every case below it is checking nothing."
 	)
-
 
 
 #: The client methods that write an item's own fields, and how to read the item back. A create

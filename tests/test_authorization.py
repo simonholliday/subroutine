@@ -503,7 +503,6 @@ def test_a_project_membership_can_hold_no_role () -> None:
 	], "a project membership points at a role again"
 
 
-
 def test_an_unknown_permission_is_a_programming_error (
 	session: sqlalchemy.orm.Session,
 ) -> None:

@@ -1634,6 +1634,7 @@ FILTERS: dict[str, dict[str, Filterable]] = {
 	entity: filters(entity) for entity in PROPERTIES
 }
 
+
 def names (entity: str) -> frozenset[str]:
 	"""Return every ``field.operator`` this entity accepts, for a caller that lists them.
 

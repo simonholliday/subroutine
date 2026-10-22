@@ -2413,7 +2413,6 @@ def test_a_month_name_in_ordinary_prose_is_left_alone () -> None:
 		)
 
 
-
 @pytest.mark.parametrize(
 	("text", "start", "end"),
 	[

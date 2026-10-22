@@ -80,7 +80,6 @@ Declaration = tuple[str, frozenset[str]]
 Mount = tuple[str, frozenset[str], typing.Any]
 
 
-
 def mounted (routers: typing.Sequence[Mounting]) -> list[Mount]:
 	"""Return every route these routers will register, with the route object itself.
 

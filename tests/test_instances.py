@@ -856,7 +856,6 @@ def test_a_restore_puts_the_data_back (
 ) -> None:
 	"""The whole point: what was lost comes back, on both backends."""
 
-
 	subroutine.db.migrate.upgrade(own_database)
 	identity = _seed_instance(own_database)
 
@@ -1334,7 +1333,6 @@ def test_a_clone_keeps_the_data_and_takes_a_new_identity (
 	The failure this prevents is invisible at restore time — ``refuse_duplicate_instances``
 	starts refusing legitimate fan-out, and an agent files two datasets under one cache key.
 	"""
-
 
 	subroutine.db.migrate.upgrade(own_database)
 	identity = _seed_instance(own_database)

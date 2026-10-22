@@ -680,6 +680,8 @@ def test_nobody_is_offered_a_way_to_set_somebody_else_s_timezone (
 	assert "username" not in offered.lower(), (
 		"a username argument would be a way to set somebody else's, which no permission grants"
 	)
+
+
 def test_a_new_account_joins_the_only_workspace_without_being_asked (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

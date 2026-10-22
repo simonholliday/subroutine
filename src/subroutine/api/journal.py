@@ -40,6 +40,7 @@ router = fastapi.APIRouter(
 
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.JournalEntry)
 
+
 @router.get(
 	"",
 	summary="What happened over a period, with what was said",

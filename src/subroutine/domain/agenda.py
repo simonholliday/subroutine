@@ -927,7 +927,6 @@ def build (
 		seen.update(task.id for task in found)
 		rows[bucket] = found if cap is None else found[:cap]
 
-
 	# **How much dated work this agenda does not show** (`#997`). The window has an edge and
 	# every surface has the same edge, so a deadline three weeks out is in **no bucket at
 	# all** — `unscheduled` requires both dates to be null, so dated work leaves it and there

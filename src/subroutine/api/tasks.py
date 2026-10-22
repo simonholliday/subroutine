@@ -1035,7 +1035,6 @@ def complete (
 	return _rendered(session, actor, finished)
 
 
-
 @router.post("/{id_or_ref}/skip", summary="Let one occurrence of a repeat go by")
 def skip (
 	request: starlette.requests.Request,

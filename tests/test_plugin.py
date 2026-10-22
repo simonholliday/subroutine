@@ -624,6 +624,7 @@ def test_the_field_travels_under_its_own_name_alone () -> None:
 		"the plugin passes its field as SUBROUTINE_TOKEN too, which no program its pin admits needs"
 	)
 
+
 @pytest.mark.parametrize("option", ["connection", "workspace", "token"])
 def test_every_declared_option_is_substituted_somewhere (option: str) -> None:
 	"""An option nobody reads is a question asked for nothing.

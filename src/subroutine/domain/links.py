@@ -270,7 +270,7 @@ class End:
 	#: **`#583`/`#674`'s lesson applied before the drift rather than after it.** Four
 	#: renderings of a link line had already diverged when this was written; the fix that
 	#: sticks is having one of them.
-	row: "subroutine.db.models.work.Task | subroutine.db.models.work.Document | None" = None
+	row: subroutine.db.models.work.Task | subroutine.db.models.work.Document | None = None
 
 	#: Whether the thing at this end is finished (`#210`). Carried because a milestone is read
 	#: off its links — what it includes since decision `#3391`, and its blockers under `#84`

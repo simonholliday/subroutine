@@ -429,7 +429,6 @@ def test_a_mark_is_said_to_bind_only_where_the_instance_says_it_does (
 	assert subroutine.clients.base.said_to_bind(_marked(**facts)) == said
 
 
-
 def _nested (world: test_api_tasks.World) -> dict[str, typing.Any]:
 	"""Make private ``vault`` with ``blog`` under it, public ``web``, and public ``ops`` with ``sub``.
 

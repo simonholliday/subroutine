@@ -5030,7 +5030,6 @@ def test_both_move_a_document_to_another_project (pair: Pair) -> None:
 	assert local.document(ref=written.ref) == remote.document(ref=written.ref)
 
 
-
 def test_both_include_a_sub_projects_items_under_its_parent (pair: Pair) -> None:
 	"""``#320``. A named project means that area of work, not that one node.
 

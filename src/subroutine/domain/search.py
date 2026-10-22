@@ -88,7 +88,11 @@ LIKE = "like"
 NATIVE = "native"
 
 
-def chosen (session: sqlalchemy.orm.Session, *, settings: "subroutine.config.Settings | None" = None) -> str:
+def chosen (
+	session: sqlalchemy.orm.Session,
+	*,
+	settings: subroutine.config.Settings | None = None,
+) -> str:
 	"""Return which implementation will actually answer, for this session.
 
 	**Two things have to agree and only one of them is a preference.** ``search_backend`` says

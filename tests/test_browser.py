@@ -371,7 +371,6 @@ def _computed (
 ARRANGEMENT = ("display", "gap", "margin-bottom", "align-items")
 
 
-
 def test_a_browser_can_be_driven_at_all (looks: typing.Any) -> None:
 	"""The floor, and it exists because the first version of this file needed it.
 
@@ -993,6 +992,7 @@ CROWD = [
 	dict(CARD, ref=100 + n, title=f"Task number {n}", project_colour=None if n == 0 else "teal")
 	for n in range(5)
 ]
+
 
 def _row (workspace_id: str, **fields: typing.Any) -> dict[str, typing.Any]:
 	"""One agenda row, with its workspace named both ways from one argument — `SR#1932`.
@@ -5313,7 +5313,6 @@ def test_an_open_item_is_furnished_from_the_workspace_it_is_in (
 		f"the form offers {filable} — those are the *switcher's* projects, and filing this "
 		f"item into one of them is a refusal by name"
 	)
-
 
 	# **The second half: what the reader may do *there*.** The roster is swapped rather than the
 	# fixture changed, because five other tests need to write on this very item.

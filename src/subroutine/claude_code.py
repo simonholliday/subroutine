@@ -54,6 +54,7 @@ GIT_TIMEOUT_SECONDS = 10.0
 #: entirely - the shape that once staged a test's file into this repository's own index.
 _ELSEWHERE = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
 
+
 @dataclasses.dataclass(frozen=True)
 class Handover:
 	"""What giving a credential to one directory will do, settled before anything is minted."""

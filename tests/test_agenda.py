@@ -96,7 +96,6 @@ class World:
 		)
 
 
-
 #: The zones a whole-day row is read from in `SR#1296`'s guards, spanning UTC-7 to UTC+12.
 #:
 #: **London is the zone the rows are *written* in**, so it is the control: its answers are what

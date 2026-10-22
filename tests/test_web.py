@@ -1569,7 +1569,6 @@ def test_the_strip_always_draws_the_types_own_glyph (tmp_path: pathlib.Path) -> 
 	)
 
 
-
 def test_no_component_renders_its_own_apology (tmp_path: pathlib.Path) -> None:
 	"""Nothing in ``SAMPLES`` falls back to *"this could not be displayed"* — `#1936`.
 
@@ -17591,7 +17590,6 @@ def test_going_home_writes_an_address_with_no_arrangement (tmp_path: pathlib.Pat
 	assert carried == "/projects?view=board&include_completed=true", (
 		"a listing stopped carrying its arrangement, which is what SR#651 is for"
 	)
-
 
 
 def test_no_browser_test_waits_by_evaluating_a_string () -> None:

@@ -31,6 +31,7 @@ import typing
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+
 #: Where the shims go. State rather than cache: losing them silently disables every hook, and
 #: a cache is a thing the system may clear whenever it likes.
 def shim_directory () -> pathlib.Path:

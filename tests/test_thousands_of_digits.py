@@ -24,6 +24,7 @@ NINES = "9" * 5000
 home = test_personal_path.home
 run = test_personal_path.run
 
+
 class Made (typing.NamedTuple):
 	"""An installation reachable over HTTP, with a task and a document to write to."""
 

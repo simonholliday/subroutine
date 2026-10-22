@@ -3061,7 +3061,6 @@ def test_an_occurrence_says_which_repeat_it_came_from (
 	assert not any(wanted in fact for fact in held), "the series points at itself"
 
 
-
 def test_clearing_a_date_on_a_repeat_is_not_an_internal_error (
 	session: sqlalchemy.orm.Session,
 ) -> None:
