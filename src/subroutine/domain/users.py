@@ -527,6 +527,12 @@ def within_reach (
 	not a read of the project: :func:`by_username` still resolves any name, since a username is an
 	identifier somebody types and cannot be a secret (decision `#161`). ``None`` is an internal
 	caller, which nothing here narrows.
+
+	**Sharing a workspace admits an account only to a credential that reads the workspace**
+	(`SR#5110`, decision `#5097`): ``workspace:read`` gates a workspace's members (docs/design.md
+	§7.1), and a credential narrowed to ``task:read`` was refused the member listing and listed the
+	same accounts here. Every role reads its workspace, so the credential's own scopes are what
+	decide it; the chain's clause and the administrator's are unaffected.
 	"""
 
 	if actor is None or subroutine.domain.authorization.may_instance(
@@ -540,11 +546,20 @@ def within_reach (
 	except subroutine.errors.ValidationError:
 		above = [actor.user.id]
 
+	chained = sqlalchemy.or_(
+		model.id.in_(above),
+		model.id.in_(subroutine.domain.accountability.sees_as(actor.user.id)),
+	)
+
+	if subroutine.domain.authorization.outside_token_scope(
+		actor, subroutine.permissions.WORKSPACE_READ
+	):
+		return chained
+
 	member = sqlalchemy.orm.aliased(subroutine.db.models.identity.WorkspaceMember)
 
 	return sqlalchemy.or_(
-		model.id.in_(above),
-		model.id.in_(subroutine.domain.accountability.sees_as(actor.user.id)),
+		chained,
 		model.id.in_(
 			sqlalchemy.select(member.user_id).where(
 				subroutine.domain.authorization.reaches(session, actor, member.workspace_id)
@@ -571,8 +586,9 @@ def readable (
 	**The accounts within the asker's reach** (`SR#4945`, decision `#4943`), which
 	:func:`within_reach` says. It was every account, to anybody authenticated, by a decision
 	recorded here: a name you cannot look up is one you have to be told out of band. That still
-	holds where it mattered - the people you share a workspace with are all listed - and a name
-	from anywhere else can still be typed, since naming an account is not reading it. This view
+	holds where it mattered - the people you share a workspace with are all listed, to a credential
+	that reads the workspace (`SR#5110`) - and a name from anywhere else can still be typed, since
+	naming an account is not reading it. This view
 	carries no email address and no content at all, as before.
 
 	**``answers_to`` asks the question rather than deriving it** (`SR#2387`). It names a person

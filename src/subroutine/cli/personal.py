@@ -9882,7 +9882,8 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Without --workspace this is everybody you share a workspace with, and any agents that
 		answer to you, oldest first. Somebody who administers accounts sees every account. With
-		it, only that workspace's members, and what each may do there.
+		it, only that workspace's members, and what each may do there. A credential that may not
+		read workspaces sees only itself, whom it answers to and the agents that answer to it.
 		"""
 
 		chosen = _workspace_named_or_fail(program, workspace, command="user list")

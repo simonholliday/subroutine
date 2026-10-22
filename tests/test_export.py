@@ -557,7 +557,9 @@ def test_a_kind_its_reader_is_refused_names_nobody_and_refuses_nothing (pair: Pa
 	"""`SR#5151`: a credential refused comments is still given the accounts the rest names.
 
 	Each kind's own statement says which accounts its lines name, and a kind the credential is
-	refused has no lines, so it names nobody rather than refusing the whole file.
+	refused has no lines, so it names nobody rather than refusing the whole file. **The operator
+	is the one account given**: the tasks the credential reads name them, and a credential narrowed
+	to ``task:read`` does not reach its workspace's members (`SR#5110`).
 	"""
 
 	_seeded(pair)
@@ -570,4 +572,6 @@ def test_a_kind_its_reader_is_refused_names_nobody_and_refuses_nothing (pair: Pa
 	with pytest.raises(subroutine.errors.Forbidden):
 		_read(pair, reader, "comments")
 
-	assert _read(pair, reader, "users_beyond_reach") == []
+	beyond = _read(pair, reader, "users_beyond_reach")
+
+	assert [row.username for row in beyond] == [pair.user.username]

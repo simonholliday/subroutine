@@ -17,7 +17,7 @@ permission over the installation, `workspace:admin` or `workspace:delete`.
 **A listing holds only what its asker can see.** Reading the work of a workspace asks
 `task:read` once, and the work of a private project is still left out for anybody who cannot
 see it. The accounts listed are those within the asker's reach: whoever shares a workspace
-with them, and their own chain.
+with them, where they may read that workspace, and their own chain.
 
 The page is generated from the acts the permission tests drive through every way in - the
 terminal, the HTTP API and the agent tools - so it says what the instance does.

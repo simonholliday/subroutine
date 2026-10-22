@@ -16,7 +16,8 @@ it, which is what makes it safe to give an agent a credential that may do this a
 else.
 
 **Reading is within reach** (`SR#4945`). An account is read by whoever shares a workspace with
-it, by its own chain and by somebody who administers accounts, which
+it and may read that workspace (`SR#5110`), by its own chain and by somebody who administers
+accounts, which
 :func:`subroutine.domain.users.within_reach` says. It was the whole directory to anybody
 authenticated, so that a colleague could be looked up before being added. Naming an account to
 act on it still takes any name, since an identifier is something somebody types (decision
@@ -251,8 +252,9 @@ def listing (
 	"""The accounts within the asker's reach, oldest first.
 
 	**Whoever shares a workspace with the asker, and the asker's own chain** - itself, whoever
-	it answers to and whatever answers to it. Somebody who administers accounts is answered
-	with every account on the instance.
+	it answers to and whatever answers to it. A workspace's members are listed only to a
+	credential that may read it, ``workspace:read``, as its member listing is. Somebody who
+	administers accounts is answered with every account on the instance.
 
 	**Paged like every other listing here** (`SR#2384`). It used to take a ceiling of 200 rows
 	from the domain, supply no ``limit`` of its own, and answer with a literal
@@ -364,9 +366,9 @@ def one (
 	could not be done on its own (`SR#2384`).
 
 	**An account within the asker's reach**, as the listing is: one that shares a workspace with
-	them or is in their own chain, or any account for somebody who administers accounts. An
-	account outside it is answered as a name nobody has. This view carries no email address and
-	no content at all.
+	them, where they may read that workspace, or is in their own chain, or any account for
+	somebody who administers accounts. An account outside it is answered as a name nobody has.
+	This view carries no email address and no content at all.
 
 	Case-insensitive, because ``by_username`` resolves through the normalised column - ``Simon``
 	and ``simon`` being two accounts would be a trap rather than a feature.

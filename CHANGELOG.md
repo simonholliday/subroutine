@@ -278,7 +278,8 @@ upgrade involves.
   whoever shares a workspace with the asker and the asker's own chain - itself, whoever it
   answers to and whatever answers to it - and every account only to somebody who administers
   accounts. A credential pinned to a workspace or narrowed to some projects reads the accounts of
-  the workspaces it reaches. *Reading one account outside that now answers as a name nobody has.*
+  the workspaces it reaches, and one that may not read a workspace - narrowed to tasks alone, say -
+  reads only its own chain. *Reading one account outside that now answers as a name nobody has.*
   Naming somebody to act still works for any account - adding them to a workspace, sharing a
   project with them - and where everybody shares a workspace nothing changes.
 - **Whoever an agent answers to sees the private projects shared with it.** Somebody whose agent
