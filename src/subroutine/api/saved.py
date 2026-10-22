@@ -162,13 +162,14 @@ def list_views (
 		)
 	)
 	owners = _named(session, [row.owner_id for row in rows])
+	asked: subroutine.domain.saved.Asked = {}
 
 	return subroutine.views.Collection[subroutine.views.SavedView](
 		items=[
 			subroutine.views.saved_view_seen(
 				row,
 				owner=owners.get(row.owner_id),
-				may=subroutine.domain.saved.may(session, actor, row),
+				may=subroutine.domain.saved.may(session, actor, row, asked=asked),
 			)
 			for row in rows
 		],

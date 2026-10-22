@@ -68,15 +68,19 @@ import subroutine.db.models.work
 import subroutine.db.session
 import subroutine.domain.agenda
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.events
 import subroutine.domain.hierarchy
+import subroutine.domain.links
 import subroutine.domain.ordering
+import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.permissions
 import subroutine.views
 import test_api_tasks
 
@@ -2018,3 +2022,194 @@ def test_nothing_has_its_own_ceiling_that_is_not_measured_here () -> None:
 			f"{COMPOSITE_CEILING_MS:.0f} ms it exists to replace — so it is the same bound "
 			f"stated in a second place rather than an exception to it"
 		)
+
+
+def _asked_while (bind: sqlalchemy.Connection, work: typing.Callable[[], typing.Any]) -> tuple[int, typing.Any]:
+	"""Return how many statements ``work`` sent through ``bind``, and what it returned."""
+
+	statements: list[str] = []
+
+	def count (
+		conn: typing.Any,
+		cursor: typing.Any,
+		statement: str,
+		parameters: typing.Any,
+		context: typing.Any,
+		executemany: bool,
+	) -> None:
+		"""Note one statement."""
+
+		statements.append(statement)
+
+	sqlalchemy.event.listen(bind, "before_cursor_execute", count)
+
+	try:
+		done = work()
+
+	finally:
+		sqlalchemy.event.remove(bind, "before_cursor_execute", count)
+
+	return len(statements), done
+
+
+def test_naming_a_credentials_projects_asks_the_same_however_many_it_has (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5177`: ``keys_for`` asked once an id, so a credential with five projects cost seven
+	statements in every ``token list`` and ``/v1/me``. One question for all of them now."""
+
+	world = test_api_tasks._world(session)
+	principal = subroutine.domain.authentication.Principal(user=world.user)
+	made = [
+		subroutine.domain.projects.create(
+			session,
+			workspace_id=world.workspace.id,
+			key=f"errand-{number}",
+			title=f"Errand {number}",
+			owner_id=world.user.id,
+		)
+		for number in range(5)
+	]
+	ids = [str(one.id) for one in made]
+	session.flush()
+
+	one, named = _asked_while(
+		session.connection(), lambda: subroutine.domain.projects.keys_for(session, principal, ids[:1])
+	)
+	five, all_named = _asked_while(
+		session.connection(), lambda: subroutine.domain.projects.keys_for(session, principal, ids)
+	)
+
+	# The subject, so the count cannot pass by naming nothing: every id came back as an address.
+	assert not set(ids) & {*named, *all_named}, (named, all_named)
+	assert one == five, f"naming one project asked {one} questions and five asked {five}"
+
+
+def test_an_item_named_in_many_comments_is_read_in_the_same_few_questions (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5177`: each comment naming an item was fetched on its own, to find what it is on."""
+
+	world = test_api_tasks._world(session)
+
+	def filed (title: str) -> dict[str, typing.Any]:
+		"""File a task over HTTP and return it as the API reports it."""
+
+		made = world.call("POST", "/v1/tasks", json={"title": title})
+
+		assert made.status_code == 201, made.text
+
+		reported: dict[str, typing.Any] = made.json()
+
+		return reported
+
+	target = filed("Water the plants")
+	named = target["ref"]
+
+	def mention_it (times: int) -> None:
+		"""Write ``times`` more comments naming it, each on a task of its own."""
+
+		for _number in range(times):
+			said = world.call(
+				"POST",
+				f"/v1/tasks/{filed('Ring the dentist')['ref']}/comments",
+				json={"body": f"After #{named}."},
+			)
+
+			assert said.status_code == 201, said.text
+
+	def cited () -> typing.Any:
+		"""Read what names it, from a session holding no rows, as a request starts."""
+
+		session.expunge_all()
+
+		return subroutine.domain.links._citations(
+			session,
+			workspace_id=world.workspace.id,
+			entity_type="task",
+			identifier=uuid.UUID(target["id"]),
+			comments=True,
+		)
+
+	mention_it(1)
+	once, few = _asked_while(session.connection(), cited)
+	mention_it(4)
+	often, many = _asked_while(session.connection(), cited)
+
+	assert (len(few), len(many)) == (1, 5), (few, many)
+	assert once == often, f"one comment naming it asked {once} questions and five asked {often}"
+
+
+def test_the_workspaces_nobody_administers_are_found_in_the_same_few_questions (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5177`: who could repair each workspace was asked once a workspace, and, with somebody
+	leaving, whether they take part in it too."""
+
+	test_api_tasks._world(session)
+	leaving = subroutine.domain.users.create(session, username=f"cypher-{uuid.uuid4().hex[:6]}")
+	session.flush()
+
+	def found () -> tuple[int, int]:
+		"""Count what listing them asks, with nobody leaving and with somebody leaving."""
+
+		alone, _rows = _asked_while(
+			session.connection(), lambda: subroutine.domain.workspaces.unadministered(session)
+		)
+		going, _rows = _asked_while(
+			session.connection(),
+			lambda: subroutine.domain.workspaces.unadministered(session, leaving=leaving),
+		)
+
+		return alone, going
+
+	few = found()
+
+	for number in range(4):
+		subroutine.domain.workspaces.create(
+			session, slug=f"nebuchadnezzar-{number}-{uuid.uuid4().hex[:6]}", title="Ship", owner=leaving
+		)
+
+	session.flush()
+	many = found()
+
+	assert len(subroutine.domain.workspaces.on_instance(session)) >= 5
+	assert few == many, f"one workspace asked {few} questions and five asked {many}"
+
+
+def test_a_list_of_views_asks_for_task_write_once_however_many_it_holds (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5177`: every act on a view asked ``task:write`` of its workspace, once an act a view.
+
+	A listing asks it once for each way an act asks it, as the reader's own account or not, however
+	many views it holds. Each act's own refusal is still asked of each view, which is `#4577`'s point.
+	"""
+
+	world = test_api_tasks._world(session)
+
+	for _number in range(4):
+		body = {"title": f"Queue {uuid.uuid4().hex[:6]}", "arrangement": "board"}
+		made = world.call("POST", "/v1/views", json=body)
+
+		assert made.status_code == 201, made.text
+
+	asked: list[typing.Any] = []
+	authorize = subroutine.domain.authorization.authorize
+
+	def counted (
+		session: sqlalchemy.orm.Session, principal: typing.Any, permission: str, **given: typing.Any
+	) -> None:
+		"""Note each time ``task:write`` is asked, then ask it."""
+
+		if permission == subroutine.permissions.TASK_WRITE:
+			asked.append(given.get("own_account"))
+
+		authorize(session, principal, permission, **given)
+
+	monkeypatch.setattr(subroutine.domain.authorization, "authorize", counted)
+	listed = world.call("GET", "/v1/views")
+
+	assert listed.status_code == 200, listed.text
+	assert len(listed.json()["items"]) == 4, listed.json()
+	assert len(asked) <= 2, f"listing four views asked task:write {len(asked)} times"

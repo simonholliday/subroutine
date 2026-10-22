@@ -145,23 +145,15 @@ def repairers (
 	"""
 
 	model = subroutine.db.models.identity.User
-	people = sqlalchemy.select(model).where(
-		subroutine.domain.accountability.live(model), model.is_service_account.is_(False)
-	)
+	people = _people()
 
 	if isinstance(scope, str):
 		candidates = list(session.scalars(people.where(model.is_superuser.is_(True))))
 
 	elif isinstance(scope, (Administration, Ownership)):
-		member = subroutine.db.models.identity.WorkspaceMember
-		role = subroutine.db.models.identity.Role
-		rows = session.execute(
-			people.add_columns(role.permissions)
-			.join(member, member.user_id == model.id)
-			.join(role, role.id == member.role_id)
-			.where(member.workspace_id == scope.workspace_id)
-		).all()
-		candidates = [held for held, permissions in rows if _VERB[type(scope)] in (permissions or [])]
+		return repairers_of_each(session, type(scope), [scope.workspace_id], leaving=leaving)[
+			scope.workspace_id
+		]
 
 	else:
 		candidates = _seeing(session, scope, people, unsharing, afterwards)
@@ -171,6 +163,57 @@ def repairers (
 		for one in candidates
 		if subroutine.domain.accountability.can_act(session, one, leaving=leaving)
 	}
+
+
+def repairers_of_each (
+	session: sqlalchemy.orm.Session,
+	kind: type[Administration] | type[Ownership],
+	workspace_ids: typing.Collection[uuid.UUID],
+	*,
+	leaving: typing.Collection[uuid.UUID] = (),
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+	"""Return :func:`repairers` of each workspace's administration or ownership, asked once for all.
+
+	**The one statement of the rule for a workspace** (`SR#5177`), which :func:`repairers` asks of
+	one: an instance's listing of the workspaces nobody administers asked it once a workspace, four
+	statements for one and eight for five.
+	"""
+
+	model = subroutine.db.models.identity.User
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+	held: dict[uuid.UUID, list[subroutine.db.models.identity.User]] = {
+		one: [] for one in workspace_ids
+	}
+	rows = session.execute(
+		_people()
+		.add_columns(role.permissions, member.workspace_id)
+		.join(member, member.user_id == model.id)
+		.join(role, role.id == member.role_id)
+		.where(member.workspace_id.in_(held))
+	).all()
+
+	for person, permissions, workspace_id in rows:
+		if _VERB[kind] in (permissions or []):
+			held[workspace_id].append(person)
+
+	acts = {
+		person.id: subroutine.domain.accountability.can_act(session, person, leaving=leaving)
+		for people in held.values()
+		for person in people
+	}
+
+	return {where: {person.id for person in people if acts[person.id]} for where, people in held.items()}
+
+
+def _people () -> sqlalchemy.Select[subroutine.db.models.identity.User]:
+	"""Return the accounts that could repair anything: live people, never an agent."""
+
+	model = subroutine.db.models.identity.User
+
+	return sqlalchemy.select(model).where(
+		subroutine.domain.accountability.live(model), model.is_service_account.is_(False)
+	)
 
 
 def _seeing (
@@ -269,6 +312,31 @@ def _above (
 	return met
 
 
+def taking_part (
+	session: sqlalchemy.orm.Session,
+	kind: type[Administration] | type[Ownership],
+	workspace_ids: typing.Collection[uuid.UUID],
+	accounts: typing.Collection[uuid.UUID],
+) -> set[uuid.UUID]:
+	"""Return the workspaces whose administration or ownership any of these accounts holds a part in.
+
+	:func:`takes_part` for many workspaces, asked once (`SR#5177`), and its statement of the rule.
+	"""
+
+	if not accounts or not workspace_ids:
+		return set()
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+	rows = session.execute(
+		sqlalchemy.select(member.workspace_id, role.permissions)
+		.join(member, member.role_id == role.id)
+		.where(member.workspace_id.in_(workspace_ids), member.user_id.in_(accounts))
+	).all()
+
+	return {workspace_id for workspace_id, permissions in rows if _VERB[kind] in (permissions or [])}
+
+
 def departing (
 	session: sqlalchemy.orm.Session, leaving: subroutine.db.models.identity.User
 ) -> set[uuid.UUID]:
@@ -303,17 +371,7 @@ def takes_part (
 		return False
 
 	if isinstance(scope, (Administration, Ownership)):
-		member = subroutine.db.models.identity.WorkspaceMember
-		role = subroutine.db.models.identity.Role
-
-		return any(
-			_VERB[type(scope)] in (permissions or [])
-			for permissions in session.scalars(
-				sqlalchemy.select(role.permissions)
-				.join(member, member.role_id == role.id)
-				.where(member.workspace_id == scope.workspace_id, member.user_id.in_(accounts))
-			)
-		)
+		return scope.workspace_id in taking_part(session, type(scope), [scope.workspace_id], accounts)
 
 	membership = subroutine.db.models.project.ProjectMember
 

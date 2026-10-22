@@ -1670,13 +1670,27 @@ def _citations (
 			sqlalchemy.select(mention).where(mention.workspace_id == workspace_id, clause)
 		).all()
 
+		# **The comments these are written in, asked once** (`SR#5177`): one at a time, an item
+		# named in many comments cost a statement for each.
+		written_in: dict[uuid.UUID, subroutine.db.models.activity.Comment] = {}
+
+		if other is None and rows:
+			written_in = {
+				one.id: one
+				for one in session.scalars(
+					sqlalchemy.select(comment).where(
+						comment.id.in_({row.source_id for row in rows}), comment.deleted_at.is_(None)
+					)
+				)
+			}
+
 		for row in rows:
 			if other is None:
 				# A comment naming this item: the citing item is whatever the comment is on,
 				# which needs the comment row rather than the mention.
-				on = session.get(comment, row.source_id)
+				on = written_in.get(row.source_id)
 
-				if on is None or on.deleted_at is not None:
+				if on is None:
 					continue
 
 				key = (on.entity_type, on.entity_id)

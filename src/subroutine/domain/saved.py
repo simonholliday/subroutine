@@ -658,10 +658,17 @@ _SAID: dict[str | None, str] = {
 }
 
 
+#: What a listing has been told of ``task:write`` in a workspace, as the reader's own account or
+#: not: ``None`` where it may, the refusal where it may not - :func:`may`, `SR#5177`.
+Asked = dict[tuple[uuid.UUID, bool], subroutine.errors.SubroutineError | None]
+
+
 def may (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	row: subroutine.db.models.saved.SavedView,
+	*,
+	asked: Asked | None = None,
 ) -> list[str]:
 	"""Return what this reader may do with a saved view, each asked of the check that act makes.
 
@@ -671,6 +678,9 @@ def may (
 	verification narrowed it). Each act's own refusal answers here, so the offer and the act cannot
 	disagree. **Only the acts that apply**: sharing a shared view, or unsharing one that is not, is
 	no act at all.
+
+	**A listing passes ``asked``** (`SR#5177`), so ``task:write``, which every act asks the same way
+	of a workspace, is asked once a listing rather than once an act a view.
 	"""
 
 	allowed = []
@@ -680,7 +690,7 @@ def may (
 			continue
 
 		try:
-			_refuse(session, actor, row, act)
+			_refuse(session, actor, row, act, asked=asked)
 
 		except (subroutine.errors.Forbidden, subroutine.errors.NotFound):
 			continue
@@ -690,11 +700,51 @@ def may (
 	return allowed
 
 
+def _refuse_writing (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace_id: uuid.UUID,
+	own: bool,
+	asked: Asked | None,
+) -> None:
+	"""Refuse ``task:write`` in a workspace unless this reader holds it, once a listing where one asks."""
+
+	key = (workspace_id, own)
+
+	if asked is not None and key in asked:
+		refused = asked[key]
+
+		if refused is not None:
+			raise refused
+
+		return
+
+	try:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.TASK_WRITE,
+			workspace_id=workspace_id,
+			own_account=own,
+		)
+
+	except (subroutine.errors.Forbidden, subroutine.errors.NotFound) as refusal:
+		if asked is not None:
+			asked[key] = refusal
+
+		raise
+
+	if asked is not None:
+		asked[key] = None
+
+
 def _refuse (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	row: subroutine.db.models.saved.SavedView,
 	act: str | None,
+	*,
+	asked: Asked | None = None,
 ) -> None:
 	"""Refuse ``act`` on a view unless this reader may take it - the one statement of each act's rule.
 
@@ -707,13 +757,7 @@ def _refuse (
 	change that changes nothing, which asks only who may manage it.
 	"""
 
-	subroutine.domain.authorization.authorize(
-		session,
-		actor,
-		subroutine.permissions.TASK_WRITE,
-		workspace_id=row.workspace_id,
-		own_account=act != "forget" or not row.shared,
-	)
+	_refuse_writing(session, actor, row.workspace_id, act != "forget" or not row.shared, asked)
 
 	if act == "change":
 		_refuse_somebody_elses(row, actor)

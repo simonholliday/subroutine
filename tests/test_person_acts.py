@@ -300,7 +300,7 @@ NOT_DECIDING: dict[str, str] = {
 		"Walks up from whoever holds a row on a private project to whoever sees through it "
 		"(decision `#4943`): who a last-one refusal counts, never what the actor may do."
 	),
-	"repair.py:repairers": (
+	"repair.py:_people": (
 		"Who could repair a scope is people, not agents (decision `#4526`): whom a last-one "
 		"refusal counts, never what the actor may do."
 	),

@@ -1608,12 +1608,18 @@ def _left_with_nobody (
 		gone = (leaving.id,)
 		theirs = subroutine.domain.repair.departing(session, leaving)
 
+	# **Asked once over every workspace** (`SR#5177`), where it was asked once a workspace.
+	everywhere = on_instance(session, actor=actor)
+	places = [one.workspace.id for one in everywhere]
+	repairing = subroutine.domain.repair.repairers_of_each(session, kind, places, leaving=gone)
+	involved = (
+		set(places)
+		if leaving is None
+		else subroutine.domain.repair.taking_part(session, kind, places, theirs)
+	)
+
 	return [
 		one
-		for one in on_instance(session, actor=actor)
-		if not subroutine.domain.repair.repairers(session, kind(one.workspace.id), leaving=gone)
-		and (
-			leaving is None
-			or subroutine.domain.repair.takes_part(session, kind(one.workspace.id), theirs)
-		)
+		for one in everywhere
+		if not repairing[one.workspace.id] and one.workspace.id in involved
 	]

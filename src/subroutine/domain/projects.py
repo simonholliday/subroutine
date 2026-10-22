@@ -915,18 +915,23 @@ def keys_for (
 	The listing asks reach itself since `#4675`, so nothing here names the workspaces.
 	"""
 
-	named: list[str | subroutine.db.models.project.Project] = []
+	# **Every id at once** (`SR#5177`): one at a time, a credential with five projects cost seven
+	# statements, once per credential in every token listing and ``/v1/me``.
+	wanted: dict[str, uuid.UUID] = {}
 
 	for identifier in identifiers:
 		try:
-			wanted = uuid.UUID(str(identifier))
+			wanted[identifier] = uuid.UUID(str(identifier))
 
 		except ValueError:
-			named.append(identifier)
-
 			continue
 
-		found = session.scalars(
+	if not wanted:
+		return list(identifiers)
+
+	found = {
+		row.id: row
+		for row in session.scalars(
 			# **Named, not read, and the reason is whose rows these are** (`#930`,
 			# `scoping.nameable_projects`). Every id here came out of the caller's *own* token, so
 			# naming them discloses nothing they do not already hold — where a listing of
@@ -938,15 +943,15 @@ def keys_for (
 			# somebody cannot see is still passed through as its stored id.
 			subroutine.domain.scoping.nameable_projects(
 				session, principal, include_deleted=True, include_archived=True
-			).where(subroutine.db.models.project.Project.id == wanted)
-		).first()
+			).where(subroutine.db.models.project.Project.id.in_(set(wanted.values())))
+		)
+	}
+	addresses = paths_for(session, list(found))
 
-		named.append(identifier if found is None else found)
-
-	rows = [item for item in named if not isinstance(item, str)]
-	addresses = paths_for(session, [row.id for row in rows])
-
-	return [item if isinstance(item, str) else addresses[item.id] for item in named]
+	return [
+		addresses[wanted[identifier]] if wanted.get(identifier) in found else identifier
+		for identifier in identifiers
+	]
 
 
 def restore (

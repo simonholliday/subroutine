@@ -162,3 +162,48 @@ def test_what_a_view_offers_is_exactly_what_the_instance_allows (world: test_api
 	# Three acts apply to each view, for four readers and two views, less the private view's six for
 	# the two who cannot see it.
 	assert tried == 18, f"{tried} acts were tried where 18 apply, so the scene is not what it says"
+
+
+def test_a_list_of_views_offers_what_each_view_offers_on_its_own (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#5177`: a listing asks ``task:write`` once for all its views, and offers each exactly what
+	reading that view alone offers - a refusal included, which the author demoted to viewer meets
+	on every view while every other check lets them through."""
+
+	trinity = _member(world, "trinity", "member")
+	keanu = _member(world, "keanu", "member")
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+
+	for shared in (False, True, False, True):
+		_saved(world, trinity, shared=shared)
+
+	author = _secret(world, trinity)
+	readers = {
+		"its author": author,
+		"an administrator": world.secret,
+		"another member": _secret(world, keanu),
+		"its author, narrowed": _secret(world, trinity, project_write_scope=[inbox]),
+	}
+
+	def compared (who: str, secret: str) -> int:
+		"""Hold each listed view's offer to the view's own, and return how many were compared."""
+
+		listed = _as(world, secret, "GET", "/v1/views")
+
+		assert listed.status_code == 200, listed.text
+
+		for item in listed.json()["items"]:
+			alone = _as(world, secret, "GET", f"/v1/views/{item['key']}").json()["may"]
+
+			assert item["may"] == alone, (who, item["key"], item["may"], alone)
+
+		return len(listed.json()["items"])
+
+	seen = sum(compared(who, secret) for who, secret in readers.items())
+	subroutine.domain.workspaces.set_member_role(world.session, world.workspace, trinity, role_key="viewer")
+	world.session.flush()
+
+	# The author's four, the shared two for the administrator and the other member, and the four again.
+	assert seen == 12, f"{seen} views were compared, so the scene is not what it says"
+	assert compared("its author, demoted to viewer", author) == 4
