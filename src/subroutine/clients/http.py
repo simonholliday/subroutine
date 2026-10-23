@@ -1361,6 +1361,22 @@ class Client:
 			wanted=limit,
 		)
 
+	def sign_ins (
+		self, *, limit: int | None = None
+	) -> subroutine.clients.base.Listing[subroutine.views.SignIn]:
+		"""List every account and when it last signed in."""
+
+		asking = _given(limit=limit)
+
+		return self._collected(
+			subroutine.views.SignIn,
+			self._json("GET", "/v1/admin/sign-ins", params=asking),
+			endpoint="sign-ins",
+			path="/v1/admin/sign-ins",
+			params=list(asking.items()),
+			wanted=limit,
+		)
+
 	def create_user (
 		self,
 		*,

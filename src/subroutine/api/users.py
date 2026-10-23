@@ -28,6 +28,7 @@ import typing
 
 import fastapi
 import sqlalchemy
+import sqlalchemy.orm
 
 import subroutine.api.dependencies
 import subroutine.api.pagination
@@ -35,6 +36,7 @@ import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
+import subroutine.config
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.ordering
@@ -225,6 +227,68 @@ def update (
 	)
 
 
+def paged (
+	session: sqlalchemy.orm.Session,
+	settings: subroutine.config.Settings,
+	statement: sqlalchemy.Select[subroutine.db.models.identity.User],
+	*,
+	limit: int | None,
+	cursor: str | None,
+	include_total: bool,
+	collection: str,
+) -> tuple[list[subroutine.db.models.identity.User], subroutine.views.Page]:
+	"""Return one page of these accounts, oldest first, and where it sits - `SR#5111`.
+
+	**One copy of how accounts are paged**, for the directory and for an administrator's listing of
+	sign-ins: the same order and the same cursor, so a page boundary cannot fall in two places.
+	``collection`` is signed into the cursor, so one listing's cannot be replayed on the other.
+	"""
+
+	model = subroutine.db.models.identity.User
+	keys = subroutine.api.pagination.parse_order(
+		None,
+		allowed=subroutine.domain.ordering.USER_FIELDS,
+		default=subroutine.domain.ordering.DEFAULT_USER_ORDER,
+		tiebreak=model.id,
+	)
+	size = subroutine.domain.paging.size(limit, settings)
+	total = None
+
+	if include_total:
+		total = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
+		)
+
+	if cursor is not None:
+		statement = statement.where(
+			subroutine.api.pagination.after(
+				keys,
+				subroutine.api.pagination.decode(
+					settings.require_secret_key(), keys, cursor, collection=collection
+				),
+			)
+		)
+
+	found = list(
+		session.scalars(statement.order_by(*[key.ordering() for key in keys]).limit(size + 1))
+	)
+	has_more = len(found) > size
+	found = found[:size]
+
+	return found, subroutine.views.Page(
+		limit=size,
+		has_more=has_more,
+		next_cursor=(
+			subroutine.api.pagination.encode(
+				settings.require_secret_key(), keys, found[-1], collection=collection
+			)
+			if has_more and found
+			else None
+		),
+		total=total,
+	)
+
+
 @router.get(
 	"",
 	summary="List the accounts on this instance",
@@ -284,38 +348,16 @@ def listing (
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
-	model = subroutine.db.models.identity.User
 	statement = subroutine.domain.users.readable(session, actor=actor, answers_to=answers_to)
-
-	keys = subroutine.api.pagination.parse_order(
-		None,
-		allowed=subroutine.domain.ordering.USER_FIELDS,
-		default=subroutine.domain.ordering.DEFAULT_USER_ORDER,
-		tiebreak=model.id,
+	found, page = paged(
+		session,
+		settings,
+		statement,
+		limit=limit,
+		cursor=cursor,
+		include_total=include_total,
+		collection="users",
 	)
-	size = subroutine.domain.paging.size(limit, settings)
-	total = None
-
-	if include_total:
-		total = session.scalar(
-			sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
-		)
-
-	if cursor is not None:
-		statement = statement.where(
-			subroutine.api.pagination.after(
-				keys,
-				subroutine.api.pagination.decode(
-					settings.require_secret_key(), keys, cursor, collection="users"
-				),
-			)
-		)
-
-	found = list(
-		session.scalars(statement.order_by(*[key.ordering() for key in keys]).limit(size + 1))
-	)
-	has_more = len(found) > size
-	found = found[:size]
 
 	# **One walk for the whole page** (`#1420`). Resolving a chain per row is §8.4's N+1
 	# wearing a rendering hat, and this listing is where a fleet of agents shows up.
@@ -331,18 +373,7 @@ def listing (
 			subroutine.views.user(row, answers_to=answerable.get(row.id), account_parent=parents.get(row.id))
 			for row in found
 		],
-		subroutine.views.Page(
-			limit=size,
-			has_more=has_more,
-			next_cursor=(
-				subroutine.api.pagination.encode(
-					settings.require_secret_key(), keys, found[-1], collection="users"
-				)
-				if has_more and found
-				else None
-			),
-			total=total,
-		),
+		page,
 		shape,
 	)
 

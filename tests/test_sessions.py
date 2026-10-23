@@ -119,15 +119,14 @@ def test_a_service_account_never_reports_a_login (
 	"""Null on an agent is the answer rather than a gap — `#526`.
 
 	`_refuse_a_service_account` already stops one being given a link, so this asserts the
-	*consequence* an operator sees: a directory listing people and agents together shows a
-	login for one kind and never for the other, and that difference is information.
+	*consequence* an operator sees: an administrator's listing of sign-ins, people and agents
+	together, shows one for one kind and never for the other, and that difference is information
+	(`SR#5111`).
 	"""
 
 	agent = _make_user(session, is_service_account=True)
 
-	# `answers_to` is required and this test is about a different field, so it says so rather
-	# than defaulting — which is the whole point of the argument being required (`SR#1420`).
-	assert subroutine.views.user(agent, answers_to=None, account_parent=None).last_login_at is None
+	assert subroutine.views.sign_in(agent).last_login_at is None
 
 
 def test_a_link_works_once (session: sqlalchemy.orm.Session) -> None:

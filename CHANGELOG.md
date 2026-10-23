@@ -37,6 +37,13 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **When an account last signed in is its own and its administrators'.** *This is a breaking
+  change*: `last_login_at` is no longer on an account read by anybody else - in `GET /v1/users`,
+  `GET /v1/users/{username}`, a workspace's or a project's members, `subroutine user list --json`
+  and an export's `users.jsonl` - since it told a colleague how often somebody uses the browser.
+  Your own is on `GET /v1/me`, and somebody who administers accounts reads every account's on
+  `GET /v1/admin/sign-ins`.
+
 - **Two unshares made at once can no longer leave a private project with nobody who can see it.**
   Each counted the other's person as staying, so both went through. The second waits for the
   first now and is refused, as it would have been a moment later - and so is an unshare made while

@@ -1137,6 +1137,14 @@ class Client(typing.Protocol):
 		from a laptop, which is the case a page called "Running it for a team" is about.
 		"""
 
+	def sign_ins (self, *, limit: int | None = None) -> Listing[subroutine.views.SignIn]:
+		"""List every account and when it last signed in, oldest first - `SR#5111`.
+
+		**An administrator's listing of its own** (decision `#5097`): when somebody last signed in
+		is theirs and their administrators', so it is not on the account a colleague reads. Needs
+		``instance:user_create``, and pages as :meth:`users` does.
+		"""
+
 	def create_user (
 		self,
 		*,

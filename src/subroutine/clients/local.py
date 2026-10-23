@@ -2636,6 +2636,35 @@ class Client:
 				has_more=len(found) > size,
 			)
 
+	def sign_ins (
+		self, *, limit: int | None = None
+	) -> subroutine.clients.base.Listing[subroutine.views.SignIn]:
+		"""List every account and when it last signed in."""
+
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
+		model = subroutine.db.models.identity.User
+
+		with self._opened() as (session, actor):
+			statement = subroutine.domain.users.sign_ins(session, actor=actor)
+
+			# The order ``GET /v1/admin/sign-ins`` pages by, which is the directory's (`#501`).
+			found = list(
+				session.scalars(
+					statement.order_by(
+						*subroutine.domain.ordering.clauses(
+							None,
+							allowed=subroutine.domain.ordering.USER_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_USER_ORDER,
+							tiebreak=model.id,
+						)
+					).limit(size + 1)
+				)
+			)
+
+			return subroutine.clients.base.Listing(
+				[subroutine.views.sign_in(row) for row in found[:size]], has_more=len(found) > size
+			)
+
 	def create_user (
 		self,
 		*,

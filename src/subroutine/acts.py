@@ -152,6 +152,13 @@ ACTS: tuple[Act, ...] = (
 			place=INSTALLATION,
 			reads=True,
 		),
+		Act(
+			"sign-ins",
+			"List when each account last signed in",
+			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
+			place=INSTALLATION,
+			reads=True,
+		),
 		# **The credential's permission alone** (`SR#5124`): every workspace it reaches is listed, so no
 		# one place is asked.
 		Act(

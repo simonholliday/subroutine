@@ -7,8 +7,12 @@ the floor out from under its own request is not a feature, and §12.4's recovery
 depends on the administrative commands working when the service will *not* start. Restore is
 ``subroutine db restore``, and only that.
 
-Both endpoints require ``instance:admin``, which no role may carry: it is held only by a
-superuser, and a token still narrows it (§7.3).
+**When each account last signed in is listed here too** (`SR#5111`, decision `#5097`), the other
+listing for an administrator: it left the account view every co-member reads, since it says how
+often somebody uses the browser.
+
+The backups require ``instance:admin`` and the sign-ins ``instance:user_create``. No role may
+carry either: each is held only by a superuser, and a token still narrows it (§7.3).
 """
 
 import datetime
@@ -17,10 +21,14 @@ import fastapi
 import pydantic
 
 import subroutine.api.dependencies
+import subroutine.api.pagination
 import subroutine.api.routing
 import subroutine.api.security
+import subroutine.api.users
 import subroutine.db.backup
 import subroutine.domain.backups
+import subroutine.domain.users
+import subroutine.views
 
 router = fastapi.APIRouter(
 	prefix="/v1/admin",
@@ -126,4 +134,44 @@ def list_backups (
 	return Backups(
 		items=[_rendered(backup) for backup in found],
 		unfinished=[copy.name for copy in unfinished],
+	)
+
+
+@router.get(
+	"/sign-ins",
+	summary="List when each account last signed in",
+	response_model=subroutine.views.Collection[subroutine.views.SignIn],
+)
+def sign_ins (
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
+	limit: int | None = fastapi.Query(
+		None, description=subroutine.api.pagination.LIMIT_DESCRIPTION
+	),
+	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
+	include_total: bool = fastapi.Query(False, description="Count the whole result."),
+) -> subroutine.views.Collection[subroutine.views.SignIn]:
+	"""List every account on this instance and when it last signed in, oldest account first.
+
+	Needs ``instance:user_create``, which no role carries and only a superuser holds. When somebody
+	last signed in says how often they use the browser, so it is not on the account a colleague
+	reads; the account itself reads its own on ``GET /v1/me``.
+
+	A sign-in is a sign-in link opened in a browser, and null means never: the ordinary answer for
+	an agent, which presents a token instead. Paged as ``GET /v1/users`` is, in the same order.
+	"""
+
+	found, page = subroutine.api.users.paged(
+		session,
+		settings,
+		subroutine.domain.users.sign_ins(session, actor=actor),
+		limit=limit,
+		cursor=cursor,
+		include_total=include_total,
+		collection="sign-ins",
+	)
+
+	return subroutine.views.Collection[subroutine.views.SignIn](
+		items=[subroutine.views.sign_in(row) for row in found], page=page
 	)

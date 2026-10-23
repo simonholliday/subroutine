@@ -2051,21 +2051,6 @@ class User(pydantic.BaseModel):
 
 	created_at: datetime.datetime | None
 
-	#: When this account last **signed in** — a login link redeemed into a browser session
-	#: (`#526`). Null means never, which on a service account is the ordinary state: an agent
-	#: presents a token and never signs in at all, so this is null for it forever and that is
-	#: the honest answer rather than a gap. *When was this credential last used* is a different
-	#: question and `Token.last_used_at` answers it.
-	#:
-	#: Reported here rather than only to the account itself because the question it answers is
-	#: an operator's — *is anybody still using this account* — which is the same question
-	#: ``is_active`` is beside. It is not an email: §5's rule is that identifiers are public and
-	#: content is not, and a login timestamp is neither content nor a contact route.
-	#:
-	#: Defaulted for `#345`'s reason: added after this model shipped, so an older instance's
-	#: body must still parse.
-	last_login_at: datetime.datetime | None = None
-
 	def address (self) -> str:
 		"""Return what a caller addresses this by — the username."""
 
@@ -2130,6 +2115,27 @@ class Caller(pydantic.BaseModel):
 	#: The person at the end of the chain, as :attr:`User.answers_to` reports it about anybody -
 	#: here about oneself, so a sub-agent can see both links. Defaulted for `#345`'s reason.
 	answers_to: str | None = None
+
+	#: When this account last **signed in** - a sign-in link redeemed into a browser session
+	#: (`#526`). Null means never, which on a service account is the ordinary state, since an agent
+	#: presents a token. **Told to the account itself here and to an administrator of accounts by
+	#: :class:`SignIn`** (`SR#5111`, decision `#5097`), and on no account a colleague reads: it says
+	#: how often somebody uses the browser. Defaulted for `#345`'s reason.
+	last_login_at: datetime.datetime | None = None
+
+
+class SignIn(pydantic.BaseModel):
+	"""When one account last signed in, as somebody who administers accounts reads it.
+
+	A sign-in is a sign-in link opened in a browser. It is not on the account a colleague reads,
+	since it says how often somebody uses the browser: the account reads its own on ``GET /v1/me``.
+	"""
+
+	username: str
+
+	#: Null means never, which is the ordinary answer for an agent: it presents a token and never
+	#: signs in, and a token's ``last_used_at`` says when that was last used.
+	last_login_at: datetime.datetime | None
 
 
 class Credential(pydantic.BaseModel):
@@ -5667,7 +5673,6 @@ def user (
 		account_parent=account_parent,
 		timezone=row.timezone,
 		created_at=row.created_at,
-		last_login_at=row.last_login_at,
 	)
 
 
@@ -5787,7 +5792,14 @@ def caller (
 		is_service_account=row.is_service_account,
 		account_parent=account_parent,
 		answers_to=answers_to,
+		last_login_at=row.last_login_at,
 	)
+
+
+def sign_in (row: subroutine.db.models.identity.User) -> SignIn:
+	"""Render when one account last signed in, for an administrator of accounts - `SR#5111`."""
+
+	return SignIn(username=row.username, last_login_at=row.last_login_at)
 
 
 def credential (

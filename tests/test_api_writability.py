@@ -177,11 +177,6 @@ DERIVED: dict[str, str] = {
 	#: `path` is a materialised path of **ids** and `views.Project`'s own docstring warns it is
 	#: not an address (`#986` published one by mistake and printed a UUID at a reader).
 	"path": "the materialised path of ancestor ids, rewritten by a move rather than sent.",
-
-	#: **`#526`.** Written by `domain.sessions.redeem` when a login link becomes a browser
-	#: session, which is the only moment anybody signs in. A caller cannot set it and should
-	#: not be able to: an account that could stamp its own last login could claim to be in use.
-	"last_login_at": "when this account last signed in; the sign-in writes it, never a caller.",
 	"depth": "how far down the tree this sits, counted from the path.",
 
 	#: **`SR#1414`, spec `SR#1368`.** What the named account *is*, and who is accountable for
@@ -849,6 +844,12 @@ INTERNAL: dict[str, str] = {
 		"§7.1 makes an address a way to reach somebody rather than a fact about them, and "
 		"nothing in the product mails anybody yet. Publishing every member's address on a "
 		"listing any member can read is a decision nobody has taken."
+	),
+	"User.last_login_at": (
+		"`SR#5111`, decision `#5097`. Reported to the account itself as `Caller.last_login_at` "
+		"and to an administrator of accounts as `SignIn.last_login_at`, and never on the view "
+		"every co-member reads: when somebody last signed in says how often they use the "
+		"browser. `domain.sessions.redeem` writes it, and no caller can."
 	),
 
 	# **Everything below was excused by a bare name in ``DERIVED`` until `#4051`**, which is a

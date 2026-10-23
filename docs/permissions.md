@@ -41,6 +41,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | List the workspaces nobody can administer | `instance:admin` | the installation | Never through the agent tools. |
 | List the workspaces with no owner who can act | `instance:admin` | the installation | Never through the agent tools. |
 | List the installation's backups | `instance:admin` | the installation | Never through the agent tools. |
+| List when each account last signed in | `instance:user_create` | the installation | Never through the agent tools. |
 | List the workspaces one reaches | `workspace:read` | - | - |
 
 ## Reading a workspace

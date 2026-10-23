@@ -621,6 +621,26 @@ def readable (
 	return statement.where(model.id.in_([one.id for one in answering]))
 
 
+def sign_ins (
+	session: sqlalchemy.orm.Session, *, actor: subroutine.domain.authentication.Principal
+) -> sqlalchemy.Select[subroutine.db.models.identity.User]:
+	"""Return the statement behind an administrator's listing of sign-ins - `SR#5111`.
+
+	**When an account last signed in is its own and its administrators'** (decision `#5097`): it
+	was on the view every co-member reads, which told a colleague how often somebody uses the
+	browser. The account reads its own on ``/v1/me``, and somebody who holds
+	``instance:user_create`` reads every account's here - a listing of its own rather than a second
+	shape of the shared view decided per reader, which decision `#4943` declined. Refused to
+	anybody else, and every account it holds is one :func:`readable` gives such an administrator.
+	"""
+
+	subroutine.domain.authorization.authorize_instance(
+		actor, subroutine.permissions.INSTANCE_USER_CREATE, reading=True
+	)
+
+	return readable(session, actor=actor)
+
+
 def reached (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,

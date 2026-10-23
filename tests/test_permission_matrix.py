@@ -625,6 +625,9 @@ DRIVES: dict[str, Drive] = {
 	"calendars": Drive(
 		lambda c, s: c.calendars(),
 	),
+	"sign-ins": Drive(
+		lambda c, s: c.sign_ins(),
+	),
 	"instance workspaces": Drive(
 		lambda c, s: c.instance_workspaces(),
 	),

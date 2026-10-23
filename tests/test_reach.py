@@ -212,6 +212,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/calendars"): "calendars",
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/users/{username}"): "user",
+	("GET", "/v1/admin/sign-ins"): "sign_ins",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 	("GET", "/v1/projects/{id_or_key:path}/members"): "project_members",
 	# What a settings page reads — `SR#2450`.
@@ -367,6 +368,12 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"sign_ins": (
+		"administrative",
+		"`SR#5111`. Decided without a command (decision `#5097`): an administrator of accounts "
+		"reads when each account last signed in through the API, and `subroutine user sign-ins` "
+		"was not taken. **What would remove it**: a command for it, which is a decision of its own.",
+	),
 	"count_documents": (
 		"protocol",
 		"`#4435`. It exists so the conventions can say how many drafts would bind a reader without "
@@ -546,6 +553,10 @@ NOT_IN_MCP: dict[str, Excuse] = {
 	"unowned_workspaces": (
 		"budget",
 		"`SR#4569`. *Which workspaces have no owner who can act* is the other question `user deactivate` asks before it acts, gated as the one above is by `instance:admin`, which a session through the agent tools never holds (decision `#4520`). `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",
+	),
+	"sign_ins": (
+		"budget",
+		"`SR#5111`. When each account last signed in is an administrator's question, gated by `instance:user_create`, which no role carries and which a session through the agent tools never holds (decision `#4520`). `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",
 	),
 	"instance_workspaces": (
 		"budget",
