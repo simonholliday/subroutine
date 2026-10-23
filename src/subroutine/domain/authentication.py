@@ -719,7 +719,15 @@ def undominated (
 
 	held = set(presenter.scopes)
 
-	if held and (not target.scopes or not set(target.scopes) <= held):
+	# **Only the verbs this build knows** (`SR#5114`, a bullet of L-7 of the cold review of
+	# 2026-10-17). A credential issued before ``token:admin`` was deleted keeps the name in its
+	# stored scopes, and no credential can hold it any more, so none of its owner's narrowed
+	# credentials could list or revoke it. A name that gates nothing grants nothing, as the role
+	# check says, so a credential scoped to retired names alone can do nothing and any of them may
+	# stop it. Asking to mint one is still refused, as a permission the instance does not have.
+	wanted = set(target.scopes) & subroutine.permissions.ALL
+
+	if held and (not target.scopes or not wanted <= held):
 		return subroutine.errors.FieldError(
 			field="scopes",
 			code="forbidden",
