@@ -1146,20 +1146,9 @@ def _refuse_leaving_nobody_to_repair (
 	nobody could repair already is not this act's to refuse.
 	"""
 
-	place = subroutine.db.models.identity.Workspace
-
 	# **The workspace is locked before anybody is counted** (`#1178`), so two callers each removing
-	# or demoting one of the last two cannot each count the other as staying: the second waits for
-	# the first, then counts what it left. **By a write that changes nothing** (`#3899`), which
-	# takes SQLite's one writer's lock where a read takes none, and on PostgreSQL the lock ``FOR NO
-	# KEY UPDATE`` takes: ``FOR UPDATE`` waited on the check a foreign key makes on the workspace, so
-	# a promotion recording its event beside a removal deadlocked with it.
-	session.execute(
-		sqlalchemy.update(place)
-		.where(place.id == workspace.id)
-		.values(updated_at=place.updated_at)
-		.execution_options(synchronize_session=False)
-	)
+	# or demoting one of the last two cannot each count the other as staying.
+	subroutine.domain.repair.lock_for_counting(session, workspace.id)
 
 	if administering and _strands(
 		session, subroutine.domain.repair.Administration(workspace.id), losing.user_id

@@ -1882,6 +1882,11 @@ def unshare (
 			session, actor, project, act="remove somebody else from it", field="username"
 		)
 
+	# **The workspace is locked before anybody is counted** (`SR#5113`, a bullet of L-7 of the cold
+	# review of 2026-10-17), as removing somebody locks it: two unshares, or an unshare beside a
+	# removal, each counted the other's person as staying and left a private project nobody sees.
+	subroutine.domain.repair.lock_for_counting(session, project.workspace_id)
+
 	membership = _membership_of(session, project, user.id)
 
 	if membership is None:
@@ -2059,15 +2064,9 @@ def _refuse_stranding (
 	the move would hide it beneath.
 	"""
 
-	# **The workspace is locked before anybody is counted**, as removing somebody locks it (`#1178`,
-	# `#3899`), so this cannot race a removal or an unshare counting the same people.
-	place = subroutine.db.models.identity.Workspace
-	session.execute(
-		sqlalchemy.update(place)
-		.where(place.id == project.workspace_id)
-		.values(updated_at=place.updated_at)
-		.execution_options(synchronize_session=False)
-	)
+	# **The workspace is locked before anybody is counted**, as removing somebody and unsharing lock
+	# it, so this cannot race either counting the same people.
+	subroutine.domain.repair.lock_for_counting(session, project.workspace_id)
 
 	model = subroutine.db.models.project.Project
 	inside = list(

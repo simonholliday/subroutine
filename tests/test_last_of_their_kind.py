@@ -28,9 +28,11 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.session
 import subroutine.domain.bootstrap
 import subroutine.domain.events
+import subroutine.domain.projects
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -41,6 +43,7 @@ Step = typing.Callable[[sqlalchemy.orm.Session], object]
 
 Workspace = subroutine.db.models.identity.Workspace
 User = subroutine.db.models.identity.User
+Project = subroutine.db.models.project.Project
 
 
 @dataclasses.dataclass
@@ -437,3 +440,88 @@ def test_deleting_a_workspace_does_not_hold_up_filing_in_another (committed: Com
 				filing.rollback()
 
 		deleting.rollback()
+
+
+def _a_private_project_two_people_see (
+	committed: Committed,
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
+	"""Make a private project whose owner has left and whom two members see, and return the
+	workspace, the project and the two people.
+
+	**Its owner has left**, since an owner who can act cannot be unshared and would be left seeing
+	it whatever the race did.
+	"""
+
+	with committed.factory() as setup:
+		founder = subroutine.domain.users.create(setup, username=_named("founder"))
+		trinity = subroutine.domain.users.create(setup, username=_named("trinity"))
+		neo = subroutine.domain.users.create(setup, username=_named("neo"))
+		workspace = subroutine.domain.workspaces.create(
+			setup, slug=_named("team"), title="Team", owner=founder
+		)
+		subroutine.domain.workspaces.add_member(setup, workspace, trinity, role_key="member")
+		subroutine.domain.workspaces.add_member(setup, workspace, neo, role_key="member")
+		project = subroutine.domain.projects.create(
+			setup,
+			workspace_id=workspace.id,
+			key="zion",
+			title="Zion",
+			visibility="private",
+			owner_id=founder.id,
+		)
+		subroutine.domain.projects.share(setup, project, trinity)
+		subroutine.domain.projects.share(setup, project, neo)
+		subroutine.domain.users.set_active(setup, founder, active=False)
+		setup.commit()
+
+	committed.users += [founder.id, trinity.id, neo.id]
+	committed.workspaces.append(workspace.id)
+
+	return workspace.id, project.id, trinity.id, neo.id
+
+
+def test_two_callers_cannot_unshare_a_private_project_s_last_two_people (
+	committed: Committed,
+) -> None:
+	"""`SR#5113`: each unshare alone leaves the other person; at once, the second is refused too."""
+
+	_workspace, project, trinity, neo = _a_private_project_two_people_see(committed)
+
+	def unsharing (user_id: uuid.UUID) -> Step:
+		"""Return a step that takes one person's sight of the project away."""
+
+		return lambda session: subroutine.domain.projects.unshare(
+			session, session.get_one(Project, project), session.get_one(User, user_id)
+		)
+
+	with pytest.raises(
+		subroutine.errors.ValidationError, match="would leave no person able to reach"
+	):
+		_two_at_once(committed.factory, unsharing(trinity), unsharing(neo))
+
+
+def test_an_unshare_beside_a_removal_cannot_leave_a_private_project_with_nobody (
+	committed: Committed,
+) -> None:
+	"""`SR#5113`: one of its two people taken out of the workspace while the other is unshared."""
+
+	workspace, project, trinity, neo = _a_private_project_two_people_see(committed)
+
+	def removing (session: sqlalchemy.orm.Session) -> None:
+		"""Take trinity out of the workspace."""
+
+		subroutine.domain.workspaces.remove_member(
+			session, session.get_one(Workspace, workspace), session.get_one(User, trinity)
+		)
+
+	def unsharing (session: sqlalchemy.orm.Session) -> None:
+		"""Take neo's sight of the project away."""
+
+		subroutine.domain.projects.unshare(
+			session, session.get_one(Project, project), session.get_one(User, neo)
+		)
+
+	with pytest.raises(
+		subroutine.errors.ValidationError, match="would leave no person able to reach"
+	):
+		_two_at_once(committed.factory, removing, unsharing)

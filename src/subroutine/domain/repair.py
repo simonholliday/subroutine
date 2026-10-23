@@ -125,6 +125,29 @@ _VERB: dict[type, str] = {
 }
 
 
+def lock_for_counting (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> None:
+	"""Lock a workspace before anybody who could repair something in it is counted - `#1178`.
+
+	Two acts each counting the other's person as staying both went through, leaving the state the
+	count exists to prevent; locked first, the second waits for the first and counts what it left.
+	Every act that takes somebody out of a scope here takes it: removing or demoting a member,
+	unsharing a project (`SR#5113`), and making a project private or moving one (`SR#5101`).
+
+	**By a write that changes nothing** (`#3899`), which takes SQLite's one writer's lock where a
+	read takes none, and on PostgreSQL the lock ``FOR NO KEY UPDATE`` takes: ``FOR UPDATE`` waited on
+	the check a foreign key makes on the workspace, so a promotion recording its event beside a
+	removal deadlocked with it.
+	"""
+
+	place = subroutine.db.models.identity.Workspace
+	session.execute(
+		sqlalchemy.update(place)
+		.where(place.id == workspace_id)
+		.values(updated_at=place.updated_at)
+		.execution_options(synchronize_session=False)
+	)
+
+
 def repairers (
 	session: sqlalchemy.orm.Session,
 	scope: Scope,

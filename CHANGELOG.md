@@ -37,6 +37,11 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **Two unshares made at once can no longer leave a private project with nobody who can see it.**
+  Each counted the other's person as staying, so both went through. The second waits for the
+  first now and is refused, as it would have been a moment later - and so is an unshare made while
+  somebody is taken out of the workspace.
+
 - **An account or a project that cannot be found is said to be out of reach, not missing.** A
   refusal said "There is no project 'web' here." of a private project the reader is not a member
   of, and "There is no account called 'keanu' here." of an account outside their workspaces - a
