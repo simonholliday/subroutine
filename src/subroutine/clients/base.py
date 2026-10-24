@@ -27,6 +27,7 @@ import urllib.parse
 
 import subroutine.config
 import subroutine.connections
+import subroutine.domain.accountability
 import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.readiness
@@ -2227,6 +2228,51 @@ def every_project (
 	return list(
 		client.projects(workspace=workspace, limit=EVERY_ROW, include_archived=include_archived)
 	)
+
+
+def answered_to (client: Client) -> list[str]:
+	"""Return whom the caller answers to, by name and nearest first: nobody, for a person.
+
+	**For saying who sees a private project an agent makes** (`SR#5112`, L-5 of the cold review of
+	2026-10-17): sight follows the chain upward (decision `#4943`), so everybody above the agent sees
+	it, and both surfaces told it only it could. ``/v1/me`` names the first link and the person at
+	the end, so an agent answering to a person costs nothing more; a longer chain is read one account
+	at a time between them, each within the caller's reach as its own chain.
+	"""
+
+	me = client.me().user
+	above: list[str] = []
+	name = me.account_parent
+
+	# **Bounded**, as every walk of a chain is, so a cycle the instance refuses elsewhere cannot
+	# hang a reply here.
+	while (
+		name is not None
+		and name not in above
+		and len(above) < subroutine.domain.accountability.MAX_DEPTH
+	):
+		above.append(name)
+
+		if name == me.answers_to:
+			break
+
+		name = client.user(username=name).account_parent
+
+	return above
+
+
+def seen_only_by (above: typing.Sequence[str]) -> str:
+	"""Say who can see a private project the caller has just made - `SR#5112`.
+
+	A person is told only they can, and an agent whom it answers to as well, since each sees it.
+	"""
+
+	if not above:
+		return "Only you can see it."
+
+	everyone = ["you", *above]
+
+	return f"Only {', '.join(everyone[:-1])} and {everyone[-1]}, whom you answer to, can see it."
 
 
 #: What a document's mark is said to amount to - `#4853`, decision `#4134`. The first where the one

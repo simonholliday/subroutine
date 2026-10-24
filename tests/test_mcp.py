@@ -2491,7 +2491,11 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: ``assignee`` on ``subroutine_list`` say they narrow tasks, since a document answers neither
 #: and nothing said so. **Read for fat first**: the ``binds`` sentence was cut by 16 bytes from
 #: the review's, and ``assignee`` paid 2 of its own. The slack was 12 before, and none after.
-TOOL_BYTE_CEILING = 15_068
+#: **15,068 to 15,094 on 2026-10-23, and what 26 bytes bought** (`SR#5112`, L-5 of the cold
+#: review of 2026-10-17): ``private`` on ``subroutine_project`` said only the agent would see the
+#: project, and whoever it answers to sees it too. **Read for fat first**: the sentence is one
+#: clause longer and no shorter wording says it. The slack was none before, and none after.
+TOOL_BYTE_CEILING = 15_094
 
 
 def test_the_whole_tool_surface_stays_small (

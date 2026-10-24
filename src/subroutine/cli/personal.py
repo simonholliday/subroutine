@@ -8658,7 +8658,12 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			#
 			# **It now names the way in as well.** Until `#1444` there was no writer at all and
 			# this said "nothing can share it yet", which was true and is not.
-			False, "--private", help="Only you can see it, until you share it."
+			#
+			# **And whoever you answer to** (`SR#5112`): sight follows an agent's chain upward
+			# (decision `#4943`). A person answers to nobody, so the one sentence is true of both.
+			False,
+			"--private",
+			help="Only you and whoever you answer to can see it, until you share it.",
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -8716,8 +8721,12 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			# This paragraph used to say a private project was invisible *permanently* and that
 			# the writer "was never built". True when it was written, and the whole of `#1444`.
 			if created.visibility == "private":
+				# **Naming whom an agent answers to** (`SR#5112`), each of whom sees it too.
+				seen = subroutine.clients.base.seen_only_by(
+					subroutine.clients.base.answered_to(where.client)
+				)
 				program.say(
-					f"Only you can see it. 'subroutine project share "
+					f"{seen} 'subroutine project share "
 					f"{_capture_name(world, created)} <username>' lets somebody else in, and "
 					f"'subroutine project update {_capture_name(world, created)} --public' "
 					f"shows it to the whole workspace."

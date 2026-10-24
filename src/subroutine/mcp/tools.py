@@ -1555,14 +1555,13 @@ def _tools (
 					"parent": {"type": "string", "description": "Put it inside this project."},
 					"private": {
 						"type": "boolean",
-						# **`#1450`'s second edit, which `#1444` was always going to bring.**
-						# The first said "nothing can share it yet", which was true of every
-						# surface and is now false — so the sentence that stopped an agent
-						# looking for a way in has to name the one there is. That is a path
-						# rather than a tool because sharing is deliberately not on this
-						# surface: `subroutine_call_api` reaches it, and the act is a
-						# person's, since no agent can see a private project it did not make.
-						"description": "Only you can see it. "
+						# **Who sees it, and the way in** (`#1450`, `SR#5112`). Sight follows
+						# an agent's chain upward (decision `#4943`), so whoever the reader
+						# answers to sees it too, which this said nothing of; a person answers
+						# to nobody, so the one sentence is true of both. The way in is a path
+						# rather than a tool, since sharing is deliberately not on this surface:
+						# `subroutine_call_api` reaches it.
+						"description": "Only you and whoever you answer to can see it. "
 						"POST /v1/projects/{path}/members lets somebody else in.",
 					},
 					"workspace": WORKSPACE,
@@ -5475,11 +5474,14 @@ def _projected (
 	# and cannot update — so naming `private: false` here would name a way back that does not
 	# exist, which is the defect one turn later.
 	if made.visibility == "private":
+		# **Naming whom an agent answers to** (`SR#5112`), each of whom sees it too.
+		seen = subroutine.clients.base.seen_only_by(subroutine.clients.base.answered_to(client))
+
 		return (
 			f"{made_line}\n"
 			# **The schema's sentence, not a contradiction of it** (`#3944`): this said nothing
 			# could let anybody else in, a release after `#1450` made the members route the way.
-			"Only you can see it. Through subroutine_call_api, POST "
+			f"{seen} Through subroutine_call_api, POST "
 			f"/v1/projects/{address}/members lets somebody else in, and PATCH "
 			f"/v1/projects/{address} with {{\"visibility\": \"public\"}} opens it to the "
 			"workspace."
