@@ -37,6 +37,13 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **`cors_origins = ["*"]` no longer lets a page anywhere act as somebody signed in - a page that
+  relied on that stops.** A list holding `*` was answered with credentials allowed, and a session
+  cookie's write was accepted from any page that named itself, so a page on any site could read and
+  change things as anybody signed in who visited it. With `*`, a page may still call this instance
+  with an API token; name an origin to let a page there use your people's sessions. `doctor`
+  reports `*` as what it admits rather than as needing attention.
+
 - **Two connections whose names differ only by `-` and `_` are refused - check `config.toml`
   before upgrading.** `my-work` and `my_work` both read their token from
   `SUBROUTINE_TOKEN_MY_WORK`, so a token exported for one was sent to the other's instance too.

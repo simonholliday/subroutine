@@ -404,10 +404,11 @@ def refuse_a_write_from_elsewhere (
 
 	**``cors_origins`` is honoured**, because an operator who named an origin has already said
 	a browser there may make credentialed requests and read the replies; refusing its writes
-	would break a configuration somebody deliberately made. ``*`` is honoured too, and gives up
-	the ``Origin`` check for any page that names itself — which reads already give up, since the
-	middleware is built with ``allow_credentials=True``. A write naming no page is still refused
-	below, whatever ``cors_origins`` says (`#3942`).
+	would break a configuration somebody deliberately made. **``*`` is not** (`SR#5129`, decision
+	`#5097`): it admits any page that calls with a bearer token, which never reaches this, and never
+	a signed-in browser's cookie, so a page writing with one has to be named. It gave the ``Origin``
+	check up for any page that named itself. A write naming no page is still refused below,
+	whatever ``cors_origins`` says (`#3942`).
 
 	**And a write that names no page at all is refused** (`#3016`, Simon's decision of
 	2026-09-28). An absent ``Origin`` used to pass, on the reasoning that only a browser attaches
@@ -421,7 +422,7 @@ def refuse_a_write_from_elsewhere (
 
 	settings: subroutine.config.Settings = request.app.state.settings
 	answered: set[str | None] = {
-		origin_of(one) or one.strip() for one in settings.cors_origins
+		origin_of(one) or one.strip() for one in settings.cors_origins if one.strip() != "*"
 	}
 
 	answered.add(origin_of(settings.public_url))

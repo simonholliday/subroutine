@@ -347,9 +347,10 @@ class TestWhatItLooksAt:
 		)
 		reported = _named(open_to_all, "cors_origins")
 
-		assert not reported.ok
-		assert not reported.unknown, "this is a fault here, not a question that went unanswered"
-		assert "any page" in reported.detail
+		# **Said rather than flagged since `SR#5129`**: a list holding `*` admits a page with an
+		# API token and nobody signed in, so it is a choice an operator made, reported as one.
+		assert reported.ok
+		assert "API token" in reported.detail and "signed in" in reported.detail
 
 		named = subroutine.diagnosis.examine(
 			subroutine.config.Settings(

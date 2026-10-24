@@ -302,16 +302,16 @@ def _the_settings (settings: subroutine.config.Settings) -> list[Finding]:
 
 	findings = []
 
+	# **What `*` admits, said rather than flagged** (`SR#5129`, decision `#5097`): a page on any
+	# site with an API token, and none as anybody signed in, so it is a choice reported as one.
 	if "*" in settings.cors_origins:
 		findings.append(
 			Finding(
 				area="cors_origins",
 				detail=(
-					"'*' on a published instance - any page on any site can read and write "
-					"as anybody who is signed in and visits it. Name the origins that need "
-					"it, or leave the list empty"
+					"'*', so a page on any site may call it with an API token, though none may "
+					"act as anybody signed in"
 				),
-				ok=False,
 			)
 		)
 	else:

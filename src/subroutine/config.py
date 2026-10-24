@@ -1062,11 +1062,12 @@ class Settings(pydantic_settings.BaseSettings):
 	# served by this instance, from this instance's own address, so it was never cross-origin.
 	# `docs/hosting.md` said "right until there is a web UI" for as long as there was not one.
 	#
-	# **`*` is honoured and gives the defence up entirely** — measured, because a wildcard is
-	# usually toothless with credentials and here is not: Starlette echoes the requesting origin
-	# back with `allow-credentials`, so any page anywhere can both read and write as any signed-in
-	# reader who visits it. `tests/test_api_sessions.py` pins all three cases, so changing any of
-	# them is a decision rather than a tidy-up.
+	# **`*` admits any page that calls with a bearer token, and never a signed-in browser's
+	# cookie** (`SR#5129`, decision `#5097`). It gave the defence up entirely: Starlette echoed the
+	# requesting origin back with `allow-credentials`, so any page anywhere could both read and
+	# write as any signed-in reader who visited it. A list holding `*` is answered without
+	# credentials now, and the cookie's origin check does not read it. `tests/test_api_sessions.py`
+	# pins all three cases, so changing any of them is a decision rather than a tidy-up.
 	cors_origins: list[str] = pydantic.Field(default_factory=list)
 
 	default_timezone: str = pydantic.Field(default_factory=system_timezone)

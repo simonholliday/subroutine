@@ -1180,10 +1180,11 @@ def _logging (level: str) -> dict[str, typing.Any]:
 def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> None:
 	"""Say out loud that this instance answers any origin, if it does — `SR#1558`.
 
-	``cors_origins = ["*"]`` on a published instance lets any page anywhere read and write as
-	anybody who is signed in and visits it: the browser sends the session cookie because the
-	response says ``access-control-allow-credentials: true``, and ``SameSite=lax`` is a
-	different door that does not close this one.
+	``cors_origins = ["*"]`` on a published instance lets a page anywhere call it with an API
+	token, and since `SR#5129` never as anybody signed in: it let any page read and write as
+	anybody who was signed in and visited it, and a list holding ``*`` is answered without
+	credentials now. **Still said**, since an operator who wrote ``*`` may have meant a narrower
+	list.
 
 	**The reasoning was written down twice and said by nothing.** ``config.py`` measures and
 	documents it in full, and ``docs/hosting.md`` gives the operator a curl one-liner to check
@@ -1194,16 +1195,16 @@ def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> No
 	``_refuse_public_bind`` is the precedent for refusing, and it is about a bind that cannot be
 	made safe; an open origin list is a thing an operator may have chosen, on an instance that
 	is already running. Refusing it would stop a machine that starts today from starting after
-	an upgrade, which is a worse failure than the one being reported. Whether it should
-	nonetheless be refused is `SR#1558`'s open half.
+	an upgrade, which is a worse failure than the one being reported. Refusing it was declined
+	in decision `#5097`.
 	"""
 
 	if not settings.public_url or "*" not in settings.cors_origins:
 		return
 
 	_say(
-		"  Warning: cors_origins is '*', so any page on any site can read and write as "
-		"anybody signed in who visits it. Name the origins that need it, or empty the list."
+		"  Note: cors_origins is '*', so a page on any site may call this instance with an API "
+		"token, though none may act as anybody signed in."
 	)
 
 

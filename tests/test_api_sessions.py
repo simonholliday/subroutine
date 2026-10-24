@@ -1521,49 +1521,58 @@ def test_an_origin_the_operator_did_not_name_still_cannot (
 	assert answer.status_code == 403, answer.text
 
 
-def test_a_wildcard_gives_the_defence_up_entirely (
+def test_a_wildcard_admits_a_token_and_no_signed_in_browser (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
-	"""**Pinned so that changing it has to be a decision, not so that it is a good idea.**
+	"""`SR#5129`, decision `#5097`: ``*`` admits any page that calls with a bearer token, and never
+	a signed-in browser's cookie.
 
-	`*` is honoured, and it hands every site on the internet the ability to act as any signed-in
-	reader of this instance. Measured on a running instance during review `SR#807`: Starlette
-	echoes the requesting origin rather than sending `*`, with `allow-credentials: true`, so the
-	*read* works too — the wildcard is not the inert setting a browser's own rules usually make
-	of it.
+	**It gave the defence up entirely**, measured on a running instance during review `SR#807`:
+	Starlette echoed the requesting origin with ``allow-credentials: true``, and the cookie's origin
+	check admitted any page that named itself, so a page anywhere could read and write as any
+	signed-in reader who visited it. **Pinned so that changing it has to be a decision.**
 
-	This is what `docs/hosting.md` now warns about in the operator's own terms. A test is where
-	the warning stops being prose.
-
-	**Only for a page that names itself** (`SR#3942`): a write naming none, which the browser says
-	came from another site, is refused under ``*`` too. Every request here sent an ``Origin``, so
-	the half given up was pinned and the half kept was not.
+	A cookie-authenticated write is refused whether the page names itself or not; a call with a
+	token from any page is answered, as ``*`` and without credentials; a named origin keeps them.
 	"""
 
 	application, held = _served_allowing(session, setup.user, "*")
 
-	unnamed = api_support.call(
+	for page in ({"origin": SIBLING}, {"sec-fetch-site": "cross-site"}):
+		refused = api_support.call(
+			application,
+			"POST",
+			f"/v1/users/{setup.user.username}/signout",
+			cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
+			headers=page,
+		)
+
+		assert refused.status_code == 403, refused.text
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="A page's"
+	)
+	session.flush()
+
+	called = api_support.call(
 		application,
-		"POST",
-		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
-		headers={"sec-fetch-site": "cross-site"},
+		"GET",
+		"/v1/me",
+		headers={
+			"origin": SIBLING,
+			"authorization": f"Bearer {issued.value.get_secret_value()}",
+		},
 	)
 
-	assert unnamed.status_code == 403, unnamed.text
+	assert called.status_code == 200, called.text
+	assert called.headers["access-control-allow-origin"] == "*"
+	assert "access-control-allow-credentials" not in called.headers
 
-	answer = api_support.call(
-		application,
-		"POST",
-		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
-		headers={"origin": SIBLING},
-	)
+	named, _held = _served_allowing(session, setup.user, NAMED)
+	answered = api_support.call(named, "GET", "/v1/meta", headers={"origin": NAMED})
 
-	assert answer.status_code == 200, (
-		"a wildcard no longer gives this up — which may well be an improvement, and is a change "
-		"to what docs/hosting.md tells an operator, so it is a decision rather than a tidy-up"
-	)
+	assert answered.headers["access-control-allow-origin"] == NAMED
+	assert answered.headers["access-control-allow-credentials"] == "true"
 
 
 #: One case per axis a token can be narrowed on, because a session expresses none of them and

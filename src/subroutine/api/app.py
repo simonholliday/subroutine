@@ -376,10 +376,15 @@ def create_app (
 	if resolved.cors_origins:
 		# Only when configured. A browser is not the primary client here, and a default
 		# that allows credentialed cross-origin requests is a hole nobody asked for.
+		#
+		# **Credentials only for a list that names its origins** (`SR#5129`, decision `#5097`):
+		# with `*`, Starlette echoed whichever origin asked and allowed credentials, so a page
+		# anywhere could read as anybody signed in who visited it. A list holding `*` admits any
+		# page that calls with a bearer token, and never a signed-in browser's cookie.
 		application.add_middleware(
 			fastapi.middleware.cors.CORSMiddleware,
 			allow_origins=resolved.cors_origins,
-			allow_credentials=True,
+			allow_credentials="*" not in resolved.cors_origins,
 			allow_methods=["*"],
 			allow_headers=["*"],
 			expose_headers=[
