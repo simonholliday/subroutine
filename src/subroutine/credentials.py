@@ -42,7 +42,6 @@ already chosen — which is what ``ssh`` does too, and why ``ssh`` works the sam
 import dataclasses
 import os
 import pathlib
-import re
 import shlex
 import stat
 import subprocess
@@ -59,7 +58,7 @@ COMMAND_TIMEOUT_SECONDS = 30.0
 
 #: The variable that supplies the *default* connection's token, for the common case of one
 #: instance and one exported secret.
-DEFAULT_VARIABLE = "SUBROUTINE_TOKEN"
+DEFAULT_VARIABLE = subroutine.connections.TOKEN_VARIABLE
 
 #: The variable the ``subroutine`` plugin passes its token field in, since plugin 0.9.9 (`#3600`).
 #: **A name of the plugin's own, which nobody exports for a shell.** The field travelled as
@@ -71,11 +70,6 @@ PLUGIN_VARIABLE = "SUBROUTINE_PLUGIN_TOKEN"
 #: Where :func:`resolve` says a token came from when that field supplied it: the field somebody
 #: filled in, rather than a variable nobody set by hand.
 PLUGIN_FIELD = "the Subroutine plugin's token field"
-
-#: Non-alphanumerics become underscores, so ``[connections.my-work]`` is
-#: ``SUBROUTINE_TOKEN_MY_WORK``. A hyphen cannot appear in a shell variable name, and a
-#: person who has to discover that by trial is a person who gives up.
-_UNSAFE = re.compile(r"[^A-Za-z0-9]")
 
 
 @dataclasses.dataclass(frozen=True, repr=False)
@@ -149,9 +143,13 @@ def credentials_file_path () -> pathlib.Path:
 
 
 def variable_for (name: str) -> str:
-	"""Return the environment variable that names one connection's token."""
+	"""Return the environment variable that names one connection's token.
 
-	return f"{DEFAULT_VARIABLE}_{_UNSAFE.sub('_', name).upper()}"
+	**The connections' rule, asked rather than written again** (`SR#5130`): the roster refuses two
+	names it would fold together, so the folding is :func:`subroutine.connections.token_variable`'s.
+	"""
+
+	return subroutine.connections.token_variable(name)
 
 
 def _held_in (name: str, *, blank_is_unset: bool = False) -> str | None:

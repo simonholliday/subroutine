@@ -61,6 +61,14 @@ DEFAULT_AGENT_WHEN = "CLAUDECODE"
 #: read as a ref to every human who saw it, and the point of a name is to be typed.
 _NAME = re.compile(r"\A[a-z][a-z0-9_-]*\Z")
 
+#: **The variable a connection's token is read from, by its name**: non-alphanumerics become
+#: underscores, so ``[connections.my-work]`` is ``SUBROUTINE_TOKEN_MY_WORK``. A hyphen cannot appear
+#: in a shell variable name, and a person who has to discover that by trial is a person who gives
+#: up. **Here rather than in** :mod:`subroutine.credentials`, which reads it (`SR#5130`), so that
+#: the roster can refuse two names it folds together with the one copy of the rule.
+TOKEN_VARIABLE = "SUBROUTINE_TOKEN"
+_UNSAFE = re.compile(r"[^A-Za-z0-9]")
+
 #: What may appear inside a ``[connections.x]`` table. Anything else is refused rather than
 #: ignored, because the failure mode of a silently-dropped key is the wrong posture: a
 #: mistyped ``read_only`` would leave an agent able to write to an employer's instance while
@@ -238,6 +246,7 @@ def roster (settings: subroutine.config.Settings | None = None) -> Roster:
 	"""
 
 	declared = _declared_tables()
+	_refuse_one_variable_for_two(declared)
 	built: dict[str, Connection] = {}
 
 	for name, table in declared.items():
@@ -313,6 +322,48 @@ def declared_names () -> frozenset[str]:
 	"""
 
 	return frozenset(_declared_tables())
+
+
+def token_variable (name: str) -> str:
+	"""Return the environment variable that names one connection's token."""
+
+	return f"{TOKEN_VARIABLE}_{_UNSAFE.sub('_', name).upper()}"
+
+
+def sharing_a_variable (name: str, names: typing.Iterable[str]) -> str | None:
+	"""Return one of ``names`` whose token is read from the variable ``name``'s would be, if any.
+
+	**One exported token, two instances** (`SR#5130`, L-4 of the cold review of 2026-10-17): a
+	name takes letters, digits, ``_`` and ``-``, and the variable folds both of the last to ``_``,
+	so ``my-work`` and ``my_work`` read one variable, and a token exported for one was presented to
+	the other - a credential sent to a server it was not issued for.
+	"""
+
+	variable = token_variable(name)
+
+	return next((one for one in names if one != name and token_variable(one) == variable), None)
+
+
+def _refuse_one_variable_for_two (declared: typing.Mapping[str, typing.Any]) -> None:
+	"""Refuse a configuration in which two connections read their token from one variable.
+
+	**On load, naming both**, as an unknown key is refused (`SR#5130`): which of the two the token
+	was for is the person's to say, by renaming the other, and until then every command that reads
+	the file stops rather than present one of them the other's token.
+	"""
+
+	names = list(declared)
+
+	for index, name in enumerate(names):
+		first = sharing_a_variable(name, names[:index])
+
+		if first is not None:
+			raise _refusal(
+				f"connections.{name}",
+				f"{first!r} and {name!r} would both read their token from "
+				f"{token_variable(name)}, so one exported token would be sent to both. Rename one "
+				"of them.",
+			)
 
 
 def turned_off (name: str) -> bool:

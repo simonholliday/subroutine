@@ -2755,6 +2755,24 @@ def _connection_named (
 			),
 		)
 
+	# **Nor one whose token another already reads** (`SR#5130`, L-4 of the cold review of
+	# 2026-10-17): ``my_work`` beside ``my-work`` would read one variable, so one exported token
+	# would be sent to both instances.
+	sharing = subroutine.connections.sharing_a_variable(
+		wanted, subroutine.connections.declared_names()
+	)
+
+	if sharing is not None:
+		program.stop(
+			f"{wanted!r} would read its token from "
+			f"{subroutine.connections.token_variable(wanted)}, which {sharing!r} already reads "
+			"from, so one exported token would be sent to both.",
+			hint=(
+				f"Choose another name, or edit {subroutine.config.config_file_path()} to "
+				f"rename {sharing!r}."
+			),
+		)
+
 	if not url.strip():
 		program.stop(
 			f"Say where {wanted!r} is.",

@@ -37,6 +37,12 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **Two connections whose names differ only by `-` and `_` are refused - check `config.toml`
+  before upgrading.** `my-work` and `my_work` both read their token from
+  `SUBROUTINE_TOKEN_MY_WORK`, so a token exported for one was sent to the other's instance too.
+  `connections add` refuses the second, and a `config.toml` already holding both stops every
+  command, naming both, until one is renamed.
+
 - **When an account last signed in is its own and its administrators'.** *This is a breaking
   change*: `last_login_at` is no longer on an account read by anybody else - in `GET /v1/users`,
   `GET /v1/users/{username}`, a workspace's or a project's members, `subroutine user list --json`
