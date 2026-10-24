@@ -1949,7 +1949,11 @@ An act is allowed when every one of these holds:
 - **The verb is held.** Inside a workspace, by the account's role there; at the installation, by
   being a superuser. A credential's verbs narrow it (§7.4), and so does the agent tools' ceiling:
   a session that arrives through them is handed no secret, holds no instance verb, and holds
-  neither `workspace:admin` nor `workspace:delete`, whatever its credential allows.
+  neither `workspace:admin` nor `workspace:delete`, whatever its credential allows. The ceiling
+  narrows what a request through the agent tools may do, never what its credential may: the same
+  credential in the agent's own shell holds its full authority. It stops a tool call an agent was
+  talked into from minting a secret or administering anything. To bound the agent itself, narrow
+  its credential.
 - **The place is within reach.** Every act lands on a place: an instance verb on the
   installation, a verb asked with no project on its workspace, anything else on its project, and
   a project move on both the project and where it goes. A read needs its place among the
