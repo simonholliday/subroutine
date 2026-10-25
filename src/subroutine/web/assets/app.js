@@ -359,6 +359,10 @@ export function App () {
 	   for `onAdd` all along. */
 	const allowed = allowedIn(me, workspace);
 	const mayWrite = allowed.has("task:write");
+	/* **Prioritising writes the workspace, so it asks the workspace's verb** (`SR#5142`): it
+	   was drawn for anybody who could write a task, and a member or a contributor pressing it
+	   was refused by the server. */
+	const mayPrioritise = allowed.has("workspace:write");
 	/* **There is no `mayComment` beside this, and `#684`'s dead-code guard is what said so.**
 	   The comment box is offered on an open item and nowhere else, so the only permission check
 	   commenting ever needed is the *item's* — `mayCommentThere` below. This one had no reader
@@ -3908,7 +3912,7 @@ export function App () {
 					)}
 					project=${project}
 					prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
-					onPrioritise=${mayWrite ? prioritise : null} busy=${busy} saved=${saved} />
+					onPrioritise=${mayPrioritise ? prioritise : null} busy=${busy} saved=${saved} />
 			`}
 
 			${released && html`
@@ -4223,7 +4227,7 @@ export function App () {
 							${/* **This workspace's alone**, because a listing is narrowed to one —
 							     unlike the agenda above, which spans them and names each. */ null}
 							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
-							onPrioritise=${mayWrite ? prioritise : null}
+							onPrioritise=${mayPrioritise ? prioritise : null}
 							ordering=${orderedAs(showing.selection)}
 							order=${showing.selection.order || null}
 							${/* **No control on the finished view** (`#782`). Its order is part of what

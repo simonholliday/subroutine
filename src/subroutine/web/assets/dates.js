@@ -140,7 +140,9 @@ export function overdue (item, now = null) {
 	   read off the clock is only as fresh as the last render, so a test that cannot move the
 	   clock can only assert what the mark says *at this instant* — which is the one thing that
 	   was never in doubt. Null is the real clock, so every caller is unchanged. */
-	if (!item.due_at || item.status_category === "done") return false;
+	/* **Finished either way** (`SR#5142`): a cancelled item's passed deadline was marked
+	   *Overdue* beside *cancelled*, since this asked for `done` alone. */
+	if (!item.due_at || FINISHED.has(item.status_category)) return false;
 
 	return new Date(item.due_at) < (now === null ? new Date() : new Date(now));
 }

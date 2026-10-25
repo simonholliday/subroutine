@@ -37,6 +37,10 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **The browser no longer marks cancelled work Overdue, and offers Prioritise only to whoever may
+  use it.** A cancelled task with a passed deadline read *Overdue* beside *cancelled*, and members
+  and contributors were shown Prioritise, which then refused them.
+
 - **Twelve more collections that limited nothing say so, a link's far end names its workspace, and
   the app's manifest and service worker take a query.** An item's links, tree, backlinks, governing
   documents and proposed links, a task's verifications, a project's and a workspace's members and

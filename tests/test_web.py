@@ -1934,7 +1934,8 @@ def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
 	order they have to take on trust.
 
 	**A cancelled row says `cancelled`**, because it carries a `completed_at` too and calling it
-	*done* would be the one word that misdescribes it.
+	*done* would be the one word that misdescribes it - **and never *Overdue***, which it said
+	beside *cancelled* of a passed deadline until `SR#5142`: this sample had no deadline.
 	"""
 
 	rendered = _rendered(tmp_path, {
@@ -1942,7 +1943,7 @@ def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
 			"due_at": "2026-08-03T09:00:00+00:00", "status_category": "done",
 			"completed_at": "2026-08-09T14:00:00+00:00"}},
 		"Listing": {"items": [{"ref": 43, "kind": "task", "title": "Abandoned",
-			"status_category": "cancelled",
+			"due_at": "2026-08-03T09:00:00+00:00", "status_category": "cancelled",
 			"completed_at": "2026-08-07T14:00:00+00:00"}]},
 	})
 
@@ -1956,6 +1957,10 @@ def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
 
 	assert "cancelled" in rendered["Listing"], (
 		f"a cancelled row was described as done: {rendered['Listing']}"
+	)
+
+	assert "Overdue" not in rendered["Listing"], (
+		f"a cancelled row was marked as a deadline missed: {rendered['Listing']}"
 	)
 
 
@@ -17311,6 +17316,37 @@ def test_a_board_offers_the_drag_only_to_a_reader_who_could_finish_it (
 	)
 
 
+def test_prioritise_is_offered_only_to_a_reader_who_may_write_the_workspace (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#5142`, L-3 of the cold review of 2026-10-17: drawn for ``task:write``, refused without
+	``workspace:write``.
+
+	Prioritising is ``PATCH /v1/workspaces/<slug>``, which asks ``workspace:write``, and the
+	button was gated on ``task:write`` as the work's controls are, so a member and a contributor
+	were each offered it and answered 403. **Both readers**, so a page that draws no heading at
+	all cannot pass for the second.
+	"""
+
+	def said (permissions: tuple[str, ...]) -> str:
+		"""A project's page for a reader holding these, as flat text."""
+
+		page = _driven(tmp_path, pathname="/projects/web", permissions=permissions)
+
+		return " ".join(page["said"].split())
+
+	administering = said(("task:write", "comment:write", "workspace:write"))
+	contributing = said(("task:write", "comment:write"))
+
+	assert "Prioritise" in administering, (
+		f"a reader who may prioritise was not offered it, so the other half checks nothing: "
+		f"{administering!r}"
+	)
+	assert "Prioritise" not in contributing, (
+		f"a reader the server refuses was offered Prioritise: {contributing!r}"
+	)
+
+
 def test_every_select_has_a_name_a_screen_reader_can_read () -> None:
 	"""`#927`'s L-7. A combo box announced as *"combo box"* and nothing else.
 
@@ -17863,7 +17899,8 @@ def test_the_raised_project_s_own_agenda_offers_to_stop_it_once (tmp_path: pathl
 		"user": {"username": "si", "is_service_account": False},
 		"workspaces": [{
 			"slug": "projects", "id": "w1", "title": "Projects", "role": "owner",
-			"permissions": ["task:write", "comment:write", "task:delete"],
+			# **An owner's verb for prioritising** (`SR#5142`), which the toggle asks now.
+			"permissions": ["task:write", "comment:write", "task:delete", "workspace:write"],
 			"prioritised_project": "subroutine",
 		}],
 		"instance_permissions": [],

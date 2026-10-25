@@ -4989,6 +4989,9 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 	"""
 
 	opened, written, _refusing, roster, _missing, reads, *_ = running
+	# **A reader who may prioritise** (`SR#5142`): the toggle asks ``workspace:write`` now, which
+	# the fixture's owner does not list.
+	roster[0] = _administering(IDENTITY, "projects", "workspace:write")
 	before = roster[0]
 	page = opened("/projects/subroutine?view=list")
 
