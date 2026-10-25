@@ -809,7 +809,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		return subroutine.views.Collection(
 			items=found,
-			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+			page=subroutine.views.Page(limit=None, has_more=False, total=len(found)),
 		)
 
 	def tree (
@@ -858,7 +858,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		return subroutine.views.Collection(
 			items=found,
-			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+			page=subroutine.views.Page(limit=None, has_more=False, total=len(found)),
 		)
 
 	def create (
@@ -984,7 +984,7 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 
 		return subroutine.views.Collection(
 			items=found,
-			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+			page=subroutine.views.Page(limit=None, has_more=False, total=len(found)),
 		)
 
 	return listing
@@ -1034,7 +1034,7 @@ def _governing_for (entity_type: str) -> typing.Any:
 
 		return subroutine.views.Collection(
 			items=found,
-			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+			page=subroutine.views.Page(limit=None, has_more=False, total=len(found)),
 		)
 
 	return listing
@@ -1081,7 +1081,7 @@ def _proposed_links_for (entity_type: str) -> typing.Any:
 
 		return subroutine.views.Collection(
 			items=found,
-			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+			page=subroutine.views.Page(limit=None, has_more=False, total=len(found)),
 		)
 
 	return listing

@@ -82,6 +82,10 @@ NOT_REFUSED: dict[str, str] = {
 	"GET /readyz": "the same, and an orchestrator's probe must not fail on a spelling",
 	"GET /": "the browser app's page, reached from links carrying campaign parameters",
 	"GET /app/{name}": "its own files, requested by the browser with whatever it appends",
+	# **The two of its files with routes of their own** (`SR#5143`), which the entry above did
+	# not reach: a cache-buster a proxy appended would have broken installing the app.
+	"GET /app/manifest.webmanifest": "the app's own file, requested with whatever is appended",
+	"GET /app/sw.js": "the app's own file, requested with whatever is appended",
 	# The one route reached *from a mail client*, which is the software most likely to
 	# rewrite a URL on the way — and being refused here means being unable to sign in.
 	"GET /signin": "opened from an email, so the URL is not only ours by the time it arrives",

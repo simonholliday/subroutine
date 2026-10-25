@@ -37,6 +37,13 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **Twelve more collections that limited nothing say so, a link's far end names its workspace, and
+  the app's manifest and service worker take a query.** An item's links, tree, backlinks, governing
+  documents and proposed links, a task's verifications, a project's and a workspace's members and
+  the four instance listings reported `page.limit` as the rows they returned; it is `null` there
+  now, as for the six before. A link's `other.workspace` was always `null`. And `/app/sw.js` and
+  `/app/manifest.webmanifest` refused a query such as `?v=2`, which the app's other files take.
+
 - **An item's address in another workspace is no longer read as a mention of this workspace's
   item.** `metacortex/#42`, pasted from the terminal into a description or a comment, made a
   backlink on this workspace's `#42`, and the browser linked it there. An item here is mentioned

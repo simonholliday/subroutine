@@ -609,7 +609,7 @@ def members (
 			)
 			for row, account, role in rows
 		],
-		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)
 

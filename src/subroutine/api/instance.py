@@ -126,7 +126,7 @@ def workspaces (
 
 	return subroutine.api.shaping.response(
 		[subroutine.views.workspace_on_instance(row) for row in rows],
-		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)
 
@@ -191,7 +191,7 @@ def unreachable_projects (
 
 	return subroutine.api.shaping.response(
 		[subroutine.views.unreachable_project(row) for row in rows],
-		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)
 
@@ -245,7 +245,7 @@ def unadministered_workspaces (
 
 	return subroutine.api.shaping.response(
 		[subroutine.views.workspace_on_instance(row) for row in rows],
-		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)
 
@@ -294,6 +294,6 @@ def unowned_workspaces (
 
 	return subroutine.api.shaping.response(
 		[subroutine.views.workspace_on_instance(row) for row in rows],
-		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)

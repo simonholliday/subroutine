@@ -397,7 +397,7 @@ def sharing (
 		# **Enveloped and never paginated**, like a workspace's members and a task's links
 		# (§8.4): a project's membership is bounded by how many people somebody put in it,
 		# so `has_more` is a statement rather than a shrug.
-		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)
 

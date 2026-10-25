@@ -90,6 +90,11 @@ class Page(pydantic.BaseModel):
 	#: reading ``{"limit": 10}`` had been told something that was not true of the request they
 	#: made. ``has_more`` and ``next_cursor`` were always right about completeness, so what was
 	#: wrong was this field alone.
+	#:
+	#: **Twelve more did the same** (`SR#5143`, L-7 of the cold review of 2026-10-17): an item's
+	#: links, tree, backlinks, governing documents and proposed links, a task's verifications,
+	#: the members of a project and of a workspace, and the four instance listings. A scan in
+	#: `tests/test_a_whole_collection_limits_nothing.py` refuses a thirteenth.
 	limit: int | None = None
 	next_cursor: str | None = None
 	has_more: bool = False
@@ -3876,6 +3881,9 @@ class Vocabulary:
 			status_ids={row.status_id for row in rows},
 			type_ids={row.type_id for row in rows},
 			project_ids={row.project_id for row in rows},
+			# **The far end's workspace, as a row's** (`SR#5143`): without it every end said
+			# ``workspace: null``, where the same item's own row names its workspace.
+			workspace_ids={row.workspace_id for row in rows},
 			task_ids={row.id for row in tasks},
 			document_ids={row.id for row in documents},
 			document_parent_ids={row.parent_id for row in documents if row.parent_id},
