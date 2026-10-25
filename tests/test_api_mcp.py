@@ -22,6 +22,7 @@ import datetime
 import json
 import os
 import pathlib
+import time
 import typing
 import uuid
 
@@ -1073,6 +1074,43 @@ def test_the_second_resolution_leaves_the_token_clean (
 	assert world.session.dirty, "the default must still record the use"
 
 
+#: How many times a test's own database is asked to drop while something is still connected to
+#: it, and how long to wait between the asks - `SR#5181`.
+DROP_ATTEMPTS = 10
+DROP_PAUSE_SECONDS = 0.2
+
+
+def _dropped_when_free (
+	admin: sqlalchemy.Engine,
+	name: str,
+	*,
+	attempts: int = DROP_ATTEMPTS,
+	pause: float = DROP_PAUSE_SECONDS,
+) -> bool:
+	"""Drop a test's own database once nothing is connected to it, and say whether it went.
+
+	**Without ``FORCE``** (`SR#5181`): forcing it ends every process connected to it, which this
+	account may do only to its own, so one of another role's - an autovacuum worker on the new
+	database is the likeliest - refused the whole drop and errored a test that had passed. A drop
+	refused while something is connected is ordinary, as :func:`conftest.swept` treats it, so it
+	is asked again for a moment, and one still refused is left for the sweep, whose stamped name
+	says how old it is.
+	"""
+
+	for _attempt in range(attempts):
+		try:
+			with admin.connect() as connection:
+				connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+		except sqlalchemy.exc.OperationalError:
+			time.sleep(pause)
+			continue
+
+		return True
+
+	return False
+
+
 @pytest.fixture
 def two_connections (tmp_path: typing.Any) -> typing.Iterator[str]:
 	"""Yield a PostgreSQL database of this test's own, for two genuinely separate sessions.
@@ -1108,10 +1146,50 @@ def two_connections (tmp_path: typing.Any) -> typing.Iterator[str]:
 
 		yield conftest.with_database(conftest.POSTGRES_ADMIN_URL, name)
 
-		with admin.connect() as connection:
-			connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+		# The test disposes of its own engine, so nothing of this account's is left connected.
+		_dropped_when_free(admin, name)
 
 	finally:
+		admin.dispose()
+
+
+def test_a_database_still_in_use_is_left_for_the_sweep () -> None:
+	"""`SR#5181`: a drop refused while something is connected leaves the database and raises
+	nothing, and the same call drops it once that has gone.
+
+	Held open here by a connection of this account's own, which refuses a drop without ``FORCE``
+	as another role's process does. That process cannot be summoned on cue, so it is this.
+	"""
+
+	reason = conftest._postgres_unavailable_reason()
+
+	if reason is not None:
+		if conftest.REQUIRE_POSTGRES:
+			pytest.fail(reason)
+
+		pytest.skip(reason)
+
+	name = conftest.throwaway_name("inuse")
+	admin = sqlalchemy.create_engine(conftest.POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")
+	holder = sqlalchemy.create_engine(conftest.with_database(conftest.POSTGRES_ADMIN_URL, name))
+
+	try:
+		with admin.connect() as connection:
+			connection.execute(sqlalchemy.text(f'CREATE DATABASE "{name}"'))
+
+		with holder.connect():
+			assert not _dropped_when_free(admin, name, attempts=2, pause=0.01)
+
+		holder.dispose()
+
+		assert _dropped_when_free(admin, name, attempts=2, pause=0.01)
+
+	finally:
+		holder.dispose()
+
+		with admin.connect() as connection:
+			connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}"'))
+
 		admin.dispose()
 
 
