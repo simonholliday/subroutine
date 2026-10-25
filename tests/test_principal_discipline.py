@@ -18,15 +18,18 @@ rather than through a copy of its rule.
 
 import ast
 import pathlib
+import typing
 
 import pytest
 
 SOURCE = pathlib.Path(__file__).resolve().parent.parent / "src" / "subroutine"
 
-#: The names a :class:`~subroutine.domain.authentication.Principal` goes by in this codebase.
-#: **Measured rather than assumed** — every Principal-typed local in `src` is called one of
-#: these, and the things that are *not* principals but do have a ``.token`` are called
-#: ``resolved``, ``minted``, ``found`` and ``self``, so none of them collides.
+#: The names a :class:`~subroutine.domain.authentication.Principal` conventionally goes by, kept as
+#: a floor for one held without an annotation. **Not the whole of it** (`SR#5134`, L-11 of the cold
+#: review of 2026-10-17): this said every principal in `src` was called one of these, and
+#: ``reader``, ``presenter`` and ``found`` hold one too, while ``found`` elsewhere holds a
+#: credential read from configuration. No list of names tells those apart, so the scan also takes
+#: every name a function annotates as a principal - :func:`_annotated`.
 PRINCIPAL_NAMES = frozenset({"principal", "actor"})
 
 #: Where the module holding the class itself lives. Its own reads are the definition of the
@@ -70,6 +73,70 @@ LOCAL_ASKED: dict[str, str] = {
 }
 
 
+def _names_a_principal (annotation: ast.expr | None) -> bool:
+	"""Say whether an annotation is a principal: bare, qualified, quoted, or in a union.
+
+	**What holds one, never what makes or contains one**: ``resolve`` in `api/inprocess.py` is a
+	callable returning a principal, which has no ``.token`` to read, so it is not walked into.
+	"""
+
+	if isinstance(annotation, ast.Name):
+		return annotation.id == "Principal"
+
+	if isinstance(annotation, ast.Attribute):
+		return annotation.attr == "Principal"
+
+	if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+		return _names_a_principal(annotation.left) or _names_a_principal(annotation.right)
+
+	if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+		try:
+			quoted = ast.parse(annotation.value, mode="eval").body
+
+		except SyntaxError:
+			return False
+
+		return _names_a_principal(quoted)
+
+	return False
+
+
+def _annotated (function: ast.FunctionDef | ast.AsyncFunctionDef) -> frozenset[str]:
+	"""Return the names one function's own annotations say hold a principal - `SR#5134`."""
+
+	arguments = function.args
+	every = [
+		*arguments.posonlyargs,
+		*arguments.args,
+		*arguments.kwonlyargs,
+		*(one for one in (arguments.vararg, arguments.kwarg) if one is not None),
+	]
+	named = {one.arg for one in every if _names_a_principal(one.annotation)}
+
+	for node in ast.walk(function):
+		if (
+			isinstance(node, ast.AnnAssign)
+			and isinstance(node.target, ast.Name)
+			and _names_a_principal(node.annotation)
+		):
+			named.add(node.target.id)
+
+	return frozenset(named)
+
+
+def _reads (
+	node: ast.AST, attribute: str, names: frozenset[str]
+) -> typing.TypeGuard[ast.Attribute]:
+	"""Say whether this node reads ``attribute`` of a name in ``names``."""
+
+	return (
+		isinstance(node, ast.Attribute)
+		and node.attr == attribute
+		and isinstance(node.value, ast.Name)
+		and node.value.id in names
+	)
+
+
 def _asking (root: pathlib.Path, attribute: str = "token") -> dict[str, list[int]]:
 	"""Return every module that reads ``attribute`` of a principal, with the lines it does it on.
 
@@ -90,15 +157,23 @@ def _asking (root: pathlib.Path, attribute: str = "token") -> dict[str, list[int
 			continue
 
 		tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+		lines = {
+			node.lineno for node in ast.walk(tree) if _reads(node, attribute, PRINCIPAL_NAMES)
+		}
 
-		for node in ast.walk(tree):
-			if (
-				isinstance(node, ast.Attribute)
-				and node.attr == attribute
-				and isinstance(node.value, ast.Name)
-				and node.value.id in PRINCIPAL_NAMES
-			):
-				found.setdefault(where, []).append(node.lineno)
+		# **And within each function, every name it annotates as a principal** (`SR#5134`), read
+		# wherever that function's body reaches, a closure inside it included.
+		for function in ast.walk(tree):
+			if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				named = _annotated(function)
+
+				if named:
+					lines |= {
+						node.lineno for node in ast.walk(function) if _reads(node, attribute, named)
+					}
+
+		if lines:
+			found[where] = sorted(lines)
 
 	return found
 
@@ -156,6 +231,39 @@ def test_the_scan_finds_a_synthetic_offender (tmp_path: pathlib.Path) -> None:
 	)
 
 	assert _asking(tmp_path) == {"somewhere.py": [2]}
+
+
+def test_the_scan_finds_a_principal_by_its_annotation (tmp_path: pathlib.Path) -> None:
+	"""`SR#5134`: a principal called neither name is found by what it is annotated as.
+
+	``reader`` and ``presenter`` hold principals in `src`, and so does ``found`` in two places,
+	where elsewhere it holds a credential read from configuration - so a name decides nothing. A
+	quoted annotation in a union with ``None`` is found too, and neither an unannotated ``found``
+	nor a callable that makes a principal is.
+	"""
+
+	offender = tmp_path / "somewhere.py"
+	offender.write_text(
+		"import subroutine.domain.authentication\n"
+		"\n"
+		"Principal = subroutine.domain.authentication.Principal\n"
+		"\n"
+		"def check (reader: Principal) -> None:\n"
+		"\tif reader.token is None:\n"
+		"\t\treturn\n"
+		"\n"
+		"def other (found: 'subroutine.domain.authentication.Principal | None') -> object:\n"
+		"\treturn found.token\n"
+		"\n"
+		"def configured (found):\n"
+		"\treturn found.token\n"
+		"\n"
+		"def made (resolve: 'typing.Callable[[], Principal]') -> object:\n"
+		"\treturn resolve.token\n",
+		encoding="utf-8",
+	)
+
+	assert _asking(tmp_path) == {"somewhere.py": [6, 10]}
 
 
 def test_the_scan_leaves_a_different_token_alone (tmp_path: pathlib.Path) -> None:
