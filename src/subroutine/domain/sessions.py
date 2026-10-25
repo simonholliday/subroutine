@@ -125,7 +125,10 @@ def mint_link (
 
 	_refuse_a_credential_that_would_be_widened(session, actor, now=moment)
 
-	minted = subroutine.auth.generate_token(kind=subroutine.auth.LOGIN_KIND)
+	# **Re-rolled where the prefix is taken**, as every kind of credential is (`SR#5132`).
+	minted = subroutine.domain.authentication.mint_unused(
+		session, subroutine.db.models.identity.LoginLink, kind=subroutine.auth.LOGIN_KIND
+	)
 
 	link = subroutine.db.models.identity.LoginLink(
 		user_id=user.id,
@@ -217,7 +220,9 @@ def redeem (
 
 	_refuse_an_account_that_cannot_sign_in(session, user, prefix=prefix)
 
-	minted = subroutine.auth.generate_token(kind=subroutine.auth.SESSION_KIND)
+	minted = subroutine.domain.authentication.mint_unused(
+		session, subroutine.db.models.identity.WebSession, kind=subroutine.auth.SESSION_KIND
+	)
 
 	opened = subroutine.db.models.identity.WebSession(
 		user_id=user.id,

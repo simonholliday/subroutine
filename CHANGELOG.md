@@ -37,6 +37,10 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **A sign-in no longer fails now and then because its link or session was given an identifier
+  another already holds.** API tokens and calendar feeds already tried another; sign-in links and
+  browser sessions now do too.
+
 - **`cors_origins = ["*"]` no longer lets a page anywhere act as somebody signed in - a page that
   relied on that stops.** A list holding `*` was answered with credentials allowed, and a session
   cookie's write was accepted from any page that named itself, so a page on any site could read and

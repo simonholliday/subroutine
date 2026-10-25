@@ -103,6 +103,10 @@ MINTS: dict[str, typing.Callable[[sqlalchemy.orm.Session, Place, Principal], obj
 
 #: Functions that hand back a secret and do not ask the ceiling, each with why.
 NOT_ASKED: dict[str, str] = {
+	"subroutine.domain.authentication.mint_unused": (
+		"The one minting, with its retry, that every door above calls once it has asked "
+		"(`SR#5132`). It is presented no session to ask, and hands a secret only to them."
+	),
 	"subroutine.domain.sessions.redeem": (
 		"Spends a sign-in link the caller already holds for the browser session it buys, and is "
 		"presented no session to ask: the link is the credential."
@@ -110,12 +114,17 @@ NOT_ASKED: dict[str, str] = {
 }
 
 
+#: What a function calls to mint a secret: the generator, and since `SR#5132` the one minting
+#: with its retry that every kind of credential goes through, which calls it.
+MINTING = frozenset({"generate_token", "mint_unused"})
+
+
 def _minting (root: pathlib.Path) -> set[str]:
 	"""Return every public function under ``root`` that mints a secret, by what it calls.
 
 	**Found rather than listed**, so a fifth way to hand one back cannot be added without this
-	file being told about it: a function calling ``generate_token``, or a private helper in its
-	own module that does, at any depth.
+	file being told about it: a function calling one of :data:`MINTING`, or a private helper in
+	its own module that does, at any depth.
 	"""
 
 	found: set[str] = set()
@@ -132,7 +141,7 @@ def _minting (root: pathlib.Path) -> set[str]:
 			for node in tree.body
 			if isinstance(node, ast.FunctionDef)
 		}
-		mints = {name for name, called in calls.items() if "generate_token" in called}
+		mints = {name for name, called in calls.items() if called & MINTING}
 
 		# Through the module's private helpers, until nothing more is learned.
 		while True:

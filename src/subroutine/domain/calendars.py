@@ -59,9 +59,6 @@ FUTURE_DAYS = 400
 # Adding ``past_days`` to the table later is additive, which is why nothing here anticipates
 # it — but they live together so that change is one edit.
 
-#: How many times to re-roll a feed secret whose prefix is already taken, before giving up.
-PREFIX_ATTEMPTS = 8
-
 
 @dataclasses.dataclass(frozen=True)
 class Occasion:
@@ -963,21 +960,8 @@ def _refuse_a_credential_that_would_be_widened (
 def _mint_unused_secret (
 	session: sqlalchemy.orm.Session,
 ) -> subroutine.auth.IssuedToken:
-	"""Generate a feed secret whose prefix is not already in use."""
+	"""Generate a feed secret whose prefix is not already in use - the one minting, `SR#5132`."""
 
-	model = subroutine.db.models.identity.CalendarFeed
-
-	for _attempt in range(PREFIX_ATTEMPTS):
-		issued = subroutine.auth.generate_token(kind=subroutine.auth.CALENDAR_KIND)
-
-		taken = session.scalars(
-			sqlalchemy.select(model.id).where(model.token_prefix == issued.prefix)
-		).first()
-
-		if taken is None:
-			return issued
-
-	raise RuntimeError(
-		f"Could not find an unused calendar prefix in {PREFIX_ATTEMPTS} attempts. This "
-		f"should be impossible; check that the random number source is working."
+	return subroutine.domain.authentication.mint_unused(
+		session, subroutine.db.models.identity.CalendarFeed, kind=subroutine.auth.CALENDAR_KIND
 	)

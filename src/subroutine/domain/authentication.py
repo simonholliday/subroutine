@@ -35,10 +35,11 @@ import subroutine.permissions
 #: the second (docs/design.md §7.4).
 LAST_USED_INTERVAL = datetime.timedelta(minutes=1)
 
-#: How many times to re-roll a token prefix that is already taken. A collision needs tens
-#: of thousands of live tokens before it is likely at all, and re-rolling is cheaper than
-#: explaining an integrity error to whoever hit it.
-PREFIX_ATTEMPTS = 5
+#: How many times to re-roll a credential's prefix that is already taken, for every kind - an API
+#: token, a calendar feed, a sign-in link and a browser session (`SR#5132`), which had two numbers
+#: and two kinds without one. A collision needs tens of thousands of rows of one kind before it is
+#: likely at all, and re-rolling is cheaper than explaining an integrity error to whoever hit it.
+PREFIX_ATTEMPTS = 8
 
 #: The doors a request can arrive through — decision `SR#1426` §2, and `SR#1415` is the item.
 #:
@@ -510,7 +511,7 @@ def issue_token (
 		project_write_scope=project_write_scope,
 	)
 
-	issued = _mint_unused_token(session)
+	issued = mint_unused(session, subroutine.db.models.identity.ApiToken)
 
 	token = subroutine.db.models.identity.ApiToken(
 		user_id=user.id,
@@ -1301,13 +1302,19 @@ def _named (session: sqlalchemy.orm.Session, identifiers: typing.Collection[str]
 	)
 
 
-def _mint_unused_token (session: sqlalchemy.orm.Session) -> subroutine.auth.IssuedToken:
-	"""Generate a token whose prefix is not already in use."""
+def mint_unused (
+	session: sqlalchemy.orm.Session, model: type[typing.Any], *, kind: str | None = None
+) -> subroutine.auth.IssuedToken:
+	"""Generate a credential of ``kind`` whose prefix no row of ``model`` holds - `SR#5132`.
 
-	model = subroutine.db.models.identity.ApiToken
+	**One copy for every kind** (a bullet of L-7 of the cold review of 2026-10-17): API tokens and
+	calendar feeds re-rolled a taken prefix, with two numbers of attempts, and sign-in links and
+	browser sessions did not, so a clash ended a sign-in in an integrity error. Spent links and old
+	sessions stay as rows, so their population only grows.
+	"""
 
 	for _attempt in range(PREFIX_ATTEMPTS):
-		issued = subroutine.auth.generate_token()
+		issued = subroutine.auth.generate_token(kind=kind)
 
 		taken = session.scalars(
 			sqlalchemy.select(model.id).where(model.token_prefix == issued.prefix)
@@ -1317,8 +1324,8 @@ def _mint_unused_token (session: sqlalchemy.orm.Session) -> subroutine.auth.Issu
 			return issued
 
 	raise RuntimeError(
-		f"Could not find an unused token prefix in {PREFIX_ATTEMPTS} attempts. This "
-		f"should be impossible; check that the random number source is working."
+		f"Could not find an unused {model.__tablename__} prefix in {PREFIX_ATTEMPTS} attempts. "
+		f"This should be impossible; check that the random number source is working."
 	)
 
 
