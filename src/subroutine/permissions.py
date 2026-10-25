@@ -298,7 +298,7 @@ def worth_listing (names: typing.Iterable[str]) -> bool:
 	when the *credential* had been narrowed, on the reasoning that "an unnarrowed owner would
 	otherwise be handed twenty keys it already holds". That reasoning is sound and it is about
 	the wrong case: an owner holding everything is exactly where a list says nothing, and a
-	contributor holds six of seventeen — the case where it says the most. So an agent learned
+	contributor holds six of sixteen — the case where it says the most. So an agent learned
 	**more** about what it could do by being *restricted*, and a plain contributor credential
 	was handed the word *Contributor* and nothing else.
 

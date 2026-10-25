@@ -6223,7 +6223,7 @@ def test_whoami_lists_permissions_for_a_role_that_does_not_hold_everything (
 	The list used to appear only when the credential was narrowed, on the reasoning that an
 	unnarrowed owner would be handed twenty keys it already holds. True, and about the wrong
 	case: an owner holding everything is where a list says nothing, and a contributor holding
-	six of seventeen is where it says the most. So a plain contributor credential got the word
+	six of sixteen is where it says the most. So a plain contributor credential got the word
 	*Contributor* and no statement of what that meant.
 
 	Driven with a service account holding a role and **no scopes, no project scope and no

@@ -129,7 +129,8 @@ skill - and none of them has to be taught to it, by you or by anybody.
   `/v1/docs/examples` is executed by the test suite - so an example that stopped working fails
   the build rather than misleading a reader.
 - **The tool surface is a deliberate budget**: a small set, and one of them reaches the routes
-  the others do not, bar five kept to the command line on purpose. Every name an agent has to be
+  the others do not, bar what the agent tools never do: mint a secret, administer the
+  installation, or colour, delete or bring back a workspace. Every name an agent has to be
   taught is context spent for ever, where a grammar it can discover costs nothing.
 - **Conventions travel with the work.** `subroutine://conventions` carries everything in force
   in your workspace - decisions, specifications, designs and dead ends - and any MCP client can
