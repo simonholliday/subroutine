@@ -10067,13 +10067,25 @@ def test_an_agent_can_change_how_something_repeats_and_stop_it (
 	assert "every other week" not in after, after
 
 
-@pytest.mark.parametrize(
-	"timezone",
-	# Zones whose offset from UTC is never zero, so a rendering that skipped the conversion
-	# cannot pass by coincidence. `Pacific/Kiritimati` is +14 and `Pacific/Midway` is -11, which
-	# between them put the expiry on a different **day** as well as a different hour.
-	["Europe/London", "Pacific/Kiritimati", "Pacific/Midway"],
-)
+#: Zones whose offset from UTC is never zero, so a rendering that skipped the conversion cannot
+#: pass by coincidence. `Pacific/Kiritimati` is +14 and `Pacific/Midway` is -11, which between
+#: them put the expiry on a different **day** as well as a different hour; `Asia/Kolkata` is
+#: +5:30, a half hour. **`Europe/London` was the first, and is UTC from late October to late
+#: March** (`SR#5238`), so the test failed every winter; the test below holds the rest to it.
+EXPIRY_ZONES = ("Asia/Kolkata", "Pacific/Kiritimati", "Pacific/Midway")
+
+
+def test_no_zone_a_claim_expiry_is_read_in_is_ever_utc () -> None:
+	"""Each zone below is off UTC in January and in July, so neither half of a year is UTC."""
+
+	for zone in EXPIRY_ZONES:
+		for moment in ("2026-01-15T12:00:00+00:00", "2026-07-15T12:00:00+00:00"):
+			there = datetime.datetime.fromisoformat(moment).astimezone(zoneinfo.ZoneInfo(zone))
+
+			assert there.utcoffset() != datetime.timedelta(0), (zone, moment)
+
+
+@pytest.mark.parametrize("timezone", EXPIRY_ZONES)
 def test_a_claim_expiry_is_shown_on_the_same_clock_as_everything_else_an_agent_reads (
 	session: sqlalchemy.orm.Session,
 	bound: subroutine.mcp.protocol.Server,
