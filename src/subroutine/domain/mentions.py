@@ -37,10 +37,15 @@ import subroutine.domain.scoping
 #: * **Lookarounds, never ``\b``.** ``\b`` sits between a letter and an apostrophe, which
 #:   is how ``\btomorrow\b`` came to match inside ``tomorrow's`` in ``domain.capture``
 #:   and mangle a title. The same mistake here would index the wrong item.
+#: * **No ``/`` before it** (`SR#5146`). The terminal prints an item in another workspace as
+#:   ``metacortex/#42``, and on another connection as ``work/metacortex/#42``, so an address
+#:   pasted from it was indexed as this workspace's ``#42``. The cost, accepted: this
+#:   workspace's own item written in its long form is not indexed either, and inside its own
+#:   workspace the terminal prints the short form.
 #:
 #: ``#42`` cannot open a markdown heading — CommonMark requires a space after the ``#``
 #: run — and cannot be a ``#tag`` from quick capture, which must begin with a letter.
-REF_PATTERN = re.compile(r"(?<![\w#])#([1-9][0-9]*)(?!\w)")
+REF_PATTERN = re.compile(r"(?<![\w#/])#([1-9][0-9]*)(?!\w)")
 
 #: The explicit form, ``[label](subroutine:42)``. It carries no sigil, so the pattern
 #: above cannot see it and this one is not a convenience.
@@ -65,7 +70,8 @@ def candidates (*texts: str | None) -> list[int]:
 	Both spellings are collected: the bare ``#42`` and the explicit
 	``[label](subroutine:42)``. A cross-workspace link is deliberately skipped — it names
 	a workspace this index does not cover, and resolving it locally would silently point
-	at whatever happens to share the number here.
+	at whatever happens to share the number here — and so is an item's address in another
+	workspace as the terminal prints it, ``metacortex/#42`` (`SR#5146`).
 
 	A number too large to be a ref is left as prose, for the reason
 	:data:`subroutine.domain.refs.MAX_REF` gives.

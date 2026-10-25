@@ -37,6 +37,11 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **An item's address in another workspace is no longer read as a mention of this workspace's
+  item.** `metacortex/#42`, pasted from the terminal into a description or a comment, made a
+  backlink on this workspace's `#42`, and the browser linked it there. An item here is mentioned
+  as `#42`: its own long form is not read as a mention either.
+
 - **A sign-in no longer fails now and then because its link or session was given an identifier
   another already holds.** API tokens and calendar feeds already tried another; sign-in links and
   browser sessions now do too.

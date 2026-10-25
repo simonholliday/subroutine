@@ -101,7 +101,7 @@ const INLINE = new RegExp(
 		"~~(?!\\s)([\\s\\S]+?)(?<!\\s)~~",            /* 6    — struck through */
 		"\\*(?!\\s)([^*\\n]+?)(?<!\\s)\\*",           /* 7    — italic */
 		"(https?://[^\\s<>\"'`)\\]]+)",               /* 8    — a bare address */
-		"(?<![\\w#])#([1-9][0-9]*)(?!\\w)",           /* 9    — a mention of an item */
+		"(?<![\\w#/])#([1-9][0-9]*)(?!\\w)",          /* 9    — a mention of an item */
 	].join("|"),
 	"g"
 );
@@ -110,7 +110,8 @@ const INLINE = new RegExp(
 	**The mention rule is `mentions.REF_PATTERN`, character for character.**
 
 	Lookarounds rather than `\b`, and no leading zero: that is what keeps `#42FF00`, `##1`,
-	`issue#1` and `#007` out of the index server-side, and a browser that disagreed would
+	`issue#1`, `#007` and another workspace's `metacortex/#42` (`SR#5146`) out of the index
+	server-side, and a browser that disagreed would
 	underline things the backlink graph does not know about. A second copy of this rule is
 	this codebase's signature defect, so the copy is deliberate, marked, and identical —
 	`tests/test_web.py` compares them.

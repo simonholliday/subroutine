@@ -529,7 +529,8 @@ def _published_prose () -> list[tuple[str, str, str]]:
 
 
 #: A ref as it is written anywhere — ``#42``, but not ``##1``, not ``#42FF00``, not ``issue#1``.
-#: The same lookarounds ``mentions.REF_PATTERN`` uses, for the same reasons.
+#: The lookarounds ``mentions.REF_PATTERN`` uses, for the same reasons, bar its ``/``
+#: (`SR#5146`): an address in another workspace is not a mention, and is still a citation.
 _REF = re.compile(r"(?<![\w#])#(\d{1,4})(?!\w)")
 
 
