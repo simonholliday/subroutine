@@ -37,6 +37,12 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **`me` assigns work to whoever is asking, as it already lists it.** `@me` in a captured line
+  and an assignee of `me` were refused as nobody called 'me'; for an agent, `me` is the agent
+  itself. An account whose username is 32 hex characters can now be named by it, and no new
+  account may take such a name. And a name captured in the text no longer refuses a request that
+  names its own assignee.
+
 - **The browser no longer marks cancelled work Overdue, and offers Prioritise only to whoever may
   use it.** A cancelled task with a passed deadline read *Overdue* beside *cancelled*, and members
   and contributors were shown Prioritise, which then refused them.

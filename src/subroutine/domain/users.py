@@ -29,6 +29,11 @@ import subroutine.permissions
 #: than arriving as a driver error on PostgreSQL and not at all on SQLite.
 MAX_USERNAME_LENGTH = 64
 
+#: The word a caller uses for its own account. **Owned here** (`SR#5144`), because
+#: :mod:`subroutine.domain.selection` imports this module and not the reverse, and assigning work
+#: reads it too: ``selection.CALLER`` is this one.
+CALLER = "me"
+
 #: Words the search grammar reads as something other than a name - `#3155`. ``assignee:unset``
 #: is *assigned to nobody* and ``assignee:set`` *to anybody* (``filtering.UNSET`` and
 #: ``filtering.SET``), and ``assignee:me`` is whoever is asking (``selection.CALLER``). An account
@@ -122,6 +127,22 @@ def create (
 					code="invalid_field_value",
 					message=f"A search reads {name.lower()!r} as a state rather than as a person, "
 					"so nobody could be found by it.",
+					hint="Choose a name with more to it - a first name is the usual one.",
+				)
+			],
+		)
+
+	# **Nor one that reads as an id** (`SR#5144`): every field naming an account takes an id or a
+	# name, and tries the id first, so a name such as 32 hex characters named nobody. One held
+	# already is found by name where no account has it as its id.
+	if _reads_as_an_id(name):
+		raise subroutine.errors.ValidationError(
+			f"{name!r} cannot be used as a username.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="username",
+					code="invalid_field_value",
+					message="It reads as an account's id, so nobody could be named by it.",
 					hint="Choose a name with more to it - a first name is the usual one.",
 				)
 			],
@@ -735,8 +756,25 @@ def _nobody_called (username: str) -> subroutine.errors.NotFound:
 	)
 
 
+def _reads_as_an_id (name: str) -> bool:
+	"""Say whether a name parses as an account's id, which is how it would be read."""
+
+	try:
+		uuid.UUID(name)
+
+	except ValueError:
+		return False
+
+	return True
+
+
 def member (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, given: str, *, field: str
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	given: str,
+	*,
+	field: str,
+	caller: subroutine.db.models.identity.User | None = None,
 ) -> subroutine.db.models.identity.User:
 	"""Return the member of this workspace named by a username or an id, or refuse by name.
 
@@ -755,13 +793,20 @@ def member (
 	caller sent and neither reader should be told about the other.
 
 	A value that parses as a UUID is taken as an id, matching ``id_or_ref`` and ``id_or_key``
-	and :func:`subroutine.domain.selection.user`; anything else is a username.
+	and :func:`subroutine.domain.selection.user`, and as a username where no member has it as an
+	id; anything else is a username. ``caller`` is the account :data:`CALLER` stands for.
 	"""
 
 	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
 	# the driver cannot encode a lone surrogate, so it reached the database as a 500 and the
 	# terminal as a traceback.
 	subroutine.domain.text.readable(given, field=field)
+
+	# **``me`` is whoever is asking** (`SR#5144`, decision `#5097`), as a filter already reads it.
+	# It is reserved, so no account holds it, and it was refused as nobody called 'me' - a reason
+	# that was false. An agent asking is the agent itself (`#158`), and a member like anybody.
+	if caller is not None and given == CALLER:
+		given = caller.username
 
 	try:
 		identifier = uuid.UUID(given)
@@ -771,6 +816,13 @@ def member (
 
 	model = subroutine.db.models.identity.User
 	found = session.scalars(_members(workspace_id).where(model.id == identifier)).one_or_none()
+
+	# **Then as a name** (`SR#5144`): a username of 32 hex characters, accepted until
+	# :func:`create` refused one, parses as an id, and nobody so named could be given work.
+	if found is None:
+		found = session.scalars(
+			_members(workspace_id).where(model.username_normalized == normalize(given))
+		).one_or_none()
 
 	if found is not None:
 		return found

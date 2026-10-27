@@ -3889,7 +3889,7 @@ class Client:
 					None
 					if assignee is None
 					else subroutine.domain.tasks.assignee_for(
-						session, row.workspace_id, assignee
+						session, row.workspace_id, assignee, caller=actor.user
 					).id
 				)
 

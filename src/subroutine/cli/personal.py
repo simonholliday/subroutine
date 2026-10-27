@@ -11355,7 +11355,7 @@ def register (
 			UNGIVEN,
 			"--assignee",
 			show_default=False,
-			help="Who is to do it, by username. Pass '' to leave it with nobody.",
+			help="Who is to do it, by username, or 'me'. Pass '' to leave it with nobody.",
 		),
 		tags: str = typer.Option(
 			UNGIVEN,

@@ -127,8 +127,9 @@ def workspace_to_administer (
 #: everywhere** (`#518`): the resolver below also serves minting a sign-in link and signing an
 #: account out of every browser, and a sentinel that quietly worked there would widen the
 #: grammar of two credential routes as a side effect of adding a listing filter. `#829` is what
-#: that costs when it goes unnoticed, so a caller that means to allow this says so.
-CALLER = "me"
+#: that costs when it goes unnoticed, so a caller that means to allow this says so. **The
+#: word is** :data:`subroutine.domain.users.CALLER`, which assigning work reads too (`SR#5144`).
+CALLER = subroutine.domain.users.CALLER
 
 
 def user (
@@ -160,10 +161,12 @@ def user (
 	it could not find and points at the command that lists them, so both transports inherit
 	one sentence rather than inventing two.
 
-	A value that parses as a UUID is taken as an id. A username cannot collide with one in
-	practice — :func:`subroutine.domain.users.normalize` requires a leading letter and a UUID's
-	first group is eight characters of hex — but the order is stated rather than left to be
-	inferred, because "which wins" is exactly the question a reader of this will have.
+	A value that parses as a UUID is taken as an id, and as a username where no account has it
+	as an id. **This said a username could not collide with one** (`SR#5144`), since a UUID's
+	first group is eight characters of hex - true of the hyphenated form only: 32 hex characters
+	parse too, and nothing refused them as a username until :func:`subroutine.domain.users.create`
+	did. The order is stated rather than left to be inferred, because "which wins" is exactly the
+	question a reader of this will have.
 	"""
 
 	if caller is not None and given == CALLER:
@@ -178,6 +181,13 @@ def user (
 	found = session.get(subroutine.db.models.identity.User, identifier)
 
 	if found is None or found.deleted_at is not None:
+		# **Then as a name** (`SR#5144`), for an account named before such names were refused.
+		try:
+			return subroutine.domain.users.by_username(session, given)
+
+		except subroutine.errors.NotFound:
+			pass
+
 		raise subroutine.errors.NotFound(
 			f"There is no account with the id {given!r} here.",
 			hint="Name the account by its username instead - 'subroutine user list' shows them.",

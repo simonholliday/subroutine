@@ -275,7 +275,9 @@ def create (
 		structured["assignee_id"] = (
 			None
 			if body.assignee is None
-			else subroutine.domain.tasks.assignee_for(session, workspace.id, body.assignee).id
+			else subroutine.domain.tasks.assignee_for(
+				session, workspace.id, body.assignee, caller=actor.user
+			).id
 		)
 
 	if body.title is not None:
@@ -961,7 +963,9 @@ def change (
 		changes["assignee_id"] = (
 			None
 			if body.assignee is None
-			else subroutine.domain.tasks.assignee_for(session, workspace.id, body.assignee).id
+			else subroutine.domain.tasks.assignee_for(
+				session, workspace.id, body.assignee, caller=actor.user
+			).id
 		)
 
 	# None of these four is patchable-to-null: a status and a type are required, and the two

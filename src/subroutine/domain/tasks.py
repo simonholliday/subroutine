@@ -1464,11 +1464,17 @@ def create_from_text (
 		# guarded it with an unsatisfiable condition. `fields.update(overrides)` is now the
 		# single place §6.13's "structured wins over parsed" is decided.
 		"tags": captured.tags,
+		# **Not resolved where the request names an assignee itself** (`SR#5144`): that replaces
+		# it, so refusing the captured name was refusing a value the request had replaced.
 		"assignee_id": (
 			None
-			if captured.assignee is None
+			if captured.assignee is None or "assignee_id" in overrides
 			else subroutine.domain.users.member(
-				session, workspace.id, captured.assignee, field="assignee"
+				session,
+				workspace.id,
+				captured.assignee,
+				field="assignee",
+				caller=None if actor is None else actor.user,
 			).id
 		),
 	}
@@ -1491,7 +1497,11 @@ def create_from_text (
 
 
 def assignee_for (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, given: str
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	given: str,
+	*,
+	caller: subroutine.db.models.identity.User | None = None,
 ) -> subroutine.db.models.identity.User:
 	"""Return the member this names, whether it was named by username or by id — `#493`.
 
@@ -1508,7 +1518,9 @@ def assignee_for (
 	above is about assigning work, and it is where a reader of this module will look for it.
 	"""
 
-	return subroutine.domain.users.member(session, workspace_id, given, field="assignee")
+	return subroutine.domain.users.member(
+		session, workspace_id, given, field="assignee", caller=caller
+	)
 
 
 def update (

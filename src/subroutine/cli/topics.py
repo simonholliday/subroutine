@@ -200,7 +200,7 @@ def _capture_body () -> str:
 		# has to say so.
 		("every <phrase>", "repeats: 'every day', 'every other tuesday'"),
 		("#tag", "labels it, creating the tag if it is new"),
-		("@name", "assigns it to somebody"),
+		("@name", "assigns it to somebody; '@me' to yourself"),
 		("!1 to !5", "how important it is"),
 		("!3/5", "important and urgent, as a list shows it back"),
 		("~90m, ~2h", "how long it will take"),
