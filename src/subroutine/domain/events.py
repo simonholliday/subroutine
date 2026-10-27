@@ -1222,20 +1222,82 @@ class Described(typing.NamedTuple):
 #: link listing gives it, docs/design.md §7.3a.
 UNSEEN_END = {"visible": False}
 
+#: The fields a change can name another row by, and the kind of row each names (`SR#5148`): where an
+#: item is filed, the task it sits under and the series it comes from. A side naming one its reader
+#: cannot see is said as :data:`UNSEEN_END`, and the journal names these by the same declaration.
+NAMES_A_ROW: dict[str, str] = {
+	"project_id": "project",
+	"parent_task_id": "task",
+	"recurrence_template_id": "task",
+}
+
+#: Both sides of a change.
+SIDES = frozenset({"from", "to"})
+
+#: What one event's reader may not see in its changes: each field, and which of its sides (`SR#5148`).
+Unseen = dict[str, frozenset[str]]
+
+
+def identifier (value: typing.Any) -> uuid.UUID | None:
+	"""Return ``value`` as an id if that is what it is, and ``None`` otherwise.
+
+	``event.changes`` is JSON, so what comes back is a string on both backends rather than the
+	``uuid.UUID`` the column held. Parsing is the check: a value that is not one raises and is
+	simply not an id, which is the same answer as a column nobody declared. **Here since `SR#5148`**,
+	beside the other reader of the same changes, :mod:`subroutine.domain.journal`, which imports this.
+	"""
+
+	if isinstance(value, uuid.UUID):
+		return value
+
+	if not isinstance(value, str):
+		return None
+
+	try:
+		return uuid.UUID(value)
+
+	except ValueError:
+		return None
+
 
 def unseen_ends (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal | None,
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
-) -> dict[uuid.UUID, str]:
-	"""Return, for each link event whose other end this reader cannot see, the field that names it.
+) -> dict[uuid.UUID, Unseen]:
+	"""Return, for each event, the sides of its changes that name something this reader cannot see.
 
 	**A link to something hidden is shown as unseen, in the feed as everywhere** (`SR#4575`, decision
 	`#4521`). :func:`subroutine.domain.scoping.visible_events` shows a link's event wherever the item
 	it was made on is visible, and the ref of the other end, which ``changes`` holds as ``source`` or
 	``target``, is what this says to leave out. Every renderer of an event asks it, and the view
 	requires the answer, so none can forget. ``None`` is an internal caller, who sees everything.
+
+	**And a project, parent or series a change names** (`SR#5148`, decision `#5097`): an item moved
+	out of a private project is rightly shown to somebody outside it, and its ``project_id`` gave them
+	the private project's id. Only the side naming what they cannot see is unseen: the open project
+	it moved to is theirs to read.
 	"""
+
+	if principal is None:
+		return {}
+
+	said: dict[uuid.UUID, Unseen] = {
+		event: {field: SIDES} for event, field in _unseen_link_ends(session, principal, rows).items()
+	}
+
+	for event, fields in _unseen_rows_named(session, principal, rows).items():
+		said.setdefault(event, {}).update(fields)
+
+	return said
+
+
+def _unseen_link_ends (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+) -> dict[uuid.UUID, str]:
+	"""Return, for each link event whose other end this reader cannot see, the field that names it."""
 
 	asked = [
 		row
@@ -1243,7 +1305,7 @@ def unseen_ends (
 		if row.entity_type == "link" and row.subject_b_type is not None and row.subject_b_id is not None
 	]
 
-	if principal is None or not asked:
+	if not asked:
 		return {}
 
 	models: dict[str, typing.Any] = {
@@ -1284,10 +1346,70 @@ def unseen_ends (
 	}
 
 
+def _unseen_rows_named (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+) -> dict[uuid.UUID, Unseen]:
+	"""Return, for each event, the sides of a :data:`NAMES_A_ROW` change naming a row this reader
+	cannot see - `SR#5148`.
+
+	**One statement per kind of row named, and none for a page naming nothing**, the question
+	:func:`subroutine.domain.journal.readable_only` asks for the journal. An id that no longer names
+	a row is unseen too: nothing it named can be read.
+	"""
+
+	named: list[tuple[uuid.UUID, str, str, uuid.UUID]] = []
+
+	for row in rows:
+		if not isinstance(row.changes, dict):
+			continue
+
+		for field in NAMES_A_ROW:
+			moved = row.changes.get(field)
+
+			if not isinstance(moved, dict):
+				continue
+
+			for side in SIDES:
+				found = identifier(moved.get(side))
+
+				if found is not None:
+					named.append((row.id, field, side, found))
+
+	if not named:
+		return {}
+
+	workspace_ids = sorted({row.workspace_id for row in rows})
+	seen: set[uuid.UUID] = set()
+
+	for kind in {NAMES_A_ROW[field] for _event, field, _side, _found in named}:
+		statement = subroutine.domain.scoping.readable_among(
+			session,
+			principal,
+			workspace_ids=workspace_ids,
+			kind=kind,
+			identifiers={found for _event, field, _side, found in named if NAMES_A_ROW[field] == kind},
+		)
+
+		# A kind this credential cannot read at all names nothing of that kind.
+		if statement is not None:
+			seen |= set(session.scalars(statement))
+
+	said: dict[uuid.UUID, Unseen] = {}
+
+	for event, field, side, found in named:
+		if found not in seen:
+			fields = said.setdefault(event, {})
+			fields[field] = fields.get(field, frozenset()) | {side}
+
+	return said
+
+
 def shown (
-	changes: dict[str, typing.Any] | None, unseen: str | None
+	changes: dict[str, typing.Any] | None, unseen: Unseen | None
 ) -> dict[str, typing.Any] | None:
-	"""Return a copy of an event's ``changes`` with the end named by ``unseen`` said as unseen.
+	"""Return a copy of an event's ``changes`` with each side ``unseen`` names said as unseen.
 
 	A copy, never the row's own: the row is in the session, and a change to it would be written back.
 	"""
@@ -1296,12 +1418,15 @@ def shown (
 		return None
 
 	copied = dict(changes)
-	change = copied.get(unseen) if unseen is not None else None
 
-	if unseen is not None and isinstance(change, dict):
-		copied[unseen] = {
-			side: None if value is None else dict(UNSEEN_END) for side, value in change.items()
-		}
+	for field, sides in (unseen or {}).items():
+		change = copied.get(field)
+
+		if isinstance(change, dict):
+			copied[field] = {
+				side: dict(UNSEEN_END) if side in sides and value is not None else value
+				for side, value in change.items()
+			}
 
 	return copied
 

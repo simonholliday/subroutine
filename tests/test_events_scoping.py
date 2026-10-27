@@ -44,6 +44,7 @@ import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.links
 import subroutine.domain.projects
+import subroutine.domain.scoping
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -884,7 +885,10 @@ def test_a_journal_entry_names_nothing_its_reader_may_not_see (
 	outsider = moved(subroutine.domain.authentication.Principal(user=world.outsider))
 
 	assert outsider.after == "open", outsider
-	assert outsider.before is None, f"the outsider was told where it came from: {outsider}"
+	# **Said as unseen rather than as nothing** (`SR#5148`, decision `#5097`): it was filed somewhere.
+	assert outsider.before == subroutine.domain.scoping.UNSEEN, (
+		f"the outsider was told where it came from, or that it came from nowhere: {outsider}"
+	)
 
 	# **The same boundary drawn by a credential rather than by membership**: the owner's own
 	# token, narrowed to the open project, is shown the move and not where it came from.
@@ -895,7 +899,9 @@ def test_a_journal_entry_names_nothing_its_reader_may_not_see (
 
 	narrowed = moved(subroutine.domain.authentication.Principal(user=world.owner, token=token))
 
-	assert narrowed.before is None, f"a narrowed credential was told where it came from: {narrowed}"
+	assert narrowed.before == subroutine.domain.scoping.UNSEEN, (
+		f"a narrowed credential was told where it came from: {narrowed}"
+	)
 
 	# **And where it is now is named to all three** (`SR#2727`). Every project an entry names
 	# passes the same narrowing, the item's own place included, so a narrowing that hid where the

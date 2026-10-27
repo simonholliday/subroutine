@@ -3758,8 +3758,15 @@ class Vocabulary:
 				"recurrence_text",
 				"recurrence_anchor",
 				"recurrence_trigger",
+				# **And where each is filed** (`SR#5148`), so that only a series filed apart from its
+				# occurrence is asked about: see :func:`_unseen_series`.
+				"project_id",
 			),
 		)
+
+		#: The series on this page its reader cannot see, whose number is not said (`SR#5148`). Filled
+		#: by :meth:`for_tasks`, the one way a page of tasks is loaded for a reader; empty elsewhere.
+		self.unseen_series: frozenset[uuid.UUID] = frozenset()
 
 		# **One query for every assignee on the page** (`#511`), for the reason the parents load
 		# above gives: a username is how a person is addressed, so a view reporting only
@@ -3789,7 +3796,7 @@ class Vocabulary:
 	) -> "Vocabulary":
 		"""Load everything a page of tasks needs to be rendered, for ``reader`` — `#3597`."""
 
-		return cls(
+		vocabulary = cls(
 			session,
 			status_ids={task.status_id for task in tasks},
 			type_ids={task.type_id for task in tasks},
@@ -3811,6 +3818,9 @@ class Vocabulary:
 			),
 			reader=reader,
 		)
+		vocabulary.unseen_series = _unseen_series(session, reader, tasks, vocabulary.parents)
+
+		return vocabulary
 
 	@classmethod
 	def for_documents (
@@ -3925,9 +3935,17 @@ def repeats (task: Task) -> bool:
 	the domain — *that repeats, say which occurrences* if this is too narrow, *that does not
 	repeat* if it is too wide. ``tests/test_recurring_tasks.py`` drives both against one row
 	so they cannot drift quietly.
+
+	**And a rule** (`SR#5148`, decision `#5097`): an occurrence of a series its reader cannot see is
+	given no number, and is given the series' rule while it runs. One of a stopped series filed out of
+	its reader's sight reads as not repeating, so an edit to it is refused once for not saying.
 	"""
 
-	return task.is_template or task.recurrence_template_ref is not None
+	return (
+		task.is_template
+		or task.recurrence_template_ref is not None
+		or task.recurrence_rule is not None
+	)
 
 
 def beneath_seen (
@@ -4157,8 +4175,12 @@ def task (
 		# fire again.
 		recurrence_description=_described_repeat(vocabulary, row),
 		occurrence_at=row.occurrence_at,
-		recurrence_template_ref=_parent_field(
-			vocabulary.parents, row.recurrence_template_id, "ref"
+		# **Not said where the series is out of its reader's sight** (`SR#5148`, decision `#5097`):
+		# the rule above is the occurrence's own, and still says that it repeats.
+		recurrence_template_ref=(
+			None
+			if row.recurrence_template_id in vocabulary.unseen_series
+			else _parent_field(vocabulary.parents, row.recurrence_template_id, "ref")
 		),
 		is_template=row.is_template,
 		timezone=row.timezone,
@@ -4267,7 +4289,7 @@ def _side_of_a_change (
 	if value is None:
 		return None
 
-	found = subroutine.domain.journal.identifier(value)
+	found = subroutine.domain.events.identifier(value)
 
 	if found is None:
 		# A date, a number, a flag, a piece of text. What was stored is already the answer —
@@ -4351,7 +4373,7 @@ def journal_entry (
 	row: subroutine.db.models.activity.Event,
 	*,
 	vocabulary: Vocabulary,
-	unseen: typing.Mapping[uuid.UUID, str],
+	unseen: typing.Mapping[uuid.UUID, subroutine.domain.events.Unseen],
 	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
 	bodies: dict[uuid.UUID, subroutine.domain.journal.Said] | None = None,
 	zones: typing.Mapping[uuid.UUID, str] | None = None,
@@ -4390,8 +4412,9 @@ def journal_entry (
 	written_in = None if zones is None else zones.get(row.id)
 	changed = []
 
-	# **The other end of a link the reader cannot see, said as unseen** (`SR#4575`), and required,
-	# so no renderer can forget it: ``unseen`` is :func:`subroutine.domain.events.unseen_ends`.
+	# **The other end of a link, or a project, parent or series, the reader cannot see, said as
+	# unseen** (`SR#4575`, `SR#5148`), and required, so no renderer can forget it: ``unseen`` is
+	# :func:`subroutine.domain.events.unseen_ends`.
 	changes = subroutine.domain.events.shown(
 		row.changes if isinstance(row.changes, dict) else None, unseen.get(row.id)
 	)
@@ -4587,7 +4610,7 @@ def event (
 	row: subroutine.db.models.activity.Event,
 	described: dict[uuid.UUID, subroutine.domain.events.Described] | None,
 	*,
-	unseen: typing.Mapping[uuid.UUID, str],
+	unseen: typing.Mapping[uuid.UUID, subroutine.domain.events.Unseen],
 ) -> Event:
 	"""Render one event.
 
@@ -4619,8 +4642,9 @@ def event (
 		subject_type=row.subject_type,
 		subject_id=row.subject_id,
 		action=row.action,
-		# **The other end of a link the reader cannot see, said as unseen** (`SR#4575`): ``unseen`` is
-		# :func:`subroutine.domain.events.unseen_ends`, required so that no renderer can forget it.
+		# **The other end of a link, or a project, parent or series, the reader cannot see, said as
+		# unseen** (`SR#4575`, `SR#5148`): ``unseen`` is :func:`subroutine.domain.events.unseen_ends`,
+		# required so that no renderer can forget it.
 		changes=subroutine.domain.events.shown(
 			None if row.changes is None else dict(row.changes), unseen.get(row.id)
 		),
@@ -5203,6 +5227,10 @@ def _side_in_words (
 	if value is None:
 		return change.empty
 
+	# **Never quoted** (`SR#5148`): it is not a name somebody chose, and quoted it reads as one.
+	if value == subroutine.domain.scoping.UNSEEN:
+		return value
+
 	if change.dated and day is not None:
 		return day(value)
 
@@ -5269,7 +5297,7 @@ def _moved_in_words (
 		# what the change was. **Read as the series stands now**, which is the best an entry
 		# written before `#2825` can do: every later one records the rule itself, as
 		# `recurrence`, and this line folds into it.
-		found = subroutine.domain.journal.identifier(value)
+		found = subroutine.domain.events.identifier(value)
 		series = None if found is None else vocabulary.parents.get(found)
 
 		if series is None or series.get("recurrence_rule") is None:
@@ -7226,6 +7254,40 @@ def reader_zone (
 		workspace=workspace,
 		instance=subroutine.domain.instances.get(session),
 	)
+
+
+def _unseen_series (
+	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
+	tasks: typing.Sequence[subroutine.db.models.work.Task],
+	parents: typing.Mapping[uuid.UUID, dict[str, typing.Any]],
+) -> frozenset[uuid.UUID]:
+	"""Return the series of a page's occurrences that its reader cannot see - `SR#5148`.
+
+	**Asked only of a series filed in another project than its occurrence.** A task is seen by its
+	workspace and its project, the two share a workspace, and the occurrence is on this page because
+	its reader can see it: so a series beside it is seen too, and a page of those, which is every page
+	but a rare one, costs no statement. ``None`` is nobody reading, who is told every number.
+	"""
+
+	elsewhere = {
+		task.recurrence_template_id
+		for task in tasks
+		if task.recurrence_template_id is not None
+		and parents.get(task.recurrence_template_id, {}).get("project_id") != task.project_id
+	}
+
+	if reader is None or not elsewhere:
+		return frozenset()
+
+	statement = subroutine.domain.scoping.readable_among(
+		session, reader, kind="task", identifiers=elsewhere
+	)
+
+	if statement is None:
+		return frozenset(elsewhere)
+
+	return frozenset(elsewhere - set(session.scalars(statement)))
 
 
 def _parent_field (

@@ -59,9 +59,9 @@ NAMED_BY: dict[str, str] = {
 	"updated_by": USER,
 	"status_id": STATUS,
 	"type_id": TYPE,
-	"project_id": PROJECT,
-	"parent_task_id": TASK,
-	"recurrence_template_id": TASK,
+	# **The three that can name a row its reader may not see**, declared beside the events that
+	# carry them (`SR#5148`): every renderer of an event says such a side as unseen, as this does.
+	**subroutine.domain.events.NAMES_A_ROW,
 }
 
 
@@ -183,27 +183,6 @@ def page (
 	return rows, more
 
 
-def identifier (value: typing.Any) -> uuid.UUID | None:
-	"""Return ``value`` as an id if that is what it is, and ``None`` otherwise.
-
-	``event.changes`` is JSON, so what comes back is a string on both backends rather than the
-	``uuid.UUID`` the column held. Parsing is the check: a value that is not one raises and is
-	simply not an id, which is the same answer as a column nobody declared.
-	"""
-
-	if isinstance(value, uuid.UUID):
-		return value
-
-	if not isinstance(value, str):
-		return None
-
-	try:
-		return uuid.UUID(value)
-
-	except ValueError:
-		return None
-
-
 def wanted (
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
 	described: typing.Mapping[uuid.UUID, subroutine.domain.events.Described],
@@ -249,11 +228,11 @@ def wanted (
 				continue
 
 			for side in ("from", "to"):
-				# **Not `identifier`**, which is the name of the function two lines up — and
+				# **Not `identifier`**, which was the parser's name when it lived here — and
 				# assigning to it here shadowed it for the rest of the loop, so the *second*
 				# side of the first change raised. `#1409`'s defect: a name bound twice, and
 				# Python taking the later binding.
-				found_id = identifier(moved.get(side))
+				found_id = subroutine.domain.events.identifier(moved.get(side))
 
 				if found_id is not None:
 					found[lookup].add(found_id)

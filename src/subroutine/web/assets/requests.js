@@ -1855,8 +1855,13 @@ export function repeats (item) {
 		`is_template` first because that end is reachable — `show` names the series' number
 		since `#1247`, so somebody can open it, and reaching it must not be a way round the
 		question.
+
+		**And a rule** (`SR#5148`, decision `#5097`): an occurrence of a series its reader cannot see
+		is sent no number, and is sent the series' rule while it runs.
 	*/
-	return Boolean(item && (item.is_template || item.recurrence_template_ref));
+	return Boolean(
+		item && (item.is_template || item.recurrence_template_ref || item.recurrence_rule)
+	);
 }
 
 export function deferralOnly (values, opened) {

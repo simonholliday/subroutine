@@ -19897,6 +19897,26 @@ def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Pa
 	], commented
 
 
+def test_the_browser_asks_about_an_occurrence_whose_series_it_is_not_numbered (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#5148`: an occurrence of a series its reader cannot see is sent no number and the series'
+	rule, and the rule is what says it repeats, so a save on it still asks which occurrences."""
+
+	module = _staged(tmp_path)
+	said = _ran(tmp_path, f"""
+		import {{ repeats }} from "{(module.parent / "requests.js").as_uri()}";
+
+		process.stdout.write(JSON.stringify([
+			repeats({{ is_template: false, recurrence_template_ref: null, recurrence_rule: "FREQ=WEEKLY" }}),
+			repeats({{ is_template: false, recurrence_template_ref: 12, recurrence_rule: null }}),
+			repeats({{ is_template: false, recurrence_template_ref: null, recurrence_rule: null }}),
+		]));
+	""")
+
+	assert said == [True, True, False], said
+
+
 def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -19921,6 +19941,11 @@ def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
 			field="title", said="title", before="Go to the shop", after="Go to the market",
 			quoted=True,
 		),
+		# **An unseen side is never quoted** (`SR#5148`), where a name beside it is.
+		subroutine.views.Change(
+			field="project_id", said="where it is filed", before=subroutine.domain.scoping.UNSEEN,
+			after="open", quoted=True,
+		),
 		subroutine.views.Change(field="description", said="description"),
 	]
 	entry = {**JOURNAL_ENTRIES[1], "changed": [change.model_dump(mode="json") for change in changes]}
@@ -19934,6 +19959,7 @@ def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
 		"deferred until: 2030-09-16 to never",
 		"assignee: nobody to @si",
 		'title: "Go to the shop" to "Go to the market"',
+		'where it is filed: something you cannot see to "open"',
 		"description",
 	], agent
 	# **The browser writes the same sides in a sentence**: *X: A to B* is *changed X from A to B*.

@@ -191,6 +191,9 @@ function sideInWords (change, value) {
 	   instance older than the words sends no `empty`, and every empty side was *nothing*. */
 	if (value === null || value === undefined) return change.empty || "nothing";
 
+	/* Never quoted (`SR#5148`): it is not a name somebody chose, and quoted it reads as one. */
+	if (value === UNSEEN) return value;
+
 	if (change.dated) return dayInWords(value);
 
 	return change.quoted ? `"${value}"` : value;
