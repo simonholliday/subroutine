@@ -37,6 +37,11 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **The hosting guide's backup transcripts are real runs again.** Its three `db backup` and
+  `db backups` blocks left out the line saying what each copy holds, and the listing left out why
+  each copy was taken, so none was output the program could print. All three are pasted from
+  real runs, and a test now fails the build when a quoted backup stops saying what it holds.
+
 - **A search says how many finished things it also matched, and takes its words unquoted.** It
   leaves finished work out, as a list does, and said nothing of it; it now gives the count and the
   search that finds them, and `subroutine search water plants` searches for both words where it

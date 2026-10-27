@@ -159,8 +159,8 @@ def test_the_hosting_page_quotes_the_bind_refusal_as_it_is_actually_worded (
 #: quotation of the head still needs no edit, which is the property `SR#3098` wanted — only the
 #: older ones are pinned, because only they can silently absorb one.
 ILLUSTRATIVE_REVISIONS: dict[str, tuple[int, str]] = {
-	"9c41d0b7ae52": (3, "the backup `db backup` takes on a personal instance, named in its filename"),
-	"d5d0458f5ad5": (6, "the same on the server, in the listing and in what `POST /v1/admin/backups` says"),
+	"d5d0458f5ad5": (2, "what `POST /v1/admin/backups` says on the server"),
+	"6c708db1582c": (2, "an older copy in the server's `db backups` listing, taken before an upgrade"),
 	"f159c8635e54": (3, "what the `db upgrade` walkthrough upgrades *from*"),
 	"233f898a2bee": (1, "a database behind the code, which `agenda` refuses by name"),
 	"4f177421eb91": (1, "a database behind the code, as `db current` reports it"),
@@ -2457,11 +2457,9 @@ def test_every_page_names_an_instance_the_way_the_program_does () -> None:
 	prints this before acting (docs/design.md §12.5), which is what makes one guard worth more
 	than three corrections.
 
-	**What this does not check is completeness** — `SR#432` made `db backup` say what the copy
-	holds, and the transcripts have no such line. That wants a real run against a served
-	instance pasted in, which is `SR#2095`'s own conclusion and not something to invent from a
-	local one: a fabricated holdings count would break `SR#189` in the direction this exists to
-	protect.
+	**What this does not check is completeness**, which
+	:func:`test_every_quoted_backup_says_what_it_holds` does: `SR#432` made `db backup` say what
+	the copy holds, and the transcripts had no such line until real runs were pasted in.
 	"""
 
 	unprofiled = subroutine.cli.main._instance_label()
@@ -2487,6 +2485,154 @@ def test_every_page_names_an_instance_the_way_the_program_does () -> None:
 	assert wrong == [], (
 		f"a page quotes output naming the default instance in a form the program cannot "
 		f"print — it says {unprofiled!r}: {wrong}"
+	)
+
+
+#: A quoted ``db backup``'s first line, at whatever indent the page gives its output.
+_BACKED_UP = re.compile(r"^\s*Backed up (?:the default instance|instance '[^']+') to \S+$")
+
+#: Its second: the size and the schema.
+_SIZED = re.compile(r"^\s*[\d,]+ bytes, schema [0-9a-f]{12}\.$")
+
+#: A row of a quoted ``db backups``: a backup's own name, then its columns.
+_LISTED = re.compile(r"^\s*subroutine-\S+\.(?:dump|db)  ")
+
+#: A holdings line in which every kind was counted: ``5 workspaces, 1,053 documents``, with the
+#: full stop ``db backup`` ends it with and the listing does not.
+_HELD = re.compile(r"^[\d,]+ [a-z]+(?:, [\d,]+ [a-z]+)*\.?$")
+
+
+def _holding (line: str) -> dict[str, int]:
+	"""Return the counts a quoted holdings line gives, by the kind ``db/backup`` counts."""
+
+	said: dict[str, int] = {}
+
+	for part in line.rstrip(".").split(", "):
+		count, _space, name = part.partition(" ")
+		said[name if count == "1" else name.removesuffix("s")] = int(count.replace(",", ""))
+
+	return said
+
+
+def _backups_misquoted (text: str) -> tuple[int, list[str]]:
+	"""Return how many backups a page quotes, and every way one is quoted wrongly.
+
+	**Each holdings line is rendered again by the program's own function**, from the counts it
+	quotes, and has to come back as quoted: a line in a shape the program no longer prints is
+	wrong as surely as a missing one, and a kind it leaves out is a zero, as the program leaves
+	one out. Takes the text rather than reading it, so a doctored page reaches this same entry
+	point (`SR#405`).
+	"""
+
+	lines = [*text.splitlines(), "", ""]
+	read = 0
+	wrong: list[str] = []
+	render: typing.Callable[[subroutine.db.backup.Backup], str]
+
+	for at, line in enumerate(lines):
+		if _BACKED_UP.match(line):
+			# Size and schema, then what it holds: `db backup`'s three lines.
+			read += 1
+
+			if not _SIZED.match(lines[at + 1]):
+				wrong.append(f"line {at + 2}: no size and schema under {line.strip()!r}")
+
+				continue
+
+			number = at + 3
+			render = subroutine.cli.main._what_it_held
+
+		elif _LISTED.match(line):
+			# What it holds, beneath each row of `db backups`.
+			read += 1
+			number = at + 2
+			render = subroutine.cli.main._holdings_cell
+
+		else:
+			continue
+
+		held = lines[number - 1].strip()
+
+		if not _HELD.match(held):
+			wrong.append(f"line {number}: nothing says what the copy above it holds")
+
+			continue
+
+		said = _holding(held)
+		unknown = set(said) - set(subroutine.db.backup.COUNTED)
+
+		if unknown:
+			wrong.append(f"line {number}: {held!r} counts {sorted(unknown)}, which no backup counts")
+
+			continue
+
+		backup = subroutine.db.backup.Backup(
+			# Only the holdings are read: the rest describes no copy in particular.
+			path=pathlib.Path("subroutine-default.db"),
+			taken_at=datetime.datetime(2026, 10, 27, tzinfo=datetime.UTC),
+			schema_head="",
+			size_bytes=0,
+			profile=None,
+			holdings={kind: said.get(kind, 0) for kind in subroutine.db.backup.COUNTED},
+		)
+		printed = render(backup).strip()
+
+		if printed != held:
+			wrong.append(f"line {number}: {held!r} is not what the program prints, {printed!r}")
+
+	return read, wrong
+
+
+def test_every_quoted_backup_says_what_it_holds () -> None:
+	"""`SR#2095`. Three backup transcripts said nothing of what each copy held.
+
+	`SR#432` made `db backup` say what it copied, and `db backups` say it beneath every row,
+	because size and schema are both *correct* for a backup of an empty instance and four hollow
+	copies once passed every check there was. The guide's transcripts went on quoting the two
+	lines from before, and the listing's row without why each copy was taken, so none was output
+	the program could print - while `test_every_page_names_an_instance_the_way_the_program_does`
+	held their first line to the program and the blocks read as checked.
+
+	**The pasted runs are real** (`SR#189`): the served instance's own `db backup` and
+	`db backups` for the server's blocks, and a throwaway personal instance's for the personal
+	one, paths moved as the page says. A count is never written by hand, which is why this
+	renders what a line quotes rather than holding it to a number.
+	"""
+
+	pages = [*sorted((ROOT / "docs").glob("*.md")), ROOT / "README.md"]
+	read = 0
+	wrong: list[str] = []
+
+	for page in pages:
+		found, said = _backups_misquoted(page.read_text(encoding="utf-8"))
+		read += found
+		wrong.extend(f"{page.name} {one}" for one in said)
+
+	assert read >= 4, (
+		f"read {read} quoted backups; docs/hosting.md quotes two db backup runs and two listed "
+		f"copies, so this scan has stopped reading them"
+	)
+	assert wrong == [], f"a quoted backup does not say what it holds as the program does: {wrong}"
+
+
+def test_the_backup_check_fires_on_a_transcript_without_its_holdings () -> None:
+	"""The real page, doctored twice, through the real check (`SR#405`): a `db backup` with its
+	holdings line gone, and a listed copy's holdings in an order the program never prints."""
+
+	lines = HOSTING.read_text(encoding="utf-8").splitlines()
+
+	assert _backups_misquoted("\n".join(lines))[1] == []
+
+	taken = next(at for at, line in enumerate(lines) if _BACKED_UP.match(line))
+	listed = next(at for at, line in enumerate(lines) if _LISTED.match(line))
+	reordered = ", ".join(reversed(lines[listed + 1].strip().split(", ")))
+
+	without = [*lines[: taken + 2], *lines[taken + 3 :]]
+	shuffled = [*lines[: listed + 1], f"      {reordered}", *lines[listed + 2 :]]
+
+	assert _backups_misquoted("\n".join(without))[1], "a db backup with no holdings went unnoticed"
+	assert _backups_misquoted("\n".join(shuffled))[1], (
+		f"a listed copy said to hold {reordered!r}, which the program never prints, went unnoticed"
 	)
 
 

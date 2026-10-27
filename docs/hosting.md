@@ -484,10 +484,11 @@ underneath the copy.
 
 ```console
 $ subroutine db backup
-  Backed up the default instance to /home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
-  540,672 bytes, schema 9c41d0b7ae52.
+  Backed up the default instance to /home/you/.local/share/subroutine/backups/subroutine-default-20261027T133331Z-bc50ce7db4bc.db
+  602,112 bytes, schema bc50ce7db4bc.
+    1 workspace, 1 project, 4 tasks.
 
-$ TAKEN=/home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
+$ TAKEN=/home/you/.local/share/subroutine/backups/subroutine-default-20261027T133331Z-bc50ce7db4bc.db
 $ sudo install -o subroutine -g subroutine -m 600 "$TAKEN" /var/lib/subroutine/from-my-account.db
 ```
 
@@ -1597,8 +1598,9 @@ share. If that matters, the answer is on the share rather than here.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db backup
-  Backed up the default instance to /srv/backups/subroutine/subroutine-default-20260731T141853Z-d5d0458f5ad5.dump
-  60,069 bytes, schema d5d0458f5ad5.
+  Backed up the default instance to /srv/backups/subroutine/subroutine-default-20261027T132837Z-bc50ce7db4bc.dump
+  25,807,199 bytes, schema bc50ce7db4bc.
+    5 workspaces, 28 projects, 4,266 tasks, 1,053 documents.
 
 # sudo -u subroutine env \
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
@@ -1606,7 +1608,11 @@ share. If that matters, the answer is on the share rather than here.
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db backups
   Backups of the default instance, in /srv/backups/subroutine:
-    subroutine-default-20260731T141853Z-d5d0458f5ad5.dump  2026-07-31 14:18 UTC  60,069 bytes  schema d5d0458f5ad5
+    subroutine-default-20261027T132837Z-bc50ce7db4bc.dump  2026-10-27 13:28 UTC  25,807,199 bytes  schema bc50ce7db4bc  routine  PostgreSQL
+      5 workspaces, 28 projects, 4,266 tasks, 1,053 documents
+    subroutine-default-20261012T151448Z-6c708db1582c.dump  2026-10-12 15:14 UTC  24,158,987 bytes  schema 6c708db1582c  before an upgrade  PostgreSQL
+      5 workspaces, 27 projects, 4,055 tasks, 1,000 documents
+    …
 ```
 
 **The name is `subroutine-<instance>-<when>-<schema><suffix>`, and the suffix says how to
