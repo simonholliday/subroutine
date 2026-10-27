@@ -939,6 +939,10 @@ class Listing:
 	#: (`#3704`). Carried for ``retired_too``'s reason.
 	events_too: bool = False
 
+	#: How many finished tasks a search matched and left out (`SR#5145`). Carried for ``parked``'s
+	#: reason, and counted only for a search.
+	finished: int = 0
+
 
 # These live above every function that annotates with them. A module-level annotation is
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
@@ -3650,6 +3654,7 @@ def _listing (
 	tag: str | None = None,
 	filters: subroutine.domain.filtering.Terms | None = None,
 	only_workspace: str | None = None,
+	searching: bool = False,
 ) -> subroutine.fanout.Gathered[Listing]:
 	"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -3700,6 +3705,7 @@ def _listing (
 
 		parked = 0
 		left_out = 0
+		finished = 0
 		held_back = 0
 		unread: list[str] = []
 		retired_too = False
@@ -3873,6 +3879,10 @@ def _listing (
 						# Counted with the events the list left out, and never twice (`#3704`).
 						events="include" if events else "exclude",
 						q=q,
+						# **Narrowed as the list is** (`SR#5145`): without it the count took in
+						# deferred work assigned to other people, which `--deferred` beside
+						# `--to-act-on` then did not show. The events count below always had it.
+						to_act_on=to_act_on,
 						assignee=assignee,
 						claimed_by=claimed_by,
 						status=status,
@@ -3881,6 +3891,25 @@ def _listing (
 						filters=filters,
 					)
 				)
+			# **And the finished work a search left out** (`SR#5145`). Leaving it out is decided - a
+			# search is the open listing with words (`#3549`) - and leaving it out in silence is not:
+			# `search water` found what was open and said nothing of what was done. Not asked where the
+			# line names a status, which chooses what of the finished work it reaches, and asked at
+			# `asked` as the parked work is.
+			if searching and answered and not subroutine.domain.grammar.names_a_status(q):
+				finished += len(
+					client.tasks(
+						workspace=workspace.slug,
+						limit=asked,
+						project=project,
+						deferred="include" if deferred else "exclude",
+						events="include" if events else "exclude",
+						q=f"{q} {subroutine.domain.grammar.FINISHED}",
+						tag=tag,
+						filters=filters,
+					)
+				)
+
 			# **And the events it left out, counted as the parked work is** (`#3704`, decision `#3807`),
 			# so a list leaving out a birthday says so. **Those it listed after all are not counted**: the
 			# instance brings events back where the request names them, which this cannot see from here,
@@ -4058,6 +4087,7 @@ def _listing (
 			retired_too=retired_too,
 			events=left_out,
 			events_too=events_too,
+			finished=finished,
 		)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
@@ -4697,8 +4727,19 @@ def _again (context: typer.Context | None, limit: int) -> str:
 	is the bare command, which is all this ever said about a list nobody narrowed.
 	"""
 
+	return " ".join([*_typed_words(context), "--limit", str(limit * 2)])
+
+
+def _typed_words (context: typer.Context | None) -> list[str]:
+	"""Return the command that printed a listing as it was typed, bar ``--limit`` - `SR#5145`.
+
+	**:func:`_again`'s reading, for every hint naming a command**: the deferred count's said
+	``'subroutine list --deferred'`` beside ``list --to-act-on``, a wider list than the count was
+	of. Without a context it is the bare listing.
+	"""
+
 	if context is None:
-		return f"subroutine list --limit {limit * 2}"
+		return ["subroutine", "list"]
 
 	walked = []
 	level: typing.Any = context
@@ -4716,7 +4757,7 @@ def _again (context: typer.Context | None, limit: int) -> str:
 		for parameter in level.command.params:
 			words.extend(_typed(level, parameter))
 
-	return " ".join([*words, "--limit", str(limit * 2)])
+	return words
 
 
 def _typed (level: typing.Any, parameter: typing.Any) -> list[str]:
@@ -4770,6 +4811,7 @@ def _listed (
 	workspace: str | None = None,
 	context: typer.Context | None = None,
 	viewing: bool = False,
+	searching: bool = False,
 ) -> None:
 	"""Print the list. Registered twice — three times, with ``search`` — from one body.
 
@@ -4829,6 +4871,7 @@ def _listed (
 			tag=tag,
 			filters=filters,
 			only_workspace=workspace,
+			searching=searching,
 		)
 
 		_report(program, world, gathered.failures)
@@ -4872,6 +4915,13 @@ def _listed (
 			# question along. Said before the widening suggestion, because a line explaining
 			# why is what makes the suggestion worth taking.
 			_say_unread(gathered, console=program.console)
+
+			# **And what it left out because it is finished** (`SR#5145`), in place of the widening
+			# suggestion: a finished match is what the search found, and the line names its command.
+			if any(answer.value.finished for answer in gathered.answers):
+				_say_finished(gathered, console=program.console, context=context)
+
+				return
 
 			if not deferred:
 				_suggest(program.console, f'subroutine search "{q}" --deferred', "look in what you have deferred too")
@@ -4921,7 +4971,7 @@ def _listed (
 				program.say("Nothing you can start yet.")
 
 				if parked:
-					_say_parked(gathered, console=program.console, hidden=True)
+					_say_parked(gathered, console=program.console, hidden=True, context=context)
 
 				if waiting:
 					_say_held_back(gathered, console=program.console)
@@ -4997,7 +5047,9 @@ def _listed (
 				f"      …and more. Run this to see further: {_again(context, limit)}", style=DETAIL
 			))
 
-		_say_parked(gathered, console=program.console, hidden=hiding)
+		_say_parked(gathered, console=program.console, hidden=hiding, context=context)
+
+		_say_finished(gathered, console=program.console, context=context)
 
 		_say_events(gathered, console=program.console, hidden=leaving, viewing=viewing)
 
@@ -5265,6 +5317,9 @@ ONE_VALUE_EACH = (
 #: :func:`_only_once`. Declared as a sequence and refused above one, rather than declared
 #: singular and silently keeping the last (`#1484`).
 PROJECT_OPTION = typer.Option(None, "--project", help="Only this project, by key.")
+#: **Every word a search is given, as one search** (`SR#5145`): one argument refused ``search water
+#: plants`` as an extra argument, where what the reader meant was plain. Joined in :func:`_searched`.
+SEARCH_TERMS = typer.Argument(None, help="What to look for. See 'explain searching'.")
 ASSIGNEE_OPTION = typer.Option(
 	None, "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
 )
@@ -5467,7 +5522,7 @@ def _shown_list (
 def _searched (
 	program: Program,
 	*,
-	terms: str,
+	terms: typing.Sequence[str] | None,
 	limit: int,
 	json_output: bool,
 	merged: bool,
@@ -5497,9 +5552,10 @@ def _searched (
 		tag=_only_once(program, "--tag", tag),
 		connection=connection or None,
 		deferred=deferred,
-		q=_asked(terms, "What are you looking for?"),
+		q=_asked(" ".join(terms or ()), "What are you looking for?"),
 		filters=_filters(program, dated),
 		context=context,
+		searching=True,
 	)
 
 
@@ -10824,7 +10880,7 @@ def register (
 	@app.command()
 	def search (
 		context: typer.Context,
-		terms: str = typer.Argument("", help="What to look for. See 'explain searching'."),
+		terms: list[str] | None = SEARCH_TERMS,
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
 		merged: bool = typer.Option(
@@ -15616,6 +15672,7 @@ def _say_parked (
 	*,
 	console: rich.console.Console,
 	hidden: bool,
+	context: typer.Context | None = None,
 ) -> None:
 	"""Say how much was held back for a later date, and how to see it.
 
@@ -15644,10 +15701,42 @@ def _say_parked (
 	# this path, and while "deferred" is not on its list, `defer` is the command and the plain
 	# phrase is what somebody who has not met it would recognise.
 	things = "thing" if total == 1 else "things"
+
+	# **The command as it was asked, with `--deferred`** (`SR#5145`), and last on its line, as
+	# `…and more` is: a bare `list --deferred` dropped the narrowing the count was made under.
 	console.print(
 		rich.text.Text(
-			f"      {total} {things} deferred until later. 'subroutine list --deferred' to "
-			f"include them.",
+			f"      {total} {things} deferred until later. Run this to include "
+			f"{'it' if total == 1 else 'them'}: "
+			f"{' '.join([*_typed_words(context), '--deferred'])}",
+			style=DETAIL,
+		)
+	)
+
+
+def _say_finished (
+	gathered: subroutine.fanout.Gathered[Listing],
+	*,
+	console: rich.console.Console,
+	context: typer.Context | None,
+) -> None:
+	"""Say how many finished things a search also matched, and how to see them - `SR#5145`.
+
+	**Said because a search leaves them out**, as the open listing it is does (`#3549`), so
+	``search water`` found *Water the plants* and was silent about *Water the garden*, which was
+	done. The command is the search as it was typed, with :data:`grammar.FINISHED` added.
+	"""
+
+	total = sum(answer.value.finished for answer in gathered.answers)
+
+	if not total:
+		return
+
+	matched = "finished thing also matches" if total == 1 else "finished things also match"
+	console.print(
+		rich.text.Text(
+			f"      {total} {matched}. Run this to see {'it' if total == 1 else 'them'}: "
+			f"{' '.join([*_typed_words(context), subroutine.domain.grammar.FINISHED])}",
 			style=DETAIL,
 		)
 	)

@@ -37,6 +37,12 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **A search says how many finished things it also matched, and takes its words unquoted.** It
+  leaves finished work out, as a list does, and said nothing of it; it now gives the count and the
+  search that finds them, and `subroutine search water plants` searches for both words where it
+  was refused. And `list --to-act-on` counts only the deferred work `--deferred` would add, and its
+  hint names the command as you typed it.
+
 - **`me` assigns work to whoever is asking, as it already lists it.** `@me` in a captured line
   and an assignee of `me` were refused as nobody called 'me'; for an agent, `me` is the agent
   itself. An account whose username is 32 hex characters can now be named by it, and no new

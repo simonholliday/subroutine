@@ -151,6 +151,25 @@ def read (line: str | None, *, entity: str) -> Read:
 	)
 
 
+#: The term that searches a task's finished work, which a search leaves out as the open listing
+#: does (`SR#5145`): the line counting what was left out names it, and ``explain searching``
+#: does. Held to :data:`subroutine.domain.tasks.FINISHED_CATEGORIES` by a test.
+FINISHED = "status_category:done,cancelled"
+
+
+def names_a_status (line: str | None) -> bool:
+	"""Say whether a search line narrows a task by its status itself - `SR#5145`.
+
+	Such a line chooses which of the finished work it reaches, so nothing it leaves out is counted
+	as finished work it missed.
+	"""
+
+	return any(
+		name.partition(".")[0] in {"status", "status_category"}
+		for name, _value in read(line, entity="task").parameters
+	)
+
+
 def names_the_reader (line: str | None, *, entity: str) -> bool:
 	"""Say whether a search line names whoever reads it, as ``assignee:me`` does - `#3150`.
 

@@ -19,6 +19,7 @@ import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.filtering
+import subroutine.domain.grammar
 
 
 @dataclasses.dataclass(frozen=True)
@@ -329,6 +330,9 @@ The fields a task can be narrowed by:
 Anything that is not a term is looked for as written. '15:30' is a time,
 not a field called 15, so an ordinary search needs no escaping and works
 exactly as it always has.
+
+A search leaves finished work out, as a list does, and says how many
+finished things also matched. '{subroutine.domain.grammar.FINISHED}' finds them.
 
 If you write a term the field cannot take - 'created_at:today', where a
 date is compared with '>' or '<' rather than matched exactly - it is
