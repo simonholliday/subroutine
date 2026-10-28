@@ -37,6 +37,11 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **A project moved out from under a private parent no longer names it in its history or the change
+  feed.** Its `parent_id` and `path` gave the parent's id to everybody who could see the moved
+  project, and the journal printed the path whole; each side through the parent is said as unseen,
+  as a task's project now is.
+
 - **An item's history and the change feed no longer name a project or series their reader cannot
   see.** A task moved out of a private project gave that project's id to everybody who could see the
   task; that side is now said as unseen, as a link's hidden end already was, and the journal says
