@@ -37,6 +37,11 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **The terminal's list orders titles nearer the way the browser does.** It merged a page per
+  workspace and per kind by code point, so every capital came before every lower-case letter; it
+  compares titles case-folded now. Accents and punctuation can still order differently from the
+  PostgreSQL collation the browser shows.
+
 - **A project moved out from under a private parent no longer names it in its history or the change
   feed.** Its `parent_id` and `path` gave the parent's id to everybody who could see the moved
   project, and the journal printed the path whole; each side through the parent is said as unseen,

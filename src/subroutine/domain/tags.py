@@ -305,7 +305,12 @@ def apply_to (
 def on (
 	session: sqlalchemy.orm.Session, item: typing.Any
 ) -> list[subroutine.db.models.vocabulary.Tag]:
-	"""Return an item's tags, in a stable order."""
+	"""Return an item's tags, in no order to rely on.
+
+	**Unordered on purpose** (`SR#1059`): both callers hand them to :func:`set_on`, which treats them
+	as a set, and ordering by ``name_normalized`` in SQL gave a different order on each backend for
+	nothing to read. :func:`names_for` is the order anything shows.
+	"""
 
 	tag = subroutine.db.models.vocabulary.Tag
 	join = _joined(item)
@@ -315,7 +320,6 @@ def on (
 			sqlalchemy.select(tag)
 			.join(join.rows, join.rows.tag_id == tag.id)
 			.where(join.owner == item.id)
-			.order_by(tag.name_normalized)
 		)
 	)
 

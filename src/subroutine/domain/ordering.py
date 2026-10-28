@@ -782,6 +782,13 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 #: element of every sort key and separates the two groups before this is reached.
 _ABSENT = 0
 
+#: The fields a merge compares case-folded, with the value itself breaking a tie so the order is
+#: total (`SR#1059`, decision `#5097`). PostgreSQL's collation, which the browser shows, reads
+#: *apple, Banana, cherry*, and a code-point sort put every capital first. Nearer it rather than
+#: equal to it: accents and punctuation can still order differently, and SQLite's own order is by
+#: code point, so a page cut short there was cut by the other order.
+FOLDED = frozenset({"title"})
+
 
 def merge_order (
 	expression: str | None,
@@ -852,10 +859,14 @@ def merged (
 			row: typing.Any,
 			read: typing.Callable[[typing.Any], typing.Any] = read,
 			descending: bool = descending,
+			folded: bool = name in FOLDED,
 		) -> tuple[int, typing.Any]:
 			"""Return one row's key for this field, with nulls at the end either way."""
 
 			value = read(key(row))
+
+			if folded and isinstance(value, str):
+				value = (value.casefold(), value)
 
 			# Reversing puts the larger first, so a null has to be the *smaller* of the two
 			# groups when descending in order to come out last. Both spellings say "nulls
