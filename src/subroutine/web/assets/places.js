@@ -48,7 +48,8 @@ export function projectsRequest (slug, cursor = null) {
 	*/
 	return {
 		path: scoped(
-			"/projects?fields=id,key,title,is_inbox,depth,hidden_statuses"
+			"/projects?fields=id,key,title,is_inbox,depth,hidden_statuses,"
+			+ "hidden_document_statuses"
 			+ "&order=path&limit=200"
 			// **A page at a time, read to the end by `everyPage`** (`#3942`).
 			+ (cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`),
@@ -146,7 +147,7 @@ export function offered (vocabulary, kind, hidden = null, keep = null) {
 }
 
 
-export function notOffered (projects, chosen) {
+export function notOffered (projects, chosen, kind = "task") {
 	/*
 		What one project does not offer, named the way each caller already has it — `#1029`.
 
@@ -160,6 +161,9 @@ export function notOffered (projects, chosen) {
 		walking `project_path` would need every ancestor's settings and a third copy of the
 		precedence rule, which is `#925`'s reason for publishing a rendering rather than a rule.
 
+		**For one kind of item** (`SR#5147`): a task's statuses and a document's share keys, so a
+		project publishes a list for each, and the caller says which picker it is filling.
+
 		Answers with nothing for a project this page has not loaded, which is the honest reading:
 		the roster is capped at 200 and scoped to one workspace, so *not here* means *not known*
 		rather than *nothing hidden*. Failing towards offering everything is the safe direction —
@@ -170,7 +174,9 @@ export function notOffered (projects, chosen) {
 	const found = addressedProjects(projects || [])
 		.find((one) => one.id === chosen || one.address === chosen);
 
-	return (found && found.hidden_statuses) || [];
+	if (!found) return [];
+
+	return (kind === "document" ? found.hidden_document_statuses : found.hidden_statuses) || [];
 }
 
 export function statusFor (vocabulary, kind, category) {

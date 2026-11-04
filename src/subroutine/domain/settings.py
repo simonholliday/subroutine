@@ -157,7 +157,7 @@ A_COLOUR = Kind(
 )
 
 
-def _some_status_keys (value: typing.Any, key: str) -> list[str]:
+def _status_keys (value: typing.Any, key: str, *, examples: tuple[str, str]) -> list[str]:
 	"""Read a value that must be a list of status keys, and return it canonically.
 
 	**Sorted and deduplicated, because this is a set wearing a list's clothes.** A deny-list has
@@ -169,6 +169,9 @@ def _some_status_keys (value: typing.Any, key: str) -> list[str]:
 	**The keys are not checked against the workspace's vocabulary here**, because a
 	:class:`Kind` is a pure declaration with no session. That check exists and lives in
 	:attr:`Setting.verify`, which the services call where the workspace is in hand.
+
+	**The examples are the list's own** (`SR#5147`): an example in a refusal is what somebody sends
+	next, so it has to be one this list accepts.
 	"""
 
 	if not isinstance(value, list):
@@ -179,7 +182,7 @@ def _some_status_keys (value: typing.Any, key: str) -> list[str]:
 					field=key,
 					code="invalid_field_value",
 					message="Statuses are given as a list of their keys.",
-					hint='For example: ["blocked", "needs_input"].',
+					hint=f'For example: ["{examples[0]}", "{examples[1]}"].',
 				)
 			],
 		)
@@ -193,7 +196,7 @@ def _some_status_keys (value: typing.Any, key: str) -> list[str]:
 						field=key,
 						code="invalid_field_value",
 						message=f"{one!r} is not a status key.",
-						hint="Each entry is the key of a status, such as 'blocked'.",
+						hint=f"Each entry is the key of a status, such as '{examples[0]}'.",
 					)
 				],
 			)
@@ -201,9 +204,30 @@ def _some_status_keys (value: typing.Any, key: str) -> list[str]:
 	return sorted({one.strip() for one in value})
 
 
-#: Some of a workspace's status keys, in no meaningful order.
+def _some_status_keys (value: typing.Any, key: str) -> list[str]:
+	"""Read a list of task status keys, with task statuses for its examples."""
+
+	return _status_keys(value, key, examples=("blocked", "needs_input"))
+
+
+def _some_document_status_keys (value: typing.Any, key: str) -> list[str]:
+	"""Read a list of document status keys, with document statuses for its examples."""
+
+	return _status_keys(value, key, examples=("draft", "archived"))
+
+
+#: Some of a workspace's task status keys, in no meaningful order.
 SOME_STATUS_KEYS = Kind(
-	key="status_keys", check=_some_status_keys, describes="a list of status keys"
+	key="status_keys", check=_some_status_keys, describes="a list of task status keys"
+)
+
+#: Some of a workspace's document status keys - `SR#5147`. **A kind of its own rather than the task
+#: kind with a second meaning**, because ``/v1/meta`` publishes a setting's kind for a client to
+#: choose its control by, and the two controls draw different vocabularies.
+SOME_DOCUMENT_STATUS_KEYS = Kind(
+	key="document_status_keys",
+	check=_some_document_status_keys,
+	describes="a list of document status keys",
 )
 
 
@@ -436,13 +460,22 @@ def _these_statuses_exist (
 	session: sqlalchemy.orm.Session,
 	workspace_id: uuid.UUID,
 	value: typing.Any,
+	*,
+	entity_type: str,
 ) -> None:
-	"""Refuse a status key this workspace does not have, naming the ones it does."""
+	"""Refuse a key that names no status of this kind here, naming the ones that do.
+
+	**Per kind** (`SR#5147`): a task's ``superseded`` and a document's are two statuses with one
+	key, and a project's statuses are offered by no picker, so a list accepts the keys of its own
+	kind only - and a project status's key is refused by either.
+	"""
 
 	model = subroutine.db.models.vocabulary.Status
 	known = set(
 		session.scalars(
-			sqlalchemy.select(model.key).where(model.workspace_id == workspace_id)
+			sqlalchemy.select(model.key).where(
+				model.workspace_id == workspace_id, model.entity_type == entity_type
+			)
 		).all()
 	)
 	missing = [one for one in value if one not in known]
@@ -451,19 +484,43 @@ def _these_statuses_exist (
 		return
 
 	raise subroutine.errors.ValidationError(
-		f"This workspace has no status keyed {missing[0]!r}.",
+		f"This workspace has no {entity_type} status keyed {missing[0]!r}.",
 		errors=[
 			subroutine.errors.FieldError(
-				field=HIDDEN_STATUSES.key,
+				field=HIDDEN_BY_KIND[entity_type].key,
 				code="invalid_field_value",
-				message=f"No such status: {', '.join(sorted(missing))}.",
-				hint=f"This workspace has: {', '.join(sorted(known))}.",
+				message=f"No such {entity_type} status: {', '.join(sorted(missing))}.",
+				hint=(
+					f"This workspace has these {entity_type} statuses: "
+					f"{', '.join(sorted(known))}."
+				),
 			)
 		],
 	)
 
 
-#: The statuses a project does not offer, inherited by anything under it.
+def _these_task_statuses_exist (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, value: typing.Any
+) -> None:
+	"""Refuse a key in :data:`HIDDEN_STATUSES` that names no task status here."""
+
+	_these_statuses_exist(session, workspace_id, value, entity_type="task")
+
+
+def _these_document_statuses_exist (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, value: typing.Any
+) -> None:
+	"""Refuse a key in :data:`HIDDEN_DOCUMENT_STATUSES` that names no document status here."""
+
+	_these_statuses_exist(session, workspace_id, value, entity_type="document")
+
+
+#: The task statuses a project does not offer, inherited by anything under it.
+#:
+#: **Task statuses alone since `SR#5147`** (decision `#5097`): tasks and documents share keys - both
+#: are seeded with ``superseded`` - so one list keyed by the word hid a task's status from documents
+#: too, and renaming one kind's status rewrote what the other hid. :data:`HIDDEN_DOCUMENT_STATUSES`
+#: holds the document statuses', and this name stayed with the tasks.
 #:
 #: **A deny-list rather than an allow-list**, which is `#826`'s asymmetry applied to
 #: configuration: a status added to a workspace later appears everywhere by default, where an
@@ -494,13 +551,37 @@ HIDDEN_STATUSES = Setting(
 	# mutable one would be a single list handed to every unconfigured project on the page. The
 	# stored value is a list either way; nothing here compares the two by type.
 	default=(),
-	summary="Statuses not offered here when somebody sets one.",
+	summary="Task statuses not offered here when somebody sets one.",
 	read_by="src/subroutine/views.py",
 	# The workspace's list is what every project inherits, so hiding a status here narrows what
 	# is offered to everybody — the same argument as the colour's, and the same answer.
 	permission={WORKSPACE: subroutine.permissions.WORKSPACE_ADMIN},
-	verify=_these_statuses_exist,
+	verify=_these_task_statuses_exist,
 )
+
+#: The document statuses a project does not offer, inherited the same way - `SR#5147`.
+#:
+#: :data:`HIDDEN_STATUSES`'s twin in all but the vocabulary: the same chain, the same three states
+#: (absent inherits, ``[]`` offers everything, a list hides), the same permission, and the same rule
+#: that it narrows what is offered and refuses no write. **A setting of its own rather than
+#: ``kind:key`` entries in one list**, because a status key may contain ``:``.
+HIDDEN_DOCUMENT_STATUSES = Setting(
+	key="document_statuses.hidden",
+	scopes=(PROJECT, WORKSPACE),
+	kind=SOME_DOCUMENT_STATUS_KEYS,
+	default=(),
+	summary="Document statuses not offered here when somebody sets one.",
+	read_by="src/subroutine/views.py",
+	permission={WORKSPACE: subroutine.permissions.WORKSPACE_ADMIN},
+	verify=_these_document_statuses_exist,
+)
+
+#: Which hidden list each kind of status is kept in - `SR#5147`. A project's statuses are in none:
+#: no picker offers them, so nothing would read a list of them.
+HIDDEN_BY_KIND: dict[str, Setting] = {
+	"task": HIDDEN_STATUSES,
+	"document": HIDDEN_DOCUMENT_STATUSES,
+}
 
 #: Where a workspace's events are sent over OSC, and the first setting that sends anything
 #: anywhere - design `#2721`, item `#2722`. **Unset, which is the default, sends nothing.**
@@ -538,6 +619,7 @@ OSC_TITLES = Setting(
 SETTINGS: dict[str, Setting] = {
 	COLOUR.key: COLOUR,
 	HIDDEN_STATUSES.key: HIDDEN_STATUSES,
+	HIDDEN_DOCUMENT_STATUSES.key: HIDDEN_DOCUMENT_STATUSES,
 	OSC_SEND_TO.key: OSC_SEND_TO,
 	OSC_TITLES.key: OSC_TITLES,
 }

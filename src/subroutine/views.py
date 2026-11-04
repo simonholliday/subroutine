@@ -2854,6 +2854,11 @@ class Project(pydantic.BaseModel):
 	#: refuse the whole response for a field the instance has never heard of.
 	hidden_statuses: list[str] = []
 
+	#: The document statuses this project does not offer, resolved the same way - `SR#5147`. A
+	#: task's statuses and a document's are two vocabularies that share keys (``superseded`` is
+	#: seeded in both), so each has a list of its own, and ``hidden_statuses`` is the tasks'.
+	hidden_document_statuses: list[str] = []
+
 	archived_at: datetime.datetime | None
 	deleted_at: datetime.datetime | None
 	created_at: datetime.datetime
@@ -3631,20 +3636,29 @@ class Vocabulary:
 		# **Both settings from one walk** (`#1072`). This asked twice, each call running three
 		# queries — six per page, on every task, document and agenda listing — beneath a
 		# comment saying the walk was *"shared with the colour rather than repeated"*. It was
-		# not, and the sentence is what stopped anybody counting. `hidden_statuses` is read
-		# only by a page of projects; it is loaded here because now the walk really is shared.
+		# not, and the sentence is what stopped anybody counting. The hidden lists are read
+		# only by a page of projects; they are loaded here because now the walk really is
+		# shared, and one walk resolves any number of settings (`SR#5147` added the third).
 		if project_settings:
 			in_force = subroutine.domain.settings.several_for_projects(
 				session,
-				[subroutine.domain.settings.COLOUR, subroutine.domain.settings.HIDDEN_STATUSES],
+				[
+					subroutine.domain.settings.COLOUR,
+					subroutine.domain.settings.HIDDEN_STATUSES,
+					subroutine.domain.settings.HIDDEN_DOCUMENT_STATUSES,
+				],
 				set(project_ids),
 			)
 			self.project_colours = in_force[subroutine.domain.settings.COLOUR.key]
 			self.hidden_statuses = in_force[subroutine.domain.settings.HIDDEN_STATUSES.key]
+			self.hidden_document_statuses = in_force[
+				subroutine.domain.settings.HIDDEN_DOCUMENT_STATUSES.key
+			]
 
 		else:
 			self.project_colours = {}
 			self.hidden_statuses = {}
+			self.hidden_document_statuses = {}
 		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
 		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
 		# question of either. Two queries rather than one because the join tables are two —
@@ -4969,6 +4983,7 @@ def project (
 		status_id=row.status_id,
 		settings=dict(row.settings),
 		hidden_statuses=list(vocabulary.hidden_statuses.get(row.id, ())),
+		hidden_document_statuses=list(vocabulary.hidden_document_statuses.get(row.id, ())),
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,

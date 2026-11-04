@@ -201,7 +201,7 @@ export function Fields ({
 			     is offered whatever the project says. */ null}
 			${vocabularySelect("status", "Status", offered(
 				vocabulary && vocabulary.statuses, "task",
-				notOffered(projects, held.project || project), held.status
+				notOffered(projects, held.project || project, "task"), held.status
 			))}
 
 			<label><span>Assignee</span>
@@ -472,7 +472,7 @@ export function DocumentFields ({
 			     different vocabulary and the same project decides which of them are offered. */ null}
 			${pick("status", "Status", offered(
 				vocabulary && vocabulary.statuses, "document",
-				notOffered(projects, held.project || project), held.status
+				notOffered(projects, held.project || project, "document"), held.status
 			))}
 			${pick("project", "Project",
 				filableFor(projects, held.project || project, prioritised))}

@@ -23,7 +23,7 @@ upgrade involves.
 > program refuses one that has. `subroutine-remote` takes its tools from your server, so it
 > follows whatever version the server runs.
 
-> **This release changes the database schema**, to `bc50ce7db4bc`.
+> **This release changes the database schema**, to `507ebc014a86`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
@@ -36,6 +36,16 @@ upgrade involves.
   anyway, and `db restore` replaced the database without asking. Each command now refuses the file
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
+
+- **A project or workspace hides task statuses and document statuses separately.** Tasks and
+  documents share some status keys - both have `superseded` - so hiding one kind's status hid the
+  other's, and renaming or deleting one kind's status silently changed what the other kind hid.
+  `statuses.hidden` now takes task statuses alone and the new `document_statuses.hidden` document
+  statuses, each refusing a key of another kind; a project publishes each in force, as
+  `hidden_statuses` and `hidden_document_statuses`; the terminal sets them with `--hide-status` and
+  `--hide-document-status`, and `--hide-nothing` offers both in full; the settings page draws a row
+  for each. The upgrade splits every stored list by the kinds that hold each key, so what was hidden
+  stays hidden, and drops a project status's key, which no picker read.
 
 - **The terminal's list orders titles nearer the way the browser does.** It merged a page per
   workspace and per kind by code point, so every capital came before every lower-case letter; it

@@ -220,8 +220,13 @@ DERIVED: dict[str, str] = {
 	#: through every ancestor and the workspace, so the field a caller sends and the field a
 	#: caller reads are genuinely different values and neither is a rename of the other.
 	"hidden_statuses": (
-		"the statuses this project does not offer, resolved up the tree from the "
+		"the task statuses this project does not offer, resolved up the tree from the "
 		"`statuses.hidden` setting rather than reported as stored."
+	),
+	# Its document twin (`SR#5147`), resolved the same way from a setting of its own.
+	"hidden_document_statuses": (
+		"the document statuses this project does not offer, resolved up the tree from the "
+		"`document_statuses.hidden` setting rather than reported as stored."
 	),
 
 	#: The subject of a comment, which is the route rather than the body: a comment is made at

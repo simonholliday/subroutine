@@ -413,7 +413,13 @@ def update_status (
 		)
 
 		if cleaned != status.key:
-			_rename_in_settings(session, status.workspace_id, was=status.key, now=cleaned)
+			_rename_in_settings(
+				session,
+				status.workspace_id,
+				entity_type=status.entity_type,
+				was=status.key,
+				now=cleaned,
+			)
 
 		status.key = cleaned
 
@@ -496,7 +502,9 @@ def delete_status (
 		what=f"{status.label!r}",
 	)
 
-	_forget_in_settings(session, status.workspace_id, key=status.key)
+	_forget_in_settings(
+		session, status.workspace_id, entity_type=status.entity_type, key=status.key
+	)
 	session.delete(status)
 	session.flush()
 
@@ -985,9 +993,14 @@ def delete_tag (
 
 
 def _rename_in_settings (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, *, was: str, now: str
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	*,
+	entity_type: str,
+	was: str,
+	now: str,
 ) -> None:
-	"""Carry a renamed status key into every setting that names it.
+	"""Carry a renamed status key into the hidden list of its own kind.
 
 	``hidden_statuses`` stores **keys**, on a workspace and on any project (`#1029`). A rename
 	that left them behind would not fail — it would quietly stop hiding, which is the worst of
@@ -996,19 +1009,22 @@ def _rename_in_settings (
 	**The one key a rename is not carried into is ``readiness.WAITING_STATUS``**, which is a
 	constant for every workspace rather than a setting any workspace holds. Why that is right
 	rather than an omission is written beside it.
+
+	**Into its own kind's list only** (`SR#5147`): a task's ``superseded`` and a document's are two
+	statuses with one key, so renaming one must leave the other's list as it was.
 	"""
 
-	_rewrite_hidden(session, workspace_id, change=lambda keys: [
+	_rewrite_hidden(session, workspace_id, entity_type=entity_type, change=lambda keys: [
 		now if key == was else key for key in keys
 	])
 
 
 def _forget_in_settings (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, *, key: str
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, *, entity_type: str, key: str
 ) -> None:
-	"""Drop a removed status key from every setting that names it."""
+	"""Drop a removed status key from the hidden list of its own kind - `SR#5147`."""
 
-	_rewrite_hidden(session, workspace_id, change=lambda keys: [
+	_rewrite_hidden(session, workspace_id, entity_type=entity_type, change=lambda keys: [
 		held for held in keys if held != key
 	])
 
@@ -1017,17 +1033,25 @@ def _rewrite_hidden (
 	session: sqlalchemy.orm.Session,
 	workspace_id: uuid.UUID,
 	*,
+	entity_type: str,
 	change: typing.Callable[[list[str]], list[str]],
 ) -> None:
-	"""Apply a change to ``hidden_statuses`` wherever this workspace stores one.
+	"""Apply a change to one kind's hidden list wherever this workspace stores one.
 
 	**The whole map is replaced, never mutated in place** — SQLAlchemy does not watch inside a
 	JSON column, so ``settings[key] = value`` is silently never written (`#42`). And it is
 	written only when the value actually changes, or an identical dict would still mark the row
 	dirty and move ``updated_at``.
+
+	**A project's status is in no list** (`SR#5147`), so renaming or removing one changes none.
 	"""
 
-	held = subroutine.domain.settings.HIDDEN_STATUSES.key
+	setting = subroutine.domain.settings.HIDDEN_BY_KIND.get(entity_type)
+
+	if setting is None:
+		return
+
+	held = setting.key
 	workspace = session.get(subroutine.db.models.identity.Workspace, workspace_id)
 	rows: list[typing.Any] = [] if workspace is None else [workspace]
 

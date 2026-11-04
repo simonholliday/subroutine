@@ -845,7 +845,7 @@ KINDS: dict[str, Kind] = {
 #: one side or the other, so a field added to a view has to be placed before it can be exported.
 COMPUTED: dict[str, frozenset[str]] = {
 	"workspace": frozenset(),
-	"projects": frozenset({"hidden_statuses"}),
+	"projects": frozenset({"hidden_statuses", "hidden_document_statuses"}),
 	"tasks": frozenset({
 		"size_bytes",
 		"project_colour",

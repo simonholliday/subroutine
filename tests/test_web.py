@@ -111,13 +111,20 @@ TEST_ONLY: tuple[subroutine.web.vendored.Vendored, ...] = (
 REGISTRY = [one.model_dump(mode="json") for one in subroutine.views.published_settings()]
 COLOUR_SETTING = next(one for one in REGISTRY if one["kind"] == "colour")
 STATUSES_SETTING = next(one for one in REGISTRY if one["kind"] == "status_keys")
+#: The document statuses' list, a setting of its own beside the tasks' since `SR#5147`.
+DOCUMENT_STATUSES_SETTING = next(one for one in REGISTRY if one["kind"] == "document_status_keys")
 SEND_TO_SETTING = next(one for one in REGISTRY if one["kind"] == "destination")
 TITLES_SETTING = next(one for one in REGISTRY if one["kind"] == "switch")
 #: The sections a setting may be drawn in, as ``/v1/meta`` publishes them (`#2722`), and the one
 #: the OSC settings are drawn in, apart at the foot of a workspace's page.
 SECTIONS = [one.model_dump(mode="json") for one in subroutine.views.published_sections(withheld=())]
 APART = next(one for one in SECTIONS if one["key"] == SEND_TO_SETTING["section"])
-SOME_STATUSES = [{"key": "open", "label": "Open"}, {"key": "blocked", "label": "Blocked"}]
+#: Two task statuses, each marked with its kind as ``hideableStatuses`` marks it (`SR#5147`): a
+#: status control draws its own kind's alone.
+SOME_STATUSES = [
+	{"key": "open", "label": "Open", "kind": "task"},
+	{"key": "blocked", "label": "Blocked", "kind": "task"},
+]
 
 #: A workspace's projects as `projectsRequest` answers them: in tree order, with a depth and a key
 #: and no path, which the page rebuilds (`#1448`). ``ui`` is a child, so an address made from its
@@ -676,6 +683,12 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 				{
 					"key": STATUSES_SETTING["key"], "value": [], "default": [],
 					"set_here": True, "inherited_from": None,
+				},
+				# **The document statuses' list, stated nowhere** (`SR#5147`): a row of its own,
+				# drawn with the default in force.
+				{
+					"key": DOCUMENT_STATUSES_SETTING["key"], "value": [], "default": [],
+					"set_here": False, "inherited_from": None,
 				},
 			],
 		},
@@ -7007,18 +7020,28 @@ def test_which_statuses_a_project_hides_is_found_by_id_or_by_address (
 	"""
 
 	projects = [
-		{"id": "aaa", "key": "substation", "depth": 0, "hidden_statuses": ["needs_input"]},
+		{
+			"id": "aaa", "key": "substation", "depth": 0, "hidden_statuses": ["needs_input"],
+			"hidden_document_statuses": ["draft"],
+		},
 		{"id": "bbb", "key": "dist", "depth": 1, "hidden_statuses": ["blocked"]},
 		{"id": "ccc", "key": "shopping", "depth": 0, "hidden_statuses": []},
 	]
 
-	by_id, by_address, nested, unknown, nothing = _views(tmp_path, [
+	by_id, by_address, nested, unknown, nothing, documents, unlisted = _views(tmp_path, [
 		("notOffered", {"projects": projects, "chosen": "bbb"}),
 		("notOffered", {"projects": projects, "chosen": "substation"}),
 		("notOffered", {"projects": projects, "chosen": "substation/dist"}),
 		("notOffered", {"projects": projects, "chosen": "nowhere"}),
 		("notOffered", {"projects": projects, "chosen": None}),
+		("notOffered", {"projects": projects, "chosen": "substation", "kind": "document"}),
+		("notOffered", {"projects": projects, "chosen": "bbb", "kind": "document"}),
 	])
+
+	# **Each kind's own list** (`SR#5147`): a document's picker is narrowed by the document
+	# statuses' list and never by the tasks', and a project that publishes none hides none.
+	assert documents == ["draft"], "a document's picker was narrowed by the task statuses' list"
+	assert unlisted == [], "a project's task list narrowed a document's picker"
 
 	assert by_id == ["blocked"]
 	assert by_address == ["needs_input"]
@@ -11744,7 +11767,8 @@ def _views (
 				? app.offered(
 					argument.vocabulary, argument.kind, argument.hidden, argument.keep
 				)
-			: name === "notOffered" ? app.notOffered(argument.projects, argument.chosen)
+			: name === "notOffered"
+				? app.notOffered(argument.projects, argument.chosen, argument.kind)
 			: name === "filableFor"
 				? app.filableFor(argument.projects, argument.project, argument.prioritised)
 			: name === "prioritisedHere"
@@ -20965,15 +20989,17 @@ def test_nothing_hidden_and_not_stated_are_one_answer_only_at_the_top (
 	}, said
 
 
-def test_a_hidden_status_control_draws_both_vocabularies_and_keeps_what_it_does_not_draw (
+def test_a_hidden_status_control_draws_its_own_kind_and_keeps_what_it_does_not_draw (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""`#2627`: the setting narrows a task's statuses and a document's, so its control draws both.
+	"""`SR#5147`: each kind's statuses are a setting of their own, and each control draws its own.
 
-	**A save replaces the whole list**, and the control drew only the task vocabulary, so ticking
-	one status in the browser un-hid every document status a terminal had hidden. Each kind is a
-	group of its own now, and **a stored key drawn in neither goes back as it came** - ``on_hold``
-	here, a project's status, which a terminal may store and no picker reads.
+	`#2627` drew both vocabularies in one control, because one list narrowed both pickers. A task's
+	``superseded`` and a document's are two statuses with one key, so each kind's list is a row of
+	its own (`#5097`): the task control draws task statuses alone and the document control document
+	statuses alone, with no legend, since the row's heading says which. **A stored key a control
+	does not draw goes back as it came** - ``on_hold`` here, a project's status a list could hold
+	before the split - because a save replaces the whole list.
 
 	**And each box is an initial value** (`#2621`): ``defaultChecked`` renders as ``checked``
 	once, where ``checked`` itself is what Preact re-applied against the page on every render.
@@ -20983,30 +21009,34 @@ def test_a_hidden_status_control_draws_both_vocabularies_and_keeps_what_it_does_
 		import * as app from "{_staged(tmp_path).as_uri()}";
 
 		process.stdout.write(JSON.stringify(app.hideableStatuses({{statuses: {{
-			task: [{{key: "open", label: "Open"}}, {{key: "done", label: "Done"}}],
-			document: [{{key: "draft", label: "Draft"}}, {{key: "archived", label: "Archived"}}],
+			task: [{{key: "open", label: "Open"}}, {{key: "superseded", label: "Superseded"}}],
+			document: [{{key: "draft", label: "Draft"}}, {{key: "superseded", label: "Superseded"}}],
 			project: [{{key: "on_hold", label: "On hold"}}],
 		}}}})));
 	""")
 
 	assert [(one["kind"], one["key"]) for one in said] == [
-		("task", "open"), ("task", "done"), ("document", "draft"), ("document", "archived"),
-	], "the control was offered a kind no picker narrows, or lost one that does"
+		("task", "open"), ("task", "superseded"), ("document", "draft"), ("document", "superseded"),
+	], "a control was offered a kind no picker narrows, or lost one that does"
 
-	markup = _markup(tmp_path, {"StatusChoice": {
-		"setting": STATUSES_SETTING,
-		"value": ["done", "archived", "on_hold"],
-		"statuses": said,
+	tasks = _markup(tmp_path, {"StatusChoice": {
+		"setting": STATUSES_SETTING, "value": ["superseded", "on_hold"], "statuses": said,
+	}})["StatusChoice"]
+	documents = _markup(tmp_path, {"StatusChoice": {
+		"setting": DOCUMENT_STATUSES_SETTING, "value": ["draft"], "statuses": said,
 	}})["StatusChoice"]
 
-	assert "Not offered to tasks" in markup and "Not offered to documents" in markup, markup
-	assert markup.index("Not offered to tasks") < markup.index("Not offered to documents")
-	assert re.search(r'<input type="checkbox" name="value" value="archived"[^>]*checked', markup), (
-		f"a document status hidden elsewhere was drawn as offered: {markup}"
+	assert "<legend" not in tasks + documents, "a legend repeats what the row's heading says"
+	assert 'value="open"' in tasks and 'value="draft"' not in tasks, tasks
+	assert 'value="draft"' in documents and 'value="open"' not in documents, documents
+	assert re.search(r'<input type="checkbox" name="value" value="superseded"[^>]*checked', tasks), (
+		f"the task status hidden here was drawn as offered: {tasks}"
 	)
-	assert not re.search(r'value="draft"[^>]*checked', markup), markup
-	assert re.search(r'<input type="hidden" name="value" value="on_hold"', markup), (
-		f"a stored key the control does not draw would be dropped by the next save: {markup}"
+	assert not re.search(r'value="superseded"[^>]*checked', documents), (
+		f"the document control drew the task list's superseded as hidden: {documents}"
+	)
+	assert re.search(r'<input type="hidden" name="value" value="on_hold"', tasks), (
+		f"a stored key the control does not draw would be dropped by the next save: {tasks}"
 	)
 
 
@@ -21039,7 +21069,8 @@ def test_a_project_page_says_what_it_inherits_and_takes_back_only_what_it_set (
 	assert "Inherited from the workspace, Projects." in shown, shown[:600]
 	assert shown.count("Open its settings.") == 1, "only the inherited value leads elsewhere"
 	assert shown.count("Stop setting it here") == 1, "only the value set here can be taken back"
-	assert shown.count("Saving sets it on this project") == 1, shown[:600]
+	# The inherited colour and the document statuses' list, which is stated nowhere (`SR#5147`).
+	assert shown.count("Saving sets it on this project") == 2, shown[:600]
 	assert allowed.count('href="/settings/workspace/projects"') == 2, (
 		"the heading and the inherited value should both lead to the workspace's page"
 	)
@@ -21048,7 +21079,12 @@ def test_a_project_page_says_what_it_inherits_and_takes_back_only_what_it_set (
 
 	assert "<input" not in refused and "<button" not in refused, refused[:400]
 	assert "needs the project:write permission" in refused, refused[:400]
-	assert "Every status is offered." in refused, "a reader who may not was not told what is in force"
+	assert "Every task status is offered." in refused, (
+		"a reader who may not was not told what is in force"
+	)
+	assert "Every document status is offered." in refused, (
+		"the document statuses' row did not say what is in force (`SR#5147`)"
+	)
 
 
 def test_a_workspace_page_leads_to_each_of_its_projects_pages (tmp_path: pathlib.Path) -> None:

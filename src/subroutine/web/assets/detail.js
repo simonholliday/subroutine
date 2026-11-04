@@ -59,9 +59,9 @@ export function Doing ({
 		its first entry, so a task in a status its project has since stopped offering would read
 		as *Open* — and pressing anything else here would write that back.
 	*/
+	const kind = item.kind === "document" ? "document" : "task";
 	const where = offered(
-		statuses, item.kind === "document" ? "document" : "task",
-		notOffered(projects, item.project_id), item.status
+		statuses, kind, notOffered(projects, item.project_id, kind), item.status
 	);
 
 	/*

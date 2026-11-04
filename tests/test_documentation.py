@@ -167,6 +167,9 @@ ILLUSTRATIVE_REVISIONS: dict[str, tuple[int, str]] = {
 	# **Twice, and both as that run printed them** (`SR#3160`): the page says the transcript is
 	# *as it came out*, and its schema line had been rewritten to each new head since.
 	"1f61c97bf2ca": (2, "a real doctor run's schema, and the newest backup it reports finding"),
+	# Real runs of 2026-10-27 (`SR#2095`), quoted as they came out: the personal backup's file twice
+	# and its schema line, and the server's backup and its listed row twice each (`SR#5147`).
+	"bc50ce7db4bc": (7, "the backups the page quotes, taken on the schema before this one"),
 }
 
 

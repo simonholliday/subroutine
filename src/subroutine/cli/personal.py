@@ -7081,20 +7081,36 @@ WORKSPACE_COLOUR_HELP = (
 #: said *offer them all* at each, and was false at the project — found by driving it against a
 #: workspace that hides one, minutes after it shipped.
 HIDE_STATUS_HELP = (
-	"A status not to offer here, e.g. 'blocked'. Repeat for more, or pass '' to inherit."
+	"A task status not to offer here, e.g. 'blocked'. Repeat for more, or pass '' to inherit."
+)
+
+#: Its document twin (`SR#5147`): the two vocabularies share keys, so each has a list of its own.
+HIDE_DOCUMENT_STATUS_HELP = (
+	"A document status not to offer here, e.g. 'draft'. Repeat for more, or pass '' to "
+	"inherit."
 )
 
 #: A workspace's, which is the top of the chain, so clearing it really does offer everything.
 WORKSPACE_HIDE_STATUS_HELP = (
-	"A status not to offer anywhere in it, e.g. 'blocked'. Repeat for more, or pass '' to "
-	"offer them all."
+	"A task status not to offer anywhere in it, e.g. 'blocked'. Repeat for more, or pass '' "
+	"to offer them all."
+)
+
+#: A workspace's, for its document statuses (`SR#5147`).
+WORKSPACE_HIDE_DOCUMENT_STATUS_HELP = (
+	"A document status not to offer anywhere in it, e.g. 'draft'. Repeat for more, or pass '' "
+	"to offer them all."
 )
 
 
 def _hidden_statuses (
-	given: list[str] | None, *, nothing: bool = False
+	tasks: list[str] | None,
+	documents: list[str] | None = None,
+	*,
+	nothing: bool = False,
 ) -> dict[str, typing.Any] | None:
-	"""Read ``--hide-status`` and ``--hide-nothing`` into a settings change, or ``None``.
+	"""Read ``--hide-status``, ``--hide-document-status`` and ``--hide-nothing`` into a settings
+	change, or ``None``.
 
 	Three states from one option, and the middle one is the reason this is a function: absent
 	says nothing, ``''`` clears, and any word sets. Typer reports the first two as an empty list
@@ -7113,24 +7129,35 @@ def _hidden_statuses (
 	somebody then has to resolve. ``--hide-nothing`` cannot contradict itself, and the state is
 	genuinely rare: the ordinary project inherits.
 
+	**One sentinel for both lists** (`SR#5147`, decided in `#5097`). Task statuses and document
+	statuses are hidden separately, and ``--hide-nothing`` offers every one of both here. The
+	``ValueError`` it raises on a contradiction names the flag that contradicts it.
+
 	**Not offered on a workspace, and that is not an oversight.** A workspace is the top of the
 	chain, so an absent value falls through to the default of nothing hidden — absent and empty
 	are already the same answer there. The flag would be a control that changes nothing, which
 	is the defect this project finds most often.
 	"""
 
+	given = {
+		"--hide-status": (subroutine.domain.settings.HIDDEN_STATUSES.key, tasks),
+		"--hide-document-status": (
+			subroutine.domain.settings.HIDDEN_DOCUMENT_STATUSES.key, documents
+		),
+	}
+
 	if nothing:
-		if given and any(one for one in given):
-			raise ValueError("cannot both hide a status and hide nothing")
+		for flag, (_key, keys) in given.items():
+			if keys and any(one for one in keys):
+				raise ValueError(flag)
 
-		return {subroutine.domain.settings.HIDDEN_STATUSES.key: []}
+		return {key: [] for key, _keys in given.values()}
 
-	if not given:
-		return None
+	changes = {
+		key: [one for one in keys if one] or None for key, keys in given.values() if keys
+	}
 
-	wanted = [one for one in given if one]
-
-	return {subroutine.domain.settings.HIDDEN_STATUSES.key: wanted or None}
+	return changes or None
 
 
 def _project_updated (
@@ -7142,6 +7169,7 @@ def _project_updated (
 	status: str,
 	colour: str,
 	hide_status: list[str] | None,
+	hide_document_status: list[str] | None,
 	hide_nothing: bool,
 	private: bool | None,
 ) -> None:
@@ -7170,11 +7198,13 @@ def _project_updated (
 		settings[subroutine.domain.settings.COLOUR.key] = colour or None
 
 	try:
-		settings.update(_hidden_statuses(hide_status, nothing=hide_nothing) or {})
+		settings.update(
+			_hidden_statuses(hide_status, hide_document_status, nothing=hide_nothing) or {}
+		)
 
-	except ValueError:
+	except ValueError as given:
 		program.stop(
-			"--hide-status and --hide-nothing say opposite things.",
+			f"{given} and --hide-nothing say opposite things.",
 			hint="Use --hide-nothing on its own to offer every status here, whatever the "
 			"workspace hides.",
 		)
@@ -7186,7 +7216,7 @@ def _project_updated (
 		program.stop(
 			"Nothing to change.",
 			hint="Pass --title, --description, --status, --colour, --hide-status, "
-			"--hide-nothing or --private.",
+			"--hide-document-status, --hide-nothing or --private.",
 		)
 
 	with program.opened() as world:
@@ -8056,6 +8086,7 @@ def _workspace_updated (
 	timezone: str,
 	colour: str,
 	hide_status: list[str] | None,
+	hide_document_status: list[str] | None,
 ) -> None:
 	"""Change the fields beside a workspace's address — `#434`, `#1025`."""
 
@@ -8077,7 +8108,7 @@ def _workspace_updated (
 	if colour is not UNGIVEN:
 		settings[subroutine.domain.settings.COLOUR.key] = colour or None
 
-	settings.update(_hidden_statuses(hide_status) or {})
+	settings.update(_hidden_statuses(hide_status, hide_document_status) or {})
 
 	if settings:
 		changes["settings"] = settings
@@ -8085,7 +8116,8 @@ def _workspace_updated (
 	if not changes:
 		program.stop(
 			"Nothing to change.",
-			hint="Pass --title, --description, --timezone, --colour or --hide-status.",
+			hint="Pass --title, --description, --timezone, --colour, --hide-status or "
+			"--hide-document-status.",
 		)
 
 	with program.opened() as world:
@@ -8946,6 +8978,9 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		hide_status: list[str] = typer.Option(
 			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
 		),
+		hide_document_status: list[str] = typer.Option(
+			None, "--hide-document-status", show_default=False, help=HIDE_DOCUMENT_STATUS_HELP
+		),
 		hide_nothing: bool = typer.Option(
 			False, "--hide-nothing", help="Offer every status here, whatever the workspace hides."
 		),
@@ -8976,6 +9011,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			status=status,
 			colour=colour,
 			hide_status=hide_status,
+			hide_document_status=hide_document_status,
 			hide_nothing=hide_nothing,
 			private=private,
 		)
@@ -10432,6 +10468,12 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 		hide_status: list[str] = typer.Option(
 			None, "--hide-status", show_default=False, help=WORKSPACE_HIDE_STATUS_HELP
 		),
+		hide_document_status: list[str] = typer.Option(
+			None,
+			"--hide-document-status",
+			show_default=False,
+			help=WORKSPACE_HIDE_DOCUMENT_STATUS_HELP,
+		),
 	) -> None:
 		"""Change what a workspace is called, what it is for, or which zone its dates are in.
 
@@ -10457,6 +10499,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 			timezone=timezone,
 			colour=colour,
 			hide_status=hide_status,
+			hide_document_status=hide_document_status,
 		)
 
 	@workspace_app.command("settings")

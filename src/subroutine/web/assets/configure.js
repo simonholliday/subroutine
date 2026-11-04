@@ -232,6 +232,7 @@ export function Timezone ({
 const CONTROLS = {
 	colour: ColourChoice,
 	status_keys: StatusChoice,
+	document_status_keys: StatusChoice,
 	destination: DestinationChoice,
 	switch: SwitchChoice,
 };
@@ -270,11 +271,15 @@ export function valueSaid (setting, value, statuses = []) {
 	*/
 	if (setting.kind === "colour") return value || "None";
 
-	if (setting.kind === "status_keys") {
-		const labels = new Map((statuses || []).map((one) => [one.key, one.label || one.key]));
+	const kind = STATUS_KINDS.get(setting.kind);
+
+	if (kind) {
+		const labels = new Map(ofKind(statuses, kind).map((one) => [one.key, one.label || one.key]));
 		const named = (value || []).map((key) => labels.get(key) || key);
 
-		return named.length > 0 ? `Not offered: ${named.join(", ")}.` : "Every status is offered.";
+		return named.length > 0
+			? `Not offered: ${named.join(", ")}.`
+			: `Every ${kind} status is offered.`;
 	}
 
 	/* **"Set to", never "Sent to"** (`#3810`): an installation that does not send keeps the value. */
@@ -319,41 +324,32 @@ export function hiddenValue (ticked, inherits = false) {
 
 
 /*
-	The kinds of item a hidden-status setting narrows, in the order its control draws them —
-	`#2627`. **Both, because the setting is one list and both pickers read it**: `forms.js` narrows
-	a task's statuses and a document's by the same project's list, so a control that drew only the
-	task vocabulary saved every document key away without showing it. Their seeded keys do not
-	overlap, which is what lets one list serve both.
+	Which kind of status each status-keys setting holds, by the setting's kind — `SR#5147`. A task's
+	statuses and a document's are two vocabularies that share keys (`superseded` is seeded in
+	both), so each kind has a setting of its own, drawn as a row of its own (`#5097`), and its
+	control draws that kind's statuses alone. In the order the settings page draws them.
 */
-const HIDEABLE = [["task", "Not offered to tasks"], ["document", "Not offered to documents"]];
+const STATUS_KINDS = new Map([["status_keys", "task"], ["document_status_keys", "document"]]);
 
 
 export function hideableStatuses (vocabulary) {
 	/*
-		Every status a hidden-status control offers to hide, each marked with its kind — `#2627`.
+		Every status a hidden-status control may offer to hide, each marked with its kind — `#2627`.
+		A project's statuses are left out: no picker offers them, so no list holds them.
 	*/
 	const statuses = (vocabulary && vocabulary.statuses) || {};
 
-	return HIDEABLE.flatMap(([kind]) => (statuses[kind] || []).map((one) => ({ ...one, kind })));
+	return [...STATUS_KINDS.values()].flatMap(
+		(kind) => (statuses[kind] || []).map((one) => ({ ...one, kind })),
+	);
 }
 
 
-function statusGroups (statuses) {
+function ofKind (statuses, kind) {
 	/*
-		The statuses a control draws, one group per kind — `#2627`.
-
-		**A status with no kind is drawn in a group of its own**, under the one legend the control
-		always had, so a list from before kinds were marked still draws.
+		The statuses of one kind, from a list `hideableStatuses` marked — `SR#5147`.
 	*/
-	const all = statuses || [];
-	const groups = HIDEABLE
-		.map(([kind, legend]) => ({ kind, legend, members: all.filter((one) => one.kind === kind) }))
-		.filter((group) => group.members.length > 0);
-	const unmarked = all.filter((one) => !HIDEABLE.some(([kind]) => kind === one.kind));
-
-	return unmarked.length > 0
-		? [...groups, { kind: "any", legend: "Not offered", members: unmarked }]
-		: groups;
+	return (statuses || []).filter((one) => one.kind === kind);
 }
 
 
@@ -855,7 +851,7 @@ export function StatusChoice ({
 	busy = false,
 }) {
 	/*
-		Choose the statuses not offered here, from this workspace's own vocabulary.
+		Choose the statuses of one kind not offered here, from this workspace's own vocabulary.
 
 		**A deny-list, drawn as one**: a status ticked is a status not offered. `statuses.hidden`
 		is a deny-list by decision, so that a status added later is offered everywhere by
@@ -866,17 +862,16 @@ export function StatusChoice ({
 		place `[]` and null are different answers, and the reason taking a value back is a
 		button of its own rather than an empty form.
 
-		**Tasks' statuses and documents', in a group each** (`#2627`). The setting narrows both
-		pickers and a save replaces the whole list, so a control drawing only tasks un-hid every
-		document status it did not show. **A stored key drawn in neither group goes back as it
-		came**, in a hidden field, for the same reason: a save changes what was ticked and nothing
+		**One kind's statuses, since each kind has a setting of its own** (`SR#5147`): the row's
+		heading says which, so the group needs no legend. **A stored key it does not draw goes
+		back as it came**, in a hidden field (`#2627`): a save changes what was ticked and nothing
 		else.
 
 		**Uncontrolled**, for `ColourChoice`'s reason (`#2621`).
 	*/
 	const hidden = new Set(value || []);
-	const groups = statusGroups(statuses);
-	const drawn = new Set(groups.flatMap((group) => group.members.map((one) => one.key)));
+	const drawn = ofKind(statuses, STATUS_KINDS.get(setting.kind));
+	const keys = new Set(drawn.map((one) => one.key));
 
 	return html`
 		<form class="setting-choice" onSubmit=${(event) => {
@@ -884,19 +879,16 @@ export function StatusChoice ({
 
 			onChoose(setting.key, hiddenValue(new FormData(event.target).getAll("value"), inherits));
 		}}>
-			${groups.map((group) => html`
-				<fieldset key=${group.kind}>
-					<legend>${group.legend}</legend>
-					${group.members.map((one) => html`
-						<label class="setting-option" key=${one.key}>
-							<input type="checkbox" name="value" value=${one.key}
-								defaultChecked=${hidden.has(one.key)} disabled=${busy} />
-							<span>${one.label || one.key}</span>
-						</label>
-					`)}
-				</fieldset>
-			`)}
-			${[...hidden].filter((key) => !drawn.has(key)).map((key) => html`
+			<fieldset>
+				${drawn.map((one) => html`
+					<label class="setting-option" key=${one.key}>
+						<input type="checkbox" name="value" value=${one.key}
+							defaultChecked=${hidden.has(one.key)} disabled=${busy} />
+						<span>${one.label || one.key}</span>
+					</label>
+				`)}
+			</fieldset>
+			${[...hidden].filter((key) => !keys.has(key)).map((key) => html`
 				<input type="hidden" name="value" value=${key} key=${`kept-${key}`} />
 			`)}
 			${acts(onTakeBack, busy)}
