@@ -7133,6 +7133,10 @@ def _hidden_statuses (
 	statuses are hidden separately, and ``--hide-nothing`` offers every one of both here. The
 	``ValueError`` it raises on a contradiction names the flag that contradicts it.
 
+	**Any list beside it is a contradiction, ``''`` included** (`SR#5243`). ``''`` asks for a list
+	to go back to inheriting what is above it, the opposite of offering everything, and the check
+	once asked only whether a key was given, so it dropped the ``''`` and said nothing.
+
 	**Not offered on a workspace, and that is not an oversight.** A workspace is the top of the
 	chain, so an absent value falls through to the default of nothing hidden — absent and empty
 	are already the same answer there. The flag would be a control that changes nothing, which
@@ -7148,7 +7152,7 @@ def _hidden_statuses (
 
 	if nothing:
 		for flag, (_key, keys) in given.items():
-			if keys and any(one for one in keys):
+			if keys:
 				raise ValueError(flag)
 
 		return {key: [] for key, _keys in given.values()}

@@ -37,6 +37,10 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **`--hide-nothing` refuses an empty `--hide-status` or `--hide-document-status` beside it.** The
+  empty one asks for the list to go back to inheriting, the opposite of offering every status, and
+  it was dropped without a word.
+
 - **A project or workspace hides task statuses and document statuses separately.** Tasks and
   documents share some status keys - both have `superseded` - so hiding one kind's status hid the
   other's, and renaming or deleting one kind's status silently changed what the other kind hid.
