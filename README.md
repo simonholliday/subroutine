@@ -320,6 +320,16 @@ specified and not built - named here because a tool that overstates itself waste
 
 ---
 
+## What stays put
+
+**From 1.0, what you build on does not move within a major version.** The HTTP API under `/v1`, the
+terminal's commands, flags and exit codes, the error codes, the agent tools and resources, the
+plugin settings and your data follow semantic versioning: a patch fixes, a minor only adds, and
+anything that would break one of them waits for 2.0.
+
+**A newer program still reads an older instance.** A command needing something that instance does
+not have yet is refused, naming both versions, until the older one is updated.
+
 ## Where the rest of it is written
 
 **Reaching an instance somebody else runs is [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)**, which
@@ -369,8 +379,9 @@ Every page there is generated from the release it documents, so it cannot drift 
 
 ## Contributing
 
-Pull requests are welcome and need the CLA sentence in [CLA.md](https://github.com/simonholliday/subroutine/blob/main/CLA.md).
-[CONTRIBUTING.md](https://github.com/simonholliday/subroutine/blob/main/CONTRIBUTING.md) has the rest.
+Bug reports are very welcome. We are not seeking code contributions yet, and
+[CONTRIBUTING.md](https://github.com/simonholliday/subroutine/blob/main/CONTRIBUTING.md) says why. Any pull request needs the CLA
+sentence in [CLA.md](https://github.com/simonholliday/subroutine/blob/main/CLA.md).
 
 ## Licence
 

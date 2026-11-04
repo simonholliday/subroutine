@@ -3,11 +3,11 @@
 ## We are not seeking code contributions yet
 
 Thank you for thinking of it, and please do not spend your time on a pull request we would
-have to turn down. Subroutine is early: the core is still moving, the backlog is planned some
-way ahead, and there is not yet a stable enough surface to review outside work against
-fairly. Accepting patches now would mostly mean asking people to rewrite them.
+have to turn down. The backlog is planned some way ahead, and there is not yet a way to review
+outside work against it fairly. Accepting patches now would mostly mean asking people to rewrite
+them.
 
-That will change once the shape has settled, and this file will say so when it does.
+That will change, and this file will say so when it does.
 
 **Two things are very welcome in the meantime:**
 

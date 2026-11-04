@@ -22,7 +22,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Simon Holliday", email = "simon.holliday@protonmail.com" }]
 keywords = ["project-management", "tasks", "agents", "ai", "self-hosted", "cli"]
 classifiers = [
-	"Development Status :: 3 - Alpha",
+	"Development Status :: 5 - Production/Stable",
 	"Environment :: Console",
 	"Framework :: FastAPI",
 	"Intended Audience :: Developers",

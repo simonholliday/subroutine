@@ -37,6 +37,10 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **What 1.0 promises is written down.** The README says which surfaces follow semantic versioning
+  from 1.0 and what a newer program owes an older instance; `SECURITY.md` and the package's classifier
+  stop calling Subroutine early.
+
 - **`--hide-nothing` refuses an empty `--hide-status` or `--hide-document-status` beside it.** The
   empty one asks for the list to go back to inheriting, the opposite of offering every status, and
   it was dropped without a word.

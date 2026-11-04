@@ -68,10 +68,10 @@ BY_SEQ_BACKWARDS = "before"
 #: because "not found" from nginx and "not found" from Subroutine mean very different things.
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 
-#: **What this program promises an instance on another release, before 1.0** (`SR#2618`). Simon's
-#: answer of 2026-09-14 was *"pre-release-1.0 - reading only"*: this program reads what an older
-#: instance answers, because every field a response has gained since carries a default, which
-#: ``tests/test_response_compatibility.py`` holds. It does not promise that the older instance
+#: **What this program promises an instance on another release** (`SR#2618`, and from 1.0 decision
+#: `#5264`): reading only. This program reads what an older instance answers, because every field a
+#: response has gained since carries a default, which ``tests/test_response_compatibility.py``
+#: holds. It does not promise that the older instance
 #: accepts everything this program sends, so a command needing something the other release lacks
 #: is refused, and the refusal says which releases the two are running (:meth:`Client._refused`).
 UPDATE_THE_OLDER = (
@@ -2438,7 +2438,7 @@ class Client:
 		**The reader of *"This endpoint does not accept 'limit'."* never typed ``limit``**
 		(`SR#2625`). ``user list`` sends it, and an instance one release behind refuses it by
 		name, which is the misdiagnosis :meth:`_not_an_instance` exists to prevent, arriving on
-		the request side. Before 1.0 such a command is not promised to work
+		the request side. Such a command is not promised to work
 		(:data:`UPDATE_THE_OLDER`), so this changes what the refusal says and not whether it
 		happens.
 
