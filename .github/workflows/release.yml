@@ -18,6 +18,9 @@ name: Release
 # No stored credential anywhere. Both uploads authenticate by OIDC against a trusted publisher
 # (docs/design.md §2.2), which is why each publishing job asks for `id-token: write` and nothing else
 # does.
+#
+# Every job names its image, `ubuntu-24.04`, rather than `ubuntu-latest`, for the reason ci.yml
+# gives (`SR#5281`): a tag is tested on the image the pushes before it were tested on.
 
 on:
   push:
@@ -58,7 +61,7 @@ jobs:
   # reaches through the API, and the ordinary suite covers that on both.
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # One leg of CI's matrix, without coverage, as every CI leg but the newest runs: 11.5 minutes on
     # v0.8.7 and 20.2 on v0.9.0. Kept at the number CI uses rather than tightened to the
@@ -126,7 +129,7 @@ jobs:
   # has not passed, since nothing else here drives every act through every way in.
   matrix:
     name: Permission matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
 
     services:
@@ -174,7 +177,7 @@ jobs:
   # `SUBROUTINE_TEST_REQUIRE_BROWSER` is for, and it is the whole point of this job existing.
   browser:
     name: Browser tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # `SR#1015`'s ceiling, and it **must stay above the install action's own retry budget**
     # (`SR#1022`): two bounded attempts at 180 seconds is 6 minutes in the worst case, with the
@@ -217,7 +220,7 @@ jobs:
   build:
     name: Build
     needs: [test, matrix, browser]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 15
 
@@ -290,7 +293,7 @@ jobs:
     name: TestPyPI
     needs: build
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # Generous, because these two reach an index we do not run. `timeout-minutes` bounds the
     # job once it is *running*, so an environment waiting on a human is not counted against it.
@@ -333,7 +336,7 @@ jobs:
     name: PyPI
     needs: build
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 20
 
@@ -364,7 +367,7 @@ jobs:
     name: GitHub release
     needs: pypi
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 15
 

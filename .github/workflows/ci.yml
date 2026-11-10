@@ -3,6 +3,12 @@ name: CI
 # Two jobs rather than one matrix doing everything. Lint and type results are identical on
 # every Python version, so running them three times would add nothing but three places to
 # read the same failure.
+#
+# Every job names its image, `ubuntu-24.04`, rather than `ubuntu-latest` (`SR#5281`). That label
+# moved to Ubuntu 26.04 by itself in November 2026 and turned this red with no commit of ours to
+# blame: that image's PostgreSQL 18 client tools cannot restore into the `postgres:16` service
+# below. Moving to a new image is a commit made on purpose (`SR#5282`), and
+# tests/test_packaging.py refuses a `-latest` label.
 
 on:
   push:
@@ -23,7 +29,7 @@ env:
 jobs:
   checks:
     name: Lint and types
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 10
 
@@ -68,7 +74,7 @@ jobs:
   # should not fail this.
   licences:
     name: Dependency licences
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 10
 
@@ -105,7 +111,7 @@ jobs:
   # slow the lint feedback everybody actually waits for.
   plugin:
     name: Plugin manifests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 10
 
@@ -127,7 +133,7 @@ jobs:
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # The longest job here, and the one whose duration is real work rather than setup.
     #
@@ -259,7 +265,7 @@ jobs:
   # roughly 35 minutes of calls, and this runner has two slower cores. Set to the test job's.
   matrix:
     name: Permission matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
 
     services:
@@ -307,7 +313,7 @@ jobs:
   # and a green CI would mean a suite that did not run. That is what happened for six commits.
   browser:
     name: Browser tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # `#1015`: this is the job the ceiling was written for. It normally takes 90 seconds and
     # once spent 66 minutes inside `playwright install`, which reaches the network. Fifteen
@@ -377,7 +383,7 @@ jobs:
   # test job because it must not see the repository's test fixtures or a pre-made database.
   first-run:
     name: First run
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 10
 

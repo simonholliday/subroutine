@@ -33,7 +33,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 #: What a GitHub runner label demonstrates, in the vocabulary PyPI publishes.
 #:
-#: **Deliberately coarse.** ``ubuntu-latest`` proves Linux rather than Ubuntu, because that is
+#: **Deliberately coarse.** ``ubuntu-24.04`` proves Linux rather than Ubuntu, because that is
 #: the claim a reader takes from it — nobody reads ``POSIX :: Linux`` as a statement about a
 #: distribution. A runner label absent here fails rather than being ignored, so a matrix that
 #: grows a platform this map has never heard of is a decision somebody has to make.
@@ -44,18 +44,19 @@ DEMONSTRATED_BY = {
 }
 
 
-def _runners () -> set[str]:
+def _runners (workflows: pathlib.Path = WORKFLOWS) -> set[str]:
 	"""Return every platform anything in CI has actually been run on.
 
 	Reads ``runs-on`` off the workflows themselves rather than a list kept beside them, for the
 	reason `#405` gives about every allow-list here: a list of what CI does is a second copy of
 	what CI does, and the copy is the one that goes stale. A ``runs-on`` naming a matrix is
 	followed into ``strategy.matrix.os``, because that is how a second platform would arrive.
+	``workflows`` is the repository's own, unless a test names a folder of its own.
 	"""
 
 	found: set[str] = set()
 
-	for path in sorted(WORKFLOWS.glob("*.yml")):
+	for path in sorted(workflows.glob("*.yml")):
 		loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
 
 		for job in (loaded.get("jobs") or {}).values():
@@ -131,6 +132,49 @@ def test_os_independent_is_never_the_claim () -> None:
 		"nothing can run on every operating system, so nothing can ever have demonstrated "
 		"this — name the platforms that were actually tested"
 	)
+
+
+def _moving (runners: set[str]) -> list[str]:
+	"""Return the runner labels GitHub points at a new image by itself, such as ``ubuntu-latest``."""
+
+	return sorted(runner for runner in runners if runner.endswith("-latest"))
+
+
+def test_no_job_runs_on_an_image_that_moves_by_itself () -> None:
+	"""`#5281`. A ``-latest`` label changes its image without a commit of ours.
+
+	``ubuntu-latest`` became Ubuntu 26.04 in November 2026, and the first push after it went red
+	on a fault nothing in the push had touched: that image's PostgreSQL 18 client tools cannot
+	restore into the ``postgres:16`` service. So every job names its image, and moving to a new
+	one is a commit somebody makes on purpose (`#5282`).
+	"""
+
+	moving = _moving(_runners())
+
+	assert not moving, (
+		f"CI runs on {moving}, which GitHub points at a new image whenever it chooses. Name the "
+		f"image, such as ubuntu-24.04, so that moving to another is a commit."
+	)
+
+
+def test_the_check_for_a_moving_image_reads_every_job (tmp_path: pathlib.Path) -> None:
+	"""The check above, fed a workflow that does what it forbids, through the same reader."""
+
+	(tmp_path / "ci.yml").write_text(
+		"jobs:\n"
+		"  pinned:\n"
+		"    runs-on: ubuntu-24.04\n"
+		"  moving:\n"
+		"    runs-on: ubuntu-latest\n"
+		"  matrix:\n"
+		"    runs-on: ${{ matrix.os }}\n"
+		"    strategy:\n"
+		"      matrix:\n"
+		"        os: [ubuntu-24.04, macos-latest]\n",
+		encoding="utf-8",
+	)
+
+	assert _moving(_runners(tmp_path)) == ["macos-latest", "ubuntu-latest"]
 
 
 # ---- one licence, named once, and every statement of it derived (`SR#666`) ------------------
