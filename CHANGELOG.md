@@ -37,6 +37,11 @@ upgrade involves.
   in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
   the same and go on, and `doctor` names it.
 
+- **A PostgreSQL restore says when its tools are newer than the server.** `pg_restore` from
+  version 17 cannot restore into a version 16 server, so on a machine whose client tools are newer
+  than its server - Ubuntu 26.04's beside a `postgres:16` container, say - every restore failed in
+  PostgreSQL's words, naming neither version. `db restore` now refuses before anything is touched,
+  naming both versions and the tools to use instead.
 - **What 1.0 promises is written down.** The README says which surfaces follow semantic versioning
   from 1.0 and what a newer program owes an older instance; `SECURITY.md` and the package's classifier
   stop calling Subroutine early.

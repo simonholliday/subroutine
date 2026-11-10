@@ -2233,13 +2233,15 @@ def restore (
 	# Every check before anything is touched, and in this order: a copy marked unfinished is
 	# refused as that before anything is read from it (`#4409`), a file from the other engine
 	# is refused as such rather than as a file with no schema version in it (`#172`), and a
-	# database somebody else is using is refused before either (`#171`).
+	# database somebody else is using is refused before either (`#171`). A ``pg_restore`` newer
+	# than the server comes after the engine, since only a PostgreSQL archive asks it (`#5280`).
 	check_finished(source)
 
 	if not force:
 		check_unused(engine)
 
 	check_engine(engine, source)
+	check_tools(engine, source)
 	check_nothing_set_aside(engine)
 
 	head = check_restorable(source)
@@ -2406,6 +2408,60 @@ def check_nothing_set_aside (engine: sqlalchemy.engine.Engine) -> None:
 			"not finish, so nothing was restored over it.",
 			hint=subroutine.db.migrate.set_aside_remedy(found),
 		)
+
+
+#: What ``pg_restore --version`` prints, as far as its major version: ``pg_restore (PostgreSQL)
+#: 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)`` on Ubuntu, and ``19beta1`` before a release.
+_TOOL_VERSION = re.compile(r"\(PostgreSQL\) (\d+)")
+
+
+def _major_version (printed: str) -> int | None:
+	"""Return the major version a PostgreSQL tool says it is, or ``None`` if it says so another way."""
+
+	found = _TOOL_VERSION.search(printed)
+
+	return None if found is None else int(found.group(1))
+
+
+def check_tools (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None:
+	"""Refuse a ``pg_restore`` newer than the server it would restore into (`#5280`, `#5283`).
+
+	``pg_restore`` from 17 on opens every restore with ``SET transaction_timeout = 0``, which a 16
+	server does not have. So on a machine whose client tools are newer than its server - Ubuntu
+	26.04's beside a ``postgres:16`` container - every restore failed in PostgreSQL's words once
+	the schema had been set aside, naming neither version. PostgreSQL does not promise that newer
+	tools load into an older server, so any newer major version is refused, not only the pairs
+	measured; ``ServiceUnavailable``, as the tool being absent is.
+
+	**Only an archive is asked about**: a script from before `#1554` is loaded by ``psql``, and
+	what it says was written by the ``pg_dump`` that took it rather than by the tool reading it.
+	A version this cannot read is let through, since refusing would name a cause nothing had
+	established.
+	"""
+
+	if _is_sqlite(engine) or not is_archive(source):
+		return
+
+	tool = _major_version(_run(["pg_restore", "--version"], what="pg_restore"))
+
+	with engine.connect() as connection:
+		number: str = connection.exec_driver_sql("SHOW server_version_num").scalar_one()
+
+	server = int(number) // 10000
+
+	if tool is None or tool <= server:
+		return
+
+	raise subroutine.errors.ServiceUnavailable(
+		f"This pg_restore is version {tool} and the server is version {server}, and PostgreSQL's "
+		f"tools do not promise to restore into a server older than themselves. Nothing has been "
+		f"changed.",
+		hint=(
+			f"Put version {server}'s client tools first on PATH, then restore again. On Debian and "
+			f"Ubuntu they come in the postgresql-client-{server} package, in "
+			f"/usr/lib/postgresql/{server}/bin."
+		),
+	)
 
 
 def _restore_postgresql (

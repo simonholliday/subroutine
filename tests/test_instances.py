@@ -3506,6 +3506,197 @@ def test_a_url_with_no_password_adds_nothing_to_the_environment () -> None:
 
 
 # --------------------------------------------------------------------------------------
+# Client tools newer than the server (`#5280`, decision `#5283`)
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+	("printed", "major"),
+	[
+		("pg_restore (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)\n", 16),
+		("pg_restore (PostgreSQL) 18.6\n", 18),
+		("pg_restore (PostgreSQL) 19beta1\n", 19),
+		("pg_restore (PostgreSQL) 9.6.24\n", 9),
+		("a pg_restore that says nothing about its version\n", None),
+	],
+)
+def test_a_tool_s_major_version_is_read_off_what_it_prints (printed: str, major: int | None) -> None:
+	"""What ``--version`` prints on the platforms met so far, and a build that says nothing."""
+
+	assert subroutine.db.backup._major_version(printed) == major
+
+
+def _server_major (url: str) -> int:
+	"""Return the major version of the PostgreSQL server holding ``url``."""
+
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		with engine.connect() as connection:
+			number: str = connection.exec_driver_sql("SHOW server_version_num").scalar_one()
+
+	finally:
+		engine.dispose()
+
+	return int(number) // 10000
+
+
+def _reporting (version: int | None, ran: list[list[str]]) -> typing.Callable[..., str]:
+	"""Stand in for ``_run``: ``pg_restore --version`` says ``version``, and every other tool runs.
+
+	Each command is recorded in ``ran``. ``None`` is a build that prints no version this can read.
+	"""
+
+	real = subroutine.db.backup._run
+
+	def reported (command: list[str], *, what: str, secrets: dict[str, str] | None = None) -> str:
+		"""Answer the version question as told, and hand everything else to the real tool."""
+
+		ran.append(command)
+
+		if command == ["pg_restore", "--version"]:
+			if version is None:
+				return "a pg_restore that says nothing about its version\n"
+
+			return f"pg_restore (PostgreSQL) {version}.0\n"
+
+		return real(command, what=what, secrets=secrets)
+
+	return reported
+
+
+def test_a_restore_refuses_a_pg_restore_newer_than_its_server (
+	own_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#5280`: refused before anything is set aside, naming both versions and the remedy.
+
+	``pg_restore`` from 17 on cannot restore into a 16 server, so where the client tools were
+	newer than the server every restore failed in PostgreSQL's words. Faked by what ``--version``
+	prints, one major version ahead of whichever server this runs against. **Every other tool is
+	the real one, and this is a clone**, so a check that let it through would load for real and
+	change the instance's identity.
+	"""
+
+	if own_database.startswith("sqlite"):
+		return
+
+	subroutine.db.migrate.upgrade(own_database)
+	identity = _seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	server = _server_major(own_database)
+	ran: list[list[str]] = []
+	monkeypatch.setattr(subroutine.db.backup, "_run", _reporting(server + 1, ran))
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+			subroutine.db.backup.restore(engine, written.path, as_clone=True)
+
+	finally:
+		engine.dispose()
+
+	assert f"version {server + 1} and the server is version {server}" in refused.value.detail
+	assert "Nothing has been changed" in refused.value.detail
+	assert f"postgresql-client-{server}" in (refused.value.hint or "")
+	assert not [command for command in ran if "--single-transaction" in command], ran
+	assert _set_aside_schemas(own_database) == []
+	assert _instance_id(own_database) == identity
+
+
+@pytest.mark.parametrize("ahead", [0, -1, None])
+def test_a_pg_restore_no_newer_than_its_server_is_not_refused (
+	own_database: str, monkeypatch: pytest.MonkeyPatch, ahead: int | None
+) -> None:
+	"""The server's own version, an older one, and a build whose version cannot be read.
+
+	An older tool is how a dump taken before an upgrade is loaded after it, and refusing a version
+	nobody could read would name a cause nothing established. On SQLite nothing is asked at all.
+	"""
+
+	ran: list[list[str]] = []
+	postgresql = not own_database.startswith("sqlite")
+	told = None if ahead is None or not postgresql else _server_major(own_database) + ahead
+	monkeypatch.setattr(subroutine.db.backup, "_run", _reporting(told, ran))
+	engine = subroutine.db.session.create_engine(own_database)
+	archive = pathlib.Path(f"any{subroutine.db.backup.POSTGRESQL_ARCHIVE_SUFFIX}")
+
+	try:
+		subroutine.db.backup.check_tools(engine, archive)
+
+	finally:
+		engine.dispose()
+
+	assert ran == ([["pg_restore", "--version"]] if postgresql else [])
+
+
+def test_a_script_backup_does_not_ask_the_tool_s_version (
+	own_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A script from before `#1554` is loaded by ``psql`` and holds what its own ``pg_dump`` wrote."""
+
+	if own_database.startswith("sqlite"):
+		return
+
+	ran: list[list[str]] = []
+	monkeypatch.setattr(
+		subroutine.db.backup, "_run", _reporting(_server_major(own_database) + 1, ran)
+	)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		subroutine.db.backup.check_tools(engine, pathlib.Path("before-the-archive.sql"))
+
+	finally:
+		engine.dispose()
+
+	assert ran == []
+
+
+def test_db_restore_refuses_newer_tools_before_taking_a_safety_copy (
+	own_database: str,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#5280` at the terminal: refused with the other checks, before the safety copy is taken.
+
+	A protected instance asks before replacing its database, and being asked and then refused
+	teaches an operator to stop reading the question; a safety copy taken first would be one more
+	file for nothing. This instance is not protected, so a check that let it through would take
+	the copy and restore for real - which is what the code before did, exiting 0.
+	"""
+
+	if own_database.startswith("sqlite"):
+		return
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	kept = sorted(path.name for path in written.path.parent.iterdir())
+	server = _server_major(own_database)
+	monkeypatch.setattr(subroutine.db.backup, "_run", _reporting(server + 1, []))
+
+	refused = run("db", "restore", str(written.path), "--recover", expect=1)
+
+	assert f"version {server + 1} and the server is version {server}" in refused.output
+	assert sorted(path.name for path in written.path.parent.iterdir()) == kept, "a copy was taken"
+
+
+# --------------------------------------------------------------------------------------
 # Three lifetimes in one directory (`#1712`)
 # --------------------------------------------------------------------------------------
 
