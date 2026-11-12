@@ -366,6 +366,11 @@ upgrade involves.
   first on the path, so they said to run `subroutine init`, which a terminal there does not have.
   They now leave their own copy out and give the `uvx` command, pinned to this release series -
   its pin admitted the next one, which could create an instance newer than the plugin reads.
+- **A change to a repeat from now on is checked against every occurrence it reaches.** An edit
+  to one occurrence, filed apart from its series, could rewrite the series with a credential that
+  could only read where the series is. And a repeating sub-task's occurrence, taken out from under
+  its parent and moved from now on, moved the series into a different project from that parent,
+  after which the series could not be moved back on its own. Both are refused now.
 - **`init` and the `db` commands with no driver for their PostgreSQL database say which to
   install**, as every other command does. `init` answered with a crash report, and `db
   upgrade`, `db current`, `db backup`, `db archive` and `db restore` said to check a database

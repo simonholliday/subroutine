@@ -1950,12 +1950,37 @@ def update (
 	# decided in `#5097`): stopping or restarting it, a new rule and an edit from now on each write the
 	# series, which may be beneath the trash, or in a project the reader cannot see, while its
 	# occurrence is in front of them. Asked before anything is assigned.
+	#
+	# **A stop of a series already stopped is no change to how it repeats** (`SR#5292`, M-4 of
+	# the cold review of 2026-11-11): every save from the browser sends its blank box as a stop,
+	# so an occurrence of a stopped series out of reach was refused even with *just this one*,
+	# and stopping it writes nothing either way.
 	if applies_to == FROM_NOW_ON or (
 		repeating is not subroutine.domain.patch.UNSET
-		and (repeating.stopping or repeating.repeat is not None)
+		and (
+			(
+				repeating.stopping
+				and repeating.series is not None
+				and repeating.series.completed_at is None
+			)
+			or repeating.repeat is not None
+		)
 	):
 		_refuse_changing_a_series_out_of_reach(
 			session, task, actor=actor, from_now_on=applies_to == FROM_NOW_ON
+		)
+
+	# **And the row an edit from now on is carried to is asked what an edit made to it would be**
+	# (`SR#5289`, M-1 of the cold review of 2026-11-11). The carry is a copy, written out rather
+	# than routed back through here, so a series was moved out of a private project, handed to
+	# somebody who could not see it, and rewritten where the credential only reads.
+	if applies_to == FROM_NOW_ON:
+		_refuse_carrying_what_the_other_row_may_not_take(
+			session,
+			task,
+			actor=actor,
+			project=project if moving else None,
+			assignee_id=assignee_id,
 		)
 
 	# **A series is not left with no date to repeat from** (`#4026`), as :func:`_series_anchor`
@@ -3921,6 +3946,11 @@ def _refuse_changing_a_series_out_of_reach (
 	**Said in the reader's words**: the place is named only to a reader who can see it, and to
 	anybody else is *something you cannot see* (decision `#4521`); the series' number never. Asked of
 	every caller for the trash, as that gate is, and of a principal alone for sight.
+
+	**Sight is reach, and a series reached is written as any row is** (`SR#5292`, M-4 of the cold
+	review of 2026-11-11): sight was asked as ``project:read``, so a credential scoped to tasks was
+	told its own Inbox was out of sight. One that reaches the series' place but may not write there
+	now hears that it is beyond its places, and one holding ``task:write`` there goes through.
 	"""
 
 	series = series_of(session, task)
@@ -3958,7 +3988,23 @@ def _refuse_changing_a_series_out_of_reach (
 
 	project = session.get(subroutine.db.models.project.Project, series.project_id)
 
-	if actor is None or project is None or subroutine.domain.projects.key_named_to(session, actor, project):
+	if actor is None or project is None:
+		return
+
+	if (
+		subroutine.domain.authorization.refusal(
+			session,
+			actor,
+			subroutine.permissions.TASK_READ,
+			workspace_id=project.workspace_id,
+			project=project,
+		)
+		is not subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
+	):
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.TASK_WRITE, series
+		)
+
 		return
 
 	raise subroutine.errors.ValidationError(
@@ -3974,6 +4020,147 @@ def _refuse_changing_a_series_out_of_reach (
 			)
 		],
 	)
+
+
+def _refuse_carrying_what_the_other_row_may_not_take (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project | None,
+	assignee_id: typing.Any,
+) -> None:
+	"""Ask the row an edit from now on is carried to what an edit made to it asks - `SR#5289`.
+
+	**M-1 of the cold review of 2026-11-11**, with NEW-B-1 of its verification. :func:`_carried`
+	copies the change rather than routing it back through :func:`update`, which is right for the
+	values and was wrong for the permissions: the crossing, steward and narrowed-credential
+	checks and :func:`~subroutine.domain.projects.member_who_sees` were asked of the caller's own
+	row alone. Once an occurrence and its series sit in different projects, which moving just
+	this one does, a series was moved out of a private project, handed to somebody who could not
+	see it, and rewritten through a credential that only reads its place. Decisions `#4509` and
+	`#5097` say what a direct edit asks, and this asks the same of the other row.
+
+	``project`` is where the caller's row is going, or ``None``. The other row takes it, and the
+	assignee, only where :func:`_carried` copies them: from an occurrence always, and from a series
+	only where its live occurrence still held the series' value (decision `#1249` §3). A series'
+	own sight and place are asked by :func:`_refuse_changing_a_series_out_of_reach`; an occurrence's
+	are asked here, in the reader's words.
+	"""
+
+	if task.is_template:
+		other = subroutine.domain.occurrences.live_occurrence(session, task)
+
+	else:
+		other = series_of(session, task)
+
+	if other is None or other.id == task.id:
+		return
+
+	home = session.get(subroutine.db.models.project.Project, other.project_id)
+
+	if home is None:
+		return
+
+	takes_project = not task.is_template or other.project_id == task.project_id
+	takes_assignee = not task.is_template or other.assignee_id == task.assignee_id
+
+	if task.is_template and actor is not None:
+		if (
+			subroutine.domain.authorization.refusal(
+				session,
+				actor,
+				subroutine.permissions.TASK_READ,
+				workspace_id=home.workspace_id,
+				project=home,
+			)
+			is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH
+		):
+			raise subroutine.errors.ValidationError(
+				"Every one from now on includes one where you cannot see it, so this cannot change "
+				"from here.",
+				hint="Change just this one instead, or ask somebody who can see where it is.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="applies_to",
+						code="invalid_field_value",
+						message="One of them is where you cannot see it.",
+					)
+				],
+			)
+
+		subroutine.domain.authorization.authorize_on(
+			session, actor, subroutine.permissions.TASK_WRITE, other
+		)
+
+	carried_to = home
+
+	if project is not None and takes_project and project.id != home.id:
+		carried_to = project
+
+		# **A row under a task is filed where its parent is** (NEW-B-1 of the verification), as
+		# :func:`update` refuses a sub-task moved alone: a detached occurrence moved from now on
+		# left its series in one project under a parent in another, and that refusal then held it
+		# there.
+		if other.parent_task_id is not None:
+			above = session.get(subroutine.db.models.work.Task, other.parent_task_id)
+			named = None if above is None else _named_to(session, actor, above)
+
+			raise subroutine.errors.ValidationError(
+				f"Every one from now on is part of {named or subroutine.domain.scoping.UNSEEN}, "
+				"which decides where it is filed.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project",
+						code="invalid_field_value",
+						message="The rest of this repeat sits under another task.",
+						hint=(
+							f"Move {named} instead - its parts go with it - or change just this "
+							"one."
+							if named
+							else "Change just this one instead."
+						),
+					)
+				],
+			)
+
+		leaving = subroutine.domain.stewardship.private_above(session, home)
+		arriving = subroutine.domain.stewardship.private_above(session, project)
+		subroutine.domain.stewardship.refuse_crossing(
+			session,
+			actor,
+			steward_of=home,
+			leaving=leaving,
+			arriving=arriving,
+			what="every one from now on",
+			field="project",
+		)
+		subroutine.domain.stewardship.refuse_narrowed_crossing(
+			session,
+			actor,
+			workspace_id=task.workspace_id,
+			leaving=leaving,
+			arriving=arriving,
+			permission=subroutine.permissions.TASK_WRITE,
+			field="project",
+		)
+
+	if (
+		assignee_id is not subroutine.domain.patch.UNSET
+		and assignee_id is not None
+		and assignee_id != task.assignee_id
+		and takes_assignee
+		and assignee_id != other.assignee_id
+	):
+		subroutine.domain.projects.member_who_sees(
+			session,
+			task.workspace_id,
+			assignee_id,
+			within=carried_to,
+			field="assignee",
+			what="every one from now on cannot be assigned to them",
+			actor=actor,
+		)
 
 
 def _named_to (
