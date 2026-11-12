@@ -70,12 +70,13 @@ upgrade involves.
   project, and the journal printed the path whole; each side through the parent is said as unseen,
   as a task's project now is.
 
-- **An item's history and the change feed no longer name a project or series their reader cannot
-  see.** A task moved out of a private project gave that project's id to everybody who could see the
-  task; that side is now said as unseen, as a link's hidden end already was, and the journal says
-  *something you cannot see* where it said *nothing*. An occurrence filed apart from a series its
-  reader cannot see no longer gives the series' number, and the terminal and the browser read its
-  rule to know that it repeats.
+- **An item's history and the change feed no longer name a project, parent or series their reader
+  cannot see.** A task moved out of a private project gave that project's id to everybody who could
+  see the task; that side is now said as unseen, as a link's hidden end already was, and the journal
+  says *something you cannot see* where it said *nothing*. A task or document taken out from under a
+  parent its reader cannot see, and then moved, no longer gives that parent's id or number. An
+  occurrence filed apart from a series its reader cannot see no longer gives the series' number, and
+  the terminal and the browser read its rule to know that it repeats.
 
 - **The hosting guide's backup transcripts are real runs again.** Its three `db backup` and
   `db backups` blocks left out the line saying what each copy holds, and the listing left out why

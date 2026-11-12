@@ -1228,6 +1228,10 @@ def test_a_page_with_no_milestone_asks_nothing_about_milestones (
 #: **Thirteen since `SR#5138`**: the later changes to the tasks a page dates, one, so each date is
 #: read in the zone it was written in. The fixture dates every task so that it is counted.
 #:
+#: **And still thirteen with a move on the page** (`SR#5290`, L-6 of the cold review of 2026-11-11):
+#: the fixture moves every task into `web`, so the page's changes name a project as well as its
+#: entries' places, and the two are asked in one statement. They were asked in one each: fourteen.
+#:
 #: **It was fourteen until `SR#2765`**: ``Vocabulary`` ran the project settings walk, three
 #: statements here, for any page naming a project, and the journal draws no colour and hides no
 #: status. This said the walk was four and the addresses two; listing the statements a page
@@ -1304,6 +1308,10 @@ def test_a_journal_page_asks_the_same_few_questions_whatever_its_size (
 	"""
 
 	world = test_api_tasks._world(session)
+	filed = world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
+
+	assert filed.status_code == 201, filed.text
+
 	previous = None
 
 	for number in range(25):
@@ -1321,6 +1329,7 @@ def test_a_journal_page_asks_the_same_few_questions_whatever_its_size (
 					"assignee": world.user.username,
 					"description": f"What task {number} is for.",
 					"due": "2030-09-18",
+					"project": "web",
 				},
 			),
 			world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": "Started on it."}),

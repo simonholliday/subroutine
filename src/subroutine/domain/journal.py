@@ -246,6 +246,7 @@ def readable_only (
 	*,
 	principal: subroutine.domain.authentication.Principal,
 	workspace_ids: typing.Sequence[uuid.UUID],
+	seen: dict[str, set[uuid.UUID]] | None = None,
 ) -> dict[str, set[uuid.UUID]]:
 	"""Keep only the ids inside a page's changes that its reader may see named — `#2726`.
 
@@ -258,12 +259,21 @@ def readable_only (
 	**A project and a task are the lookups that can name something private.** An account, a
 	status and a type belong to the workspace, and everybody reading it may know them. What is
 	dropped here renders as nothing, exactly as an id nobody can name already does.
+
+	**Asked once, where the caller already holds the answer** (`SR#5290`, L-6 of the cold review of
+	2026-11-11): ``seen`` is, by lookup, the ids this reader may see, as
+	:func:`subroutine.domain.events.unseen_ends_and_named` found them for the same page.
 	"""
 
 	kept = dict(needed)
 
 	for lookup in (PROJECT, TASK):
 		if not needed[lookup]:
+			continue
+
+		if seen is not None:
+			kept[lookup] = needed[lookup] & seen.get(lookup, set())
+
 			continue
 
 		statement = subroutine.domain.scoping.readable_among(

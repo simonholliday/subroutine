@@ -1239,14 +1239,29 @@ SIDES = frozenset({"from", "to"})
 Unseen = dict[str, frozenset[str]]
 
 #: Fields that name a row only on one kind of item's events, by that kind (`SR#5241`): a project's
-#: ``parent_id`` is a project, where a document's is a document in the document's own project, which
-#: its reader can therefore see.
-NAMES_A_ROW_ON: dict[tuple[str, str], str] = {("project", "parent_id"): "project"}
+#: ``parent_id`` is a project, and a document's is a document. **A document's is asked too**
+#: (`SR#5290`, M-2 of the cold review of 2026-11-11): this said a document's parent was in its own
+#: project, which its reader could therefore see, but a document can leave its parent and then its
+#: project, and its older events named the parent to whoever can see it now.
+NAMES_A_ROW_ON: dict[tuple[str, str], str] = {
+	("project", "parent_id"): "project",
+	("document", "parent_id"): "document",
+}
 
 #: Fields holding a path of ancestors, by the kind of item whose events carry them, and the kind each
-#: ancestor is (`SR#5241`): a side is unseen when any row along it is. A task's and a document's stay
-#: inside one project, so only a project's can pass through a row its reader cannot see.
-PATHS_ON: dict[tuple[str, str], str] = {("project", "path"): "project"}
+#: ancestor is (`SR#5241`): a side is unseen when any row along it is. **A task's and a document's
+#: too** (`SR#5290`): this said they stayed inside one project, but one detached from its parent and
+#: then moved carries, in its older events, a path through a row its new readers cannot see.
+PATHS_ON: dict[tuple[str, str], str] = {
+	("project", "path"): "project",
+	("task", "path"): "task",
+	("document", "path"): "document",
+}
+
+#: Fields naming a row by its number rather than its id, by the kind of item whose events carry them
+#: and the kind of row named (`SR#5290`): the task a carried sub-task moved with, which the sub-task
+#: may since have left for a place whose readers cannot see that task.
+REFS_ON: dict[tuple[str, str], str] = {("task", "moved_with"): "task"}
 
 
 def identifier (value: typing.Any) -> uuid.UUID | None:
@@ -1293,14 +1308,34 @@ def unseen_ends (
 	if principal is None:
 		return {}
 
+	return unseen_ends_and_named(session, principal, rows, also={})[0]
+
+
+def unseen_ends_and_named (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+	*,
+	also: dict[str, set[uuid.UUID]],
+) -> tuple[dict[uuid.UUID, Unseen], dict[str, set[uuid.UUID]]]:
+	"""Return :func:`unseen_ends`, and which of ``also``'s ids this reader may see - `SR#5290`.
+
+	**One question per kind for both** (L-6 of the cold review of 2026-11-11): a journal page asked
+	which of the rows its entries name its reader may see, in
+	:func:`subroutine.domain.journal.readable_only`, and then this asked the same of each kind
+	again. ``also`` holds, by kind, the ids the caller needs that answer for besides those the
+	changes name; the second value holds, by the same kinds, the ones this reader may see.
+	"""
+
 	said: dict[uuid.UUID, Unseen] = {
 		event: {field: SIDES} for event, field in _unseen_link_ends(session, principal, rows).items()
 	}
+	named, seen = _unseen_rows_named(session, principal, rows, also=also)
 
-	for event, fields in _unseen_rows_named(session, principal, rows).items():
+	for event, fields in named.items():
 		said.setdefault(event, {}).update(fields)
 
-	return said
+	return said, {kind: ids & seen.get(kind, set()) for kind, ids in also.items()}
 
 
 def _unseen_link_ends (
@@ -1361,27 +1396,43 @@ def _unseen_rows_named (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
-) -> dict[uuid.UUID, Unseen]:
+	*,
+	also: dict[str, set[uuid.UUID]],
+) -> tuple[dict[uuid.UUID, Unseen], dict[str, set[uuid.UUID]]]:
 	"""Return, for each event, the sides of a change naming a row this reader cannot see - `SR#5148`.
 
-	:data:`NAMES_A_ROW` on any item's events, :data:`NAMES_A_ROW_ON` on one kind's, and a path of
-	:data:`PATHS_ON`, whose side is unseen when any row along it is (`SR#5241`). **One statement per
-	kind of row named, and none for a page naming nothing**, the question
-	:func:`subroutine.domain.journal.readable_only` asks for the journal. An id that no longer names
-	a row is unseen too: nothing it named can be read.
+	:data:`NAMES_A_ROW` on any item's events, :data:`NAMES_A_ROW_ON` on one kind's, a path of
+	:data:`PATHS_ON`, whose side is unseen when any row along it is (`SR#5241`), and a number of
+	:data:`REFS_ON` (`SR#5290`). **One statement per kind of row named, with ``also``'s ids of that
+	kind, and one for the numbers; none for a page naming nothing.** The second value is, by kind,
+	the ids among those this reader may see. An id or a number that no longer names a row is
+	unseen too: nothing it named can be read.
 	"""
 
 	named: list[tuple[uuid.UUID, str, str, str, frozenset[uuid.UUID]]] = []
+	numbered: list[tuple[uuid.UUID, str, str, uuid.UUID, int]] = []
 
 	for row in rows:
 		if not isinstance(row.changes, dict):
 			continue
 
 		for field, moved in row.changes.items():
+			if not isinstance(moved, dict):
+				continue
+
+			if (row.entity_type, field) in REFS_ON:
+				for side in SIDES:
+					value = moved.get(side)
+
+					if isinstance(value, int) and not isinstance(value, bool):
+						numbered.append((row.id, field, side, row.workspace_id, value))
+
+				continue
+
 			along = PATHS_ON.get((row.entity_type, field))
 			kind = along or NAMES_A_ROW.get(field) or NAMES_A_ROW_ON.get((row.entity_type, field))
 
-			if kind is None or not isinstance(moved, dict):
+			if kind is None:
 				continue
 
 			for side in SIDES:
@@ -1396,35 +1447,56 @@ def _unseen_rows_named (
 				if found:
 					named.append((row.id, field, side, kind, found))
 
-	if not named:
-		return {}
+	wanted: dict[str, set[uuid.UUID]] = {kind: set(ids) for kind, ids in also.items() if ids}
+
+	for _event, _field, _side, kind, found in named:
+		wanted.setdefault(kind, set()).update(found)
+
+	said: dict[uuid.UUID, Unseen] = {}
+	seen: dict[str, set[uuid.UUID]] = {}
+
+	if not wanted and not numbered:
+		return said, seen
 
 	workspace_ids = sorted({row.workspace_id for row in rows})
-	seen: set[uuid.UUID] = set()
 
-	for kind in {kind for _event, _field, _side, kind, _found in named}:
-		wanted: set[uuid.UUID] = set()
-
-		for _event, _field, _side, of, found in named:
-			if of == kind:
-				wanted |= found
-
+	for kind, ids in wanted.items():
 		statement = subroutine.domain.scoping.readable_among(
-			session, principal, workspace_ids=workspace_ids, kind=kind, identifiers=wanted
+			session, principal, workspace_ids=workspace_ids, kind=kind, identifiers=ids
 		)
 
 		# A kind this credential cannot read at all names nothing of that kind.
-		if statement is not None:
-			seen |= set(session.scalars(statement))
+		seen[kind] = set() if statement is None else set(session.scalars(statement))
 
-	said: dict[uuid.UUID, Unseen] = {}
-
-	for event, field, side, _kind, found in named:
-		if not found <= seen:
+	for event, field, side, kind, found in named:
+		if not found <= seen[kind]:
 			fields = said.setdefault(event, {})
 			fields[field] = fields.get(field, frozenset()) | {side}
 
-	return said
+	if numbered:
+		readable = subroutine.domain.scoping.readable_identifiers(
+			session, principal, workspace_ids=workspace_ids
+		).get("task")
+		task = subroutine.db.models.work.Task
+		reached: set[tuple[uuid.UUID, int]] = (
+			set()
+			if readable is None
+			else {
+				(workspace, ref)
+				for workspace, ref in session.execute(
+					readable.with_only_columns(task.workspace_id, task.ref).where(
+						task.ref.in_({ref for *_rest, ref in numbered})
+					)
+				).all()
+			}
+		)
+
+		for event, field, side, workspace, ref in numbered:
+			if (workspace, ref) not in reached:
+				fields = said.setdefault(event, {})
+				fields[field] = fields.get(field, frozenset()) | {side}
+
+	return said, seen
 
 
 def shown (

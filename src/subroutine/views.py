@@ -4560,11 +4560,21 @@ def journal_entries (
 
 	described = subroutine.domain.events.descriptions(session, rows)
 	bodies = subroutine.domain.journal.said(session, rows)
-	needed = subroutine.domain.journal.readable_only(
+	wanted = subroutine.domain.journal.wanted(rows, described)
+
+	# **One question per kind for what the page names and what its changes may show** (`SR#5290`,
+	# L-6 of the cold review of 2026-11-11): the two were asked separately, of the same rows.
+	unseen, seen = subroutine.domain.events.unseen_ends_and_named(
 		session,
-		subroutine.domain.journal.wanted(rows, described),
-		principal=principal,
-		workspace_ids=workspace_ids,
+		principal,
+		rows,
+		also={
+			lookup: wanted[lookup]
+			for lookup in (subroutine.domain.journal.PROJECT, subroutine.domain.journal.TASK)
+		},
+	)
+	needed = subroutine.domain.journal.readable_only(
+		session, wanted, principal=principal, workspace_ids=workspace_ids, seen=seen
 	)
 
 	vocabulary = Vocabulary(
@@ -4582,7 +4592,6 @@ def journal_entries (
 		project_settings=False,
 	)
 
-	unseen = subroutine.domain.events.unseen_ends(session, principal, rows)
 	zones = subroutine.domain.events.zones_then(session, rows, dated=_DATED)
 
 	return [
