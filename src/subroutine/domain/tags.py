@@ -307,9 +307,11 @@ def on (
 ) -> list[subroutine.db.models.vocabulary.Tag]:
 	"""Return an item's tags, in no order to rely on.
 
-	**Unordered on purpose** (`SR#1059`): both callers hand them to :func:`set_on`, which treats them
-	as a set, and ordering by ``name_normalized`` in SQL gave a different order on each backend for
-	nothing to read. :func:`names_for` is the order anything shows.
+	**Unordered on purpose** (`SR#1059`): ordering by ``name_normalized`` in SQL gave a different
+	order on each backend. Two callers hand them to :func:`set_on`, which treats them as a set, and
+	:func:`names_on`, which compares one state with another, puts them in the order
+	:func:`names_for` shows (`SR#5291`): read in the order a plan gave, an occurrence holding its
+	series' tags read as one that had changed them.
 	"""
 
 	tag = subroutine.db.models.vocabulary.Tag
@@ -429,9 +431,17 @@ def names_for (
 	# field and a compact-line column, so the same task rendered `#ähnlich #apple` on one
 	# deployment and `#apple #ähnlich` on the other, and the transport-equivalence test could
 	# not see it because both of its sides run on one backend (docs/design.md §10.3).
-	return {
-		owner_id: [name for _key, name in sorted(pairs)] for owner_id, pairs in found.items()
-	}
+	return {owner_id: _in_shown_order(pairs) for owner_id, pairs in found.items()}
+
+
+def _in_shown_order (pairs: typing.Iterable[tuple[str, str]]) -> list[str]:
+	"""Return tag names in the one order anything shows them, from ``(normalized, name)`` pairs.
+
+	**One order for showing and for comparing** (`SR#5291`): :func:`names_for` renders it and
+	:func:`names_on` compares by it, so the two cannot drift apart.
+	"""
+
+	return [name for _normalized, name in sorted(pairs)]
 
 
 def set_on (
@@ -483,7 +493,7 @@ def names_on (
 	than a set of join rows nobody can diff.
 	"""
 
-	return [tag.name for tag in on(session, item)]
+	return _in_shown_order((tag.name_normalized, tag.name) for tag in on(session, item))
 
 
 #: Which join table and which of its columns names the item, for each kind that can be tagged.
