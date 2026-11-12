@@ -361,6 +361,11 @@ upgrade involves.
   they are, ask the terminal's program for its own, and say which to upgrade first - or, with
   only `uv` installed, the `uvx` command. Under `--profile`, the remedy names the profile, where
   it upgraded the default instance or found nothing to do.
+- **On a machine with only `uv` installed, the plugin's tools say a command that creates an
+  instance.** They looked for a `subroutine` command and found their own copy, which `uvx` puts
+  first on the path, so they said to run `subroutine init`, which a terminal there does not have.
+  They now leave their own copy out and give the `uvx` command, pinned to this release series -
+  its pin admitted the next one, which could create an instance newer than the plugin reads.
 - **`init` and the `db` commands with no driver for their PostgreSQL database say which to
   install**, as every other command does. `init` answered with a crash report, and `db
   upgrade`, `db current`, `db backup`, `db archive` and `db restore` said to check a database

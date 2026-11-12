@@ -8466,7 +8466,7 @@ def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 	`command not found`.
 	"""
 
-	monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/subroutine")
+	monkeypatch.setattr(shutil, "which", lambda name, **_: "/usr/bin/subroutine")
 
 	answered = _relayed(
 		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
@@ -8544,9 +8544,9 @@ def test_a_machine_reached_only_through_uvx_is_told_a_command_it_can_actually_ru
 ) -> None:
 	"""`SR#734`. The audience `SR#585` created, meeting its first wall.
 
-	The plugin launches `uvx subroutine~=X.Y mcp`, and `uvx` runs from a cache and puts nothing
-	on `PATH` — so somebody who followed the plugin's own promise and installed only `uv` was
-	told to run `subroutine init`, which answers `command not found`.
+	The plugin launches `uvx subroutine~=X.Y.0 mcp`, on a machine that may have no `subroutine`
+	command at all - so somebody who followed the plugin's own promise and installed only `uv`
+	was told to run `subroutine init`, which answers `command not found`.
 
 	**The version is pinned in the advice for a reason.** Plain `uvx subroutine init` fetches
 	the newest release, which can create an instance whose schema is ahead of the program that
@@ -8554,7 +8554,7 @@ def test_a_machine_reached_only_through_uvx_is_told_a_command_it_can_actually_ru
 	running program because the relay *is* what the plugin's pin launched.
 	"""
 
-	monkeypatch.setattr(shutil, "which", lambda name: None)
+	monkeypatch.setattr(shutil, "which", lambda name, **_: None)
 
 	answered = _relayed(
 		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
@@ -8566,17 +8566,24 @@ def test_a_machine_reached_only_through_uvx_is_told_a_command_it_can_actually_ru
 	series = ".".join(subroutine.__version__.split(".")[:2])
 
 	assert "uvx" in said, f"the remedy names a command this machine does not have: {said}"
-	assert f"subroutine~={series} init" in said, (
+	assert f"subroutine~={series}.0 init" in said, (
 		f"the remedy is unpinned, so it can create an instance ahead of this program: {said}"
 	)
 
 
-def _behind (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, said: str | None) -> list[dict[str, typing.Any]]:
+def _behind (
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	said: str | None,
+	*,
+	ahead: pathlib.Path | None = None,
+) -> list[dict[str, typing.Any]]:
 	"""Relay one message to a local instance whose database 0.10.0 left, and return the answer.
 
 	``said`` is what the terminal's ``subroutine --version`` prints, or ``None`` for a machine with
 	no such command. The instance's refusal is the one this build gives, read from the function
-	that writes it; the relay's handling of it is what is driven.
+	that writes it; the relay's handling of it is what is driven. ``ahead`` is a directory put
+	first on ``PATH``, before the terminal's, as ``uvx`` puts the environment it made.
 	"""
 
 	expected = subroutine.db.migrate.head_revision()
@@ -8603,7 +8610,7 @@ def _behind (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, said: str 
 	database.touch()
 
 	if said is None:
-		monkeypatch.setattr(shutil, "which", lambda name: None)
+		monkeypatch.setattr(shutil, "which", lambda name, **_: None)
 
 	else:
 		# **A real program on the path**, so the asking and the reading are driven, not assumed.
@@ -8612,7 +8619,8 @@ def _behind (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, said: str 
 		program = directory / "subroutine"
 		program.write_text(f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(said)}\n", encoding="utf-8")
 		program.chmod(0o755)
-		monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ.get('PATH', '')}")
+		first = f"{ahead}{os.pathsep}" if ahead is not None else ""
+		monkeypatch.setenv("PATH", f"{first}{directory}{os.pathsep}{os.environ.get('PATH', '')}")
 
 	return _relayed(
 		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
@@ -8640,6 +8648,122 @@ def test_a_plugin_ahead_of_the_terminal_says_to_upgrade_the_terminals_program_fi
 	assert "terminal is 0.10.0" in said, said
 	assert f"Upgrade it to {subroutine.__version__}" in said, said
 	assert said.index("Upgrade it") < said.index("then run 'subroutine db upgrade'"), said
+
+
+def _the_plugins_own (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
+	"""Make the directory ``uvx`` would put first, holding a program on this build, and return it.
+
+	It stands for this interpreter's own scripts directory, which is what the relay leaves out.
+	"""
+
+	own = tmp_path / "uvx-environment" / "bin"
+	own.mkdir(parents=True)
+	program = own / "subroutine"
+	head = subroutine.db.migrate.head_revision()
+	program.write_text(
+		f"#!/bin/sh\nprintf '%s\\n' 'subroutine {subroutine.__version__}' 'schema {head}'\n",
+		encoding="utf-8",
+	)
+	program.chmod(0o755)
+	monkeypatch.setattr(subroutine.mcp.relay, "_own_scripts", lambda: str(own))
+
+	return own
+
+
+def test_under_uvx_the_plugins_own_program_is_not_taken_for_the_terminals (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""H-2 of the cold review of 2026-11-11: ``uvx`` puts its own environment first on ``PATH``.
+
+	That directory holds the plugin's own ``subroutine``, which answers with this build's schema,
+	so the remedy was the plain one, which the terminal's older program answers with *Nothing to
+	do*. uv says it started the process with ``UV``, and the relay then asks the terminal's.
+	"""
+
+	own = _the_plugins_own(tmp_path, monkeypatch)
+	monkeypatch.setenv("UV", "/usr/bin/uv")
+
+	answered = _behind(tmp_path, monkeypatch, "subroutine 0.10.0\nschema 6c708db1582c", ahead=own)
+	said = answered[0]["error"]["message"]
+
+	assert "terminal is 0.10.0" in said, said
+	assert f"Upgrade it to {subroutine.__version__}" in said, said
+
+
+def test_started_by_anything_but_uv_the_relays_own_program_is_the_terminals (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The control: with no ``UV``, the first ``subroutine`` on ``PATH`` is the one asked.
+
+	Started from a terminal's own installation, the relay's program is that terminal's, so leaving
+	its directory out would ask the wrong program the other way round.
+	"""
+
+	own = _the_plugins_own(tmp_path, monkeypatch)
+	monkeypatch.delenv("UV", raising=False)
+
+	answered = _behind(tmp_path, monkeypatch, "subroutine 0.10.0\nschema 6c708db1582c", ahead=own)
+	said = answered[0]["error"]["message"]
+
+	assert "terminal is 0.10.0" not in said, said
+
+
+def test_under_uvx_with_no_terminal_program_the_remedy_is_the_pinned_uvx_one (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""H-2, widened: a machine whose only ``subroutine`` is the plugin's was told ``subroutine init``.
+
+	That answers ``command not found``, the wall `SR#734` was filed for.
+	"""
+
+	own = _the_plugins_own(tmp_path, monkeypatch)
+	monkeypatch.setenv("UV", "/usr/bin/uv")
+	monkeypatch.setenv("PATH", f"{own}{os.pathsep}/usr/bin{os.pathsep}/bin")
+
+	said = subroutine.mcp.relay._how_to_make_one()
+
+	assert f"Run 'uvx {subroutine.mcp.relay._pinned()} init'" in said, said
+
+
+def test_the_relays_pin_is_the_one_the_release_writes_into_every_manifest () -> None:
+	"""L-6 of the cold review of 2026-11-11: one remedy pinned ``~=X.Y``, which admits the next minor.
+
+	``scripts/`` is not in the wheel, so the relay derives the pin, and this holds it to the
+	release script's own form.
+	"""
+
+	script = (pathlib.Path(__file__).resolve().parent.parent / "scripts" / "release.py").read_text(
+		encoding="utf-8"
+	)
+	found = re.search(r'^PIN = "(.+)"$', script, re.MULTILINE)
+
+	assert found is not None, "scripts/release.py no longer says PIN = \"...\""
+
+	major, minor = subroutine.__version__.split(".")[:2]
+
+	assert subroutine.mcp.relay._pinned() == found.group(1).format(major=major, minor=minor)
+
+
+def test_a_terminal_program_upgraded_while_the_relay_runs_is_asked_again (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""L-6 of the cold review of 2026-11-11: the answer was kept on the path alone, for the process.
+
+	An upgrade writes the file again, which is what the remedy asks the reader to do, so the
+	remedy went on naming the old version until the editor restarted.
+	"""
+
+	program = tmp_path / "subroutine"
+	program.write_text("#!/bin/sh\necho 'subroutine 0.10.0'\n", encoding="utf-8")
+	program.chmod(0o755)
+
+	assert subroutine.mcp.relay._program_at(str(program)) == ("0.10.0", None)
+
+	program.write_text("#!/bin/sh\necho 'subroutine 0.10.1'\n", encoding="utf-8")
+	later = program.stat().st_mtime_ns + 1_000_000_000
+	os.utime(program, ns=(later, later))
+
+	assert subroutine.mcp.relay._program_at(str(program)) == ("0.10.1", None)
 
 
 def test_a_terminal_on_the_same_build_is_given_the_plain_remedy (

@@ -38,6 +38,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sysconfig
 import typing
 
 import httpx
@@ -786,34 +787,83 @@ def _how_to_make_one () -> str:
 	**The same sentence is right one file away and wrong here, and the difference is who is
 	reading.** ``clients/local.py`` says *"run 'subroutine init'"* to somebody who is running
 	the CLI, so they demonstrably have it. This fires for an agent whose plugin launched
-	``uvx subroutine~=X.Y mcp``, and ``uvx`` runs from a cache and puts nothing on ``PATH`` —
-	so the same advice answers ``command not found`` for exactly the audience `#585` created by
+	``uvx subroutine~=X.Y.0 mcp`` on a machine that may have no ``subroutine`` command at all, so
+	the same advice answers ``command not found`` for exactly the audience `#585` created by
 	making the plugin work on arrival.
 
-	**Measured rather than assumed.** Whether the command exists is a fact about this machine
-	and :func:`shutil.which` is how you ask; guessing from *how the relay was started* would be
-	the same mistake one level along, since somebody may have both. A machine that has the
-	command gets the short answer it has always had.
+	**Measured rather than assumed**, by :func:`_terminal_program`. Whether a terminal here has
+	the command is a fact about this machine, and ``PATH`` is where to look - but ``uvx`` puts
+	the environment it made first on this process's ``PATH``, and that environment holds this
+	program's own copy, so a plain :func:`shutil.which` under the plugin always found one (H-2 of
+	the cold review of 2026-11-11). How the relay was started decides only which directory is
+	left out of the search; the answer is still measured, so a machine that has the command gets
+	the short answer it has always had.
 
 	**Version-matched, and that is not fussiness.** Plain ``uvx subroutine init`` fetches the
 	newest release, which can create an instance whose schema is ahead of the program that will
 	read it — `#250`'s skew, manufactured by our own advice. The pin is derived from the running
-	program because the relay *is* what the plugin's pin launched, so it can report itself
+	program, in ``release.PIN``'s form (:func:`_pinned`), because the relay *is* what the
+	plugin's pin launched, so it can report itself
 	instead of guessing; a second copy of ``~=0.6.0`` here would be one more thing to move at
 	release, which is why ``scripts/release.py`` reads the pin out of the manifests rather than
 	naming it.
 	"""
 
-	if shutil.which("subroutine") is not None:
-		return "Run 'subroutine init' in a terminal to create one. It takes no arguments."
+	if _terminal_program() is not None:
+		return (
+			f"Run '{subroutine.db.migrate.command('init')}' in a terminal to create one. It takes "
+			"no arguments."
+		)
 
-	series = ".".join(subroutine.__version__.split(".")[:2])
+	pinned = subroutine.db.migrate.command("init", program=_pinned())
 
 	return (
-		f"Run 'uvx subroutine~={series} init' in a terminal to create one. That needs only "
-		"'uv' installed, which is what launched this. To have 'subroutine' as a command as "
-		"well, 'uv tool install subroutine' first."
+		f"Run 'uvx {pinned}' in a terminal to create one. That needs only 'uv' installed, which "
+		"is what launched this. To have 'subroutine' as a command as well, 'uv tool install "
+		"subroutine' first."
 	)
+
+
+def _pinned () -> str:
+	"""Return the requirement for this program's own series, in the plugin's pin's form.
+
+	``~=X.Y.0``, as ``scripts/release.py``'s ``PIN`` writes into every manifest, and never
+	``~=X.Y``: by PEP 440 that admits the next minor, which can carry a schema this program
+	cannot read (`#250`). Derived from the running version, because ``scripts/`` is not in the
+	wheel; a test holds the two forms to one.
+	"""
+
+	major, minor = subroutine.__version__.split(".")[:2]
+
+	return f"subroutine~={major}.{minor}.0"
+
+
+def _own_scripts () -> str:
+	"""Return the directory this interpreter's own programs are installed into."""
+
+	return sysconfig.get_path("scripts")
+
+
+def _terminal_program () -> str | None:
+	"""Return the ``subroutine`` a terminal here would run, never this process's own copy.
+
+	**``uvx`` puts the environment it made first on its child's ``PATH``**, and that environment
+	holds the plugin's own program, which answers with this build's version and schema - so a
+	plain lookup under the plugin found it, and told an agent to run what its older terminal
+	program answers with *Nothing to do* (H-2 of the cold review of 2026-11-11). That directory is
+	this interpreter's own scripts directory and is on no terminal's ``PATH``, so it is left out
+	**when uv started this process**, which uv says with ``UV`` in the environment it hands down.
+	Started any other way - from the terminal's own installation - this program is the terminal's,
+	and is found. Under a uv that sets no ``UV``, the lookup is what it always was.
+	"""
+
+	searched = os.environ.get("PATH", os.defpath).split(os.pathsep)
+
+	if "UV" in os.environ:
+		own = os.path.realpath(_own_scripts())
+		searched = [directory for directory in searched if os.path.realpath(directory) != own]
+
+	return shutil.which("subroutine", path=os.pathsep.join(searched))
 
 
 #: How long the plugin's server waits for the terminal's program to say its version (`#5059`).
@@ -838,11 +888,10 @@ def _how_to_upgrade_it () -> str:
 
 	this = subroutine.__version__
 	words = ("db", "upgrade")
-	found = shutil.which("subroutine")
+	found = _terminal_program()
 
 	if found is None:
-		series = ".".join(this.split(".")[:2])
-		pinned = subroutine.db.migrate.command(*words, program=f"subroutine~={series}.0")
+		pinned = subroutine.db.migrate.command(*words, program=_pinned())
 
 		return (
 			f"Run 'uvx {pinned}' in a terminal - it backs up first, then migrates. That needs only "
@@ -874,14 +923,34 @@ def _how_to_upgrade_it () -> str:
 	)
 
 
-@functools.cache
 def _program_at (path: str) -> tuple[str, str | None] | None:
 	"""Return the version of the program at ``path`` and the schema it expects, as it says them.
 
-	``None`` where it could not be run or said nothing this can read. **Once per process**: every
-	message of a session is refused in the same way, and each answer costs a program's start.
-	**Its standard input is not this one's**: this process speaks the protocol on it, and a child
-	reading it would take the client's next message.
+	``None`` where it could not be run or said nothing this can read. **Once for each version of
+	the file**: every message of a session is refused in the same way, and each answer costs a
+	program's start, so the answer is kept - but keyed on the file as well as its path, because
+	upgrading the terminal's program, which pip, uv and pipx all do by writing the file again,
+	while the plugin runs is exactly what the remedy asks the reader to do (L-6 of the cold review
+	of 2026-11-11). Kept on the path alone, the remedy went on naming the old version until the
+	editor restarted.
+	"""
+
+	try:
+		found = os.stat(path)
+
+	except OSError:
+		return None
+
+	return _asked(path, found.st_ino, found.st_mtime_ns)
+
+
+@functools.cache
+def _asked (path: str, inode: int, modified: int) -> tuple[str, str | None] | None:
+	"""Run the program at ``path`` once for each version of the file there, and read what it says.
+
+	``inode`` and ``modified`` are only the cache's key. **Its standard input is not this one's**:
+	this process speaks the protocol on it, and a child reading it would take the client's next
+	message.
 	"""
 
 	try:
