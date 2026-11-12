@@ -33,6 +33,7 @@ import subroutine.db.session
 import subroutine.domain.bootstrap
 import subroutine.domain.events
 import subroutine.domain.projects
+import subroutine.domain.repair
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -525,3 +526,185 @@ def test_an_unshare_beside_a_removal_cannot_leave_a_private_project_with_nobody 
 		subroutine.errors.ValidationError, match="would leave no person able to reach"
 	):
 		_two_at_once(committed.factory, removing, unsharing)
+
+
+def _who_sees (committed: Committed, project: uuid.UUID) -> set[uuid.UUID]:
+	"""Return who could repair a project now, read in a session of its own."""
+
+	with committed.factory() as reading:
+		return subroutine.domain.repair.repairers(reading, reading.get_one(Project, project))
+
+
+def _making_private (project: uuid.UUID) -> Step:
+	"""Return a step that makes a project private."""
+
+	return lambda session: subroutine.domain.projects.update(
+		session, session.get_one(Project, project), visibility="private"
+	)
+
+
+def _a_team (committed: Committed) -> tuple[typing.Any, typing.Any, typing.Any, typing.Any]:
+	"""Make a workspace with trinity and neo as members, in a session the caller commits."""
+
+	setup = committed.factory()
+	founder = subroutine.domain.users.create(setup, username=_named("founder"))
+	trinity = subroutine.domain.users.create(setup, username=_named("trinity"))
+	neo = subroutine.domain.users.create(setup, username=_named("neo"))
+	workspace = subroutine.domain.workspaces.create(
+		setup, slug=_named("team"), title="Team", owner=founder
+	)
+
+	for who in (trinity, neo):
+		subroutine.domain.workspaces.add_member(setup, workspace, who, role_key="member")
+
+	committed.users += [founder.id, trinity.id, neo.id]
+	committed.workspaces.append(workspace.id)
+
+	return setup, workspace, trinity, neo
+
+
+def test_an_owner_taken_out_beside_their_project_made_private_cannot_leave_it_with_nobody (
+	committed: Committed,
+) -> None:
+	"""LK2 of M-17 in the cold review of 2026-11-11: with the lock in ``_refuse_stranding`` gone,
+	nothing here failed, since no race made a project private. Its owner taken out of the
+	workspace first, and the project made private second, left it seen by nobody on both
+	backends."""
+
+	setup, workspace, trinity, _neo = _a_team(committed)
+
+	with setup:
+		project = subroutine.domain.projects.create(
+			setup, workspace_id=workspace.id, key="zion", title="Zion", owner_id=trinity.id
+		)
+		setup.commit()
+
+	def removing (session: sqlalchemy.orm.Session) -> None:
+		"""Take trinity, who owns the project, out of the workspace."""
+
+		subroutine.domain.workspaces.remove_member(
+			session, session.get_one(Workspace, workspace.id), session.get_one(User, trinity.id)
+		)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		_two_at_once(committed.factory, removing, _making_private(project.id))
+
+	with committed.factory() as reading:
+		assert reading.get_one(Project, project.id).visibility == "public"
+
+
+def test_an_unshare_beside_its_parent_made_private_cannot_leave_a_project_inside_with_nobody (
+	committed: Committed,
+) -> None:
+	"""M-5: the unshare counted the parent as it read it before the lock, public, so it never
+	counted the private project inside, and neo, the only one who could see that, lost it."""
+
+	setup, workspace, trinity, neo = _a_team(committed)
+
+	with setup:
+		outer = subroutine.domain.projects.create(
+			setup, workspace_id=workspace.id, key="outer", title="Outer", owner_id=trinity.id
+		)
+		inner = subroutine.domain.projects.create(
+			setup,
+			workspace_id=workspace.id,
+			key="inner",
+			title="Inner",
+			parent=outer,
+			visibility="private",
+			owner_id=neo.id,
+		)
+		subroutine.domain.projects._ensure_member(setup, outer, neo.id, actor=None)
+		setup.commit()
+
+	def unsharing (session: sqlalchemy.orm.Session) -> None:
+		"""Take neo's sight of the parent away."""
+
+		subroutine.domain.projects.unshare(
+			session, session.get_one(Project, outer.id), session.get_one(User, neo.id)
+		)
+
+	with pytest.raises(subroutine.errors.ValidationError, match="the only person who can see"):
+		_two_at_once(committed.factory, _making_private(outer.id), unsharing)
+
+	assert neo.id in _who_sees(committed, inner.id)
+
+
+def test_a_move_under_a_project_made_private_at_once_cannot_leave_it_with_nobody (
+	committed: Committed,
+) -> None:
+	"""M-5: whether the move counted at all was decided from reads taken before the lock, so
+	neo's private project moved under one being made private was left seen by nobody."""
+
+	setup, workspace, trinity, neo = _a_team(committed)
+
+	with setup:
+		destination = subroutine.domain.projects.create(
+			setup, workspace_id=workspace.id, key="dest", title="Dest", owner_id=trinity.id
+		)
+		child = subroutine.domain.projects.create(
+			setup,
+			workspace_id=workspace.id,
+			key="child",
+			title="Child",
+			visibility="private",
+			owner_id=neo.id,
+		)
+		setup.commit()
+
+	def moving (session: sqlalchemy.orm.Session) -> None:
+		"""Move neo's project under the destination."""
+
+		subroutine.domain.projects.move(
+			session,
+			session.get_one(Project, child.id),
+			parent=session.get_one(Project, destination.id),
+		)
+
+	with pytest.raises(subroutine.errors.ValidationError, match="would leave no person able"):
+		_two_at_once(committed.factory, _making_private(destination.id), moving)
+
+	with committed.factory() as reading:
+		assert reading.get_one(Project, child.id).parent_id is None
+
+	assert neo.id in _who_sees(committed, child.id)
+
+
+def test_a_private_project_made_inside_a_parent_made_private_at_once_is_refused (
+	committed: Committed,
+) -> None:
+	"""M-5: the create took no lock and asked who could see the parent before it changed, so
+	neo's private project inside it was left seen by nobody."""
+
+	setup, workspace, trinity, neo = _a_team(committed)
+
+	with setup:
+		parent = subroutine.domain.projects.create(
+			setup, workspace_id=workspace.id, key="parent", title="Parent", owner_id=trinity.id
+		)
+		setup.commit()
+
+	def creating (session: sqlalchemy.orm.Session) -> None:
+		"""Make a private project of neo's inside the parent."""
+
+		subroutine.domain.projects.create(
+			session,
+			workspace_id=workspace.id,
+			key="secret",
+			title="Secret",
+			parent=session.get_one(Project, parent.id),
+			visibility="private",
+			owner_id=neo.id,
+		)
+
+	with pytest.raises(subroutine.errors.ValidationError, match="cannot see parent"):
+		_two_at_once(committed.factory, _making_private(parent.id), creating)
+
+	with committed.factory() as reading:
+		made = reading.scalars(
+			sqlalchemy.select(Project).where(
+				Project.workspace_id == workspace.id, Project.key == "secret"
+			)
+		).all()
+
+	assert made == []

@@ -140,6 +140,12 @@ def create (
 	# and it is what lets a listing render this with a worst case somebody chose.
 	description = subroutine.domain.text.summary(description)
 
+	# **Locked first under a parent** (`SR#5293`, M-5 of the cold review of 2026-11-11): a private
+	# project made inside a parent while the parent was made private asked who could see the parent
+	# before it changed, and was left seen by nobody.
+	if parent is not None:
+		subroutine.domain.repair.lock_for_counting(session, workspace_id)
+
 	# **Asked of the place it lands on, and only that** (`#4558`, decision `#4527`): the project it
 	# goes into (`#4013`, M-10 of the cold review of 2026-09-30), where asking the workspace alone let
 	# a credential writing only in ``web`` make ``ops/sub``, and asking the workspace as well refused
@@ -390,6 +396,11 @@ def move (
 	one; among siblings it can, and two projects sharing a parent and a key would be two
 	rows at one address — the state the whole change exists to make impossible.
 	"""
+
+	# **Locked first** (`SR#5293`, M-5 of the cold review of 2026-11-11): whether a move counts who
+	# can see the project is decided from where it leaves and where it goes, and both were read
+	# before the lock, so one moved under a project being made private was left seen by nobody.
+	subroutine.domain.repair.lock_for_counting(session, project.workspace_id)
 
 	subroutine.domain.authorization.authorize_on(
 		session, actor, subroutine.permissions.PROJECT_WRITE, project

@@ -131,7 +131,16 @@ def lock_for_counting (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID)
 	Two acts each counting the other's person as staying both went through, leaving the state the
 	count exists to prevent; locked first, the second waits for the first and counts what it left.
 	Every act that takes somebody out of a scope here takes it: removing or demoting a member,
-	unsharing a project (`SR#5113`), and making a project private or moving one (`SR#5101`).
+	unsharing a project (`SR#5113`), making a project private or moving one (`SR#5101`), and making
+	one under a parent (`SR#5293`). **A move and a create take it first**, before anything about
+	who sees what is read, since whether they count at all is decided from that.
+
+	**And what was read before it is read again** (`SR#5293`, M-5 of the cold review of
+	2026-11-11): a project already in the session may predate the change the lock waited for, so
+	an unshare beside making its parent private counted the parent as public and left a private
+	project inside it seen by nobody. Who each one hides from is read again, and nothing else: its
+	version stays as it was read, so a lost update is still refused, and the lock's own statement
+	has flushed whatever was pending.
 
 	**By a write that changes nothing** (`#3899`), which takes SQLite's one writer's lock where a
 	read takes none, and on PostgreSQL the lock ``FOR NO KEY UPDATE`` takes: ``FOR UPDATE`` waited on
@@ -146,6 +155,15 @@ def lock_for_counting (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID)
 		.values(updated_at=place.updated_at)
 		.execution_options(synchronize_session=False)
 	)
+
+	held = [
+		row
+		for row in session.identity_map.values()
+		if isinstance(row, subroutine.db.models.project.Project)
+	]
+
+	for row in held:
+		session.refresh(row, ["visibility", "path", "parent_id", "deleted_at"])
 
 
 def repairers (
