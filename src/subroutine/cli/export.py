@@ -46,6 +46,7 @@ NOUNS: dict[str, tuple[str, str]] = {
 	"link_types": ("kind of link", "kinds of link"),
 	"saved_views": ("saved view", "saved views"),
 	"users": ("account", "accounts"),
+	"users_beyond_reach": ("account out of your reach", "accounts out of your reach"),
 	"workspace": ("workspace", "workspaces"),
 	"members": ("member", "members"),
 	"project_members": ("project membership", "project memberships"),
