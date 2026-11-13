@@ -376,14 +376,23 @@ def handle_unexpected_error (
 	request's id, which is the only thing the response and the log entry have in common.
 	Saying more would be handing an attacker a description of the internals; saying less
 	would leave nobody able to look it up.
+
+	**The path is redacted, and that is reached late** (`SR#5294`): :mod:`subroutine.api.logs`
+	imports the application, whose routers import this module, so imported at the top it closed a
+	cycle that a process importing :mod:`subroutine.api.policy` first could not get out of.
 	"""
+
+	from subroutine.api import logs as redacting
 
 	identifier = subroutine.api.middleware.request_id(request)
 
 	_logger.exception(
 		"Unhandled error serving %s %s (request %s)",
 		request.method,
-		request.url.path,
+		# **Redacted as the access log is** (`SR#5294`, M-6 of the cold review of 2026-11-11): a
+		# calendar feed's secret is a path segment, and this logger has no filter on it, so every
+		# poll of every feed wrote it whole for as long as serving one failed.
+		redacting.redacted(request.url.path),
 		identifier,
 		exc_info=exception,
 	)

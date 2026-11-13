@@ -138,6 +138,11 @@ def secret_path_prefixes () -> tuple[re.Pattern[str], ...]:
 	redacted, so a feed's secret was written whole with no ``.ics``, with a trailing slash, in
 	capitals and with a segment after it. What follows ``/v1/calendars/<prefix>/`` is the capture,
 	whatever it is, and :func:`_without_a_secret_segment` leaves it where it is another route.
+
+	**And the fixed part as a person or a proxy might spell it** (`SR#5294`, M-6 of the cold review
+	of 2026-11-11): in capitals, with a slash doubled or with a ``.`` segment, none of which the
+	router serves and every one of which carried the secret into the log. Still a match against the
+	routes (decision `#5097`), only spelled loosely; the routes it is checked against are not.
 	"""
 
 	prefixes = []
@@ -146,7 +151,8 @@ def secret_path_prefixes () -> tuple[re.Pattern[str], ...]:
 		first = min(
 			path.index(f"{{{name}}}") for name in SECRET_PATH_PARAMETERS if f"{{{name}}}" in path
 		)
-		prefixes.append(re.compile(f"^{_spelled(path[:first], secret='')}(.+)$"))
+		spelled = _spelled(path[:first], secret="", loosely=True)
+		prefixes.append(re.compile(f"^{spelled}(.+)$", re.IGNORECASE))
 
 	return tuple(prefixes)
 
@@ -174,16 +180,17 @@ def _carrying_a_secret () -> list[str]:
 	]
 
 
-def _spelled (template: str, *, secret: str) -> str:
+def _spelled (template: str, *, secret: str, loosely: bool = False) -> str:
 	"""Return a route's path as a pattern: each parameter one segment, a secret ``secret``, and
 	everything between escaped, so a literal ``.ics`` cannot match a character the route did not
-	put there."""
+	put there. ``loosely`` lets each slash be several, with ``./`` among them."""
 
 	built = ""
 
 	for piece in re.split(r"(\{[^{}]+\})", template):
 		if not piece.startswith("{") or not piece.endswith("}"):
-			built += re.escape(piece)
+			literal = re.escape(piece)
+			built += literal.replace("/", r"/(?:\.?/)*") if loosely else literal
 
 		elif piece[1:-1] in SECRET_PATH_PARAMETERS:
 			built += secret

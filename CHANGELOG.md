@@ -166,11 +166,14 @@ upgrade involves.
   case as typed, so `" Matrix "` was asked about with its spaces, though `matrix` is what is
   stored.
 
-- **A calendar feed's secret stays out of the access log however its address is written.** Only
-  the feed's own address had its secret redacted, so one asked for without `.ics`, with a slash
-  after it, in capitals or with more after it was written to the log whole. Everything after
-  `/v1/calendars/<prefix>/` is redacted now, unless it is another address this instance answers,
-  as `reset` is.
+- **A calendar feed's secret stays out of the logs however its address is written.** Only the
+  feed's own address had its secret redacted, so one asked for without `.ics`, with a slash after
+  it, in capitals or with more after it was written to the access log whole, and so was one whose
+  `/v1/calendars/` was written in capitals, with a doubled slash or with a `./` in it. Everything
+  after `/v1/calendars/<prefix>/` is redacted now, unless it is another address this instance
+  answers, as `reset` is. And when serving a feed failed unexpectedly, the application log
+  recorded its whole address on every poll for as long as the failure lasted; it is redacted
+  there too.
 
 - **OSC is not sent to the IPv6 addresses where a cloud server answers questions about itself.**
   Only `169.254.0.0/16` was refused, so OpenStack's `fe80::a9fe:a9fe`, AWS's `fd00:ec2::254` and

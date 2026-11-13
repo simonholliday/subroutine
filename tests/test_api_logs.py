@@ -8,8 +8,10 @@ what makes a version bump fail the build.
 """
 
 import logging
+import urllib.parse
 
 import pytest
+import sqlalchemy.orm
 import uvicorn.logging
 
 import subroutine.api.app
@@ -17,6 +19,10 @@ import subroutine.api.logs
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.sessions
+import subroutine.domain.authentication
+import subroutine.domain.calendars
+import subroutine.domain.icalendar
+import test_api_tasks
 
 #: A secret shaped like the ones that actually arrive here. Not a real credential, and long
 #: enough that a partial redaction would leave something recognisable behind.
@@ -343,3 +349,67 @@ def test_it_is_installed_on_the_logger_the_server_uses () -> None:
 		)
 	finally:
 		logger.filters[:] = had
+
+
+@pytest.mark.parametrize(
+	"before",
+	[
+		"/V1/calendars/",
+		"/v1/Calendars/",
+		"//v1/calendars/",
+		"/v1//calendars/",
+		"/v1/calendars//",
+		"/v1/./calendars/",
+	],
+	ids=["capital v", "capital c", "a slash first", "a slash doubled", "a slash after", "a dot"],
+)
+def test_a_feed_s_address_spelled_another_way_does_not_put_its_secret_in_the_log (
+	before: str,
+) -> None:
+	"""`SR#5294`, M-6 of the cold review of 2026-11-11: the fixed part was matched only as the
+	router spells it, so a proxy's or a person's other spelling wrote the secret whole."""
+
+	secret = "JJFjVTs4jjak_qGOXkucTeZdt3OSwTQkLKQ22GAl9bc"
+	line = _logged(before + "145ed614/" + secret + ".ics")
+
+	assert secret not in line, f"a feed credential was written to the access log:\n{line}"
+	assert subroutine.api.logs.REDACTED in line and "145ed614" in line, line
+
+
+def _fails (*_given: object, **_named: object) -> str:
+	"""Fail as a bug would."""
+
+	raise RuntimeError("an unexpected failure")
+
+
+def test_a_feed_that_fails_unexpectedly_keeps_its_secret_out_of_the_application_log (
+	session: sqlalchemy.orm.Session,
+	monkeypatch: pytest.MonkeyPatch,
+	caplog: pytest.LogCaptureFixture,
+) -> None:
+	"""`SR#5294`, M-6: the handler for an unexpected failure logged the request's path whole, and
+	only the access log is filtered, so every poll of a failing feed wrote its secret down."""
+
+	world = test_api_tasks._world(session, instance={"calendars_enabled": True})
+	_row, minted = subroutine.domain.calendars.create(
+		session,
+		subroutine.domain.authentication.Principal(user=world.user),
+		workspace_id=world.workspace.id,
+		title="Mine",
+	)
+	session.flush()
+	address = subroutine.domain.calendars.address("https://example.test", minted)
+	path = str(urllib.parse.urlsplit(address).path)
+	secret = path.rsplit("/", 1)[1].removesuffix(".ics")
+
+	assert world.call("GET", path).status_code == 200, "the feed works before it is broken"
+
+	monkeypatch.setattr(subroutine.domain.icalendar, "render", _fails)
+
+	with caplog.at_level(logging.WARNING):
+		answered = world.call("GET", path)
+
+	assert answered.status_code == 500, answered.text
+	assert "Unhandled error serving GET" in caplog.text, caplog.text
+	assert secret not in caplog.text, f"the feed's secret is in the application log:\n{caplog.text}"
+	assert subroutine.api.logs.REDACTED in caplog.text, caplog.text
