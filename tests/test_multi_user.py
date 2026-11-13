@@ -1919,3 +1919,63 @@ def test_agent_create_refuses_the_colleague_profile_and_issues_nothing (
 	run("token", "create", "--username", "oli", "--profile", "colleague", "--workspace", "acme")
 
 	assert "in acme only" in run("token", "list").output
+
+
+def test_handing_an_agent_over_names_a_project_beneath_its_share (
+	run: typing.Callable[..., typer.testing.Result], piped: None
+) -> None:
+	"""`SR#5296`, M-8 of the cold review of 2026-11-11: ``bot`` alone is shared into private
+	``lab``, and the operator, whom it answers to, alone into ``bench`` inside it. Handed to hugo,
+	a member, ``lab`` stays seen and ``bench`` is seen by nobody - and ``user transfer`` named it
+	neither before nor after.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "hugo", "--name", "Hugo", "--workspace", "acme")
+	run("agent", "create", "bot", "--workspace", "acme")
+
+	engine = subroutine.db.session.create_engine(subroutine.config.load_settings().database_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			operator = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.User).where(
+					subroutine.db.models.identity.User.is_superuser.is_(True)
+				)
+			).one()
+			acme = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Workspace).where(
+					subroutine.db.models.identity.Workspace.slug == "acme"
+				)
+			).one()
+			lab = subroutine.domain.projects.create(
+				session,
+				workspace_id=acme.id,
+				key="lab",
+				title="Lab",
+				visibility="private",
+				owner_id=subroutine.domain.users.by_username(session, "bot").id,
+			)
+			subroutine.domain.projects.create(
+				session,
+				workspace_id=acme.id,
+				key="bench",
+				title="Bench",
+				parent=lab,
+				visibility="private",
+				owner_id=operator.id,
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	declined = run("user", "transfer", "bot", "--to", "hugo", input="n\n").output
+
+	assert "Nobody will be able to see 1 private project(s):" in declined, declined
+	assert "bench" in declined and "Left as it was." in declined, declined
+
+	made = run("user", "transfer", "bot", "--to", "hugo", "--yes").output
+
+	assert "hugo now answers for bot" in made, made
+	assert "bench can be seen by nobody" in made, made

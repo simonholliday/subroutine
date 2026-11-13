@@ -1531,18 +1531,45 @@ def unreachable (
 			) or leaving.id in subroutine.domain.repair.repairers(session, row)
 
 		# **Only what the transfer changes** (`SR#5101`): a project somebody could see now, through a
-		# share the agent or one beneath it holds. One nobody could see already is listed as it is.
+		# share the agent or one beneath it holds, on it or above it (:func:`touched`). One nobody
+		# could see already is listed as it is.
 		if transferring is not None:
-			return subroutine.domain.repair.takes_part(session, row, moving) and bool(
-				subroutine.domain.repair.repairers(session, row)
-			)
+			return bool(subroutine.domain.repair.repairers(session, row))
 
 		return True
+
+	# **A share above it counts** (`SR#5296`, M-8 of the cold review of 2026-11-11): sight follows
+	# an agent's chain upward, so its person saw a private project inside one only the agent was
+	# shared into, and handing the agent over took that away. Only a row on the project itself was
+	# asked about, so the project inside was named neither before the transfer nor after it.
+	def touched (row: subroutine.db.models.project.Project) -> bool:
+		"""Report whether a transfer can change who sees this project: a moving agent's row on it
+		or above it. One read, asked first (L-6 of the same review), so a project the transfer
+		cannot touch costs no walk at all."""
+
+		if transferring is None:
+			return True
+
+		along = [
+			uuid.UUID(segment) for segment in subroutine.domain.hierarchy.path_segments(row.path)
+		]
+
+		return (
+			session.scalars(
+				sqlalchemy.select(membership.id)
+				.where(membership.project_id.in_(along), membership.user_id.in_(moving))
+				.limit(1)
+			).first()
+			is not None
+		)
 
 	stranded = [
 		(row, place)
 		for row, place in candidates
-		if not subroutine.domain.repair.repairers(session, row, leaving=gone, afterwards=afterwards)
+		if touched(row)
+		and not subroutine.domain.repair.repairers(
+			session, row, leaving=gone, afterwards=afterwards
+		)
 		and asked(row)
 	]
 

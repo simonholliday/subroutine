@@ -136,3 +136,30 @@ def test_the_question_is_asked_over_http_with_transferring_and_to_and_refused_ha
 
 		assert refused.status_code == 422, refused.text
 		assert refused.json()["errors"][0]["field"] == field, refused.text
+
+
+def test_a_project_its_person_sees_only_beneath_the_agent_s_share_is_named (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5296`, M-8 of the cold review of 2026-11-11: ``bot`` alone is shared into private
+	``outer``, and alice, whom it answers to, alone into private ``inner`` inside it. She sees
+	both, ``outer`` through ``bot``. Handed to carol, ``bot`` still lets carol see ``outer``, and
+	nobody can see ``inner`` - named neither before nor after, since ``bot`` holds no row on it.
+	"""
+
+	thomas = _person(session, "thomas")
+	alice = _person(session, "alice")
+	carol = _person(session, "carol")
+	bot = _agent(session, "bot", alice)
+	workspace = _metacortex(
+		session, thomas, alice=(alice, "member"), carol=(carol, "member"), bot=(bot, "member")
+	)
+	outer = _project(session, workspace, "outer", bot)
+	_project(session, workspace, "inner", alice, parent=outer)
+
+	assert projects.unreachable(session) == []
+	assert _keys(projects.unreachable(session, transferring=(bot, carol))) == ["inner"]
+
+	subroutine.domain.users.transfer(session, bot, to=carol)
+
+	assert _keys(projects.unreachable(session)) == ["inner"]
