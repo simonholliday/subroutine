@@ -6,6 +6,10 @@ header into that table, so ``protected = true`` written below one protected noth
 said it had no effect, those that read connections then refused the whole file anyway, and ``db
 restore`` replaced the database unasked. **Every command refuses the file now, in one sentence
 saying to move it; ``serve`` and ``mcp`` say the same and go on, and ``doctor`` names it.**
+
+**And under ``connections`` itself** (`SR#5295`, M-7 of the cold review of 2026-11-11): a bare
+``[connections]`` header, a dotted ``connections.protected`` and an inline table each filed it
+there, where it set nothing, and ``db restore`` again replaced the database unasked.
 """
 
 import json
@@ -208,3 +212,130 @@ def test_protected_above_the_tables_still_protects (run: Run) -> None:
 	refused = run("db", "restore", name, "--recover", expect=1)
 
 	assert "protected" in refused.output and INSIDE not in _said(refused), refused.output
+
+
+#: Each spelling that files ``protected`` under ``connections`` itself, as the file is rewritten.
+UNDER_CONNECTIONS: dict[str, typing.Callable[[str], str]] = {
+	"a bare header": lambda before: before + "\n[connections]\nprotected = true\n",
+	"a dotted key": lambda before: "connections.protected = true\n" + before,
+	"an inline table": lambda before: "connections = {protected = true}\n" + before,
+}
+
+#: What every surface says of them.
+INSIDE_ITSELF = "'protected' is written inside [connections], where it sets nothing."
+
+
+def _written_under_connections (spelling: str) -> None:
+	"""Write ``protected = true`` under ``connections`` itself, in one of its spellings."""
+
+	path = subroutine.config.config_file_path()
+	path.write_text(UNDER_CONNECTIONS[spelling](path.read_text(encoding="utf-8")), encoding="utf-8")
+
+
+@pytest.mark.parametrize("spelling", UNDER_CONNECTIONS)
+def test_under_connections_itself_a_restore_is_refused_before_anything_is_replaced (
+	run: Run, spelling: str
+) -> None:
+	"""M-7: refused under ``[connections.local]``, each of these restored unasked."""
+
+	run("init", "--workspace", "Real")
+	run("add", "Keep me")
+	name = test_instances._backup_name(run("db", "backup").output)
+	run("add", "Written after the backup")
+	path = subroutine.config.config_file_path()
+	before = path.read_text(encoding="utf-8")
+	_written_under_connections(spelling)
+
+	refused = run("db", "restore", name, "--recover", expect=1)
+	said = _said(refused)
+
+	assert INSIDE_ITSELF in said and MOVE in said, said
+
+	path.write_text(before, encoding="utf-8")
+
+	assert "Written after the backup" in run("list").output, "the database was replaced"
+
+
+@pytest.mark.parametrize("command", [("list",), ("config", "show")], ids=["list", "config show"])
+@pytest.mark.parametrize("spelling", UNDER_CONNECTIONS)
+def test_under_connections_itself_a_command_refuses_in_one_sentence (
+	run: Run, spelling: str, command: tuple[str, ...]
+) -> None:
+	"""M-7: ``config show`` said the instance was unprotected, and ``list`` that ``protected`` must
+	be a table."""
+
+	run("init")
+	_written_under_connections(spelling)
+
+	said = _said(run(*command, expect=1))
+
+	assert said.count(INSIDE_ITSELF) == 1 and MOVE in said, said
+	assert "must be a table" not in said, said
+
+
+@pytest.mark.parametrize("spelling", UNDER_CONNECTIONS)
+def test_under_connections_itself_doctor_names_it (run: Run, spelling: str) -> None:
+	"""Read past, and said among its findings, as the table's case is."""
+
+	run("init")
+	_written_under_connections(spelling)
+	diagnosed = _said(run("doctor", expect=1))
+
+	assert diagnosed.count(INSIDE_ITSELF) == 1 and "needs attention" in diagnosed, diagnosed
+
+
+@pytest.mark.parametrize("spelling", UNDER_CONNECTIONS)
+def test_under_connections_itself_serve_says_it_once_and_starts (
+	run: Run, monkeypatch: pytest.MonkeyPatch, spelling: str
+) -> None:
+	"""Read past, as the table's case is. A test of its own: a process reads past it once, so
+	``doctor`` before it in the same process would leave ``serve`` nothing to say."""
+
+	run("init")
+	_written_under_connections(spelling)
+	started: dict[str, typing.Any] = {}
+	monkeypatch.setattr("uvicorn.run", lambda app, **given: started.update(given))
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_a_port_in_use", lambda host, port: None)
+	served = _said(run("serve"))
+
+	assert started, "serve refused, or never reached uvicorn"
+	assert served.count(INSIDE_ITSELF) == 1, served
+
+
+def test_one_under_connections_and_one_in_a_table_are_named_in_one_refusal (
+	home: pathlib.Path,
+) -> None:
+	"""One sentence, each where it is, and each field where a reader would look."""
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(
+		'[connections]\nprotected = true\n\n[connections.local]\nbackup_directory = "/b"\n',
+		encoding="utf-8",
+	)
+
+	with pytest.raises(subroutine.config.SettingInsideAConnection) as refused:
+		subroutine.config.read_config_file()
+
+	assert refused.value.detail.endswith(
+		": 'protected' inside [connections] and 'backup_directory' inside [connections.local] are "
+		"written where they set nothing."
+	), refused.value.detail
+	assert [one.field for one in refused.value.errors] == [
+		"connections.protected",
+		"connections.local.backup_directory",
+	]
+
+
+def test_a_connection_named_like_a_setting_is_still_a_connection (home: pathlib.Path) -> None:
+	"""Only a value that is not a table is taken: ``[connections.timezone]`` is a connection."""
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(
+		'[connections.timezone]\nurl = "https://tasks.example.com"\n', encoding="utf-8"
+	)
+
+	written = subroutine.config.read_config_file()
+
+	assert written["connections"]["timezone"] == {"url": "https://tasks.example.com"}

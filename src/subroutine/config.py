@@ -560,11 +560,13 @@ def probe_sqlite_locking (directory: pathlib.Path) -> str | None:
 
 
 class SettingInsideAConnection (subroutine.errors.ValidationError):
-	"""A setting of the instance written inside a ``[connections.<name>]`` table - `SR#5166`.
+	"""A setting of the instance written inside ``[connections]`` or a ``[connections.<name>]``
+	table - `SR#5166`, `SR#5295`.
 
-	**A type of its own** so that ``serve`` and ``mcp``, which say it and read past it, can tell it
-	from every other reason the file cannot be used; to everybody else it is the refusal it reads
-	as, with the code every refusal of a value has.
+	**A type of its own** so that this refusal can be named: :func:`read_config_file` raises it, and
+	:func:`inside_a_connection` and :func:`read_past_settings_inside_a_connection` return it to
+	``serve``, ``mcp`` and ``doctor``, which say it and read past it. To everybody else it is the
+	refusal it reads as, with the code every refusal of a value has.
 	"""
 
 
@@ -593,7 +595,11 @@ def read_config_file () -> dict[str, typing.Any]:
 		raise _refused_inside(config_file_path(), inside)
 
 	for name, key in inside:
-		del written["connections"][name][key]
+		if name is None:
+			del written["connections"][key]
+
+		else:
+			del written["connections"][name][key]
 
 	return written
 
@@ -632,12 +638,17 @@ def read_past_settings_inside_a_connection () -> SettingInsideAConnection | None
 	return inside_a_connection()
 
 
-def _inside_a_connection (written: dict[str, typing.Any]) -> list[tuple[str, str]]:
+def _inside_a_connection (written: dict[str, typing.Any]) -> list[tuple[str | None, str]]:
 	"""Return each setting of the instance written inside a connection's table, as the table's
-	name and the key.
+	name and the key, the name ``None`` for one written under ``connections`` itself.
 
 	**Only the instance's**: a key that is neither a connection's nor the instance's is
 	:mod:`subroutine.connections`' to refuse, and no name is both.
+
+	**And under ``connections`` itself** (`SR#5295`, M-7 of the cold review of 2026-11-11): a bare
+	``[connections]`` header, a dotted ``connections.protected`` and an inline table each file the
+	setting there, where it sets nothing, and ``db restore`` replaced a database unasked. Only a
+	value that is not a table, so a connection named like a setting is still a connection.
 	"""
 
 	connections = written.get("connections")
@@ -645,25 +656,36 @@ def _inside_a_connection (written: dict[str, typing.Any]) -> list[tuple[str, str
 	if not isinstance(connections, dict):
 		return []
 
-	return [
-		(name, key)
-		for name, table in connections.items()
-		if isinstance(table, dict)
-		for key in table
-		if key in Settings.model_fields
-	]
+	found: list[tuple[str | None, str]] = []
+
+	for name, value in connections.items():
+		if isinstance(value, dict):
+			found.extend((name, key) for key in value if key in Settings.model_fields)
+
+		elif name in Settings.model_fields:
+			found.append((None, name))
+
+	return found
 
 
-def _refused_inside (path: pathlib.Path, inside: list[tuple[str, str]]) -> SettingInsideAConnection:
+def _table (name: str | None) -> str:
+	"""Return how the table a setting was written in is spelled: ``[connections]`` for ``None``."""
+
+	return "[connections]" if name is None else f"[connections.{name}]"
+
+
+def _refused_inside (
+	path: pathlib.Path, inside: list[tuple[str | None, str]]
+) -> SettingInsideAConnection:
 	"""Return the one refusal of every setting of the instance inside a connection's table."""
 
 	if len(inside) == 1:
 		((name, key),) = inside
-		said = f"'{key}' is written inside [connections.{name}], where it sets nothing."
+		said = f"'{key}' is written inside {_table(name)}, where it sets nothing."
 		hint = "Move it above the first [connections.…] table."
 
 	else:
-		named = [f"'{key}' inside [connections.{name}]" for name, key in inside]
+		named = [f"'{key}' inside {_table(name)}" for name, key in inside]
 		said = f"{', '.join(named[:-1])} and {named[-1]} are written where they set nothing."
 		hint = "Move them above the first [connections.…] table."
 
@@ -671,10 +693,10 @@ def _refused_inside (path: pathlib.Path, inside: list[tuple[str, str]]) -> Setti
 		f"{path} cannot be used: {said}",
 		errors=[
 			subroutine.errors.FieldError(
-				field=f"connections.{name}.{key}",
+				field=".".join(part for part in ("connections", name, key) if part),
 				code="invalid_field_value",
 				message=f"'{key}' is a setting of the instance, and sets nothing inside "
-				f"[connections.{name}].",
+				f"{_table(name)}.",
 			)
 			for name, key in inside
 		],

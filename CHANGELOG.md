@@ -29,13 +29,14 @@ upgrade involves.
 > verified backup, migrates and checks the result - in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
-- **A setting of the instance written inside a `[connections.…]` table stops every command but
-  `serve` and `mcp` until it is moved - check `config.toml` before upgrading.** TOML files every
-  key after a table's header into that table, so `protected = true` written below one protected
-  nothing: every command said it had no effect, those that read a connection then refused the file
-  anyway, and `db restore` replaced the database without asking. Each command now refuses the file
-  in one sentence saying to move it above the first `[connections.…]` table; `serve` and `mcp` say
-  the same and go on, and `doctor` names it.
+- **A setting of the instance written inside `[connections]` or a `[connections.…]` table stops
+  every command but `serve` and `mcp` until it is moved - check `config.toml` before upgrading.**
+  TOML files every key after a table's header into that table, so `protected = true` written below
+  one protected nothing, and nor did `connections.protected = true`: commands said it had no effect,
+  or nothing at all, those that read a connection then refused the file anyway, and `db restore`
+  replaced the database without asking. Each command now refuses the file in one sentence saying to
+  move it above the first `[connections.…]` table; `serve` and `mcp` say the same and go on, and
+  `doctor` names it.
 
 - **A PostgreSQL restore says when its tools are newer than the server.** `pg_restore` from
   version 17 cannot restore into a version 16 server, so on a machine whose client tools are newer
