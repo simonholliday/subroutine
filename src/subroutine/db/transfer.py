@@ -75,7 +75,7 @@ def copy_into (source_url: str, target_url: str) -> Copied:
 		if not subroutine.db.migrate.is_up_to_date(source):
 			raise subroutine.errors.ValidationError(
 				"This database is not at the schema this build expects.",
-				hint="Run 'subroutine db upgrade' first, then copy.",
+				hint=f"Run '{subroutine.db.migrate.command('db', 'upgrade')}' first, then copy.",
 			)
 
 		target = subroutine.db.session.create_engine(target_url)

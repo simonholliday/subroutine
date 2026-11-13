@@ -22,6 +22,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.addressing
+import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -1309,7 +1310,8 @@ def _files_where (
 		if inbox is None:
 			raise subroutine.errors.InternalError(
 				"This workspace has no Inbox to file a task in.",
-				hint="It was interrupted part-way through setup; run 'subroutine init' again.",
+				hint="It was interrupted part-way through setup; run "
+				f"'{subroutine.db.migrate.command('init')}' again.",
 			)
 
 		return inbox

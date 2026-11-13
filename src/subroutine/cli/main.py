@@ -16,6 +16,7 @@ import getpass
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import socket
 import sqlite3
@@ -548,7 +549,8 @@ def _settings_or_why_not () -> subroutine.config.Settings | subroutine.errors.Va
 	except tomllib.TOMLDecodeError as error:
 		return subroutine.errors.ValidationError(
 			f"{subroutine.config.config_file_path()} is not valid TOML: {error}",
-			hint="Fix the file, or move it aside and run 'subroutine init' to write a new one.",
+			hint="Fix the file, or move it aside and run "
+			f"'{subroutine.db.migrate.command('init')}' to write a new one.",
 		)
 
 	# **A file that is not UTF-8 is refused where it is read** (`#4022`), and answered here as the
@@ -606,7 +608,7 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 	except Exception as error:
 		_stop(
 			f"That database URL cannot be used: {error}",
-			"Check 'database_url' in 'subroutine config show'.",
+			f"Check 'database_url' in '{subroutine.db.migrate.command('config', 'show')}'.",
 		)
 
 	try:
@@ -617,7 +619,7 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 			f"Could not reach the database at {safe_url(settings.database_url)}: "
 			f"{error.orig or error}",
 			"Check that the server is running, and check 'database_url' in "
-			"'subroutine config show'.",
+			f"'{subroutine.db.migrate.command('config', 'show')}'.",
 		)
 
 	except sqlalchemy.exc.SQLAlchemyError as error:
@@ -665,7 +667,7 @@ def _system_username () -> str:
 	except (KeyError, OSError):
 		_stop(
 			"This system does not say who is running this, so the first account has no name.",
-			"Name it: subroutine init --username <name>",
+			f"Name it: {subroutine.db.migrate.command('init', '--username', '<name>')}",
 		)
 
 
@@ -805,7 +807,7 @@ def init (
 			f"Could not prepare the database at {safe_url(settings.database_url)}: "
 			f"{getattr(error, 'orig', None) or error}",
 			"Check that the server is running, and check 'database_url' in "
-			"'subroutine config show'.",
+			f"'{subroutine.db.migrate.command('config', 'show')}'.",
 		)
 
 	if verbose:
@@ -1479,8 +1481,8 @@ def _refuse_without_a_signing_key (settings: subroutine.config.Settings) -> None
 		"one page to the next - so this would start, pass every health check, and fail on "
 		"the first listing longer than a page.",
 		f"Put a secret_key in {subroutine.config.config_file_path()} or set "
-		"SUBROUTINE_SECRET_KEY. 'subroutine init' writes one, and a database that arrived "
-		"any other way has never had it run.",
+		f"SUBROUTINE_SECRET_KEY. '{subroutine.db.migrate.command('init')}' "
+		"writes one, and a database that arrived any other way has never had it run.",
 	)
 
 
@@ -1513,7 +1515,7 @@ def upgrade_moved (
 	# **Without it the removal misdirects.** Typer offers the nearest command it can find, and
 	# for `upgrade` that is `update` — so an operator migrating a database was pointed at the
 	# one that edits a task. A bare removal was worse than either option on the table.
-	_say("'subroutine upgrade' is now 'subroutine db upgrade'.")
+	_say(f"'subroutine upgrade' is now '{subroutine.db.migrate.command('db', 'upgrade')}'.")
 	_say("")
 	_say("Everything that acts on the database is under 'db'. The blunt migrator that used")
 	_say("to be 'db upgrade' - no backup, no confirmation - is now 'db migrate'.")
@@ -1668,7 +1670,7 @@ def database_migrate () -> None:
 			f"Could not upgrade the database at {safe_url(settings.database_url)}: "
 			f"{getattr(error, 'orig', None) or error}",
 			"Check that the server is running, and check 'database_url' in "
-			"'subroutine config show'.",
+			f"'{subroutine.db.migrate.command('config', 'show')}'.",
 		)
 
 	_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
@@ -1855,7 +1857,7 @@ def doctor () -> None:
 	# **Free, because naming is not asking** (§12.4a). `doctor` is run by update scripts, so
 	# an outbound call here would need its own flag; a signpost needs nothing.
 	subroutine.cli.personal.suggest(
-		"subroutine db upgrade --check", "whether a newer release exists"
+		subroutine.db.migrate.command("db", "upgrade", "--check"), "whether a newer release exists"
 	)
 
 	if any(not finding.ok for finding in findings):
@@ -1956,7 +1958,7 @@ def upgrade (
 
 		_stop(
 			"There is no Subroutine schema in that database.",
-			"Run 'subroutine init' to set it up.",
+			f"Run '{subroutine.db.migrate.command('init')}' to set it up.",
 		)
 
 	if not subroutine.db.migrate.knows_revision(current):
@@ -2020,7 +2022,7 @@ def upgrade (
 		_stop(
 			error.detail,
 			f"{error.hint} What was there before the upgrade is at {written.path} - "
-			f"'subroutine db restore {written.path} --recover' puts it back.",
+			f"'{_restore_command(written.path)}' puts it back.",
 		)
 
 	except sqlalchemy.exc.SQLAlchemyError as error:
@@ -2032,7 +2034,7 @@ def upgrade (
 		_stop(
 			f"The upgrade failed: {getattr(error, 'orig', None) or error}",
 			f"It stopped at {_schema_now(settings)}. What was there before the upgrade is at "
-			f"{written.path} - 'subroutine db restore {written.path} --recover' puts it back.",
+			f"{written.path} - '{_restore_command(written.path)}' puts it back.",
 		)
 
 	# **Read it back rather than assuming.** A migration that reports success and leaves the
@@ -2044,8 +2046,7 @@ def upgrade (
 	if landed != expected:
 		_stop(
 			f"The upgrade ran but the database is at {landed}, not {expected}.",
-			f"'subroutine db restore {written.path} --recover' puts back what was there "
-			f"before.",
+			f"'{_restore_command(written.path)}' puts back what was there before.",
 		)
 
 	_say(f"Upgraded from {current} to {landed}.")
@@ -2396,7 +2397,10 @@ def database_backups () -> None:
 	stopped = subroutine.db.backup.unfinished(settings)
 
 	if not found:
-		_say(f"No backups of {_instance_label()} yet. Run 'subroutine db backup'.")
+		_say(
+			f"No backups of {_instance_label()} yet. "
+			f"Run '{subroutine.db.migrate.command('db', 'backup')}'."
+		)
 		_say_unfinished(stopped)
 
 		return
@@ -2482,7 +2486,8 @@ def database_restore (
 		if not candidate.is_file():
 			_stop(
 				f"No backup at {path}.",
-				"Run 'subroutine db backups' to see what this instance has.",
+				f"Run '{subroutine.db.migrate.command('db', 'backups')}' to see what "
+				"this instance has.",
 			)
 
 		path = candidate
@@ -4522,7 +4527,7 @@ def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> 
 	"""
 
 	if subroutine.config.setting_sources(settings).get("database_url") != "default":
-		return "Run 'subroutine init' first."
+		return f"Run '{subroutine.db.migrate.command('init')}' first."
 
 	elsewhere = _instances_reached_from_here(settings)
 
@@ -4532,12 +4537,13 @@ def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> 
 		return (
 			f"This machine has no instance of its own; it reaches {', '.join(elsewhere)}. "
 			f"This command acts on a local database, so run it where that instance lives - "
-			f"'subroutine init' would set up a second, empty one here."
+			f"'{subroutine.db.migrate.command('init')}' would set up a second, empty one here."
 		)
 
 	return (
-		"Nothing has configured 'database_url', so this is the default. Run 'subroutine init' "
-		f"to set an instance up here, or name the database you meant in "
+		"Nothing has configured 'database_url', so this is the default. Run "
+		f"'{subroutine.db.migrate.command('init')}' to set an instance up here, or name the "
+		f"database you meant in "
 		f"{subroutine.config.config_file_path()} - a URL given only in the environment is not "
 		f"recorded anywhere, so a service started without it will not find it."
 	)
@@ -4594,12 +4600,14 @@ def _report_version (asked: bool) -> None:
 	# not who is told a command exists. `#499`'s rule is the other half: the guaranteed channel
 	# names the one nobody will find.
 	subroutine.cli.personal.suggest(
-		"subroutine db upgrade --check", "whether a newer release exists"
+		subroutine.db.migrate.command("db", "upgrade", "--check"), "whether a newer release exists"
 	)
 
 	# The schema line above is what this build *expects*; `db current` is what the database in
 	# front of you actually has. One without the other cannot answer whether an upgrade is owed.
-	subroutine.cli.personal.suggest("subroutine db current", "what your database is at")
+	subroutine.cli.personal.suggest(
+		subroutine.db.migrate.command("db", "current"), "what your database is at"
+	)
 
 	raise typer.Exit()
 
@@ -4726,3 +4734,15 @@ def main () -> None:
 		_report_a_defect(defect)
 
 		raise SystemExit(1) from None
+
+
+def _restore_command (path: pathlib.Path) -> str:
+	"""Return the command that puts an upgrade's own backup back, into the instance it came from.
+
+	**Through :func:`subroutine.db.migrate.command`** (`SR#5297`, M-9 of the cold review of
+	2026-11-11, decision `#5285`): under ``--profile scratch`` the sentence written by hand,
+	typed in a fresh shell, restored scratch's backup over the default instance. **The path is
+	quoted**, as a shell needs it, which the sentence written by hand never did.
+	"""
+
+	return subroutine.db.migrate.command("db", "restore", shlex.quote(str(path)), "--recover")

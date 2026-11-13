@@ -162,7 +162,7 @@ def _refuse_an_unsupported_backend (database_url: str) -> None:
 		hint=(
 			f"It runs on {' and '.join(SUPPORTED_BACKENDS)}. Set 'database_url' to a "
 			f"'sqlite:///…' path or a 'postgresql+psycopg://…' URL - "
-			f"'subroutine config show' says where the file is."
+			f"'{_command('config', 'show')}' says where the file is."
 		),
 	)
 
@@ -199,8 +199,8 @@ def _refuse_a_backend_with_no_driver (
 		hint=(
 			f"Install it the way Subroutine was installed: \"uv tool install "
 			f"'subroutine[{extra}]'\", or \"pip install 'subroutine[{extra}]'\" in its "
-			f"environment. Or point 'database_url' at a 'sqlite:///…' path. 'subroutine config "
-			f"show' says where that setting is."
+			f"environment. Or point 'database_url' at a 'sqlite:///…' path. "
+			f"'{_command('config', 'show')}' says where that setting is."
 		),
 	)
 
@@ -337,3 +337,15 @@ def drop_all (engine: sqlalchemy.engine.Engine) -> None:
 	"""Drop every table. For tests only."""
 
 	subroutine.db.base.Base.metadata.drop_all(engine)
+
+
+def _command (*words: str) -> str:
+	"""Return a command line acting on the instance this process acts on - `SR#5297`.
+
+	Through :func:`subroutine.db.migrate.command`, so a remedy names the profile in force (decision
+	`#5285`). **Reached late, and aliased**, because ``db.migrate`` imports this module.
+	"""
+
+	from subroutine.db import migrate as instances
+
+	return instances.command(*words)

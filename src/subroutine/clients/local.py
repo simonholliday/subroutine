@@ -4216,7 +4216,7 @@ class Client:
 				f"{self.connection.name} could not be read: "
 				f"{getattr(error, 'orig', None) or error}",
 				hint="Check that the database is reachable, and check 'database_url' in "
-				"'subroutine config show'.",
+				f"'{subroutine.db.migrate.command('config', 'show')}'.",
 			) from None
 
 		# **Half a character a driver could not encode** (`#4428`): the codec's own error, which the

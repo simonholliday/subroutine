@@ -693,7 +693,8 @@ def _past_the_floor (
 		return (
 			f"{waiting.movable:,} event{'' if one else 's'} older than that "
 			f"{'is' if one else 'are'} still in the change feed, {'' if one else 'the oldest '}from "
-			f"{day.day} {day:%B}{year}. 'subroutine db archive' moves {'it' if one else 'them'}"
+			f"{day.day} {day:%B}{year}. '{subroutine.db.migrate.command('db', 'archive')}' moves "
+			f"{'it' if one else 'them'}"
 		)
 
 	# **What `db archive` says of them** (`#4442`): a run moves only a run of old events, so these

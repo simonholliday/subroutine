@@ -6656,7 +6656,7 @@ def instance_behind_in_words (running: str, lag: subroutine.releases.Lag) -> str
 	if lag.moves_the_schema:
 		how = (
 			"Upgrading it changes the database, so plan a short outage: stop it, install the new "
-			"version, run 'subroutine db upgrade', then start it."
+			f"version, run '{subroutine.db.migrate.command('db', 'upgrade')}', then start it."
 		)
 
 	else:

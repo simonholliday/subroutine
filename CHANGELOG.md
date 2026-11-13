@@ -371,6 +371,12 @@ upgrade involves.
   first on the path, so they said to run `subroutine init`, which a terminal there does not have.
   They now leave their own copy out and give the `uvx` command, pinned to this release series -
   its pin admitted the next one, which could create an instance newer than the plugin reads.
+- **Under `--profile`, every command a message tells you to run names that profile.** A refused
+  upgrade said to run `subroutine db restore <backup> --recover`, which, typed as it was written,
+  put that profile's backup over the default instance; and about twenty-five more messages -
+  saying to back up, upgrade, archive, run `init` or `config show` - sent the reader to the default
+  instance the same way. Each now names the profile in force, and the restore command quotes its
+  path.
 - **A change to a repeat from now on is checked against every occurrence it reaches.** An edit
   to one occurrence, filed apart from its series, could rewrite the series with a credential that
   could only read where the series is. And a repeating sub-task's occurrence, taken out from under

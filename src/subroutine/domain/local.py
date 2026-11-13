@@ -33,6 +33,7 @@ import dataclasses
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
@@ -185,7 +186,7 @@ def _sole (session: sqlalchemy.orm.Session) -> subroutine.domain.authentication.
 	if not users:
 		raise subroutine.errors.NotFound(
 			"This database has no accounts in it.",
-			hint="Run 'subroutine init' to set one up.",
+			hint=f"Run '{subroutine.db.migrate.command('init')}' to set one up.",
 		)
 
 	raise subroutine.errors.ValidationError(

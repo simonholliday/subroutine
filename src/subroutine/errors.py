@@ -669,7 +669,7 @@ def no_instance_yet () -> "ServiceUnavailable":
 
 	return ServiceUnavailable(
 		"no Subroutine instance has been set up here yet.",
-		hint="Run 'subroutine init' to create one. It takes no arguments.",
+		hint=f"Run '{_command('init')}' to create one. It takes no arguments.",
 	)
 
 
@@ -947,3 +947,15 @@ def registry_markdown () -> str:
 		)
 
 	return "\n".join(lines) + "\n"
+
+
+def _command (*words: str) -> str:
+	"""Return a command line acting on the instance this process acts on - `SR#5297`.
+
+	Through :func:`subroutine.db.migrate.command`, so a remedy names the profile in force (decision
+	`#5285`). **Reached late, and aliased**, because ``db.migrate`` imports this module.
+	"""
+
+	from subroutine.db import migrate as instances
+
+	return instances.command(*words)

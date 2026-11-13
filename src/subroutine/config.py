@@ -725,7 +725,7 @@ def _written () -> dict[str, typing.Any]:
 			"must be written in.",
 			code="invalid_field_value",
 			hint="Save it as UTF-8, which any editor can do, or move it aside and run "
-			"'subroutine init' to write a new one.",
+			f"'{_command('init')}' to write a new one.",
 		) from None
 
 
@@ -1247,7 +1247,7 @@ class Settings(pydantic_settings.BaseSettings):
 			return _development_key()
 
 		raise RuntimeError(
-			"No secret_key is configured. Run 'subroutine init' to create one, set "
+			f"No secret_key is configured. Run '{_command('init')}' to create one, set "
 			"SUBROUTINE_SECRET_KEY, or put 'dev_mode = true' in config.toml for local "
 			"development."
 		)
@@ -1302,7 +1302,9 @@ def store_setting (name: str, value: str) -> pathlib.Path:
 	line = f"{name} = {_toml_string(value)}"
 
 	if not path.exists():
-		write_private(path, f"# Subroutine configuration. See 'subroutine config show'.\n{line}\n")
+		write_private(
+			path, f"# Subroutine configuration. See '{_command('config', 'show')}'.\n{line}\n"
+		)
 
 		return path
 
@@ -1367,7 +1369,7 @@ def store_table (header: str, values: dict[str, str | bool]) -> pathlib.Path:
 		raise ValueError(f"{path} already has a [{header}] table")
 
 	if not lines:
-		lines = ["# Subroutine configuration. See 'subroutine config show'."]
+		lines = [f"# Subroutine configuration. See '{_command('config', 'show')}'."]
 
 	# A blank line before the header, so a table appended to a file whose last line is a
 	# setting does not read as a continuation of it.
@@ -1555,3 +1557,15 @@ def load_settings (**overrides: typing.Any) -> Settings:
 	"""Resolve settings, with any keyword arguments taking highest precedence."""
 
 	return Settings(**overrides)
+
+
+def _command (*words: str) -> str:
+	"""Return a command line acting on the instance this process acts on - `SR#5297`.
+
+	Through :func:`subroutine.db.migrate.command`, so a remedy names the profile in force (decision
+	`#5285`). **Reached late, and aliased**, because ``db.migrate`` imports this module.
+	"""
+
+	from subroutine.db import migrate as instances
+
+	return instances.command(*words)

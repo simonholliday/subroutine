@@ -818,8 +818,9 @@ def check_engine (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> Non
 			f"so this one cannot be restored here - nothing has been changed. A {ours} backup "
 			f"of this instance ends in "
 			f"{SQLITE_SUFFIX if ours == 'SQLite' else POSTGRESQL_ARCHIVE_SUFFIX}; "
-			f"'subroutine db backups' lists them with their engine. To move an instance "
-			f"between engines, use 'subroutine db copy'."
+			f"'{subroutine.db.migrate.command('db', 'backups')}' lists them "
+			f"with their engine. To move an instance between engines, use "
+			f"'{subroutine.db.migrate.command('db', 'copy')}'."
 		),
 	)
 
@@ -1207,7 +1208,8 @@ def _head_in_dump (path: pathlib.Path) -> str:
 	if found is None:
 		raise subroutine.errors.BadRequest(
 			f"'{path.name}' does not look like a Subroutine backup: it records no "
-			f"alembic_version. A dump taken by 'subroutine db backup' does."
+			f"alembic_version. A dump taken by "
+			f"'{subroutine.db.migrate.command('db', 'backup')}' does."
 		)
 
 	return found.group(1)
@@ -1423,8 +1425,8 @@ def refuse_unsafe_commands (path: pathlib.Path) -> None:
 			f"'{path.name}' line {number} carries the command '\\{found.group(1)}', which "
 			f"'pg_dump' does not write. A backup that runs commands is not a backup - this "
 			f"one has not been restored.",
-			hint="Take a fresh backup with 'subroutine db backup', and treat this file as "
-			"hostile rather than as damaged.",
+			hint=f"Take a fresh backup with '{subroutine.db.migrate.command('db', 'backup')}', "
+			"and treat this file as hostile rather than as damaged.",
 		)
 
 
@@ -1490,7 +1492,7 @@ def take (
 	if head is None:
 		raise subroutine.errors.ServiceUnavailable(
 			"This database records no schema version, so a backup of it could not be "
-			"restored. Run 'subroutine db upgrade' first.",
+			f"restored. Run '{subroutine.db.migrate.command('db', 'upgrade')}' first.",
 			code="backup_failed",
 		)
 
@@ -2139,7 +2141,8 @@ def check_finished (path: pathlib.Path) -> None:
 			f"'{path.name}' is marked unfinished by {marker.name} beside it, so nothing has proved "
 			f"it is a whole copy. It has not been restored.",
 			hint=(
-				f"Run 'subroutine db backups' to choose another. If no backup is being taken now, "
+				f"Run '{subroutine.db.migrate.command('db', 'backups')}' to choose "
+				f"another. If no backup is being taken now, "
 				f"remove it and its marker with: {_unfinished(marker).removal}"
 			),
 		)
@@ -2172,7 +2175,7 @@ def check_restorable (path: pathlib.Path) -> str:
 			f"{len(missing)} of the tables every Subroutine database has: "
 			f"{', '.join(sorted(missing))}. It has not been restored.",
 			hint="Check that this is the file you meant. A backup taken by "
-			"'subroutine db backup' carries the whole database.",
+			f"'{subroutine.db.migrate.command('db', 'backup')}' carries the whole database.",
 		)
 
 	refuse_unsafe_commands(path)

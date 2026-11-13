@@ -20,6 +20,7 @@ happened, and against one would be arbitrary.
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.migrate
 import subroutine.db.models.system
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -74,7 +75,7 @@ def require (session: sqlalchemy.orm.Session) -> subroutine.db.models.system.Ins
 	if instance is None:
 		raise subroutine.errors.NotFound(
 			"This database has not been set up yet.",
-			hint="Run 'subroutine init' to create it.",
+			hint=f"Run '{subroutine.db.migrate.command('init')}' to create it.",
 		)
 
 	return instance
