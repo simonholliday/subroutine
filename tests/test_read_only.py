@@ -30,6 +30,7 @@ import subroutine.db.models.activity
 import subroutine.domain.authentication
 import subroutine.domain.users
 import subroutine.errors
+import subroutine.installations
 import subroutine.mcp.relay
 import test_api_tasks
 
@@ -292,6 +293,14 @@ def test_an_instance_that_does_not_know_the_flag_is_said_to_be_too_old () -> Non
 
 	assert "does not know the 'read_only' setting" in refused.value.detail
 	assert "Upgrade work" in (refused.value.hint or "")
+
+	# **This program's release and an instance before 1.0, and nothing about a parameter**
+	# (`SR#5298`, M-10 and NEW-D-1 of the cold review of 2026-11-11).
+	said = refused.value.detail
+
+	assert "an instance before 1.0" in said and subroutine.installations.program() in said, said
+	assert "this program's release on" not in said, said
+	assert not refused.value.errors, refused.value.errors
 
 
 class Older:
@@ -592,6 +601,8 @@ def test_a_relay_to_an_instance_that_does_not_know_the_flag_says_it_is_too_old (
 
 	assert answered is not None and "error" in answered, answered
 	assert "does not know the 'read_only' setting" in json.dumps(answered), answered
+	assert "an instance before 1.0" in json.dumps(answered), answered
+	assert "It accepts" not in json.dumps(answered), answered
 
 
 @pytest.mark.parametrize("path", ["in process", "remote"])

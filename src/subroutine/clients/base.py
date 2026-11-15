@@ -2161,13 +2161,27 @@ def refuses_read_only (code: str | None, fields: typing.Iterable[str | None]) ->
 	)
 
 
+#: The first release whose instance holds a read-only connection to it (decision `#4510`): one
+#: before it refuses the setting as a parameter it does not know. The HTTP client's
+#: ``READ_ONLY_FLOOR`` is the older line, below which an instance ignores it instead.
+READ_ONLY_HELD_FROM = "1.0.0"
+
+
 def too_old_for_read_only (connection: subroutine.connections.Connection) -> tuple[str, str]:
-	"""Return what to say when an instance refused a read-only connection for not knowing it."""
+	"""Return what to say when an instance refused a read-only connection for not knowing it.
+
+	**This program's release, and an instance before 1.0** (`SR#5298`, M-10 of the cold review of
+	2026-11-11, decided in `#5285`): it said an instance enforces the setting *from this program's
+	release on*, which named no release and would turn false at the first patch. The instance's
+	own release is not asked for: the setting goes with every request (`#4510`), and the refusal is
+	the answer.
+	"""
 
 	return (
-		f"{connection.name} does not know the 'read_only' setting this connection carries, so it "
-		"refused the request rather than risk a write. An instance enforces it from this program's "
-		"release on.",
+		f"{connection.name} is an instance before 1.0 and does not know the 'read_only' setting "
+		"this connection carries, so it refused the request rather than risk a write. An instance "
+		f"enforces it from {READ_ONLY_HELD_FROM}; this program is "
+		f"{subroutine.installations.program()}.",
 		f"Upgrade {connection.name}, or remove 'read_only' from [connections.{connection.name}] "
 		f"in {subroutine.config.config_file_path()} if writing there is what you want.",
 	)

@@ -328,7 +328,9 @@ plugin settings and your data follow semantic versioning: a patch fixes, a minor
 anything that would break one of them waits for 2.0.
 
 **A newer program still reads an older instance.** A command needing something that instance does
-not have yet is refused, naming both versions, until the older one is updated.
+not have yet is refused, naming both versions, until the older one is updated. The one exception is
+a connection marked `read_only`: an instance before 1.0 does not know the setting, so it refuses
+every request from it, reads included, until it is upgraded.
 
 ## Where the rest of it is written
 

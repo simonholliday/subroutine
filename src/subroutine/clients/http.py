@@ -2459,10 +2459,13 @@ class Client:
 		):
 			detail, hint = subroutine.clients.base.too_old_for_read_only(self.connection)
 
+			# **Without the instance's own field error** (`SR#5298`, NEW-D-1 of the verification
+			# of the cold review of 2026-11-11): it named a parameter nobody using the connection
+			# typed, and the sentence above already names the setting.
 			return type(failure)(
 				detail,
 				code=failure.code,
-				errors=failure.errors,
+				errors=(),
 				hint=hint,
 				extensions=failure.extensions,
 			)
