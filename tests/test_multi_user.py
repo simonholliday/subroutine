@@ -1874,6 +1874,71 @@ def test_an_agent_stopped_in_its_workspace_is_told_why_at_the_terminal (
 	assert "not a member of any workspace" not in refused, refused
 
 
+def test_whoami_workspace_list_and_adopting_a_checkout_say_where_an_agent_is_stopped (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#5299`, M-11 of the cold review of 2026-11-11: each blamed the credential, or the project.
+
+	bot answers to laurence, who has been taken out of Metacortex, so bot reaches nothing.
+	``whoami`` and ``workspace list`` said no workspace could be read with its credential, and ``use
+	--here --project`` that there was no such project, so its person was sent to the wrong remedy.
+	"""
+
+	run("init", "--workspace", "Metacortex", "--username", "laurence")
+	run("user", "create", "keanu", "--role", "owner")
+	run("user", "create", "bot", "--agent")
+	run("user", "remove", "laurence")
+	monkeypatch.setenv("SUBROUTINE_LOCAL_USER", "bot")
+	monkeypatch.chdir(tmp_path)
+
+	for said in (
+		run("whoami").output,
+		run("workspace", "list").output,
+		run("use", "--here", "--project", "inbox", expect=1).output,
+	):
+		flat = " ".join(said.split())
+
+		assert (
+			"You are a member of metacortex, and stopped there because laurence, whom you answer "
+			"to, is not a member. Ask an administrator of metacortex to add laurence." in flat
+		), said
+		assert "can be read with this credential" not in said, said
+		assert "There is no project" not in said, said
+
+	assert not (tmp_path / ".subroutine").exists(), "and nothing was adopted"
+
+
+def test_whoami_and_workspace_list_say_where_an_agent_is_stopped_beside_where_it_reaches (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5299`, decided in `#5285`: an agent told where it is stopped, wherever else it reaches.
+
+	bot is in the Dojo with laurence, and in Metacortex, which laurence has left. Both commands
+	listed the Dojo and said nothing of Metacortex.
+	"""
+
+	run("init", "--workspace", "Metacortex", "--username", "laurence")
+	run("user", "create", "keanu", "--role", "owner")
+	run("user", "create", "bot", "--agent")
+	run("workspace", "create", "dojo", "The Dojo")
+	run("user", "add", "bot", "--role", "member", "--workspace", "dojo")
+	run("user", "remove", "laurence", "--workspace", "metacortex")
+	monkeypatch.setenv("SUBROUTINE_LOCAL_USER", "bot")
+
+	for said in (run("whoami").output, run("workspace", "list").output):
+		reaches = [line for line in said.splitlines() if line.split()[:1] == ["dojo"]]
+		flat = " ".join(said.split())
+
+		assert reaches, said
+		assert (
+			"You are a member of metacortex, and stopped there because laurence, whom you answer "
+			"to, is not a member. Ask an administrator of metacortex to add laurence." in flat
+		), said
+		assert flat.index("dojo") < flat.index("You are a member of"), "below where it reaches"
+
+
 def test_handing_an_agent_over_names_the_agents_that_stop_with_it (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

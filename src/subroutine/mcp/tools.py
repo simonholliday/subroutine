@@ -2021,8 +2021,9 @@ def _whoami (
 
 	if not me.workspaces:
 		# The failure worth naming rather than rendering as an empty list: every other tool
-		# would report this credential's reach as an instance with nothing in it.
-		lines.append("No workspace here can be read with this credential.")
+		# would report this credential's reach as an instance with nothing in it. An agent stopped
+		# where it is a member is told that instead (`SR#5299`), as the terminal's ``whoami`` says.
+		lines.extend(subroutine.views.reaching_nothing_in_words(me))
 
 	else:
 		lines.append("")
@@ -2041,6 +2042,11 @@ def _whoami (
 			)
 			for workspace in me.workspaces
 		)
+
+		# **And where it is stopped, below where it reaches** (`SR#5299`, decided in `#5285`).
+		if stopped := subroutine.views.stopped_in_words(me):
+			lines.append("")
+			lines.extend(stopped)
 
 	# **The early return this used to take is gone, deliberately** (`#381`). A credential that
 	# reaches no workspace is the single most likely reason somebody asks this question, and

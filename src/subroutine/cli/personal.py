@@ -1737,24 +1737,32 @@ def _writing_workspace (world: World) -> str:
 
 	here = world.writing_to()
 	candidates = [workspace.slug for workspace in here.identity.workspaces]
-	stopped: list[subroutine.views.StoppedIn] = []
 
 	# **Reaching nothing, an agent asks the instance where it is stopped** (`SR#5105`, decision
-	# `#5097`): only as it is refused, so nothing else pays the request. An older instance answers
-	# with no such list, and a failure leaves the refusal as it was.
-	if not candidates:
-		try:
-			stopped = here.client.me().stopped_in
-
-		except subroutine.errors.SubroutineError:
-			stopped = []
-
+	# `#5097`): only as it is refused, so nothing else pays the request.
 	subroutine.context.refuse(
 		world.roster,
 		world.current,
 		candidates,
-		stopped=[(one.slug, one.answers_to) for one in stopped],
+		stopped=[] if candidates else _stopped_on(here),
 	)
+
+
+def _stopped_on (here: Reached) -> list[tuple[str, str]]:
+	"""Return where an agent reaching nothing on ``here`` is stopped, and whose absence stops it.
+
+	Read off ``/v1/me`` (`SR#5105`), by short name and person, as :func:`subroutine.context.refuse`
+	takes them. An older instance answers with no such list, and a failure leaves the refusal as it
+	was, so either is no workspace at all.
+	"""
+
+	try:
+		stopped = here.client.me().stopped_in
+
+	except subroutine.errors.SubroutineError:
+		return []
+
+	return [(one.slug, one.answers_to) for one in stopped]
 
 
 #: What a new account may do in the workspace it is put into, when nobody said. `#587`
@@ -2665,8 +2673,9 @@ def _whoami_lines (
 		# **The failure this command exists to make legible.** A credential pinned to a
 		# workspace it has no membership of reaches nothing, and every *other* command
 		# reports that as an empty list — which reads as an empty instance rather than as
-		# a credential that cannot see it.
-		lines.append("No workspace here can be read with this credential.")
+		# a credential that cannot see it. An agent stopped where it is a member is told that
+		# instead (`SR#5299`).
+		lines.extend(subroutine.views.reaching_nothing_in_words(me))
 
 		return lines
 
@@ -2700,7 +2709,11 @@ def _whoami_lines (
 
 		rows.append(f"  {'  '.join(cells)}".rstrip())
 
-	return [*lines, "", *rows]
+	# **And where it is stopped, below where it reaches** (`SR#5299`, decided in `#5285`): an agent
+	# reaching one workspace and stopped in another was told only of the one.
+	stopped = subroutine.views.stopped_in_words(me)
+
+	return [*lines, "", *rows, *(["", *stopped] if stopped else [])]
 
 
 def _role (workspace: subroutine.views.WorkspaceAccess) -> str:
@@ -5621,6 +5634,15 @@ def _adopted_project (
 	Four, once, in a command somebody runs when they adopt a repository.
 	"""
 
+	# **A connection that refused says why, in its own words** (`SR#5299`, M-11 of the cold review
+	# of 2026-11-11, and `SR#5060`'s rule): read as reaching nothing, one waiting on ``db upgrade``,
+	# or too old for a read-only connection, was said to hold no such project.
+	if connection and world.connection(connection) is None:
+		refused = world.refusal_of(connection)
+
+		if refused is not None:
+			raise refused
+
 	if workspace is not None:
 		named = _project_written_down(world, wanted, workspace=workspace, connection=connection)
 
@@ -5639,6 +5661,17 @@ def _adopted_project (
 		)
 		if found is not None
 	]
+
+	# **Reaching no workspace is said as what it is** (`SR#5299`), as a write says it: an agent
+	# stopped where it is a member is told where and why, and anybody else that they are in none,
+	# rather than that no project of that name could be reached.
+	if not reachable and there is not None:
+		subroutine.context.refuse(
+			world.roster,
+			dataclasses.replace(world.current, connection=there.name),
+			[],
+			stopped=_stopped_on(there),
+		)
 
 	if not holding:
 		_no_such_project(program, wanted, reachable)
@@ -7379,15 +7412,20 @@ def _workspaces_listed (program: Program, *, json_output: bool) -> None:
 		# workspace's description is published, deliberately: `/v1/meta` is the response every
 		# client fetches first and carries `WorkspaceRef` for *addressing* a workspace, which
 		# is a different question from what one is for.
-		found = world.writing_to().client.me().workspaces
+		me = world.writing_to().client.me()
+		found = me.workspaces
 
 		if json_output:
 			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
 
 			return
 
+		# **Where an agent is stopped, as ``whoami`` says it** (`SR#5299`, decided in `#5285`).
+		stopped = subroutine.views.stopped_in_words(me)
+
 		if not found:
-			program.say("No workspace here can be read with this credential.")
+			for line in subroutine.views.reaching_nothing_in_words(me):
+				program.say(line)
 
 			return
 
@@ -7408,6 +7446,12 @@ def _workspaces_listed (program: Program, *, json_output: bool) -> None:
 			program.say(
 				f"{one.slug.ljust(width)}  {one.title.ljust(titles)}  {said}".rstrip()
 			)
+
+		if stopped:
+			program.say("")
+
+			for line in stopped:
+				program.say(line)
 
 
 def _ranked_by_priority (order: str | None) -> bool:

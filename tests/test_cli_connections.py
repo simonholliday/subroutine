@@ -574,6 +574,29 @@ def test_a_read_across_connections_gives_the_remedy_for_a_list_that_is_behind (
 	assert "Run 'subroutine db upgrade'" in said, said
 
 
+def test_adopting_a_checkout_on_a_list_that_is_behind_says_so (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#5299`, M-11 of the cold review of 2026-11-11: adopting a checkout said no such project.
+
+	Its connection had refused, waiting on ``db upgrade``, and was read as reaching nothing - the
+	lookup `SR#5060` did not reach. Waiting would never have ended it, and the project was there.
+	"""
+
+	_behind_on_this_machine(run)
+	monkeypatch.chdir(tmp_path)
+
+	refused = run("-c", "local", "use", "--here", "--project", "inbox", expect=1).output
+
+	assert "6c708db1582c" in refused, refused
+	assert "Run 'subroutine db upgrade'" in refused, refused
+	assert "There is no project" not in refused, refused
+	assert not (tmp_path / ".subroutine").exists(), "and nothing was adopted"
+
+
 def test_a_remote_row_prints_an_address_that_can_be_typed_back (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

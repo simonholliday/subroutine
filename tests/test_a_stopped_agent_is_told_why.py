@@ -16,10 +16,16 @@ import pytest
 import sqlalchemy.orm
 
 import api_support
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.mcp.protocol
+import subroutine.mcp.tools
+import test_mcp
 
 users = subroutine.domain.users
 workspaces = subroutine.domain.workspaces
@@ -186,3 +192,46 @@ def test_who_am_i_lists_where_an_agent_is_stopped (session: sqlalchemy.orm.Sessi
 		here.dojo.slug
 	]
 	assert stopped(here.headers(here.keanu)) == []
+
+
+def _told_by_the_agent_tools (here: Installation) -> str:
+	"""Return what ``subroutine_whoami`` tells claude, its lines run together."""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(here.session),
+		token=here.headers(here.claude)["Authorization"].removeprefix("Bearer "),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = test_mcp._called(server, "subroutine_whoami")
+
+	assert not failed, text
+
+	return " ".join(text.split())
+
+
+def test_the_agent_tools_say_where_an_agent_is_stopped (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#5299`, M-11 of the cold review of 2026-11-11: ``subroutine_whoami`` blamed a credential.
+
+	claude reaches nothing, and was told no workspace could be read with its credential, which sent
+	its person to fix the wrong thing. Reaching Zion as well, it was told nothing of the two it is
+	stopped in (decided in `#5285`: *wherever else it reaches*).
+	"""
+
+	for reaching_zion in (False, True):
+		here = Installation(session, in_zion=reaching_zion)
+		first, second = sorted((here.dojo.slug, here.metacortex.slug))
+		said = _told_by_the_agent_tools(here)
+
+		assert (
+			f"You are a member of {first} and {second}, and stopped in each because "
+			f"{here.carrieanne.username}, whom you answer to, is not a member of any of them. "
+			f"Ask an administrator of one of them to add {here.carrieanne.username}." in said
+		), said
+		assert "can be read with this credential" not in said, said
+		assert (here.zion.slug in said) is reaching_zion, said

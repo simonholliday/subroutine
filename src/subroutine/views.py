@@ -7447,6 +7447,38 @@ def _answers_to (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | Non
 	return vocabulary.answerable.get(user_id)
 
 
+def stopped_in_words (me: Me) -> list[str]:
+	"""Say where an agent is a member and stopped, and what to do about it - `SR#5299`.
+
+	**Wherever else it reaches** (M-11 of the cold review of 2026-11-11, decided in `#5285`): the
+	terminal's ``whoami`` and ``workspace list`` and the agent tools' ``subroutine_whoami`` say it
+	in the sentence every refusal gives it (`SR#5105`, decision `#5097`), read off ``stopped_in``.
+	Every entry names the same person, the one at the top of the agent's chain. Empty for a person,
+	for an agent stopped nowhere, and from an instance older than ``stopped_in``.
+	"""
+
+	if not me.stopped_in:
+		return []
+
+	detail, hint = subroutine.domain.accountability.stopped_refusal(
+		[one.slug for one in me.stopped_in], me.stopped_in[0].answers_to
+	)
+
+	return [detail, hint]
+
+
+def reaching_nothing_in_words (me: Me) -> list[str]:
+	"""Say why an account that reaches no workspace reaches none - `SR#5299`.
+
+	**An agent stopped where it is a member is told where, and whose absence stops it**, where
+	all three surfaces said no workspace could be read with its credential: that blamed the
+	credential for its person's absence, and sent the agent to have the wrong thing fixed.
+	Anybody else is told the credential reaches nothing, which is then the whole of it.
+	"""
+
+	return stopped_in_words(me) or ["No workspace here can be read with this credential."]
+
+
 def handed_over_by (username: str) -> str:
 	"""Say who assigned a task, in the words both ``show`` renderings use — `#2789`.
 
