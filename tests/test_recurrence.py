@@ -322,6 +322,22 @@ NEVER_COMES_ROUND = [
 ]
 
 
+#: `SR#5301`, M-13 of the cold review of 2026-11-11: each answered 500 on every route taking a rule.
+TOO_LONG_TO_END = ["9999999999", "999999999999999999999", "9999999999T000000Z"]
+
+
+@pytest.mark.parametrize("until", TOO_LONG_TO_END)
+def test_an_until_too_long_for_a_clock_is_refused_in_its_own_sentence (until: str) -> None:
+	"""dateutil overflowed building the rule, before the check that refuses the same value."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.recurrence.rule(f"FREQ=DAILY;UNTIL={until}")
+
+	assert refused.value.errors[0].message.endswith(
+		f"It ends at {until}, which is not a time any clock reads."
+	), refused.value.errors[0].message
+
+
 @pytest.mark.parametrize(
 	("rule", "said"), NEVER_COMES_ROUND, ids=[one[0] for one in NEVER_COMES_ROUND]
 )

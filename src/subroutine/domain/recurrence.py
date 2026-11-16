@@ -704,6 +704,18 @@ def _checked (value: str, *, field: str) -> str:
 	except (ValueError, TypeError) as unreadable:
 		raise _refuse(value, field=field, why=str(unreadable)) from None
 
+	# **An ``UNTIL`` of ten digits or more is refused, not a crash** (`SR#5301`, M-13 of the cold
+	# review of 2026-11-11): dateutil reads it as a C int and overflows building the rule, before
+	# :func:`_until_in_utc` is reached to refuse the same value - so in its sentence, one fault.
+	except OverflowError as unreadable:
+		why = (
+			f"It ends at {found['UNTIL']}, which is not a time any clock reads."
+			if "UNTIL" in found
+			else str(unreadable)
+		)
+
+		raise _refuse(value, field=field, why=why) from None
+
 	# **A repeat that comes round no times is refused** (`#3935`), as *every 0 days* is: dateutil
 	# reads ``COUNT=0`` as a rule with nothing in it, so a new task was refused for having no dates
 	# while a change to an old one was stored and read back as *0 times*.

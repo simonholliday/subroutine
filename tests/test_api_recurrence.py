@@ -331,6 +331,35 @@ def test_somebody_with_two_workspaces_is_answered_rather_than_asked_which (
 	assert (own.status_code, own.json().get("timezone")) == (200, "America/New_York"), own.text
 
 
+@pytest.mark.parametrize("until", ["9999999999", "999999999999999999999", "9999999999T000000Z"])
+def test_an_until_too_long_for_a_clock_is_refused_wherever_a_rule_is_taken (
+	world: test_api_tasks.World, until: str
+) -> None:
+	"""`SR#5301`, M-13 of the cold review of 2026-11-11: 500 on making, changing or checking it."""
+
+	rule = f"FREQ=DAILY;UNTIL={until}"
+	made = world.call("POST", "/v1/tasks", json={"title": "Water the plants", "due": "2026-10-01"})
+
+	assert made.status_code == 201, made.text
+
+	answers = {
+		"made": world.call(
+			"POST", "/v1/tasks", json={"title": "Pay rent", "due": "2026-10-01", "recurrence": rule}
+		),
+		"changed": world.call(
+			"PATCH", f"/v1/tasks/{made.json()['ref']}", json={"recurrence": rule}
+		),
+		"checked": world.call("POST", "/v1/recurrence/parse", json={"text": rule}),
+	}
+
+	assert {name: answer.status_code for name, answer in answers.items()} == {
+		"made": 422,
+		"changed": 422,
+		"checked": 422,
+	}, {name: answer.text for name, answer in answers.items()}
+	assert all("not a time any clock reads" in answer.text for answer in answers.values())
+
+
 def test_asking_something_that_does_not_repeat_is_refused_by_name (
 	world: test_api_tasks.World,
 ) -> None:

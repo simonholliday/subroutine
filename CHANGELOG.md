@@ -248,7 +248,8 @@ upgrade involves.
   counted in a date such as `today+<digits>d`, more than 4,300 digits answered 500 on a dozen
   routes, and ended `show` and `comment` in the terminal's crash report. A mention of one is kept
   as prose, no item answers to one, and a date counting one is refused as landing off the
-  calendar.
+  calendar. A repeat ending at an `UNTIL` of ten digits or more, which answered 500 wherever a
+  rule is taken, is refused as a time no clock reads.
 
 - **A cursor continues in the order it was made with.** A grouped listing's next cursor for done or
   cancelled work, followed with the group's key as the answer says, was refused, and a cursor
