@@ -30,6 +30,7 @@ import subroutine.connections
 import subroutine.domain.accountability
 import subroutine.domain.documents
 import subroutine.domain.filtering
+import subroutine.domain.grammar
 import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.installations
@@ -2242,6 +2243,116 @@ def every_project (
 	return list(
 		client.projects(workspace=workspace, limit=EVERY_ROW, include_archived=include_archived)
 	)
+
+
+@dataclasses.dataclass(frozen=True)
+class LeftOut:
+	"""What a search matched and left out because it is finished or retired - `SR#5300`.
+
+	**Counted once, for the terminal and the agent tools alike** (M-12 of the cold review of
+	2026-11-11, decided in `#5285`), for `#3927`'s reason: where each surface kept a copy of a rule
+	like this, the two disagreed. Each says it in its own register with its own way to see the
+	rows; the count, its noun and the term that finds them are said here.
+	"""
+
+	finished: int = 0
+	retired: int = 0
+
+	#: Whether a count filled the page it was asked at, so it is a floor rather than a total
+	#: (decision `#5285`: *a count that filled its page is said as a floor*).
+	filled: bool = False
+
+	def __add__ (self, other: "LeftOut") -> "LeftOut":
+		"""Return both counts together, as workspaces and connections add up."""
+
+		return LeftOut(
+			finished=self.finished + other.finished,
+			retired=self.retired + other.retired,
+			filled=self.filled or other.filled,
+		)
+
+	def __bool__ (self) -> bool:
+		"""Say whether anything was left out at all."""
+
+		return bool(self.finished or self.retired)
+
+	@property
+	def one (self) -> bool:
+		"""Say whether exactly one thing was left out, and known to be one: *it*, not *them*."""
+
+		return self.finished + self.retired == 1 and not self.filled
+
+	@property
+	def term (self) -> str:
+		"""Return the search term that finds what was counted, naming only the kinds that were."""
+
+		if self.finished and self.retired:
+			return subroutine.domain.grammar.FINISHED_OR_RETIRED
+
+		if self.finished:
+			return subroutine.domain.grammar.FINISHED
+
+		return subroutine.domain.grammar.RETIRED
+
+	def said (self) -> str:
+		"""Return how many matched too: *2 finished things and 1 retired document also match*."""
+
+		parts = []
+
+		if self.finished:
+			parts.append(f"{self.finished} finished {'thing' if self.finished == 1 else 'things'}")
+
+		if self.retired:
+			parts.append(
+				f"{self.retired} retired {'document' if self.retired == 1 else 'documents'}"
+			)
+
+		verb = "matches" if self.finished + self.retired == 1 else "match"
+
+		return f"{'At least ' if self.filled else ''}{' and '.join(parts)} also {verb}"
+
+
+def left_out_of_a_search (
+	client: Client,
+	q: str,
+	*,
+	shown: typing.Iterable[typing.Any],
+	tasks: dict[str, typing.Any] | None = None,
+	documents: dict[str, typing.Any] | None = None,
+) -> LeftOut:
+	"""Count what a search matched and left out because it is finished or retired - `SR#5300`.
+
+	``tasks`` and ``documents`` are what the listing asked each kind with, bar the line itself:
+	``None`` for a kind it did not ask, and for documents an instance listed retired ones among
+	anyway (`#3714`). Each is asked once more with its categories added to the line, at the
+	listing's own limit, so a count that fills that page is a floor.
+
+	**Never what it showed** (decision `#5285`): ``shown`` is every row the listing returned, which
+	reaches finished work for more reasons than a status in the line - a line that is a number, a
+	date of completion, a ``--filter`` - so those rows are taken away rather than the reasons worked
+	out again here. A line naming a status chose what it reaches, so nothing is asked of it.
+	"""
+
+	if subroutine.domain.grammar.names_a_status(q):
+		return LeftOut()
+
+	seen = {row.id for row in shown}
+	finished = retired = 0
+	filled = False
+
+	if tasks is not None:
+		found = client.tasks(q=f"{q} {subroutine.domain.grammar.FINISHED}", **tasks)
+		finished = sum(1 for row in found if row.id not in seen)
+		filled = bool(finished) and found.has_more
+
+	if documents is not None:
+		kept = client.documents(
+			q=f"{q} {subroutine.domain.grammar.RETIRED}", open=True, **documents
+		)
+		retired = sum(1 for row in kept if row.id not in seen)
+		filled = filled or (bool(retired) and kept.has_more)
+
+	return LeftOut(finished=finished, retired=retired, filled=filled)
 
 
 def answered_to (client: Client) -> list[str]:

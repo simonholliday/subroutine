@@ -84,11 +84,16 @@ upgrade involves.
   each copy was taken, so none was output the program could print. All three are pasted from
   real runs, and a test now fails the build when a quoted backup stops saying what it holds.
 
-- **A search says how many finished things it also matched, and takes its words unquoted.** It
-  leaves finished work out, as a list does, and said nothing of it; it now gives the count and the
-  search that finds them, and `subroutine search water plants` searches for both words where it
-  was refused. And `list --to-act-on` counts only the deferred work `--deferred` would add, and its
+- **A search says how many finished things and retired documents it also matched, and takes its
+  words unquoted.** It leaves both out, as a list does, and said nothing of them; it now gives the
+  count and the search that finds them, in the terminal and the agent tools, without counting
+  anything it listed. `subroutine search water plants` searches for both words where it was
+  refused. And `list --to-act-on` counts only the deferred work `--deferred` would add, and its
   hint names the command as you typed it.
+
+- **A count of what a list left out says *at least* when there may be more.** With more deferred
+  work or events than its limit, `list` counted only as many as the limit and said that number as
+  though it were all of them, and so did the agent tools' count of events.
 
 - **`me` assigns work to whoever is asking, as it already lists it.** `@me` in a captured line
   and an assignee of `me` were refused as nobody called 'me'; for an agent, `me` is the agent

@@ -116,8 +116,8 @@ def test_explain_searching_says_finished_work_is_left_out (run: Run) -> None:
 
 	said = _flat(run("explain", "searching").output)
 
-	assert "A search leaves finished work out" in said, said
-	assert f"'{subroutine.domain.grammar.FINISHED}' finds them" in said, said
+	assert "A search leaves finished work and retired documents out" in said, said
+	assert f"'{subroutine.domain.grammar.FINISHED_OR_RETIRED}' finds them" in said, said
 
 
 def test_the_finished_term_names_the_finished_categories () -> None:

@@ -11689,6 +11689,100 @@ def test_the_agents_listing_of_nothing_but_events_says_there_is_nothing_to_do (
 	assert "1 event not listed." in listed, listed
 
 
+def test_the_agents_events_count_that_fills_its_page_is_a_floor (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#5300`, decided in `#5285`: two events left out at a limit of one were said to be one."""
+
+	for text in ("Payday on 2026-10-01", "Rent day on 2026-10-02"):
+		made, failed = _called(bound, "subroutine_add", text=text, type="event")
+
+		assert not failed, made
+
+	_added(bound, "Water the plants")
+	listed, failed = _called(bound, "subroutine_list", limit=1)
+
+	assert not failed, listed
+	assert (
+		"At least 1 event not listed. List with filter type_category.eq=occasion." in listed
+	), listed
+
+
+def test_the_agents_search_says_what_finished_work_it_left_out (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#5300`, L-2 of the cold review of 2026-11-11: it said nothing, and *Nothing open.* alone.
+
+	The terminal's search has said how many finished things also matched since `SR#5145`; this
+	surface answered a search whose only match was done as though nothing had matched.
+	"""
+
+	_added(bound, "Water the plants")
+
+	for title in ("Water the garden", "Water the lawn"):
+		finished, failed = _called(bound, "subroutine_done", ref=_added(bound, title))
+
+		assert not failed, finished
+
+	found, failed = _called(bound, "subroutine_search", q="water")
+
+	assert not failed, found
+	assert "Water the plants" in found and "Water the garden" not in found, found
+	assert (
+		"2 finished things also match. Search with q 'water status_category:done,cancelled'."
+		in found
+	), found
+
+	only, failed = _called(bound, "subroutine_search", q="garden")
+
+	assert not failed, only
+	assert only.splitlines()[:2] == [
+		"Nothing open.",
+		"1 finished thing also matches. Search with q 'garden status_category:done,cancelled'.",
+	], only
+
+	cut, failed = _called(bound, "subroutine_search", q="water", limit=1)
+
+	assert not failed, cut
+	assert "At least 1 finished thing also matches." in cut, cut
+
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed and "finished thing" not in listed, "a listing is not a search"
+
+
+def test_the_agents_search_says_what_retired_document_it_left_out (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#5300`, decided in `#5285`: a retired document is counted in the same line."""
+
+	written, failed = _called(
+		bound,
+		"subroutine_document",
+		title="The watering rota",
+		body="Mondays and Thursdays.",
+		type="decision",
+		status="superseded",
+	)
+
+	assert not failed, written
+
+	found, failed = _called(bound, "subroutine_search", q="watering")
+
+	assert not failed, found
+	assert found.splitlines()[:2] == [
+		"Nothing open.",
+		"1 retired document also matches. "
+		"Search with q 'watering status_category:superseded,archived'.",
+	], found
+
+	shown, failed = _called(
+		bound, "subroutine_search", q="watering status_category:superseded,archived"
+	)
+
+	assert not failed and "The watering rota" in shown and "also match" not in shown, shown
+
+
 def test_the_project_tool_says_a_key_can_be_renamed () -> None:
 	"""`SR#4028`, L-8 (7) of the cold review of 2026-09-30: it called a key permanent.
 

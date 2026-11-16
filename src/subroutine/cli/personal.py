@@ -939,9 +939,19 @@ class Listing:
 	#: (`#3704`). Carried for ``retired_too``'s reason.
 	events_too: bool = False
 
-	#: How many finished tasks a search matched and left out (`SR#5145`). Carried for ``parked``'s
+	#: Whether the deferred count filled the page it was asked at, so it is a floor (`SR#5300`,
+	#: decision `#5285`: *a count that filled its page is said as a floor*).
+	parked_filled: bool = False
+
+	#: Whether the events count filled its page, for ``parked_filled``'s reason (`SR#5300`).
+	events_filled: bool = False
+
+	#: What a search matched and left out because it is finished or retired (`SR#5145`,
+	#: `SR#5300`), counted by the function the agent tools count with. Carried for ``parked``'s
 	#: reason, and counted only for a search.
-	finished: int = 0
+	searched: subroutine.clients.base.LeftOut = dataclasses.field(
+		default_factory=subroutine.clients.base.LeftOut
+	)
 
 
 # These live above every function that annotates with them. A module-level annotation is
@@ -3717,8 +3727,10 @@ def _listing (
 		cut = False
 
 		parked = 0
+		parked_filled = False
 		left_out = 0
-		finished = 0
+		events_filled = False
+		searched = subroutine.clients.base.LeftOut()
 		held_back = 0
 		unread: list[str] = []
 		retired_too = False
@@ -3882,45 +3894,55 @@ def _listing (
 				# because it would mean a second full scan of the *whole* result, where
 				# this set is the parked work alone and is small by construction. Asked
 				# at `asked` so a pathological backlog cannot make the count the
-				# expensive part; the report says `N+` if it fills.
-				parked += len(
-					client.tasks(
-						workspace=workspace.slug,
-						limit=asked,
-						project=project,
-						deferred="only",
-						# Counted with the events the list left out, and never twice (`#3704`).
-						events="include" if events else "exclude",
-						q=q,
-						# **Narrowed as the list is** (`SR#5145`): without it the count took in
-						# deferred work assigned to other people, which `--deferred` beside
-						# `--to-act-on` then did not show. The events count below always had it.
-						to_act_on=to_act_on,
-						assignee=assignee,
-						claimed_by=claimed_by,
-						status=status,
-						type=type,
-						tag=tag,
-						filters=filters,
-					)
+				# expensive part; a count that fills it is said as a floor, *At least N*
+				# (`SR#5300`, decided in `#5285`), which `N+` here promised and nothing printed.
+				deferred_here = client.tasks(
+					workspace=workspace.slug,
+					limit=asked,
+					project=project,
+					deferred="only",
+					# Counted with the events the list left out, and never twice (`#3704`).
+					events="include" if events else "exclude",
+					q=q,
+					# **Narrowed as the list is** (`SR#5145`): without it the count took in
+					# deferred work assigned to other people, which `--deferred` beside
+					# `--to-act-on` then did not show. The events count below always had it.
+					to_act_on=to_act_on,
+					assignee=assignee,
+					claimed_by=claimed_by,
+					status=status,
+					type=type,
+					tag=tag,
+					filters=filters,
 				)
+				parked += len(deferred_here)
+				parked_filled = parked_filled or deferred_here.has_more
+
 			# **And the finished work a search left out** (`SR#5145`). Leaving it out is decided - a
 			# search is the open listing with words (`#3549`) - and leaving it out in silence is not:
-			# `search water` found what was open and said nothing of what was done. Not asked where the
-			# line names a status, which chooses what of the finished work it reaches, and asked at
-			# `asked` as the parked work is.
-			if searching and answered and not subroutine.domain.grammar.names_a_status(q):
-				finished += len(
-					client.tasks(
-						workspace=workspace.slug,
-						limit=asked,
-						project=project,
-						deferred="include" if deferred else "exclude",
-						events="include" if events else "exclude",
-						q=f"{q} {subroutine.domain.grammar.FINISHED}",
-						tag=tag,
-						filters=filters,
-					)
+			# `search water` found what was open and said nothing of what was done. **Never what
+			# this listed** (`SR#5300`, decided in `#5285`): a number, a date of completion or a
+			# `--filter` reaches finished work too, and the count took in the very rows just shown.
+			# Narrowed as the list is, by the function the agent tools count with, at `asked`.
+			if searching and answered:
+				searched += subroutine.clients.base.left_out_of_a_search(
+					client,
+					q or "",
+					shown=found_here,
+					tasks={
+						"workspace": workspace.slug,
+						"limit": asked,
+						"project": project,
+						"deferred": "include" if deferred else "exclude",
+						"events": "include" if events else "exclude",
+						"to_act_on": to_act_on,
+						"assignee": assignee,
+						"claimed_by": claimed_by,
+						"status": status,
+						"type": type,
+						"tag": tag,
+						"filters": filters,
+					},
 				)
 
 			# **And the events it left out, counted as the parked work is** (`#3704`, decision `#3807`),
@@ -3931,24 +3953,25 @@ def _listing (
 			# `only` would be refused and every one of them is on the page.
 			if not events and answered and not found_here.events_too:
 				shown_here = {found.id for found in found_here}
-				left_out += sum(
-					1
-					for found in client.tasks(
-						workspace=workspace.slug,
-						limit=asked,
-						project=project,
-						events="only",
-						q=q,
-						to_act_on=to_act_on,
-						assignee=assignee,
-						claimed_by=claimed_by,
-						status=status,
-						type=type,
-						tag=tag,
-						filters=filters,
-					)
-					if found.id not in shown_here
+				events_here = client.tasks(
+					workspace=workspace.slug,
+					limit=asked,
+					project=project,
+					events="only",
+					q=q,
+					to_act_on=to_act_on,
+					assignee=assignee,
+					claimed_by=claimed_by,
+					status=status,
+					type=type,
+					tag=tag,
+					filters=filters,
 				)
+				unlisted = sum(1 for found in events_here if found.id not in shown_here)
+				left_out += unlisted
+
+				# **A floor where it filled its page** (`SR#5300`, decided in `#5285`).
+				events_filled = events_filled or (bool(unlisted) and events_here.has_more)
 
 			# **A document has no assignee, cannot be claimed and has no dates, so a list narrowed
 			# by any of them is a list of tasks** (§6.14, `#815`, decision `#4093`). The same argument
@@ -4038,6 +4061,24 @@ def _listing (
 				# One instance answers for every workspace on it, so one listing saying so is enough.
 				retired_too = retired_too or found_documents.retired_too
 
+				# **And the retired documents a search left out** (`SR#5300`, decided in `#5285`),
+				# as its finished work is counted above; not of an instance that listed them anyway.
+				if searching and not found_documents.retired_too:
+					searched += subroutine.clients.base.left_out_of_a_search(
+						client,
+						q or "",
+						shown=found_documents,
+						documents={
+							"workspace": workspace.slug,
+							"limit": asked,
+							"project": project,
+							"status": status,
+							"type": type,
+							"tag": tag,
+							"filters": filters,
+						},
+					)
+
 			cut = cut or found_documents.has_more
 			rows.extend((client.connection.name, found) for found in found_documents)
 
@@ -4100,7 +4141,9 @@ def _listing (
 			retired_too=retired_too,
 			events=left_out,
 			events_too=events_too,
-			finished=finished,
+			parked_filled=parked_filled,
+			events_filled=events_filled,
+			searched=searched,
 		)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
@@ -4931,7 +4974,8 @@ def _listed (
 
 			# **And what it left out because it is finished** (`SR#5145`), in place of the widening
 			# suggestion: a finished match is what the search found, and the line names its command.
-			if any(answer.value.finished for answer in gathered.answers):
+			# A retired document too (`SR#5300`), which `--deferred` did not find either.
+			if _left_out_of_search(gathered):
 				_say_finished(gathered, console=program.console, context=context)
 
 				return
@@ -15777,13 +15821,15 @@ def _say_parked (
 	A count rather than `…and more`'s flag, and the difference is affordable. That flag exists
 	because an exact remainder needs a second scan of the whole result; this set is the parked
 	work alone, which is small by construction — somebody defers a handful of things, not a
-	backlog. It is still asked at the page limit, so `N+` is what a pathological case reads as.
+	backlog. It is still asked at the page limit, so a count that fills it says *At least*
+	(`SR#5300`, decided in `#5285`): this promised `N+` and printed the page's length as exact.
 	"""
 
 	if not hidden:
 		return
 
 	total = sum(answer.value.parked for answer in gathered.answers)
+	floor = any(answer.value.parked_filled for answer in gathered.answers)
 
 	if not total:
 		return
@@ -15797,8 +15843,8 @@ def _say_parked (
 	# `…and more` is: a bare `list --deferred` dropped the narrowing the count was made under.
 	console.print(
 		rich.text.Text(
-			f"      {total} {things} deferred until later. Run this to include "
-			f"{'it' if total == 1 else 'them'}: "
+			f"      {'At least ' if floor else ''}{total} {things} deferred until later. Run this "
+			f"to include {'it' if total == 1 and not floor else 'them'}: "
 			f"{' '.join([*_typed_words(context), '--deferred'])}",
 			style=DETAIL,
 		)
@@ -15815,22 +15861,36 @@ def _say_finished (
 
 	**Said because a search leaves them out**, as the open listing it is does (`#3549`), so
 	``search water`` found *Water the plants* and was silent about *Water the garden*, which was
-	done. The command is the search as it was typed, with :data:`grammar.FINISHED` added.
+	done. **And its retired documents, in the same line** (`SR#5300`, decided in `#5285`), with a
+	count that filled its page said as a floor. The command is the search as it was typed, with
+	the term that finds what was counted added.
 	"""
 
-	total = sum(answer.value.finished for answer in gathered.answers)
+	left_out = _left_out_of_search(gathered)
 
-	if not total:
+	if not left_out:
 		return
 
-	matched = "finished thing also matches" if total == 1 else "finished things also match"
 	console.print(
 		rich.text.Text(
-			f"      {total} {matched}. Run this to see {'it' if total == 1 else 'them'}: "
-			f"{' '.join([*_typed_words(context), subroutine.domain.grammar.FINISHED])}",
+			f"      {left_out.said()}. Run this to see {'it' if left_out.one else 'them'}: "
+			f"{' '.join([*_typed_words(context), left_out.term])}",
 			style=DETAIL,
 		)
 	)
+
+
+def _left_out_of_search (
+	gathered: subroutine.fanout.Gathered[Listing],
+) -> subroutine.clients.base.LeftOut:
+	"""Return what every connection's search left out because it is finished or retired."""
+
+	total = subroutine.clients.base.LeftOut()
+
+	for answer in gathered.answers:
+		total += answer.value.searched
+
+	return total
 
 
 def _say_events (
@@ -15844,13 +15904,15 @@ def _say_events (
 
 	**:func:`_say_parked`'s rule on a second axis**: a list that leaves out a birthday or a payday
 	without saying so stops supporting the inference refs exist for, that *not in the list* means
-	*not in the system*. Asked at the page limit, as that count is.
+	*not in the system*. Asked at the page limit, as that count is, and said as a floor where it
+	filled it (`SR#5300`).
 	"""
 
 	if not hidden:
 		return
 
 	total = sum(answer.value.events for answer in gathered.answers)
+	floor = any(answer.value.events_filled for answer in gathered.answers)
 
 	if not total:
 		return
@@ -15860,12 +15922,14 @@ def _say_events (
 	# **No remedy where it would not work, and *it* for one** (`#4323`, of the cold review of
 	# 2026-10-03). ``view run`` takes no ``--events``, and ``list --events`` drops the view's own
 	# narrowing, so it is told the count alone.
-	remedy = (
-		""
-		if viewing
-		else f" 'subroutine list --events' to include {'it' if total == 1 else 'them'}."
+	them = "it" if total == 1 and not floor else "them"
+	remedy = "" if viewing else f" 'subroutine list --events' to include {them}."
+	console.print(
+		rich.text.Text(
+			f"      {'At least ' if floor else ''}{total} {things} not listed.{remedy}",
+			style=DETAIL,
+		)
 	)
-	console.print(rich.text.Text(f"      {total} {things} not listed.{remedy}", style=DETAIL))
 
 
 def _say_held_back (

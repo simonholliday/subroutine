@@ -2316,11 +2316,14 @@ def _searched (
 	if not (arguments.get("q") or "").strip():
 		return "Say what to look for."
 
-	return _listed(client, arguments)
+	return _listed(client, arguments, searching=True)
 
 
 def _listed (
-	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+	client: subroutine.clients.base.Client,
+	arguments: dict[str, typing.Any],
+	*,
+	searching: bool = False,
 ) -> str:
 	"""Return the backlog as one compact line per item.
 
@@ -2562,6 +2565,7 @@ def _listed (
 	# tasks — and a second call that dropped the filter it could not honour would answer it by
 	# adding every decision in the workspace.
 	documents: typing.Any = []
+	documents_answered = False
 
 	if documents_asked:
 		try:
@@ -2575,6 +2579,7 @@ def _listed (
 				filters=filters,
 				open=True,
 			)
+			documents_answered = True
 
 		except subroutine.errors.ValidationError as unknown:
 			if not subroutine.clients.base.names_a_word_not_kept_here(unknown):
@@ -2628,8 +2633,8 @@ def _listed (
 	# **And the events it left out, counted as the terminal counts them** (`#3704`). Not under
 	# ``ready``, which has never offered an event (`#1236`), so there is nothing to count, and not
 	# where the tasks refused the request, which a count would ask again and be refused the same way.
-	left_out = (
-		0
+	left_out, events_filled = (
+		(0, False)
 		if ready or refused is not None
 		else _events_left_out(
 			client,
@@ -2642,6 +2647,39 @@ def _listed (
 			assignee=assignee,
 			filters=filters,
 		)
+	)
+
+	# **And what a search left out because it is finished or retired** (`SR#5300`, L-2 and M-12 of
+	# the cold review of 2026-11-11, decided in `#5285`): *Nothing open.* about a search whose only
+	# match was done is the silence `SR#5145` ended in the terminal. Counted by the function the
+	# terminal counts with, narrowed as each kind was asked, never what was shown; asked at
+	# ``limit``, so a count that fills it is a floor. Only for a search, as the terminal counts.
+	searched = (
+		subroutine.clients.base.left_out_of_a_search(
+			client,
+			query or "",
+			shown=[*tasks, *documents],
+			tasks=(
+				None
+				if ready or refused is not None
+				else {
+					"workspace": workspace,
+					"project": project,
+					"limit": limit,
+					"to_act_on": to_act_on,
+					"events": "exclude",
+					"assignee": assignee,
+					"filters": filters,
+				}
+			),
+			documents=(
+				{"workspace": workspace, "project": project, "limit": limit, "filters": filters}
+				if documents_answered and not getattr(documents, "retired_too", False)
+				else None
+			),
+		)
+		if searching
+		else subroutine.clients.base.LeftOut()
 	)
 
 	if not rows:
@@ -2660,7 +2698,8 @@ def _listed (
 		return "\n".join(
 			[
 				"Nothing to do." if left_out else "Nothing open.",
-				*_said_of_events(left_out),
+				*_said_of_events(left_out, filled=events_filled),
+				*_said_of_searched(searched, query),
 				*_waiting_on_a_parent(tasks),
 				*_could_not_read(tasks, documents),
 			]
@@ -2704,7 +2743,8 @@ def _listed (
 	# so an unreadable term comes back twice for one mistake.
 	rows.extend(_could_not_read(tasks, documents))
 
-	rows.extend(_said_of_events(left_out))
+	rows.extend(_said_of_events(left_out, filled=events_filled))
+	rows.extend(_said_of_searched(searched, query))
 
 	# **And an instance that could not leave them out** (`#3704`), where one is on the page, so an
 	# agent does not read a payday as work it asked for.
@@ -2721,7 +2761,7 @@ def _events_left_out (
 	client: subroutine.clients.base.Client,
 	tasks: typing.Any,
 	**asked: typing.Any,
-) -> int:
+) -> tuple[int, bool]:
 	"""Return how many events a task listing left out, not counting any it listed - `#3704`.
 
 	**A second, bounded request with ``events=only``**, as the terminal's count is: the set is the
@@ -2731,19 +2771,23 @@ def _events_left_out (
 	"""
 
 	if getattr(tasks, "events_too", False):
-		return 0
+		return 0, False
 
 	shown = {row.id for row in tasks}
+	found = client.tasks(events="only", **asked)
+	left_out = sum(1 for row in found if row.id not in shown)
 
-	return sum(1 for row in client.tasks(events="only", **asked) if row.id not in shown)
+	# **And whether it filled its page, so it is a floor** (`SR#5300`, decided in `#5285`).
+	return left_out, bool(left_out) and found.has_more
 
 
-def _said_of_events (left_out: int) -> list[str]:
+def _said_of_events (left_out: int, *, filled: bool = False) -> list[str]:
 	"""Return the line that says how many events a listing left out, and how to list them.
 
 	**Named with the filter that lists them**, as every count here names its way to see the rows,
 	since a count nobody can act on is furniture: this tool has no argument for events, and
-	naming their category is the request that brings them back.
+	naming their category is the request that brings them back. A count that filled its page is
+	said as a floor (`SR#5300`).
 	"""
 
 	if not left_out:
@@ -2751,7 +2795,25 @@ def _said_of_events (left_out: int) -> list[str]:
 
 	things = "event" if left_out == 1 else "events"
 
-	return [f"{left_out} {things} not listed. List with filter type_category.eq=occasion."]
+	return [
+		f"{'At least ' if filled else ''}{left_out} {things} not listed. "
+		"List with filter type_category.eq=occasion."
+	]
+
+
+def _said_of_searched (
+	left_out: subroutine.clients.base.LeftOut, query: str | None
+) -> list[str]:
+	"""Return the line saying what a search left out because it is finished or retired - `SR#5300`.
+
+	**The terminal's count, in this surface's register**: the search that finds them, as the
+	``q`` to send, since this tool has nothing else to bring them back.
+	"""
+
+	if not left_out:
+		return []
+
+	return [f"{left_out.said()}. Search with q '{query} {left_out.term}'."]
 
 
 def _waiting_on_a_parent (tasks: typing.Any) -> list[str]:

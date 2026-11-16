@@ -156,6 +156,15 @@ def read (line: str | None, *, entity: str) -> Read:
 #: does. Held to :data:`subroutine.domain.tasks.FINISHED_CATEGORIES` by a test.
 FINISHED = "status_category:done,cancelled"
 
+#: The term that searches a document's retired categories, which a search leaves out as it leaves
+#: finished work out (`SR#5300`, `#3549`). Held to
+#: :data:`subroutine.domain.documents.RETIRED_CATEGORIES` by a test.
+RETIRED = "status_category:superseded,archived"
+
+#: Both in one term (`SR#5300`, decided in `#5285`): each kind reads the categories it keeps, so
+#: one search finds a finished task and a retired document together.
+FINISHED_OR_RETIRED = "status_category:done,cancelled,superseded,archived"
+
 
 def names_a_status (line: str | None) -> bool:
 	"""Say whether a search line narrows a task by its status itself - `SR#5145`.
