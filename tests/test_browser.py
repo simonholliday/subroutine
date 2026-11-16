@@ -3031,6 +3031,18 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	**Read for fat**: one page per claim - a workspace's row, a project's without the tab, the
 	journal's own row - then its two ways out, and the item's button.
+
+	**48 to 49, for `SR#5302`, and it is a form reading back a control it drew.** A task whose
+	assignee has left the workspace was edited through a select whose roster offered nobody of that
+	name, so it held *Nobody*, and every save sends what the form shows: saving for the title
+	unassigned them, and the answer was 200. Which option a select holds is its ``selected``
+	attribute, which ``tests/test_web.py``'s harness drops by decision, and what a save sends is
+	``readForm`` reading the drawn form, which only a page has. Against the code before, the
+	select held *Nobody*.
+
+	**Read for fat**: one item, one save, and two assertions - the select holding the assignee and
+	the save sending it back. The server's half, that an unchanged assignee is not asked about, is
+	driven over the API and the terminal, where it belongs.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -3038,11 +3050,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 48, (
+	assert len(tests) <= 49, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 48."
+		f"read every raise in this docstring as a set: it has moved 17 to 49."
 	)
 
 
@@ -7202,6 +7214,52 @@ def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
 	assert "project" not in late, f"a sub-task sent the default drawn after More opened: {late}"
 
 	page.close()
+
+
+def test_saving_a_task_keeps_an_assignee_its_roster_cannot_offer (running: typing.Any) -> None:
+	"""`SR#5302`, M-14 of the cold review of 2026-11-11: a save for its title unassigned them.
+
+	keanu has left the workspace, so the roster offers no keanu, and the select took its first
+	option, *Nobody*: every save sends the assignee it shows, so it sent ``null``, the answer was
+	200 and nothing said so. The select keeps keanu, chosen, and the save sends keanu back.
+	"""
+
+	opened, written, *_ = running
+	page = opened("/projects")
+
+	def assigned (route: typing.Any) -> None:
+		"""Answer #42 as assigned to keanu, whom the roster does not hold; leave writes alone."""
+
+		if route.request.method != "GET":
+			route.fallback()
+
+			return
+
+		route.fulfill(
+			status=200,
+			content_type="application/json",
+			body=json.dumps({**CARD, "assignee": "keanu"}),
+		)
+
+	page.route(re.compile(rf".*/v1/tasks/{CARD['ref']}(\?.*)?$"), assigned)
+	page.goto(f"{OURS}/projects/{CARD['project_path']}/{CARD['ref']}")
+	page.wait_for_selector(".detail button.edit", timeout=10_000)
+	page.click(".detail button.edit")
+	page.wait_for_selector(".detail form.editing select[name=assignee]", timeout=10_000)
+
+	assert page.input_value(".detail form.editing select[name=assignee]") == "keanu", (
+		"the select did not hold the assignee, so saving would clear it"
+	)
+
+	written.clear()
+	page.fill(".detail form.editing input[name=title]", "Fix the pagination cursor today")
+	page.click(".detail form.editing button[type='submit']")
+	_until(page, lambda: any(one[0] == "PATCH" for one in written))
+
+	saved = [json.loads(one[2] or "{}") for one in written if one[0] == "PATCH"]
+
+	assert saved and saved[0]["title"] == "Fix the pagination cursor today", saved
+	assert saved[0]["assignee"] == "keanu", f"the save unassigned keanu: {saved}"
 
 
 def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typing.Any) -> None:

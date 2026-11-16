@@ -345,7 +345,8 @@ upgrade involves.
   maintainer and a project handed to a member who had left, or to an agent that had stopped
   working there, and nobody could then act on it. Each is refused now, saying why. Work already
   theirs stays theirs, and an edit that sends them back unchanged, as the browser does, still
-  saves.
+  saves, whether they were deactivated or taken out of the workspace; the browser's form keeps
+  an assignee it cannot offer, where saving it for anything else unassigned them.
 - **The last occurrence of a repeat filed where you cannot see it can be finished.** An assignee
   who could not see the project a repeat was filed in was told there was no such project when they
   finished or skipped its last occurrence, or stopped it. Finishing it now ends the repeat; stopping

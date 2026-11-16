@@ -97,6 +97,63 @@ def test_a_value_already_held_saves_unchanged (session: sqlalchemy.orm.Session) 
 		assert saved.status_code == 200, saved.text
 
 
+def test_a_value_held_by_somebody_who_has_left_the_workspace_saves_unchanged (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5302`, M-14 of the cold review of 2026-11-11: taken out of the workspace, not stopped.
+
+	A deactivated account keeps its member row, which is all the test above asks. Taken out of the
+	workspace, keanu has none, and a task's assignee sent back by name or by id, and a document's
+	maintainer, were refused as nobody here. Each saves unchanged; a change *to* keanu is refused.
+	"""
+
+	world = test_api_tasks._world(session)
+	keanu = _person(world, "keanu")
+	task = world.call(
+		"POST", "/v1/tasks", json={"title": "Fix the sign-up form", "assignee": keanu.username}
+	)
+	other = world.call("POST", "/v1/tasks", json={"title": "Water the plants"})
+	document = world.call(
+		"POST", "/v1/documents", json={"title": "How we ship", "owner_id": str(keanu.id)}
+	)
+	unowned = world.call("POST", "/v1/documents", json={"title": "How we test"})
+
+	assert {task.status_code, other.status_code, document.status_code, unowned.status_code} == {
+		201
+	}, (task.text, document.text)
+
+	subroutine.domain.workspaces.remove_member(session, world.workspace, keanu)
+	session.flush()
+
+	for named in (keanu.username, str(keanu.id), keanu.username.upper()):
+		saved = world.call(
+			"PATCH",
+			f"/v1/tasks/{task.json()['id']}",
+			json={"title": "Fix the sign-up form today", "assignee": named},
+		)
+
+		assert saved.status_code == 200, saved.text
+		assert saved.json()["assignee"] == keanu.username, saved.text
+
+	kept = world.call(
+		"PATCH",
+		f"/v1/documents/{document.json()['id']}",
+		json={"title": "How we ship it", "owner_id": str(keanu.id)},
+	)
+
+	assert kept.status_code == 200, kept.text
+	assert kept.json()["owner_id"] == str(keanu.id), kept.text
+
+	for path, body, field in (
+		(f"/v1/tasks/{other.json()['id']}", {"assignee": keanu.username}, "assignee"),
+		(f"/v1/documents/{unowned.json()['id']}", {"owner_id": str(keanu.id)}, "owner_id"),
+	):
+		refused = world.call("PATCH", path, json=body)
+
+		assert refused.status_code == 422, refused.text
+		assert refused.json()["errors"][0]["field"] == field, refused.text
+
+
 def test_the_members_offered_are_those_who_can_act (session: sqlalchemy.orm.Session) -> None:
 	"""A name nobody has is answered with who is here: never somebody who would then be refused."""
 

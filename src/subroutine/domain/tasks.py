@@ -1523,6 +1523,52 @@ def assignee_for (
 	)
 
 
+def assignee_named (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	given: str,
+	*,
+	caller: subroutine.db.models.identity.User | None = None,
+) -> uuid.UUID:
+	"""Return who a change of assignee names, never asking about the one it has - `SR#5302`.
+
+	**An unchanged value is not a hand-over** (M-14 of the cold review of 2026-11-11, and
+	`SR#5104`'s rule that only a change is asked): a save sends the assignee it shows, and resolving
+	it to a member refused every save of a task whose assignee had since left the workspace, by name
+	and by id. The one it is assigned to, named by username, by id or as ``me``, is returned
+	unasked; anybody else is :func:`assignee_for`'s question. A new task has nobody to compare.
+	"""
+
+	current = (
+		None
+		if task.assignee_id is None
+		else session.get(subroutine.db.models.identity.User, task.assignee_id)
+	)
+	named = (
+		caller.username
+		if caller is not None and given == subroutine.domain.users.CALLER
+		else given
+	)
+
+	if current is not None and _names(current, named):
+		return current.id
+
+	return assignee_for(session, task.workspace_id, given, caller=caller).id
+
+
+def _names (account: subroutine.db.models.identity.User, given: str) -> bool:
+	"""Say whether ``given`` names this account, by id or by username, as a member is named."""
+
+	try:
+		if uuid.UUID(given) == account.id:
+			return True
+
+	except ValueError:
+		pass
+
+	return subroutine.domain.users.normalize(given) == account.username_normalized
+
+
 def update (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,

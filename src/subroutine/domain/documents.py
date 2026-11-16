@@ -561,7 +561,14 @@ def update (
 		else item_type_for(session, document.workspace_id, type_key)
 	)
 
-	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
+	# **Only a change is asked** (`SR#5302`, M-14 of the cold review of 2026-11-11), as a project's
+	# owner is since `SR#5104`: resolving a maintainer sent back unchanged refused every save of a
+	# document whose maintainer had since left the workspace.
+	if (
+		owner_id is not subroutine.domain.patch.UNSET
+		and owner_id is not None
+		and str(owner_id) != str(document.owner_id)
+	):
 		# **Membership, not existence**, and it asked only about existence — so a document
 		# could be handed to an account that is not in this workspace and cannot see it, and
 		# the request was answered 201. `users.member` is the same question `assignee_for`

@@ -3885,12 +3885,13 @@ class Client:
 			# `tasks.assignee_for` and *not* `selection.user`, which spans the instance because
 			# a listing filter must. Same grammar, two questions.
 			if assignee is not subroutine.clients.base.UNSET:
+				# **And an unchanged one is not asked about** (`SR#5302`), as the endpoint does.
 				changes["assignee_id"] = (
 					None
 					if assignee is None
-					else subroutine.domain.tasks.assignee_for(
-						session, row.workspace_id, assignee, caller=actor.user
-					).id
+					else subroutine.domain.tasks.assignee_named(
+						session, row, assignee, caller=actor.user
+					)
 				)
 
 			subroutine.domain.tasks.update(

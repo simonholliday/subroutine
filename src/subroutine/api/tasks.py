@@ -960,12 +960,14 @@ def change (
 		# **Null clears it**, which is how work is handed back to nobody in particular — and it
 		# clears `assigned_by_id` with it, because an assigner with no assignee names nobody
 		# (`#473`). The service owns that pairing; this only says which of the two was meant.
+		# **And an unchanged one is not asked about** (`SR#5302`): the browser sends it with every
+		# save, and its assignee may since have left.
 		changes["assignee_id"] = (
 			None
 			if body.assignee is None
-			else subroutine.domain.tasks.assignee_for(
-				session, workspace.id, body.assignee, caller=actor.user
-			).id
+			else subroutine.domain.tasks.assignee_named(
+				session, task, body.assignee, caller=actor.user
+			)
 		)
 
 	# None of these four is patchable-to-null: a status and a type are required, and the two

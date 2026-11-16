@@ -211,6 +211,17 @@ export function Fields ({
 						<option key=${one.username} value=${one.username}
 							selected=${held.assignee === one.username}>${one.label}</option>
 					`)}
+					${/* **The assignee it holds, where the roster cannot offer them**
+					     (`SR#5302`, M-14 of the cold review of 2026-11-11): somebody who has
+					     left the workspace, or a roster this reader cannot list. Without it
+					     the select took *Nobody*, and a save for any other reason unassigned
+					     them, saying nothing. By username alone, since the page cannot tell
+					     which of the two it is. */ null}
+					${held.assignee
+						&& !(members || []).some((one) => one.username === held.assignee)
+						? html`<option key=${held.assignee} value=${held.assignee}
+							selected=${true}>${held.assignee}</option>`
+						: null}
 				</select></label>
 
 			${rank("importance", "Importance")}

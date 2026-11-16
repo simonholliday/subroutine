@@ -1939,6 +1939,24 @@ def test_whoami_and_workspace_list_say_where_an_agent_is_stopped_beside_where_it
 		assert flat.index("dojo") < flat.index("You are a member of"), "below where it reaches"
 
 
+def test_an_assignee_who_has_left_is_kept_when_sent_back_from_the_terminal (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5302`, on the local client the terminal and the agent tools write through: refused."""
+
+	run("init", "--workspace", "Metacortex", "--username", "laurence")
+	run("user", "create", "keanu")
+	run("add", "Fix the sign-up form @keanu")
+	run("add", "Water the plants")
+	run("user", "remove", "keanu")
+
+	kept = run("update", "1", "--assignee", "keanu").output
+	refused = run("update", "2", "--assignee", "keanu", expect=1).output
+
+	assert "keanu" in run("show", "1").output, kept
+	assert "keanu" in refused, refused
+
+
 def test_handing_an_agent_over_names_the_agents_that_stop_with_it (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
