@@ -127,12 +127,26 @@ def test_renaming_one_kinds_status_leaves_the_other_kinds_list (world: test_api_
 	`#5097`'s case: renaming the task status ``superseded`` to ``replaced`` rewrote the one list,
 	so superseded documents were offered again; renaming the project status ``archived`` un-hid
 	archived documents. Nothing reported either.
+
+	**And a task status keyed as the project status is** (`SR#5306`, HS5 of the cold review of
+	2026-11-11): the task list held no ``archived``, so a project's rename falling into the task
+	list for want of one of its own passed here.
 	"""
+
+	shared = world.call(
+		"POST",
+		"/v1/statuses",
+		json={"entity_type": "task", "key": "archived", "label": "Archived", "category": "done"},
+	)
+
+	assert shared.status_code == 201, shared.text
 
 	hid = world.call(
 		"PATCH",
 		f"/v1/workspaces/{world.workspace.slug}",
-		json={"settings": {TASKS: ["superseded"], DOCUMENTS: ["archived", "superseded"]}},
+		json={
+			"settings": {TASKS: ["superseded", "archived"], DOCUMENTS: ["archived", "superseded"]}
+		},
 	)
 
 	assert hid.status_code == 200, hid.text
@@ -147,7 +161,9 @@ def test_renaming_one_kinds_status_leaves_the_other_kinds_list (world: test_api_
 
 	stored = _stored(world)
 
-	assert stored[TASKS] == ["replaced"], "the task list did not follow its own status's rename"
+	assert stored[TASKS] == ["archived", "replaced"], (
+		"the task list did not follow its own status's rename, or followed a project status's"
+	)
 	assert stored[DOCUMENTS] == ["archived", "superseded"], (
 		"a task's or a project's rename rewrote what is hidden from documents"
 	)

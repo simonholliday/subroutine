@@ -118,6 +118,26 @@ def test_an_account_named_like_an_id_is_named_by_its_name (world: World) -> None
 	assert subroutine.domain.selection.user(world.session, HEX_NAME).id == held.id
 
 
+def test_an_id_that_is_nobody_s_and_no_name_is_refused_naming_it (world: World) -> None:
+	"""`SR#5306`: a listing for an assignee given by an id no account has, nor as a name, is a 404.
+
+	The value parses as an id, so it is tried as a name once the id finds nobody, and refused only
+	when neither finds anybody. Nothing in the suite named such a value, so neither the ``except``
+	nor the refusal had run.
+	"""
+
+	fresh = str(uuid.uuid4())
+	listed = world.call("GET", "/v1/tasks", params={"assignee": fresh})
+
+	assert listed.status_code == 404, listed.text
+	assert listed.json()["detail"] == (
+		f"There is no account with the id {fresh!r} here."
+	), listed.text
+	assert listed.json()["hint"] == (
+		"Name the account by its username instead - 'subroutine user list' shows them."
+	), listed.text
+
+
 def test_a_new_username_that_reads_as_an_id_is_refused (world: World) -> None:
 	"""A name such as :data:`HEX_NAME` would name nobody, so no account may take it from now on."""
 

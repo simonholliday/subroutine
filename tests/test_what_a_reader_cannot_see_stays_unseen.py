@@ -137,6 +137,106 @@ def test_the_series_is_numbered_where_it_sits_with_its_occurrence (session: sqla
 	assert hers.json()["recurrence_template_ref"] == place.series.ref, hers.json()
 
 
+#: The three places carrieanne reads an item's history: its own events, the feed and the journal.
+SURFACES = ("/v1/tasks/{ref}/events", "/v1/changes", "/v1/journal")
+
+
+def _her_surfaces_hide (place: Place, ref: int, hidden: str) -> None:
+	"""Assert ``hidden`` is on none of carrieanne's surfaces, and on keanu's events and feed."""
+
+	for path in SURFACES:
+		hers = place.ask(place.carrieanne, "GET", path.format(ref=ref))
+		his = place.ask(place.keanu, "GET", path.format(ref=ref))
+
+		assert hers.status_code == 200 and his.status_code == 200, (hers.text, his.text)
+		assert hidden not in hers.text, f"{path} gave carrieanne {hidden}"
+
+		# The journal names a row rather than giving its id, to keanu as to anybody.
+		if path != "/v1/journal":
+			assert hidden in his.text, f"{path} did not give keanu {hidden}, so this reads nothing"
+
+
+def test_a_series_joined_in_a_private_project_is_unseen_after_it_moves (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5306`, EV1 of the cold review of 2026-11-11: the field a series is joined by.
+
+	A one-off in `aaa` is given a repeat, whose event records ``recurrence_template_id`` from
+	nothing to the series' id, and the occurrence then moves to `web` for carrieanne. Dropping the
+	field from what an event may name passed seven event and journal files, and gave her the id.
+	"""
+
+	place = Place(session, private=True, count=None)
+	made = place.ask(
+		place.keanu,
+		"POST",
+		"/v1/tasks",
+		json={"title": "Feed the cat", "project": "aaa", "due": "2031-12-01"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	repeated = place.ask(
+		place.keanu, "PATCH", f"/v1/tasks/{ref}", json={"recurrence": "every week"}
+	)
+
+	assert repeated.status_code == 200, repeated.text
+
+	joined = repeated.json()["recurrence_template_ref"]
+	series = place.ask(place.keanu, "GET", f"/v1/tasks/{joined}")
+	moved = place.ask(
+		place.keanu,
+		"PATCH",
+		f"/v1/tasks/{ref}",
+		json={"project": "web", "assignee": place.carrieanne.username, "applies_to": "this_one"},
+	)
+
+	assert series.status_code == 200 and moved.status_code == 200, (series.text, moved.text)
+
+	_her_surfaces_hide(place, ref, str(series.json()["id"]))
+
+
+def test_a_parent_left_in_a_private_project_is_unseen_after_its_sub_task_moves (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5306`, EV2 of the cold review of 2026-11-11: the field a sub-task is joined by.
+
+	A sub-task in `aaa` is detached from its parent, whose event records ``parent_task_id`` from
+	the parent's id to nothing, and is then moved to `web` for carrieanne. Dropping the field from
+	what an event may name passed the same seven files, and gave her the parent's id.
+	"""
+
+	place = Place(session, private=True, count=None)
+	parent = place.ask(
+		place.keanu, "POST", "/v1/tasks", json={"title": "Plan the move", "project": "aaa"}
+	)
+
+	assert parent.status_code == 201, parent.text
+
+	child = place.ask(
+		place.keanu,
+		"POST",
+		"/v1/tasks",
+		json={"title": "Book the van", "project": "aaa", "parent_task_id": parent.json()["ref"]},
+	)
+
+	assert child.status_code == 201, child.text
+
+	ref = child.json()["ref"]
+	detached = place.ask(place.keanu, "POST", f"/v1/tasks/{ref}/move", json={"parent": None})
+	moved = place.ask(
+		place.keanu,
+		"PATCH",
+		f"/v1/tasks/{ref}",
+		json={"project": "web", "assignee": place.carrieanne.username},
+	)
+
+	assert detached.status_code == 200 and moved.status_code == 200, (detached.text, moved.text)
+
+	_her_surfaces_hide(place, ref, str(parent.json()["id"]))
+
+
 def test_the_fields_that_name_a_row_are_the_ones_the_journal_names_by_project_or_task () -> None:
 	"""One declaration, read by both: the journal's lookups for these are the events' own."""
 
