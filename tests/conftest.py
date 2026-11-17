@@ -380,6 +380,30 @@ def _no_inherited_profile () -> typing.Iterator[None]:
 		os.environ[subroutine.config.PROFILE_VARIABLE] = before
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown (
+	item: pytest.Item, nextitem: pytest.Item | None
+) -> typing.Generator[None, None, None]:
+	"""Clear the profile once every fixture of a test has torn down - `SR#5446`.
+
+	:func:`_no_inherited_profile` clears it around each test, and is torn down **before**
+	``monkeypatch``, which an autouse fixture defined above it has already asked for. So a test
+	that ran ``--profile``, which exports the variable into this process, and then cleared it
+	through ``monkeypatch.delenv`` had monkeypatch put the exported value back once the fixture had
+	cleared it, and the next test its worker ran started on that profile:
+	``test_undoing_every_patch_leaves_a_test_off_the_machines_configuration`` failed in two runs
+	of three beside ``tests/test_nothing_can_answer.py``. **After every fixture**, nothing can put
+	it back. Unset is right here: :func:`_isolate_the_process` removed every ``SUBROUTINE_``
+	variable before the first test.
+	"""
+
+	try:
+		yield
+
+	finally:
+		os.environ.pop(subroutine.config.PROFILE_VARIABLE, None)
+
+
 @pytest.fixture(autouse=True)
 def _no_inherited_reading_past (monkeypatch: pytest.MonkeyPatch) -> None:
 	"""Make every test refuse a setting inside a connection's table, whatever ran before it.
