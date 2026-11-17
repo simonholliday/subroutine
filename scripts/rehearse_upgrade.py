@@ -284,16 +284,58 @@ def server_errors (answers: list[dict[str, typing.Any]], *, before_upgrade: bool
 	return lines
 
 
+#: **What the local client says of a database error it does not recognise** (`SR#5304`, M-16 of
+#: the cold review of 2026-11-11): its last branch, *"<connection> could not be read: <the driver's
+#: words>"*, which exits 1 as every refusal does. Its hint sends the reader to check the database is
+#: reachable, and in a rehearsal the database is on this machine and has just answered, so here it
+#: is an SQL error the build met and never a refusal. A string, since this must not import the
+#: build; ``tests/test_rehearse_upgrade.py`` holds it to the client's own sentence.
+UNREADABLE = " could not be read: "
+
+
+def lost (before: list[dict[str, typing.Any]], after: list[dict[str, typing.Any]]) -> list[str]:
+	"""Return one line per kind of read answered before the upgrade and refused after it.
+
+	**Compared, not only counted** (`SR#5304`): a 5xx is a fault on its own, but a credential the
+	upgrade stopped working is answered 401 on every read and is no server error at all - and a
+	build whose newest migration revoked every token passed. Nothing between the two sweeps but
+	``db upgrade`` can turn an answer into a refusal. Grouped as :func:`server_errors` groups.
+	"""
+
+	answered = {(one["who"], one["path"]) for one in before if int(one["status"]) < 400}
+	grouped: dict[tuple[int, str], list[dict[str, typing.Any]]] = {}
+
+	for one in after:
+		status = int(one["status"])
+
+		if status >= 400 and (one["who"], one["path"]) in answered:
+			shape = re.sub(r"/\d+(?=/|$)", "/N", str(one["path"]).split("?", 1)[0])
+			grouped.setdefault((status, shape), []).append(one)
+
+	return [
+		f"{len(met)} x {status} on {shape} where it was answered before, as "
+		f"{', '.join(sorted({str(one['who']) for one in met}))}"
+		for (status, shape), met in sorted(grouped.items(), key=lambda item: -len(item[1]))
+	]
+
+
 def crashed (ran: Ran) -> bool:
 	"""Say whether a command crashed, rather than answering or refusing.
 
 	Exit 0 is an answer and exit 1 a refusal, which these commands are meant to meet. Anything
 	else is a crash - a traceback, the program's own *should not have* report - or exit 2, which
 	is the command line refusing the command as written: the steps here live beside the build,
-	so that is this file falling behind it, and worth stopping a release to fix.
+	so that is this file falling behind it, and worth stopping a release to fix. **And so is an
+	exit 1 saying the database could not be read** (:data:`UNREADABLE`, `SR#5304`): a build whose
+	every write met an SQL error passed as a run of refusals.
 	"""
 
-	return ran.code not in (0, 1) or "Traceback (most recent call last)" in ran.said or "should not have" in ran.said
+	return (
+		ran.code not in (0, 1)
+		or "Traceback (most recent call last)" in ran.said
+		or "should not have" in ran.said
+		or UNREADABLE in ran.said
+	)
 
 
 def install (version: str, work: pathlib.Path, uv: str) -> Program:
@@ -759,6 +801,7 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 		before = here.crash_reports()
 
 		answers = sweep(here, build, "before the upgrade")
+		earlier = answers
 		errors = server_errors(answers, before_upgrade=True)
 		outcome.lines.append(f"before the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error")
 		outcome.problems += [f"before the upgrade, {line}" for line in errors]
@@ -773,8 +816,13 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 
 		answers = sweep(here, build, "after the upgrade")
 		errors = server_errors(answers, before_upgrade=False)
-		outcome.lines.append(f"after the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error")
+		refused_now = lost(earlier, answers)
+		outcome.lines.append(
+			f"after the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error, "
+			f"{len(refused_now)} kind(s) of read refused that was answered before"
+		)
 		outcome.problems += [f"after the upgrade, {line}" for line in errors]
+		outcome.problems += [f"after the upgrade, {line}" for line in refused_now]
 
 		count, crashes, refused = drive(here, build)
 		reports = sorted(here.crash_reports() - before)

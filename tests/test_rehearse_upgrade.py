@@ -15,8 +15,13 @@ import sys
 import types
 
 import pytest
+import sqlalchemy.exc
 
 import subroutine.api.app
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
+import subroutine.errors
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 
@@ -101,9 +106,11 @@ def test_one_fault_on_every_item_is_one_line_naming_everybody_who_met_it (rehear
 		(1, "Something went wrong that should not have.", True),
 		(124, "It did not finish within 300 seconds.", True),
 		(-9, "", True),
+		(1, "local could not be read: no such column: task.ref", True),
 	],
 	ids=["an answer", "a refusal", "a command line this build does not take", "a traceback",
-	     "the program's own crash report", "a command that hung", "a process killed"],
+	     "the program's own crash report", "a command that hung", "a process killed",
+	     "an SQL error the local client words as unreadable"],
 )
 def test_what_counts_as_a_crash (rehearsal: types.ModuleType, code: int, said: str, crash: bool) -> None:
 	"""A refusal is an answer; a traceback, a hang and a command this build does not take are not."""
@@ -111,13 +118,94 @@ def test_what_counts_as_a_crash (rehearsal: types.ModuleType, code: int, said: s
 	assert rehearsal.crashed(rehearsal.Ran(code, said)) is crash
 
 
+def test_the_local_client_s_unreadable_sentence_is_the_one_held (tmp_path: pathlib.Path) -> None:
+	"""`SR#5304`: :data:`UNREADABLE` is what the local client says of an unknown SQL error."""
+
+	rehearsal = _load("rehearse_upgrade")
+	database = tmp_path / "x.db"
+	database.write_bytes(b"")
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.load_settings(database_url=f"sqlite:///{database}"),
+	)
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable) as refused, client._reported():
+		raise sqlalchemy.exc.OperationalError("SELECT 1", {}, Exception("no such column: x"))
+
+	assert rehearsal.UNREADABLE in refused.value.detail, refused.value.detail
+
+
+def test_a_read_answered_before_the_upgrade_and_refused_after_it_is_one (
+	rehearsal: types.ModuleType,
+) -> None:
+	"""`SR#5304`: a credential the upgrade stopped working is a 401 on every read, and no 5xx."""
+
+	before = [
+		{"who": "hugo", "path": "/v1/tasks/12", "status": 200},
+		{"who": "hugo", "path": "/v1/tasks/13?fields=title", "status": 200},
+		{"who": "nobody", "path": "/v1/tasks/12", "status": 401},
+		{"who": "hugo", "path": "/v1/projects/web", "status": 404},
+	]
+	after = [
+		{"who": "hugo", "path": "/v1/tasks/12", "status": 401},
+		{"who": "hugo", "path": "/v1/tasks/13?fields=title", "status": 401},
+		{"who": "nobody", "path": "/v1/tasks/12", "status": 401},
+		{"who": "hugo", "path": "/v1/projects/web", "status": 404},
+	]
+
+	assert rehearsal.server_errors(after, before_upgrade=False) == []
+	assert rehearsal.lost(before, after) == [
+		"2 x 401 on /v1/tasks/N where it was answered before, as hugo"
+	]
+	assert rehearsal.lost(before, before) == []
+
+
 def test_a_credential_is_never_printed_back (rehearsal: types.ModuleType) -> None:
-	"""The rehearsal's credentials are throwaway, and still never shown: a report gets pasted."""
+	"""The rehearsal's credentials are throwaway, and still never shown: a report gets pasted.
 
-	said = "Your token: sr_ab12cd34_s3cr3t-Value.x\nStore it now."
+	**The whole masked text, exactly** (`SR#5304`, L-7's RH1 of the cold review of 2026-11-11): a
+	secret is ``token_urlsafe``, so it holds ``-`` and ``_``, and a mask narrowed to letters and
+	digits left *-Value.x*, the rest of it, while asking only that ``s3cr3t`` was gone passed.
+	"""
 
-	assert "s3cr3t" not in rehearsal.tail(said)
-	assert "s3cr3t" not in rehearsal.masked(said)
+	said = "Your token: sr_ab12cd34_s3cr3t-Value.x_y\nStore it now."
+
+	assert rehearsal.masked(said) == "Your token: sr_…\nStore it now."
+	assert rehearsal.tail(said) == "Your token: sr_… | Store it now."
+
+
+#: **A stand-in for a build** (`SR#5304`): it answers every command, refuses one, and meets an SQL
+#: error at ``add``, so :func:`drive` is driven without the half-hour rehearsal.
+STUB = (
+	"import sys\n"
+	"asked = sys.argv[1:]\n"
+	"if asked[:1] == ['add']:\n"
+	"    print('local could not be read: no such column: no_such_column'); sys.exit(1)\n"
+	"if 'token:admin' in asked:\n"
+	"    print('That credential may not issue token:admin.'); sys.exit(1)\n"
+	"print('{\"ref\": 7}')\n"
+)
+
+
+def test_the_terminal_s_morning_after_sorts_what_it_ran (
+	rehearsal: types.ModuleType, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#5304`: :func:`drive` had never run outside the rehearsal, so M-16 went unseen."""
+
+	here = rehearsal.Installation(tmp_path / "installation", "sqlite", None)
+	here.kept["refs"] = {"deploy": 3, "standup": 4}
+	stub = rehearsal.Program("a stub", (sys.executable, "-c", STUB))
+
+	count, crashes, refused = rehearsal.drive(here, stub)
+
+	assert count > 100, count
+	assert [line.split(" -> ")[0] for line in crashes] == [
+		"add Check the upgrade went through tomorrow ~15m !3/3 #upgrade --json"
+	], crashes
+	assert refused == 1, refused
+	logged = (tmp_path / "installation" / "commands.log").read_text(encoding="utf-8")
+
+	assert "no_such_column" in logged, "every command is written to the installation's log"
 
 
 def test_a_refusal_drawn_in_a_panel_is_reported_as_its_words (rehearsal: types.ModuleType) -> None:
