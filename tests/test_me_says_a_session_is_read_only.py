@@ -147,3 +147,43 @@ def test_a_credential_writing_in_one_workspace_is_offered_no_write_in_another (
 	assert writes <= offered[here.metacortex.slug], offered
 	assert subroutine.permissions.TASK_READ in offered[here.zion.slug], offered
 	assert not writes & offered[here.zion.slug], offered
+
+
+@pytest.mark.parametrize(
+	"places", [[], ["web"]], ids=["no place at all", "a place that is not a project's id"]
+)
+def test_a_write_set_holding_no_project_s_id_is_offered_no_write_anywhere (
+	session: sqlalchemy.orm.Session, places: list[str]
+) -> None:
+	"""`SR#5305`: hugo's credential reads ``web`` and ``ops``, and its write set names no project.
+
+	**Written directly**, since issuing refuses either set (``_canonical_project_scope``): what a
+	hand or a migration could leave in the row. Neither workspace offers a write, ``/v1/me`` still
+	answers, and both still offer their reads.
+	"""
+
+	here = Installation(session)
+	row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=here.hugo,
+		title=f"hugo's {uuid.uuid4().hex[:6]}",
+		project_scope=[str(here.web.id), str(here.ops.id)],
+		project_write_scope=[str(here.web.id)],
+	)
+	row.project_write_scope = places
+	session.flush()
+	answer = api_support.call(
+		here.application,
+		"GET",
+		"/v1/me",
+		headers={"Authorization": f"Bearer {issued.value.get_secret_value()}"},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+	offered = {one["slug"]: set(one["permissions"]) for one in answer.json()["workspaces"]}
+	writes = {subroutine.permissions.TASK_WRITE, subroutine.permissions.COMMENT_WRITE}
+
+	for slug in (here.metacortex.slug, here.zion.slug):
+		assert subroutine.permissions.TASK_READ in offered[slug], offered
+		assert not writes & offered[slug], offered

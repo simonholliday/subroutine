@@ -347,6 +347,9 @@ def _writes_inside (
 		try:
 			identifiers.append(uuid.UUID(str(place)))
 
+		# **Never met through issuing** (`SR#5305`): ``_canonical_project_scope`` refuses a place
+		# that is not a project's id, and an empty write set, so only a row written some other way
+		# holds either. ``tests/test_me_says_a_session_is_read_only.py`` writes each directly.
 		except ValueError:
 			continue
 

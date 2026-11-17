@@ -13,7 +13,9 @@ import typing
 
 import pytest
 import sqlalchemy
+import sqlalchemy.orm
 
+import api_support
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -26,6 +28,7 @@ import subroutine.errors
 import subroutine.exporting
 import subroutine.views
 import test_authorization
+import test_nothing_said_of_an_account_out_of_reach
 import test_transport_equivalence
 
 #: The equivalence suite's pair - one installation, reached locally and over HTTP - bound here
@@ -575,3 +578,44 @@ def test_a_kind_its_reader_is_refused_names_nobody_and_refuses_nothing (pair: Pa
 	beyond = _read(pair, reader, "users_beyond_reach")
 
 	assert [row.username for row in beyond] == [pair.user.username]
+
+
+def test_a_holder_out_of_reach_is_exported_by_name_and_no_more (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5305`, EX1: carrieanne exports who ``vault`` is shared with, after hugo and mouse left.
+
+	Decision `#5097` gives a holder out of the reader's reach by id and username, and an agent by
+	whom it answers to as well. The members listing was held to it and the export's page was not:
+	rendering every holder as readable passed every test of both. keanu, within her reach, keeps
+	the whole row.
+	"""
+
+	out_of_reach = test_nothing_said_of_an_account_out_of_reach
+	named = out_of_reach.NAMED
+	here = out_of_reach.Installation(session)
+	vault, hugo, mouse = out_of_reach._vault(here)
+	answer = api_support.call(
+		api_support.build_app(api_support.factory_for(session)),
+		"GET",
+		"/v1/export/project_members",
+		headers=here.credential(here.carrieanne),
+		params={"workspace_id": here.metacortex.slug},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+	held = {
+		row["user"]["username"]: row["user"]
+		for row in answer.json()["items"]
+		if row["project"] == vault.key
+	}
+
+	for gone, person in ((hugo, None), (mouse, hugo.username)):
+		said = held[gone.username]
+
+		assert said["id"] == str(gone.id), said
+		assert said["answers_to"] == person, said
+		assert {name for name, value in said.items() if value is not None} <= named, said
+
+	assert held[here.keanu.username]["is_active"] is True, held

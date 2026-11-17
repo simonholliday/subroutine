@@ -408,3 +408,67 @@ def test_a_compact_line_names_an_agent_out_of_reach_by_its_person (
 	)
 
 	assert whole.columns(None)[1] == "person", whole
+
+
+@pytest.mark.parametrize("transport", ["http", "local"], ids=["over HTTP", "the terminal's own"])
+def test_a_share_answers_with_a_holder_out_of_the_credential_s_reach_by_name (
+	session: sqlalchemy.orm.Session, transport: str
+) -> None:
+	"""`SR#5305`, MB1: keanu shares his private ``deck`` with carrieanne on a narrowed credential.
+
+	``project:read,project:write`` holds no ``workspace:read``, so his co-members are out of its
+	reach (`SR#5110`) and the members listing names carrieanne by id and username. The share's own
+	answer rendered her readable and passed every test: a share across workspaces is refused, so
+	a narrowed credential is the one way to reach it. The terminal presents the same credential.
+	"""
+
+	here = Installation(session)
+	deck = subroutine.domain.projects.create(
+		session,
+		workspace_id=here.metacortex.id,
+		key=f"deck{here.suffix}",
+		title="The deck",
+		visibility="private",
+		owner_id=here.keanu.id,
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=here.keanu,
+		title=f"keanu's narrowed {uuid.uuid4().hex[:6]}",
+		scopes=["project:read", "project:write"],
+	)
+	session.flush()
+	secret = issued.value.get_secret_value()
+
+	if transport == "http":
+		answer = api_support.call(
+			api_support.build_app(api_support.factory_for(session)),
+			"POST",
+			f"/v1/projects/{deck.key}/members",
+			headers={"Authorization": f"Bearer {secret}"},
+			params={"workspace_id": here.metacortex.slug},
+			json={"username": here.carrieanne.username},
+		)
+
+		assert answer.status_code == 201, answer.text
+
+		said = answer.json()["user"]
+
+	else:
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=api_support.factory_for(session),
+			token=secret,
+		)
+
+		with client:
+			shared = client.share_project(
+				deck.key, username=here.carrieanne.username, workspace=here.metacortex.slug
+			)
+
+		said = shared.user.model_dump(mode="json")
+
+	assert said["id"] == str(here.carrieanne.id), said
+	assert said["username"] == here.carrieanne.username, said
+	assert {name for name, value in said.items() if value is not None} <= NAMED, said
