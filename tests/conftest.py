@@ -249,11 +249,17 @@ def _no_inherited_colour (monkeypatch: pytest.MonkeyPatch) -> None:
 
 	With ``FORCE_COLOR=3`` exported — which Claude Code sets, and so do many terminals and CI
 	images — 29 tests failed on ANSI inside asserted strings before this.
+
+	**And ``GITHUB_ACTIONS`` from the environment too, for a program a test starts** (`SR#5445`).
+	The attribute patch reaches this process alone; a child imports Typer afresh and reads the
+	variable, and every GitHub runner sets it, so four tests asserting on a usage error printed by
+	the program in a process of its own failed on all four interpreters against a green gate here.
+	Nothing in this project reads it.
 	"""
 
 	monkeypatch.setattr(typer.rich_utils, "FORCE_TERMINAL", False)
 
-	for name in ("FORCE_COLOR", "PY_COLORS", "NO_COLOR"):
+	for name in ("FORCE_COLOR", "PY_COLORS", "NO_COLOR", "GITHUB_ACTIONS"):
 		monkeypatch.delenv(name, raising=False)
 
 	for console in _consoles_already_built():

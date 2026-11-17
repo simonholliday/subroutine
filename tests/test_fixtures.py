@@ -265,6 +265,29 @@ def test_the_machines_colour_setting_does_not_reach_a_test (
 	)
 
 
+def test_a_program_a_test_starts_is_not_told_it_has_a_terminal () -> None:
+	"""`SR#5445`: a process a test starts reads Typer's colour from the environment afresh.
+
+	The fixture's attribute patch reaches the test's own process only, so ``GITHUB_ACTIONS``, set
+	on every GitHub runner and left in the environment, styled the usage error of a program a test
+	ran in a process of its own: four of `SR#5303`'s tests failed in CI on every interpreter.
+	**Asked of a child, as those tests meet it**; on a machine that sets none of the variables it
+	passes either way, so it was proved with ``GITHUB_ACTIONS=true`` exported.
+	"""
+
+	started = subprocess.run(
+		[sys.executable, "-c", "import typer.rich_utils; print(typer.rich_utils.FORCE_TERMINAL)"],
+		capture_output=True,
+		text=True,
+		timeout=60,
+		check=True,
+	)
+
+	assert started.stdout.strip() != "True", (
+		"a program a test starts is told it has a terminal, so it styles what a test reads"
+	)
+
+
 def test_a_machine_that_cannot_draw_text_is_a_skip_rather_than_66_errors () -> None:
 	"""`SR#1567`. The browser probe asked whether Chromium *starts*, which is not the question.
 
