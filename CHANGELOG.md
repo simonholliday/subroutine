@@ -509,9 +509,10 @@ upgrade involves.
   shared into somebody else's private project could publish it, share it onward and remove
   anybody but its owner, an administrator included. Removing yourself is still yours. When the
   owner can no longer act - marked as having left, removed from the workspace, or an agent whose
-  person has left - anybody who can see the project stands in where it, or a project above it, is
-  private, so it is never stranded, and the departed owner's own share can be removed. A public
-  project whose owner can no longer act is its administrators' to hide or hand over.
+  person has left - or cannot see the project, because a private project above it hides it from
+  them, anybody who can see the project stands in where it, or a project above it, is private, so
+  it is never stranded, and the departed owner's own share can be removed. A public project whose
+  owner can no longer act is its administrators' to hide or hand over.
 - **Moving a task or a document into a private project, out of one or between two is for the
   steward of the project it leaves.** A contributor shared into a private project moved a task
   assigned to somebody else into it, and the person it was assigned to, the project's owner and

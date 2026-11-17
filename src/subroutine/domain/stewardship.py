@@ -43,6 +43,7 @@ import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.hierarchy
+import subroutine.domain.projects
 import subroutine.errors
 import subroutine.permissions
 
@@ -108,6 +109,29 @@ def _acting_owner (
 	if owner is None or not subroutine.domain.accountability.can_act(
 		session, owner, workspace_id=workspace_id
 	):
+		return None
+
+	return owner
+
+
+def _steering_owner (
+	session: sqlalchemy.orm.Session, project: subroutine.db.models.project.Project
+) -> subroutine.db.models.identity.User | None:
+	"""Return a project's owner where they can act and can see it, or ``None`` - `SR#5307`.
+
+	**An owner who cannot see their own project can no longer act on it** (decision `#5285`,
+	NEW-A-1 of the cold review of 2026-11-11's verification): a private project above, made
+	private or with their share taken away, hid it from them, so they stayed its steward and
+	could not find it, while whoever could see it was refused and told to ask them. A project
+	hidden from somebody is private at or above, so :func:`stewards` has whoever sees it stand in.
+	"""
+
+	owner = _acting_owner(session, project.owner_id, workspace_id=project.workspace_id)
+
+	if owner is None:
+		return None
+
+	if subroutine.domain.projects.hidden_by(session, project, owner.id) is not None:
 		return None
 
 	return owner
@@ -308,8 +332,9 @@ def stewards (
 	"""Report whether this actor is the steward of a project - decision `#4509`.
 
 	**Its owner, or anybody the owner answers to while the owner can act, or a workspace
-	administrator who can see it.** When the owner cannot act - deactivated, out of the workspace, or
-	an agent whose chain has stopped - or nobody owns it, **anybody who can see it stands in where it,
+	administrator who can see it.** When the owner cannot act - deactivated, out of the workspace,
+	an agent whose chain has stopped, or kept from it by a private project above (`SR#5307`) -
+	or nobody owns it, **anybody who can see it stands in where it,
 	or a project above it, is private** (`SR#5099`), so a departed owner's private project is never
 	stranded: no administrator sees a private project they are not in, and the remaining members
 	still reach it, so no rescue applies either (C section 2.4 of the cold review of 2026-10-05,
@@ -321,7 +346,7 @@ def stewards (
 	if actor is None:
 		return True
 
-	owner = _acting_owner(session, project.owner_id, workspace_id=project.workspace_id)
+	owner = _steering_owner(session, project)
 
 	# **A public project whose owner cannot act is its administrators'** (`SR#5099`, H-1 of the cold
 	# review of 2026-10-17, decision `#5097`): with the stand-in asking nothing of its privacy, any
@@ -361,8 +386,10 @@ def refuse_unless_steward (
 	if stewards(session, actor, project):
 		return
 
+	# **Never an owner who cannot see it** (`SR#5307`): that sent whoever was refused to ask
+	# somebody who could not find the project.
 	_refuse(
-		_acting_owner(session, project.owner_id, workspace_id=project.workspace_id),
+		_steering_owner(session, project),
 		whose=f"the owner of '{project.key}'",
 		act=act,
 		field=field,

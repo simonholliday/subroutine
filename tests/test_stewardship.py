@@ -267,6 +267,123 @@ def test_when_the_owner_can_no_longer_act_anybody_who_can_see_it_stands_in (
 	assert kp.owner_id == bob.id and _sees(session, trinity, kp)
 
 
+@pytest.mark.parametrize(
+	"hiding",
+	["private", "unshared", "moved"],
+	ids=["made private", "unshared from it", "moved under it"],
+)
+def test_an_owner_hidden_from_their_own_project_by_one_above_is_stood_in_for (
+	session: sqlalchemy.orm.Session, hiding: str
+) -> None:
+	"""`SR#5307`, NEW-A-1: keanu owns ``inner``, inside hugo's ``outer``, and carrieanne sees both.
+
+	hugo then makes ``outer`` private, or unshares keanu from it, or ``inner`` is moved under it,
+	each allowed since carrieanne still sees ``inner``. keanu could no longer find it and was still
+	its steward, so carrieanne,
+	the one who sees it, was refused sharing it, publishing it and taking it on, and leaving
+	``outer`` was told to ask its owner. **She stands in**: leaving, she is offered making it
+	public, and she shares it, publishes it and takes it on. keanu, who cannot see it, is not its
+	steward. Before it was hidden from him, she was not.
+	"""
+
+	thomas = _person(session, "thomas")
+	hugo = _person(session, "hugo")
+	keanu = _person(session, "keanu")
+	carrieanne = _person(session, "carrieanne")
+	workspace = _metacortex(
+		session,
+		thomas,
+		hugo=(hugo, "member"),
+		keanu=(keanu, "member"),
+		carrieanne=(carrieanne, "member"),
+	)
+	outer = _project(session, workspace, "outer", hugo)
+
+	# carrieanne's row on ``outer`` is written while it is private, and outlives its going public.
+	projects.share(session, outer, carrieanne, actor=_as(hugo))
+
+	if hiding == "private":
+		projects.update(session, outer, visibility="public", actor=_as(hugo))
+
+	elif hiding == "unshared":
+		projects.share(session, outer, keanu, actor=_as(hugo))
+
+	inner = _project(
+		session, workspace, "inner", keanu, parent=None if hiding == "moved" else outer
+	)
+	projects.share(session, inner, carrieanne, actor=_as(keanu))
+
+	assert not subroutine.domain.stewardship.stewards(session, _as(carrieanne), inner)
+
+	if hiding == "private":
+		projects.update(session, outer, visibility="private", actor=_as(hugo))
+
+	elif hiding == "unshared":
+		projects.unshare(session, outer, keanu, actor=_as(hugo))
+
+	else:
+		# Moved by the installation itself: who may move it is not what this asks.
+		projects.move(session, inner, parent=outer)
+
+	session.flush()
+
+	assert (_sees(session, keanu, inner), _sees(session, carrieanne, inner)) == (False, True)
+	assert not subroutine.domain.stewardship.stewards(session, _as(keanu), inner)
+	assert subroutine.domain.stewardship.stewards(session, _as(carrieanne), inner)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		projects.unshare(session, outer, carrieanne, actor=_as(carrieanne))
+
+	assert refused.value.hint == (
+		f"'subroutine project update {inner.key} --public' first, or share it with somebody else."
+	), refused.value.hint
+
+	# hugo holds ``outer``, so sharing ``inner`` with him is a share that can reach somebody.
+	projects.share(session, inner, hugo, actor=_as(carrieanne))
+	projects.update(session, inner, visibility="public", actor=_as(carrieanne))
+	projects.update(session, inner, owner_id=carrieanne.id, actor=_as(carrieanne))
+
+	assert (inner.visibility, inner.owner_id) == ("public", carrieanne.id)
+
+
+def test_a_caller_who_sees_a_project_and_does_not_steward_it_is_sent_to_its_owner (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5307`: the hint naming the owner is for a caller who sees the project and does not
+	steward it, where its owner can act and sees it - which no test reached before.
+
+	keanu owns ``inner``, inside hugo's private ``outer``, and sees ``outer`` only through mouse,
+	his agent, whose row is there; mouse holds one on ``inner`` too. mouse leaving ``outer`` would
+	leave keanu unable to see ``inner``, and mouse, who sees it and stewards nothing of its
+	person's, is sent to its owner, who can still act and see it.
+	"""
+
+	thomas = _person(session, "thomas")
+	hugo = _person(session, "hugo")
+	keanu = _person(session, "keanu")
+	mouse = _agent(session, "mouse", keanu)
+	workspace = _metacortex(
+		session, thomas, hugo=(hugo, "member"), keanu=(keanu, "member"), mouse=(mouse, "member")
+	)
+	outer = _project(session, workspace, "outer", hugo)
+
+	projects.share(session, outer, mouse, actor=_as(hugo))
+
+	inner = _project(session, workspace, "inner", keanu, parent=outer)
+
+	projects.share(session, inner, mouse, actor=_as(keanu))
+
+	assert _sees(session, keanu, inner)
+	assert not subroutine.domain.stewardship.stewards(session, _as(mouse), inner)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		projects.unshare(session, outer, mouse, actor=_as(mouse))
+
+	assert refused.value.hint == (
+		f"Ask the owner of '{inner.key}' to share it with somebody else first."
+	), refused.value.hint
+
+
 def test_a_public_project_nobody_owns_is_its_administrators_to_make_private (
 	session: sqlalchemy.orm.Session,
 ) -> None:

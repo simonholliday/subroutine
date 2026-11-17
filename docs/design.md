@@ -2060,9 +2060,10 @@ nothing through the account it answers to.
 
 **Who can see a project is its steward's to change, in both directions.** The **steward** of a
 project is its owner, or anybody the owner answers to while the owner can act, or a workspace
-administrator who can see it; **when the owner can no longer act**, anybody who can see the
-project stands in where it, or a project above it, is private, so a departed owner's private
-project is never stranded; a public one is its administrators'. These acts are the steward's:
+administrator who can see it; **when the owner can no longer act, or cannot see the project**,
+anybody who can see the project stands in where it, or a project above it, is private, so a
+departed owner's private project is never stranded, nor one a private project above hides from
+its owner; a public one is its administrators'. These acts are the steward's:
 
 - making a project private, or public;
 - sharing it, or removing somebody else's share - removing yourself stays free;
