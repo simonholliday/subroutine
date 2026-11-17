@@ -43,6 +43,11 @@ upgrade involves.
   than its server - Ubuntu 26.04's beside a `postgres:16` container, say - every restore failed in
   PostgreSQL's words, naming neither version. `db restore` now refuses before anything is touched,
   naming both versions and the tools to use instead.
+- **`db restore --recover` refuses a backup taken from another instance.** Recovering one instance's
+  backup into another restored it without a word and gave the second the first's identity, so two
+  instances claimed one and an agent's cache keyed on it pointed at the wrong data. It now refuses
+  before anything is replaced, naming both, and says to pass `--as-clone`; a database that holds no
+  instance yet still takes it.
 - **What 1.0 promises is written down.** The README says which surfaces follow semantic versioning
   from 1.0 and what a newer program owes an older instance; `SECURITY.md` and the package's classifier
   stop calling Subroutine early.

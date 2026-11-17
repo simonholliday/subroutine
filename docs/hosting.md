@@ -1707,6 +1707,11 @@ Neither is a safe default. A recovery keeps the instance's identity, which is wh
 their caches on; a clone mints a new one, so that two live instances never claim to be the
 same. Getting it wrong is invisible in both directions, so you are asked.
 
+**A recovery refuses a backup taken from another instance**, before anything is replaced: this one
+would take that instance's identity, and two instances would claim one. Put such a backup here with
+`--as-clone`. Into a database that holds no instance yet, as on a fresh machine, a recovery goes
+ahead.
+
 **Stop the service before you restore.** A running one keeps its file handles on the database
 that was just replaced: it goes on writing to something with no name any more, its reads are
 stale, and its next checkpoint can land on top of the restored file and corrupt it - while the

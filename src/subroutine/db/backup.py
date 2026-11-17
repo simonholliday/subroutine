@@ -31,6 +31,7 @@ import subprocess
 import tempfile
 import time
 import typing
+import uuid
 
 import alembic.script
 import sqlalchemy
@@ -82,6 +83,12 @@ _COPY_BLOCK = re.compile(
 )
 _INSERT_STATEMENT = re.compile(
 	r"INSERT INTO\s+[\w.\"]*alembic_version[^\n]*VALUES\s*\(\s*'([0-9a-z]+)'", re.IGNORECASE
+)
+
+#: **The ``instance`` row of a PostgreSQL dump** (`SR#5308`): the columns it was written with, and
+#: its one line of data, tab-separated, as ``pg_dump`` writes a ``COPY`` block.
+_INSTANCE_COPY = re.compile(
+	r"COPY\s+[\w.\"]*\binstance\s*\(([^)]*)\)\s*FROM stdin;\s*\n([^\n]*)\n", re.IGNORECASE
 )
 
 #: The tables every Subroutine database has had since the beginning, and still has (`#928`).
@@ -823,6 +830,146 @@ def check_engine (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> Non
 			f"'{subroutine.db.migrate.command('db', 'copy')}'."
 		),
 	)
+
+
+#: An instance as a backup or a database names it: its identity, and the name a person reads.
+Named = tuple[uuid.UUID, str]
+
+
+def check_same_instance (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None:
+	"""Refuse recovering another instance's backup here, before anything is replaced - `SR#5308`.
+
+	**A recovery keeps the identity of what it restores** (docs/design.md section 12.6a), so
+	recovering another instance's backup gave this one that instance's identity, without a word:
+	two instances then claimed one, which ``fanout.refuse_duplicate_instances`` exists to refuse,
+	and an agent's cache keyed on this one's pointed at the other's data. Decision `#5285`
+	(NEW-C-1 of the cold review of 2026-11-11's verification): refused where both hold an
+	instance and they differ, naming both and offering ``--as-clone``. **A database holding none
+	takes it** - absent, empty, or one that cannot be read at all - since that is recovering onto
+	a fresh machine; accepted there, an unreadable database that was another instance's can still
+	come to share its identity.
+	"""
+
+	here = _instance_held(engine)
+
+	if here is None:
+		return
+
+	came = instance_in(source)
+
+	if came is None or came[0] == here[0]:
+		return
+
+	clone = subroutine.db.migrate.command("db", "restore", shlex.quote(str(source)), "--as-clone")
+
+	# **By id always, and by name only where the names differ** (Simon, 2026-11-17): an instance is
+	# named after its machine unless somebody renames it, so two on one machine share a name and
+	# saying it twice would read as though it told them apart.
+	if came[1] == here[1]:
+		detail = (
+			f"'{source.name}' was taken from another instance ({came[0]}) than this one "
+			f"({here[0]}), so recovering it here would give this one its identity."
+		)
+
+	else:
+		detail = (
+			f"'{source.name}' was taken from another instance, {came[1]} ({came[0]}), than this "
+			f"one, {here[1]} ({here[0]}), so recovering it here would give this one its identity."
+		)
+
+	raise subroutine.errors.ValidationError(
+		detail,
+		hint=f"Nothing has been changed. Pass --as-clone to put it here as a copy with an "
+		f"identity of its own: '{clone}'.",
+	)
+
+
+def instance_in (path: pathlib.Path) -> Named | None:
+	"""Return the instance a backup was taken from, or ``None`` where it names none - `SR#5308`.
+
+	Read from the copy itself, as :func:`head_in` reads its schema: the name of the file says
+	which profile took it, and anybody can rename a file. ``None`` for a backup whose ``instance``
+	row cannot be found or read, which the checks after this one refuse on their own terms.
+	"""
+
+	if engine_in(path) == "SQLite":
+		return _instance_in_sqlite(path)
+
+	return _instance_in_dump(path)
+
+
+def _instance_in_sqlite (path: pathlib.Path) -> Named | None:
+	"""Read the ``instance`` row out of a SQLite backup, read-only, as its schema head is read."""
+
+	try:
+		connection = sqlite3.connect(read_only(path), uri=True)
+
+	except sqlite3.Error:
+		return None
+
+	try:
+		rows = connection.execute("SELECT id, name FROM instance").fetchall()
+
+	except sqlite3.Error:
+		return None
+
+	finally:
+		connection.close()
+
+	return _named(rows)
+
+
+def _instance_in_dump (path: pathlib.Path) -> Named | None:
+	"""Read the ``instance`` row out of a PostgreSQL backup, one table of it from an archive."""
+
+	text = (
+		_as_text(path, "--data-only", "--table=instance") if is_archive(path) else _text_of(path)
+	)
+	found = _INSTANCE_COPY.search(text)
+
+	if found is None:
+		return None
+
+	columns = [column.strip().strip('"') for column in found.group(1).split(",")]
+	values = found.group(2).split("\t")
+
+	if "id" not in columns or "name" not in columns or len(values) != len(columns):
+		return None
+
+	return _named([(values[columns.index("id")], values[columns.index("name")])])
+
+
+def _instance_held (engine: sqlalchemy.engine.Engine) -> Named | None:
+	"""Return the instance a database holds, or ``None`` where it holds none or cannot be read.
+
+	**A database that cannot be read counts as holding none** (decision `#5285`), so a recovery
+	into it goes ahead, as it did before `SR#5308`. Asked of a plain statement rather than the
+	mapped class, since the ``instance`` table's ``id`` and ``name`` are older than any schema a
+	restore would meet.
+	"""
+
+	try:
+		with engine.connect() as connection:
+			rows = connection.exec_driver_sql("SELECT id, name FROM instance").fetchall()
+
+	except sqlalchemy.exc.SQLAlchemyError:
+		return None
+
+	return _named(rows)
+
+
+def _named (rows: typing.Sequence[typing.Any]) -> Named | None:
+	"""Return the one ``instance`` row as an identity and a name, or ``None`` for any other."""
+
+	if len(rows) != 1:
+		return None
+
+	# Through `uuid.UUID`: SQLite stores the value as bare hex and PostgreSQL as a dashed uuid.
+	try:
+		return uuid.UUID(str(rows[0][0])), str(rows[0][1])
+
+	except ValueError:
+		return None
 
 
 def in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:

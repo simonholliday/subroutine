@@ -1325,6 +1325,124 @@ def test_a_forged_backup_cannot_run_a_command_when_it_is_restored (
 	assert _instance_id(own_database) in (identity, None)
 
 
+def test_a_recovery_refuses_another_instance_s_backup_and_takes_one_into_nothing (
+	own_database: str,
+) -> None:
+	"""`SR#5308`, NEW-C-1: a backup of one instance, recovered where another now lives, is refused.
+
+	The database is seeded, backed up, and given a second identity in place of the first, which
+	is two instances on one database as a recovery would meet them. The check refuses, naming
+	both, and changes nothing; with no instance left there it lets the backup in, as onto a fresh
+	machine, and the backup then recovers into its own instance.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	first = _seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	assert str(subroutine.db.backup.instance_in(written.path)[0]) == first  # type: ignore[index]
+
+	_forget_the_instance_row(own_database)
+	second = _seed_instance(own_database)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			subroutine.db.backup.check_same_instance(engine, written.path)
+
+		said = str(refused.value)
+
+		assert first in said and second in said, said
+		assert "Test instance" not in said, "a name both share was said as if it told them apart"
+		assert "--as-clone" in str(refused.value.hint), refused.value.hint
+		assert _instance_id(own_database) == second, "a refusal changed the database"
+
+		# Named where the names differ, as two instances renamed apart are.
+		with engine.begin() as connection:
+			connection.exec_driver_sql("UPDATE instance SET name = 'Real'")
+
+		with pytest.raises(subroutine.errors.ValidationError) as named:
+			subroutine.db.backup.check_same_instance(engine, written.path)
+
+		assert f"another instance, Test instance ({first}), than this one, Real ({second})," in (
+			str(named.value)
+		), named.value
+
+		_forget_the_instance_row(own_database)
+		subroutine.db.backup.check_same_instance(engine, written.path)
+		_restored(engine, written.path, as_clone=False)
+
+		assert _instance_id(own_database) == first
+
+		# And its own backup recovers into it, which is what a recovery is for.
+		subroutine.db.backup.check_same_instance(engine, written.path)
+
+	finally:
+		engine.dispose()
+
+
+def test_a_recovery_into_a_database_that_cannot_be_read_goes_ahead (tmp_path: pathlib.Path) -> None:
+	"""`SR#5308`, decided in `#5285`: a database that cannot be read holds no instance."""
+
+	unreadable = tmp_path / "unreadable.db"
+	unreadable.write_bytes(b"not a database at all, and long enough to look like one\n" * 64)
+	backup = tmp_path / "subroutine-scratch-20261117T120000Z-0123456789ab.db"
+	backup.write_bytes(b"")
+	engine = sqlalchemy.create_engine(f"sqlite:///{unreadable}")
+
+	try:
+		subroutine.db.backup.check_same_instance(engine, backup)
+
+	finally:
+		engine.dispose()
+
+
+def test_recovering_another_profile_s_backup_is_refused_before_anything_is_set_aside (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5308`, as it was met: scratch's backup recovered into the default instance went ahead.
+
+	Afterwards both claimed scratch's identity. **Refused before the safety copy**, so nothing is
+	replaced or set aside, and the default instance keeps its own; as a clone, the same backup
+	goes ahead with an identity of its own.
+	"""
+
+	run("--profile", "scratch", "init", "--workspace", "Scratch")
+	run("--profile", "scratch", "db", "backup")
+	(taken,) = [
+		found
+		for root in subroutine.config.profile_directories("scratch")
+		for found in sorted(root.rglob("subroutine-scratch-*.db"))
+	]
+	theirs = subroutine.db.backup.instance_in(taken)
+
+	run("init", "--workspace", "Real")
+	run("add", "Keep me")
+
+	ours = subroutine.clients.local.instance_id(_settings())
+	kept = sorted(subroutine.db.backup.directory(_settings()).iterdir())
+	refused = run("db", "restore", str(taken), "--recover", "--yes", expect=1)
+	said = " ".join(refused.output.split())
+
+	assert theirs is not None and ours is not None and theirs[0] != ours
+	assert "was taken from another instance" in said and "--as-clone" in said, said
+	assert subroutine.clients.local.instance_id(_settings()) == ours
+	assert sorted(subroutine.db.backup.directory(_settings()).iterdir()) == kept, (
+		"something was set aside before the refusal"
+	)
+	assert "Keep me" in run("list").output
+
+	run("db", "restore", str(taken), "--as-clone", "--yes")
+
+	assert subroutine.clients.local.instance_id(_settings()) not in (None, ours, theirs[0])
+
+
 def test_a_clone_keeps_the_data_and_takes_a_new_identity (
 	own_database: str,
 ) -> None:

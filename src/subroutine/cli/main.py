@@ -2496,8 +2496,9 @@ def database_restore (
 	# refuse a copy marked unfinished, first and before anything is read from it (`#4409`), a
 	# database something else is using (`#171`), a backup taken from the other engine (`#172`),
 	# a database still holding what a stopped restore set aside (`#4398`), a ``pg_restore``
-	# newer than the server (`#5280`), and a backup this version cannot read. All six are
-	# knowable while the current database is still intact,
+	# newer than the server (`#5280`), a backup this version cannot read, and, for a recovery,
+	# another instance's backup (`SR#5308`). All seven are knowable while the current database
+	# is still intact,
 	# and being asked to confirm a destructive act that is then refused teaches an operator to
 	# stop reading the question.
 	try:
@@ -2510,6 +2511,9 @@ def database_restore (
 			subroutine.db.backup.check_engine(engine, path)
 			subroutine.db.backup.check_tools(engine, path)
 			subroutine.db.backup.check_nothing_set_aside(engine)
+
+			if recover:
+				subroutine.db.backup.check_same_instance(engine, path)
 
 		head = subroutine.db.backup.check_restorable(path)
 
