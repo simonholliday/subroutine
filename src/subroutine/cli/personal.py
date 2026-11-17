@@ -25,12 +25,14 @@ import contextlib
 import dataclasses
 import datetime
 import functools
+import io
 import json
 import operator
 import os
 import pathlib
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -47,6 +49,7 @@ import typer.core
 import subroutine.addressing
 import subroutine.claude_code
 import subroutine.cli.output
+import subroutine.cli.waiting
 import subroutine.clients.base
 import subroutine.clients.local
 import subroutine.clients.opening
@@ -5935,10 +5938,23 @@ def _asked_for_a_token (program: Program, name: str) -> str:
 	A pipe is the scripted path, so that 'pass show work' can supply one without either.
 	"""
 
-	# **Read only from a pipe or a file** (`SR#5153`): a socket, which is an agent's shell, was
-	# read from and waited for ever on a line that was not coming.
+	# **Read only where a line is already waiting** (`SR#5153`, `SR#5303`): a socket, which is an
+	# agent's shell, or a pipe held open and idle, was read from and waited for ever on a line that
+	# was not coming. One that stops arriving without ending is refused after `STALL_SECONDS`.
 	if not _a_terminal_is_attached():
-		piped = sys.stdin.readline().strip() if _something_was_piped() else ""
+		try:
+			piped = (
+				_answer_read(lambda: sys.stdin.readline().strip())
+				if _an_answer_is_waiting()
+				else ""
+			)
+
+		except _Stalled:
+			program.stop(
+				f"The token handed in for {name!r} {STOPPED_ARRIVING}, so it was not added.",
+				"End the input once the token is written, or run this at a terminal and it will "
+				"ask.",
+			)
 
 		if piped:
 			return piped
@@ -12608,6 +12624,16 @@ NOTHING_CAN_ANSWER = "Nothing can answer a question here, so give it on the comm
 #: And where the question is whether to go on, which every such command's ``--yes`` answers.
 NOTHING_CAN_CONFIRM = "Nothing can answer a question here, so pass --yes to go on."
 
+#: **How long input that was waiting may pause before it is taken to have stopped** (`SR#5303`,
+#: decision `#5285`): an answer to a question, a token, or text at ``-`` from a socket, each read
+#: to its end and refused where it stops arriving that long without ending. A writer that has
+#: begun does not pause this long, and nobody is kept waiting longer.
+STALL_SECONDS = 5
+
+#: **What a command says of input it was reading that stopped arriving without ending** (`SR#5303`),
+#: after what was handed in - an answer, a token, a text - and before what it does about it.
+STOPPED_ARRIVING = "stopped arriving and never ended"
+
 #: **The usage error of the Click this Typer runs on** (`SR#5153`), which prints a command's usage
 #: above a sentence. A Typer from 0.27 carries its own copy of Click, and the same error from the
 #: Click package beside it is not one it catches: it reached the crash report. Every Typer this
@@ -12670,9 +12696,14 @@ def _text_or_standard_input (program: "Program", value: str | None, flag: str) -
 	the comment on the piped path already calls the worst way for a first attempt to go. `#299`
 	settles the question before reading; so does this.
 
-	**And so is anything else that is not a pipe or a file** (`SR#5188`, decision `#4150`): a
-	socket, which is a bare command's input under an agent's shell and whose other end stays open,
-	was read and waited for ever. ``/dev/null`` is refused with them, since nothing was handed over.
+	**A socket is read when something is already waiting in it** (`SR#5303`, decision `#5285`,
+	revising `#4150`): it is a bare command's input under an agent's shell, whose other end stays
+	open, and reading an idle one waited for ever (`SR#5188`), so an idle one is refused at once.
+	But a Node program hands its child a socket for the text it was given, and refusing every
+	socket refused that text as though there were none. What is read from a socket is read to its
+	end, and refused where it stops arriving for :data:`STALL_SECONDS` without ending. A pipe or a
+	file is read as before, to its end, however slow its writer. ``/dev/null`` is refused, since
+	nothing was handed over.
 	"""
 
 	# **Nothing given is no text** (`#4149`): `--body` defaults to nothing on the commands where
@@ -12680,14 +12711,18 @@ def _text_or_standard_input (program: "Program", value: str | None, flag: str) -
 	if value != STANDARD_INPUT:
 		return value or ""
 
-	if not _something_was_piped():
+	if _something_was_piped():
+		piped = sys.stdin.read()
+
+	elif _a_socket_holds_something():
+		piped = _the_socket_read(program, flag)
+
+	else:
 		program.stop(
 			f"'{flag} -' means read what is piped in, and nothing is.",
 			f"Pipe the text in - 'cat notes.md | subroutine … {flag} -' - or pass it as "
 			f"'{flag} \"the text\"'.",
 		)
-
-	piped = sys.stdin.read()
 
 	# **An empty pipe is refused as a terminal is** (`#3587`). An agent's shell has no terminal, so
 	# the refusal above never reached the caller `#3166` was written for: `-` read nothing, and a
@@ -12701,6 +12736,42 @@ def _text_or_standard_input (program: "Program", value: str | None, flag: str) -
 		)
 
 	return piped
+
+
+def _a_socket_holds_something () -> bool:
+	"""Say whether standard input is a socket a read would return from at once - `SR#5303`."""
+
+	try:
+		descriptor = sys.stdin.fileno()
+		mode = os.fstat(descriptor).st_mode
+
+	except (AttributeError, OSError, ValueError):
+		return False
+
+	return stat.S_ISSOCK(mode) and subroutine.cli.waiting.ready(descriptor, mode)
+
+
+def _the_socket_read (program: "Program", flag: str) -> str:
+	"""Return what a socket at standard input holds, read to its end, or refuse where it stalls.
+
+	`SR#5303`, decision `#5285`: read to the end, each read waiting at most :data:`STALL_SECONDS`
+	for more; a socket that stops arriving without ending is refused, and none of it is used.
+	Decoded as standard input decodes, its line endings read as text mode reads them.
+	"""
+
+	held = subroutine.cli.waiting.read_to_the_end(sys.stdin.fileno(), STALL_SECONDS)
+
+	if held is None:
+		program.stop(
+			f"The text handed in for '{flag} -' {STOPPED_ARRIVING}, so none of it was used.",
+			f"End the input once the text is written, or pass it as '{flag} \"the text\"'.",
+		)
+
+	return io.TextIOWrapper(
+		io.BytesIO(held),
+		encoding=getattr(sys.stdin, "encoding", None) or "utf-8",
+		errors=getattr(sys.stdin, "errors", None) or "strict",
+	).read()
 
 
 def _described (program: "Program", given: str) -> str | None:
@@ -12788,14 +12859,16 @@ def _the_shared_inbox (workspace: str) -> str:
 
 
 def _something_was_piped () -> bool:
-	"""Say whether text could have been handed in, without reading standard input — `#2681`.
+	"""Say whether standard input is a pipe or a file, without reading it — `#2681`.
 
-	**What is attached, never what it holds.** Whether a pipe has anything in it cannot be told
-	without reading it, and reading is `#299`'s hang, so this asks what *kind* of thing standard
-	input is. A pipe or a redirected file is somebody handing text over. A terminal, `/dev/null`
-	and a socket are not, and a socket is what a bare command's standard input is under an
-	agent's shell (measured under Claude Code on 2026-09-15), so an agent retitling a document
-	is not told about a pipe it never used.
+	**What is attached, never what it holds.** This asks what *kind* of thing standard input is,
+	for ``-`` and for the note that names a pipe nobody asked to read: a pipe or a redirected file
+	is somebody handing text over, to be read to its end however slow its writer. A terminal,
+	`/dev/null` and a socket are not, and a socket is what a bare command's standard input is
+	under an agent's shell (measured under Claude Code on 2026-09-15), so an agent retitling a
+	document is not told about a pipe it never used. **A question asks what is waiting** instead
+	(:func:`_an_answer_is_waiting`, `SR#5303`), since a pipe its writer holds open and idle is
+	the hang a question must not meet.
 
 	**`False` wherever the question cannot be put**, which includes a closed standard input and
 	``CliRunner``'s replacement stream. A note that fires when nothing was piped is noise on the
@@ -12821,10 +12894,12 @@ def _which_occurrences (
 	"""Settle which occurrences an edit is for — decision `#1249` §5, and `#1251`.
 
 	**Three answers to one question, chosen by who is there.** A flag settles it. Otherwise a
-	terminal, or a pipe or a file (`SR#5153`), is asked, because being asked is the point of decision 1 —
-	and anything else is refused by name, which is `#299`'s rule that the question has to be
-	settled *before* stdin is read rather than by reading it. A script, a CI job or an agent
-	that blocked on a prompt would hang for ever on input that is not coming.
+	terminal is asked, because being asked is the point of decision 1, and so is input with an
+	answer already waiting in it (`SR#5303`, decision `#5285`) - anything else is refused by name,
+	which is `#299`'s rule that the question has to be settled *before* stdin is read rather than
+	by reading it. A script, a CI job or an agent that blocked on a prompt would hang for ever on
+	input that is not coming; one whose input ends, or stops without ending, is refused the same
+	way rather than with a bare *Aborted.*
 
 	``None`` for something that does not repeat, which is most of what anybody edits: the
 	prompt must not become a toll on every ordinary change.
@@ -12858,9 +12933,28 @@ def _which_occurrences (
 	while True:
 		# To stderr, like every other prompt here, so a `--json` reader on stdout is never
 		# handed a question.
-		answer: str = typer.prompt(
-			"That repeats. Change just this one, or every one from now on? [j/e]", err=True
-		)
+		try:
+			answer = _answer_read(
+				lambda: str(
+					typer.prompt(
+						"That repeats. Change just this one, or every one from now on? [j/e]",
+						err=True,
+					)
+				)
+			)
+
+		except _Ended:
+			program.stop(
+				"That repeats: is this one changing, or every one from now on?", NOBODY_TO_ASK
+			)
+
+		except _Stalled:
+			program.stop(
+				"That repeats: is this one changing, or every one from now on? The answer handed "
+				f"in {STOPPED_ARRIVING}.",
+				NOBODY_TO_ASK,
+			)
+
 		settled = OCCURRENCE_ANSWERS.get(answer.strip().lower())
 
 		if settled is not None:
@@ -12875,10 +12969,12 @@ def _asked (given: str, question: str) -> str:
 	docs/design.md §12.2a: bare commands prompt rather than error. A required-argument error is a
 	dead end where a question would do.
 
-	**Asked only where something can answer** (`SR#5153`, decision `#5097`): a terminal, or a
-	pipe or a file, so ``echo 42 | subroutine done`` still works. Anything else - a socket, which
-	is a bare command's input under an agent's shell, ``/dev/null`` or a closed input - is
-	refused at once with the usage, where asking waited for ever on an answer that was not coming.
+	**Asked only where something can answer** (`SR#5153`, decision `#5097`): a terminal, or input
+	with an answer already waiting in it (`SR#5303`, decision `#5285`), so ``echo 42 | subroutine
+	done`` still works. Anything else - a pipe held open and idle, a socket, which is a bare
+	command's input under an agent's shell, ``/dev/null`` or a closed input - is refused at once
+	with the usage, where asking waited for ever on an answer that was not coming; and so is input
+	that ends, or stops without ending, before an answer comes.
 	"""
 
 	if given.strip():
@@ -12888,34 +12984,158 @@ def _asked (given: str, question: str) -> str:
 		raise _UsageError(f"{question} {NOTHING_CAN_ANSWER}")
 
 	# To stderr, so that a `--json` reader on stdout is never handed a prompt (see `add`).
-	answer: str = typer.prompt(question, err=True)
+	try:
+		return _answer_read(lambda: str(typer.prompt(question, err=True)))
+
+	except _Ended:
+		raise _UsageError(f"{question} {NOTHING_CAN_ANSWER}") from None
+
+	except _Stalled:
+		raise _UsageError(
+			f"{question} The answer handed in {STOPPED_ARRIVING}, so give it on the command line."
+		) from None
+
+
+#: Whatever a question's answer is read as.
+_Answer = typing.TypeVar("_Answer")
+
+
+class _Ended (Exception):
+	"""Raised where input that is not a terminal ended before an answer came - `SR#5303`."""
+
+
+class _Stalled (Exception):
+	"""Raised where input that is not a terminal stopped arriving without ending - `SR#5303`."""
+
+
+#: **Whether an answer has been read from this input** (`SR#5303`): what was read with it may hold
+#: the next one, which the input itself no longer shows, so a later question is asked anyway, and
+#: :data:`STALL_SECONDS` bounds the wait where it holds nothing more.
+_ANSWERED_HERE: list[bool] = [False]
+
+
+def _answer_read (ask: typing.Callable[[], _Answer]) -> _Answer:
+	"""Put a question and return its answer, raising where input that is not a terminal fails it.
+
+	`SR#5303`, decision `#5285` (the verifier's first fix, and the rule after it): **an input that
+	ends cannot answer** - a pipe already read to its end by ``--description -``, or ``true |
+	subroutine done``, ended in a bare *Aborted.* naming nothing to give - and raises
+	:class:`_Ended`; **input that stops arriving without ending** for :data:`STALL_SECONDS` raises
+	:class:`_Stalled`. At a terminal an end is somebody pressing Ctrl-D, which stays *Aborted.*,
+	and nobody there is hurried.
+	"""
+
+	terminal = _a_terminal_is_attached()
+
+	try:
+		with _stall_refused(terminal):
+			answer = ask()
+
+	except typer.Abort:
+		if terminal:
+			raise
+
+		raise _Ended() from None
+
+	if not terminal:
+		_ANSWERED_HERE[0] = True
 
 	return answer
 
 
-def _somebody_can_answer () -> bool:
-	"""Say whether a question can be put: at a terminal, or to a pipe or a file - `SR#5153`.
+@contextlib.contextmanager
+def _stall_refused (terminal: bool) -> typing.Iterator[None]:
+	"""Give a read of input that is not a terminal :data:`STALL_SECONDS`, then raise `_Stalled`.
 
-	Decision `#5097` (M-16 of the cold review of 2026-10-17): every prompt and confirmation asks
-	this first. A socket, which is a bare command's input under an agent's shell, waited for ever
-	on a question nothing could answer, and ``/dev/null`` and a closed input are refused with it.
-	**The one exception** is the question a protected instance asks before it is restored,
-	upgraded or destroyed, which is put only at a terminal, so a piped answer cannot reach it.
+	**POSIX's alarm, in the main thread**, since nothing else interrupts a blocking read of a pipe;
+	where there is none - Windows, or another thread - the read waits as it did before `SR#5303`.
 	"""
 
-	return _a_terminal_is_attached() or _something_was_piped()
+	if terminal or not hasattr(signal, "SIGALRM"):
+		yield
+
+		return
+
+	def stalled (_number: int, _frame: typing.Any) -> None:
+		"""Interrupt the read that stalled."""
+
+		raise _Stalled()
+
+	try:
+		previous = signal.signal(signal.SIGALRM, stalled)
+
+	except ValueError:
+		yield
+
+		return
+
+	signal.alarm(STALL_SECONDS)
+
+	try:
+		yield
+
+	finally:
+		signal.alarm(0)
+		signal.signal(signal.SIGALRM, previous)
+
+
+def _somebody_can_answer () -> bool:
+	"""Say whether a question can be put: at a terminal, or to input with an answer waiting.
+
+	Decision `#5097` (M-16 of the cold review of 2026-10-17, `SR#5153`): every prompt and
+	confirmation asks this first. **Where standard input is not a terminal, only an answer already
+	waiting can answer** (`SR#5303`, decision `#5285`): asking a pipe by its kind alone waited as
+	long as its writer held it open, a harness's ``stdin=PIPE`` for ever. A socket is asked by the
+	same rule, and ``/dev/null`` and a closed input are refused. **The one exception** is the
+	question a protected instance asks before it is restored, upgraded or destroyed, which is put
+	only at a terminal, so a piped answer cannot reach it.
+	"""
+
+	return _a_terminal_is_attached() or _an_answer_is_waiting()
+
+
+def _an_answer_is_waiting () -> bool:
+	"""Say whether standard input, a pipe, a file or a socket, holds an answer now - `SR#5303`.
+
+	**Without reading it**: a read would return at once, with something or at its end, or an answer
+	was already read from it (:data:`_ANSWERED_HERE`). An input that has ended is waiting too, and
+	the question then refuses it, since an end answers nothing. ``False`` wherever the question
+	cannot be put, which includes a closed standard input and ``CliRunner``'s replacement stream.
+	"""
+
+	try:
+		descriptor = sys.stdin.fileno()
+		mode = os.fstat(descriptor).st_mode
+
+	except (AttributeError, OSError, ValueError):
+		return False
+
+	if not (stat.S_ISFIFO(mode) or stat.S_ISREG(mode) or stat.S_ISSOCK(mode)):
+		return False
+
+	return _ANSWERED_HERE[0] or subroutine.cli.waiting.ready(descriptor, mode)
 
 
 def confirmed (question: str, *, default: bool = False) -> bool:
 	"""Ask whether to go on, or refuse at once where nothing can answer - `SR#5153`.
 
-	Every confirmation here has a ``--yes``, which is what the refusal names. Public because the
-	database commands in :mod:`subroutine.cli.main` ask through it too.
+	Every confirmation here has a ``--yes``, which is what the refusal names - and where input that
+	is not a terminal ends, or stops without ending, before the answer comes (`SR#5303`).
+	Public because the database commands in :mod:`subroutine.cli.main` ask through it too.
 	"""
 
 	answerable(question)
 
-	return typer.confirm(question, default=default)
+	try:
+		return _answer_read(lambda: bool(typer.confirm(question, default=default)))
+
+	except _Ended:
+		raise _UsageError(f"{question} {NOTHING_CAN_CONFIRM}") from None
+
+	except _Stalled:
+		raise _UsageError(
+			f"{question} The answer handed in {STOPPED_ARRIVING}, so pass --yes to go on."
+		) from None
 
 
 def answerable (question: str) -> None:

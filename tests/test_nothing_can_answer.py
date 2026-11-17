@@ -61,10 +61,13 @@ def _answered (stdin: typing.Any, *, closed: bool = False) -> str:
 	return answered.stdout.strip()
 
 
-def test_only_a_terminal_a_pipe_or_a_file_can_answer (tmp_path: pathlib.Path) -> None:
-	"""Asked of the operating system: a terminal, a pipe and a file can; nothing else can.
+def test_only_a_terminal_or_an_answer_already_waiting_can_answer (tmp_path: pathlib.Path) -> None:
+	"""Asked of the operating system: a terminal can, and input a read would return from at once.
 
 	**A closed input is given no stream at all**, and asking it whether it was a terminal raised.
+	**A pipe was asked by its kind alone** (`SR#5303`, M-15 of the cold review of 2026-11-11), so
+	one held open and idle waited as long as its writer held it; an ended one is asked, and refused
+	where the question meets its end. A socket holding something can answer, as a pipe can.
 	"""
 
 	ours, theirs = socket.socketpair()
@@ -72,9 +75,31 @@ def test_only_a_terminal_a_pipe_or_a_file_can_answer (tmp_path: pathlib.Path) ->
 	try:
 		assert _answered(theirs.fileno()) == "False", "a socket, which is an agent's shell"
 
+		ours.sendall(b"42\n")
+
+		assert _answered(theirs.fileno()) == "True", "a socket holding an answer"
+
 	finally:
 		ours.close()
 		theirs.close()
+
+	idle, holding = os.pipe()
+
+	try:
+		assert _answered(idle) == "False", "a pipe held open with nothing in it"
+
+	finally:
+		os.close(idle)
+		os.close(holding)
+
+	ended, closing = os.pipe()
+	os.close(closing)
+
+	try:
+		assert _answered(ended) == "True", "a pipe that has ended is asked, and refused there"
+
+	finally:
+		os.close(ended)
 
 	assert _answered(subprocess.DEVNULL) == "False"
 	assert _answered(subprocess.DEVNULL, closed=True) == "False"
@@ -377,3 +402,205 @@ def test_a_hyphen_whose_input_is_a_socket_is_refused_rather_than_waiting (run: R
 	assert refused.returncode == 1, said
 	assert "'--body -' means read what is piped in, and nothing is." in said, said
 	assert "Plan C" not in run("list").output
+
+
+def _ran (stdin: typing.Any, *arguments: str) -> subprocess.CompletedProcess[str]:
+	"""Run the program in a process of its own, given ``stdin``, and return how it ended."""
+
+	return subprocess.run(
+		[sys.executable, "-m", "subroutine", *arguments],
+		stdin=stdin, capture_output=True, text=True, timeout=60, check=False,
+	)
+
+
+def _both (ran: subprocess.CompletedProcess[str]) -> str:
+	"""Return what a process printed, on either stream, as one line without a frame."""
+
+	return " ".join(re.sub(r"[│╭╮╰╯─]", " ", ran.stdout + ran.stderr).split())
+
+
+def _a_stand_up (run: Run) -> None:
+	"""Make an instance whose #2 is an occurrence of a weekly stand-up, in metacortex."""
+
+	run("init", "--workspace", "metacortex")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+
+#: Each question, as a pipe held open and idle meets it, and the sentence it is refused in.
+IDLE = [
+	(("done",), 2, subroutine.cli.personal.NOTHING_CAN_ANSWER),
+	(("update", "2", "--title", "Morning stand-up"), 1, subroutine.cli.personal.NOBODY_TO_ASK),
+	(
+		("workspace", "rename", "metacortex", "nebuchadnezzar"),
+		2,
+		subroutine.cli.personal.NOTHING_CAN_CONFIRM,
+	),
+	(
+		("connections", "add", "work", "--url", "https://127.0.0.1:9"),
+		1,
+		"Nothing was piped in, so there is no token for 'work'.",
+	),
+]
+
+
+@pytest.mark.parametrize(
+	("arguments", "status", "said"), IDLE, ids=[" ".join(one[0][:2]) for one in IDLE]
+)
+def test_a_question_on_a_pipe_held_open_and_idle_is_refused_at_once (
+	run: Run, arguments: tuple[str, ...], status: int, said: str
+) -> None:
+	"""`SR#5303`: a harness's ``stdin=PIPE``, held open without writing, waited for ever."""
+
+	_a_stand_up(run)
+	idle, holding = os.pipe()
+
+	try:
+		ran = _ran(idle, *arguments)
+
+	finally:
+		os.close(idle)
+		os.close(holding)
+
+	assert ran.returncode == status, _both(ran)
+	assert said in _both(ran), _both(ran)
+	assert subroutine.cli.personal.STOPPED_ARRIVING not in _both(ran), "it waited for more"
+	assert "Morning stand-up" not in run("list").output
+	assert "metacortex" in run("workspace", "list").output
+
+
+@pytest.mark.parametrize(
+	("arguments", "piped", "said"),
+	[
+		(("done",), b"", subroutine.cli.personal.NOTHING_CAN_ANSWER),
+		(("add",), b"", subroutine.cli.personal.NOTHING_CAN_ANSWER),
+		(
+			("update", "2", "--description", "-"),
+			b"new words",
+			subroutine.cli.personal.NOBODY_TO_ASK,
+		),
+	],
+	ids=["done", "add", "a description read to its end"],
+)
+def test_an_input_that_ends_before_an_answer_is_refused_naming_what_answers_it (
+	run: Run, arguments: tuple[str, ...], piped: bytes, said: str
+) -> None:
+	"""`SR#5303`: each ended in a bare *Aborted.*, naming nothing to give."""
+
+	_a_stand_up(run)
+	ended, closing = os.pipe()
+	os.write(closing, piped)
+	os.close(closing)
+
+	try:
+		ran = _ran(ended, *arguments)
+
+	finally:
+		os.close(ended)
+
+	assert ran.returncode != 0, _both(ran)
+	assert said in _both(ran), _both(ran)
+	assert _both(ran) != "Aborted!" and "Aborted" not in _both(ran), _both(ran)
+
+
+def test_an_answer_waiting_in_a_pipe_held_open_is_read (run: Run) -> None:
+	"""`SR#5303`: a harness that writes its answer and holds the pipe open is answered."""
+
+	run("init")
+	run("add", "Collect the package from reception")
+	reading, writing = os.pipe()
+	os.write(writing, b"1\n")
+
+	try:
+		ran = _ran(reading, "done")
+
+	finally:
+		os.close(reading)
+		os.close(writing)
+
+	assert ran.returncode == 0, _both(ran)
+	assert "Done:" in _both(ran), _both(ran)
+
+
+def test_answers_waiting_together_answer_each_question_in_turn (run: Run) -> None:
+	"""`SR#5303`: the first question reads every answer in, so the next is asked what was read."""
+
+	run("init")
+	run("add", "Order the new phones")
+	run("add", "Hand out the new phones")
+	reading, writing = os.pipe()
+	os.write(writing, b"blocks\n1\n2\n")
+
+	try:
+		ran = _ran(reading, "link")
+
+	finally:
+		os.close(reading)
+		os.close(writing)
+
+	assert ran.returncode == 0, _both(ran)
+	assert "#2" in run("show", "1").output, run("show", "1").output
+
+
+def test_an_answer_that_stops_arriving_without_ending_is_refused (run: Run) -> None:
+	"""`SR#5303`, decision `#5285`: an answer begun and never finished waited for ever."""
+
+	_a_stand_up(run)
+	reading, writing = os.pipe()
+	os.write(writing, b"e")
+
+	try:
+		ran = _ran(reading, "update", "2", "--title", "Morning stand-up")
+
+	finally:
+		os.close(reading)
+		os.close(writing)
+
+	assert ran.returncode == 1, _both(ran)
+	assert subroutine.cli.personal.STOPPED_ARRIVING in _both(ran), _both(ran)
+	assert subroutine.cli.personal.NOBODY_TO_ASK in _both(ran), _both(ran)
+	assert "Morning stand-up" not in run("list").output
+
+
+def test_a_hyphen_reads_a_socket_holding_text (run: Run) -> None:
+	"""`SR#5303`: a Node program hands its child a socket, and the text in it was refused."""
+
+	run("init")
+	ours, theirs = socket.socketpair()
+
+	try:
+		ours.sendall(b"Notes from a socket\r\nand a second line")
+		ours.shutdown(socket.SHUT_WR)
+		ran = _ran(theirs.fileno(), "add", "Check the socket", "--description", "-")
+
+	finally:
+		ours.close()
+		theirs.close()
+
+	shown = run("show", "1").output
+
+	assert ran.returncode == 0, _both(ran)
+	assert "Notes from a socket" in shown and "and a second line" in shown, shown
+	assert "\r" not in shown, "its line endings were not read as text mode reads them"
+
+
+def test_a_hyphen_reading_a_socket_that_stops_without_ending_is_refused (run: Run) -> None:
+	"""`SR#5303`, decision `#5285`: refused, and none of what arrived is used."""
+
+	run("init")
+	ours, theirs = socket.socketpair()
+
+	try:
+		ours.sendall(b"Notes from a socket")
+		ran = _ran(theirs.fileno(), "add", "Check the socket", "--description", "-")
+
+	finally:
+		ours.close()
+		theirs.close()
+
+	assert ran.returncode == 1, _both(ran)
+	assert (
+		"The text handed in for '--description -' "
+		f"{subroutine.cli.personal.STOPPED_ARRIVING}, so none of it was used."
+		in _both(ran)
+	), _both(ran)
+	assert "Check the socket" not in run("list").output

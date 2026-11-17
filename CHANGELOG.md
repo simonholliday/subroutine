@@ -232,14 +232,17 @@ upgrade involves.
 
 - **A command no longer waits for ever where nothing can answer it.** Run without what it
   needs - `done` with no number, `add` with no text, a rename without `--yes` - where its input
-  is not a terminal, a pipe or a file, it stops at once with its usage and says to give it on
-  the command line, or to pass `--yes`. An agent's shell hands a command a socket, and there
+  is not a terminal and holds no answer yet, it stops at once with its usage and says to give it
+  on the command line, or to pass `--yes`; and so it does where its input ends, or stops arriving
+  for a few seconds without ending, before an answer comes, where it ended in a bare *Aborted.*
+  An agent's shell hands a command a socket, and a harness a pipe it holds open, and there
   `done`, `add`, `comment` and `defer` waited for ever, as did a `-` for piped text such as
-  `--body -`, which now reads only from a pipe or a file. `echo 42 | subroutine done` still
-  answers. `connections add` reads a token only from a terminal, a pipe or a file; `db restore`
-  of a backup on an older schema refuses before it starts where it could not ask about upgrading
-  it; and `doc edit` with nothing named, and a protected instance's restore or removal, refuse
-  rather than crash when standard input is closed.
+  `--body -`, which reads a pipe or a file to its end and a socket only when something is
+  already in it. `echo 42 | subroutine done` still answers. `connections add` reads a token only
+  from a terminal or where one is waiting; `db restore` of a backup on an older schema refuses
+  before it starts where it could not ask about upgrading it; and `doc edit` with nothing named,
+  and a protected instance's restore or removal, refuse rather than crash when standard input is
+  closed.
 
 - **An export taken by anybody but an administrator of accounts can be rebuilt.** Its
   `users.jsonl` holds the accounts within your reach, while its tasks, comments and events still

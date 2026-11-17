@@ -748,13 +748,14 @@ def instances (tmp_path_factory: pytest.TempPathFactory) -> instance_templates.S
 def piped (monkeypatch: pytest.MonkeyPatch) -> None:
 	"""Say that what a test hands a command as ``input=`` was piped in, which it models - `SR#5153`.
 
-	A command asks a question only where a terminal, a pipe or a file can answer it (decision
-	`#5097`), and the stream ``CliRunner`` puts in place of standard input is none of them to the
-	operating system. So a test answering a question that way says it is a pipe, and one that
-	does not is refused as an agent's shell is.
+	A command asks a question only at a terminal or where an answer is waiting (decisions `#5097`
+	and `#5285`), and the stream ``CliRunner`` puts in place of standard input is neither to the
+	operating system. So a test answering a question that way says it is a pipe with its answer
+	in it, and one that does not is refused as an agent's shell is.
 	"""
 
 	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
+	monkeypatch.setattr(subroutine.cli.personal, "_an_answer_is_waiting", lambda: True)
 
 
 @pytest.fixture(scope="session", params=["sqlite", "postgresql"])
