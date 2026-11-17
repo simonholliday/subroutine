@@ -419,10 +419,12 @@ def _ask (
 
 	told = "\n\t\t".join(said)
 
+	# **Dark always** (`SR#5450`, Simon 2026-11-17): the app's default, without the script the app
+	# runs to honour a reader who chose otherwise, which this page's policy would have to admit.
 	return starlette.responses.HTMLResponse(
 		headers={"Referrer-Policy": "strict-origin"},
 		content=f"""<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -65,19 +65,23 @@ function said ({ text, link }) {
 		>${link.label}</a>${text.slice(at + link.label.length)}`;
 }
 
-/* The three states a reader can be in. `system` is the default and is the absence of a
-   choice — `index.html` writes no attribute for it, so `prefers-color-scheme` decides. */
+/* The three states a reader can be in. `system` is the absence of an attribute -
+   `index.html` writes none for it, so `prefers-color-scheme` decides. */
 export const THEMES = [
 	["system", "Match system"],
 	["light", "Light"],
 	["dark", "Dark"],
 ];
 
+/* **What a reader who has chosen nothing gets** (`SR#5450`, Simon 2026-11-17, amending decision
+   `#906`, which defaulted to `system`): dark. `index.html`'s first-paint script says the same. */
+export const DEFAULT_THEME = "dark";
+
 export function themeChoice (storage) {
 	/*
 		Which theme this browser has been told to use — one of `THEMES`, never anything else.
 
-		**Anything unrecognised reads as `system`**, which is the same answer as nothing stored.
+		**Anything unrecognised reads as the default**, which is the same answer as nothing stored.
 		A value written by an older version, by a person poking at storage, or by another app on
 		this origin must not put the page into a state no control can get it out of.
 
@@ -87,9 +91,9 @@ export function themeChoice (storage) {
 	try {
 		const chosen = storage && storage.getItem("theme");
 
-		return THEMES.some(([key]) => key === chosen) ? chosen : "system";
+		return THEMES.some(([key]) => key === chosen) ? chosen : DEFAULT_THEME;
 	} catch (unavailable) {
-		return "system";
+		return DEFAULT_THEME;
 	}
 }
 
@@ -104,7 +108,7 @@ export function applyTheme (chosen, storage, root) {
 		Storage is written first and the attribute second, and a storage failure still applies
 		the theme: not remembering it is worse than not honouring it, but only for the next load.
 	*/
-	const wanted = THEMES.some(([key]) => key === chosen) ? chosen : "system";
+	const wanted = THEMES.some(([key]) => key === chosen) ? chosen : DEFAULT_THEME;
 
 	try {
 		if (storage) {
@@ -193,7 +197,7 @@ export function Wordmark ({ version, onHome }) {
 }
 
 export function You ({
-	username = null, theme = "system", onTheme, onSignOut, expanded = false, onToggle = null,
+	username = null, theme = DEFAULT_THEME, onTheme, onSignOut, expanded = false, onToggle = null,
 }) {
 	/*
 		The reader's own controls, in a menu under their name at the right-hand end of the

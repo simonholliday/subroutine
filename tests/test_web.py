@@ -3348,16 +3348,17 @@ def test_an_ordinary_row_says_nothing_about_waiting_on_a_person (
 	assert not [one for one in shown if one["text"] == "Needs input"], shown
 
 
-def test_a_theme_nobody_recognises_reads_as_the_system_one (tmp_path: pathlib.Path) -> None:
+def test_a_theme_nobody_recognises_reads_as_the_default (tmp_path: pathlib.Path) -> None:
 	"""**`#908`. A stored value the app does not know must not strand the page.**
 
 	Storage on this origin outlives any version of this app, and a person can type into it. A
 	value from an older release, a typo, or another page's key has to land somewhere a control
-	can get out of — and `system` is that place, because it is also what nothing-stored means.
+	can get out of — and the default is that place, because it is also what nothing-stored
+	means: `dark` since `SR#5450`, where it was `system`.
 
 	**Storage throwing is the same answer**, not an exception: a private window can refuse, and
 	a to-do list that will not render because it could not read a preference is a worse bargain
-	than one that renders in the system theme.
+	than one that renders in the default.
 	"""
 
 	answers = _ran(tmp_path, f"""
@@ -3382,7 +3383,7 @@ def test_a_theme_nobody_recognises_reads_as_the_system_one (tmp_path: pathlib.Pa
 	assert answers["system"] == "system"
 
 	for case in ("nothing", "nonsense", "absent", "broken"):
-		assert answers[case] == "system", f"{case} read as {answers[case]!r}"
+		assert answers[case] == "dark", f"{case} read as {answers[case]!r}"
 
 
 def test_choosing_the_system_theme_removes_the_attribute (tmp_path: pathlib.Path) -> None:
@@ -3429,7 +3430,9 @@ def test_choosing_the_system_theme_removes_the_attribute (tmp_path: pathlib.Path
 		"to light — the one choice that would not work"
 	)
 
-	assert answers["nonsense"]["applied"] == "system", "an unknown theme was applied as itself"
+	assert answers["nonsense"] == {"applied": "dark", "attribute": "dark"}, (
+		"an unknown theme was not applied as the default"
+	)
 	assert answers["unwritable"]["attribute"] == "dark", (
 		"storage refused the write and the theme was not applied either, so a private window "
 		"cannot change theme at all"

@@ -1372,6 +1372,7 @@ def test_a_link_asks_a_browser_signed_in_as_nobody_before_signing_it_in (
 	assert f"Continue as {setup.user.username}" in asked.text, "the page named nobody"
 	assert f'action="{subroutine.api.sessions.SIGN_IN}"' in asked.text
 	assert asked.headers["Referrer-Policy"] == "strict-origin"
+	assert '<html lang="en" data-theme="dark">' in asked.text, "`SR#5450`: the page is dark"
 	assert _unspent(session) == before, "asking spent the link"
 
 	answer = _confirmed(setup.application, secret)

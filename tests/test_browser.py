@@ -3571,6 +3571,22 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 
 	page = opened("/projects")
 
+	# **A reader who has chosen nothing gets dark whatever the machine says** (`SR#5450`, Simon
+	# 2026-11-17), applied before the first paint by the shell. Then *Match system* is stored, so
+	# the page follows the machine for the measurements below.
+	page.evaluate("localStorage.removeItem('theme')")
+	page.emulate_media(color_scheme="light")
+	page.reload()
+	page.wait_for_selector(".top h1", timeout=10_000)
+	unchosen = background(page)
+
+	assert page.evaluate("document.documentElement.dataset.theme") == "dark", (
+		"a reader who chose nothing was not given the dark default before the first paint"
+	)
+
+	page.evaluate("localStorage.setItem('theme', 'system')")
+	page.reload()
+
 	# **Waited for, because the masthead is rendered and the body is not.** The colours below
 	# read off `body`, which exists before `app.js` has drawn anything — so without this the
 	# first read of the mark races the first paint rather than measuring it.
@@ -3609,6 +3625,11 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 
 	assert pinned == light, (
 		f"pinning light on a dark system paints {pinned}, where a light system paints {light}"
+	)
+
+	assert unchosen == followed, (
+		f"a reader who chose nothing, on a light system, paints {unchosen} where dark paints "
+		f"{followed}"
 	)
 
 	assert page.evaluate("document.documentElement.dataset.theme") == "light", (

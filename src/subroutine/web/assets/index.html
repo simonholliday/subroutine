@@ -60,23 +60,24 @@
 	for anybody who pinned one against their system. That is the whole reason it is here and
 	not in `app.js`.
 
-	**Nothing set means `system`**, which is the default and leaves `prefers-color-scheme` in
-	force — so this writes an attribute only for the two states that override it, and an
-	unrecognised value is ignored rather than trusted. Storage throws in some privacy modes, so
-	a failure here leaves the page on the system theme rather than blank.
+	**Nothing set means `dark`**, the default since `SR#5450` (Simon, 2026-11-17) and
+	`chrome.DEFAULT_THEME`, and so does an unrecognised value; only a stored `system` leaves
+	the attribute off, so that `prefers-color-scheme` decides. Storage throws in some privacy
+	modes, so a failure here leaves the page on the default rather than blank.
 
 	`#805`'s policy covers this by construction: `policy.inline_script_hashes` derives a hash
 	from every inline script in the served bytes, so there is no hash to keep in step. That was
 	checked rather than assumed, and is recorded on `#908`.
 -->
 <script>
+	var chosen = null;
 	try {
-		var chosen = localStorage.getItem("theme");
-		if (chosen === "light" || chosen === "dark") {
-			document.documentElement.dataset.theme = chosen;
-		}
+		chosen = localStorage.getItem("theme");
 	} catch (unavailable) {
-		/* No storage, so no stored choice: the system's answer stands. */
+		/* No storage, so no stored choice: the default stands. */
+	}
+	if (chosen !== "system") {
+		document.documentElement.dataset.theme = chosen === "light" ? "light" : "dark";
 	}
 </script>
 </head>

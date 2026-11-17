@@ -105,6 +105,10 @@ upgrade involves.
   use it.** A cancelled task with a passed deadline read *Overdue* beside *cancelled*, and members
   and contributors were shown Prioritise, which then refused them.
 
+- **The browser starts dark.** A reader who has not chosen a theme now gets the dark one, whatever
+  their device prefers, and so does the page a sign-in link opens. *Match system* and *Light* are
+  still in the menu under your name, and a choice made there is kept as before.
+
 - **Twelve more collections that limited nothing say so, a link's far end names its workspace, and
   the app's manifest and service worker take a query.** An item's links, tree, backlinks, governing
   documents and proposed links, a task's verifications, a project's and a workspace's members and
