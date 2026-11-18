@@ -33,7 +33,7 @@ ADDING = frozenset({"update", "setdefault"})
 Field = tuple[str, str]
 
 #: Fields naming a row its reader may not see, and the kind of row: ``NAMES_A_ROW`` or
-#: ``NAMES_A_ROW_ON`` (`SR#5148`, `SR#5241`, `SR#5290`).
+#: ``NAMES_A_ROW_ON`` (`SR#5148`, `SR#5241`, `SR#5290`, `SR#5453`).
 ROWS: dict[Field, str] = {
 	("document", "parent_id"): "document",
 	("document", "project_id"): "project",
@@ -41,6 +41,7 @@ ROWS: dict[Field, str] = {
 	("task", "parent_task_id"): "task",
 	("task", "project_id"): "project",
 	("task", "recurrence_template_id"): "task",
+	("workspace", "prioritised_project_id"): "project",
 }
 
 #: Fields holding a path of such rows, and the kind along it: ``PATHS_ON`` (`SR#5241`, `SR#5290`).
@@ -56,9 +57,7 @@ REFS: dict[Field, str] = {("task", "moved_with"): "task"}
 #: Fields naming such a row that nothing says as unseen yet, with the kind and the item that will.
 #: **Deleting an entry is what closes its item**: the agreement test fails once the renderers hide
 #: the field, and the entry moves to :data:`ROWS`.
-OWED: dict[Field, tuple[str, str]] = {
-	("workspace", "prioritised_project_id"): ("project", "#5453"),
-}
+OWED: dict[Field, tuple[str, str]] = {}
 
 #: Why a field names no project, task or document its reader may not see.
 ITS_OWN = "the item's own number, name or text"

@@ -237,6 +237,54 @@ def test_a_parent_left_in_a_private_project_is_unseen_after_its_sub_task_moves (
 	_her_surfaces_hide(place, ref, str(parent.json()["id"]))
 
 
+def _prioritised (rows: list[dict[str, typing.Any]]) -> list[typing.Any]:
+	"""Return the changes of every workspace event that moved which project it prioritises."""
+
+	return [
+		row["changes"]["prioritised_project_id"]
+		for row in rows
+		if row.get("entity_type") == "workspace"
+		and isinstance(row.get("changes"), dict)
+		and "prioritised_project_id" in row["changes"]
+	]
+
+
+def test_a_workspace_s_prioritised_project_is_unseen_by_a_member_who_cannot_see_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5453`: a member who cannot see the project a workspace prioritises is not given its id.
+
+	keanu prioritises `aaa`, private to him. The workspace told carrieanne it prioritised nothing,
+	and its event in the feed gave her `aaa`'s id.
+	"""
+
+	place = Place(session, private=True, count=None)
+	aaa = _project_id(place, "aaa")
+	(workspace,) = place.ask(place.keanu, "GET", "/v1/workspaces").json()["items"]
+	path = f"/v1/workspaces/{workspace['slug']}"
+	prioritised = place.ask(place.keanu, "PATCH", path, json={"prioritised_project": "aaa"})
+
+	assert prioritised.status_code == 200, prioritised.text
+
+	for who, named in ((place.carrieanne, None), (place.keanu, "aaa")):
+		assert place.ask(who, "GET", path).json()["prioritised_project"] == named
+
+	hers = place.ask(place.carrieanne, "GET", "/v1/changes")
+	his = place.ask(place.keanu, "GET", "/v1/changes")
+	journal = place.ask(place.carrieanne, "GET", "/v1/journal")
+
+	assert hers.status_code == 200 and his.status_code == 200, (hers.text, his.text)
+	assert _prioritised(hers.json()["items"]) == [{"from": None, "to": {"visible": False}}]
+	assert _prioritised(his.json()["items"]) == [{"from": None, "to": aaa}]
+	assert journal.status_code == 200 and aaa not in journal.text, journal.text
+	assert [
+		change["after"]
+		for row in journal.json()["items"]
+		for change in row.get("changed") or ()
+		if change["field"] == "prioritised_project_id"
+	] == ["something you cannot see"], journal.text
+
+
 def test_the_fields_that_name_a_row_are_the_ones_the_journal_names_by_project_or_task () -> None:
 	"""One declaration, read by both: the journal's lookups for these are the events' own."""
 

@@ -82,7 +82,9 @@ upgrade involves.
   says *something you cannot see* where it said *nothing*. A task or document taken out from under a
   parent its reader cannot see, and then moved, no longer gives that parent's id or number. An
   occurrence filed apart from a series its reader cannot see no longer gives the series' number, and
-  the terminal and the browser read its rule to know that it repeats.
+  the terminal and the browser read its rule to know that it repeats. Prioritising a private project
+  gave its id, in the change feed, to every member of the workspace; that side is said as unseen
+  too, and the journal says *something you cannot see*.
 
 - **The hosting guide's backup transcripts are real runs again.** Its three `db backup` and
   `db backups` blocks left out the line saying what each copy holds, and the listing left out why

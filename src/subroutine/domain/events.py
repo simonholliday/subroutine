@@ -1238,14 +1238,17 @@ SIDES = frozenset({"from", "to"})
 #: What one event's reader may not see in its changes: each field, and which of its sides (`SR#5148`).
 Unseen = dict[str, frozenset[str]]
 
-#: Fields that name a row only on one kind of item's events, by that kind (`SR#5241`): a project's
+#: Fields that name a row only on one kind's events, by that kind (`SR#5241`): a project's
 #: ``parent_id`` is a project, and a document's is a document. **A document's is asked too**
 #: (`SR#5290`, M-2 of the cold review of 2026-11-11): this said a document's parent was in its own
 #: project, which its reader could therefore see, but a document can leave its parent and then its
-#: project, and its older events named the parent to whoever can see it now.
+#: project, and its older events named the parent to whoever can see it now. **And the project a
+#: workspace prioritises** (`SR#5453`): a workspace's events reach every member, and gave its id to
+#: one who cannot see it, to whom the workspace itself says it prioritises nothing.
 NAMES_A_ROW_ON: dict[tuple[str, str], str] = {
 	("project", "parent_id"): "project",
 	("document", "parent_id"): "document",
+	("workspace", "prioritised_project_id"): "project",
 }
 
 #: Fields holding a path of ancestors, by the kind of item whose events carry them, and the kind each
