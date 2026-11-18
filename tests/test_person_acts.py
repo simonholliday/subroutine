@@ -296,6 +296,11 @@ NOT_DECIDING: dict[str, str] = {
 		"work to one who cannot act (decision `#4509`, `SR#5104`): what the sentence says, never what "
 		"the actor may do."
 	),
+	"workspaces.py:_refuse_administering_by_who_cannot_act": (
+		"Says *has left* of a person and *has stopped working here* of an agent, refusing a role "
+		"that administers to one who cannot act (decision `#5285`, `SR#5309`): what the sentence "
+		"says, never what the actor may do."
+	),
 	"repair.py:_above": (
 		"Walks up from whoever holds a row on a private project to whoever sees through it "
 		"(decision `#4943`): who a last-one refusal counts, never what the actor may do."

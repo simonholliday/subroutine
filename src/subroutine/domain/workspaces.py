@@ -818,6 +818,51 @@ def _deletes (role: subroutine.db.models.identity.Role) -> bool:
 	return subroutine.permissions.WORKSPACE_DELETE in (role.permissions or [])
 
 
+def _refuse_administering_by_who_cannot_act (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	user: subroutine.db.models.identity.User,
+	role: subroutine.db.models.identity.Role,
+	*,
+	seated: bool,
+) -> None:
+	"""Refuse a role that administers the workspace to an account that cannot act - `SR#5309`.
+
+	**One rule for making somebody the owner of a workspace and of a project** (decision `#5285`,
+	L-1 of the cold review of 2026-11-11, in `SR#5104`'s words): gloria, who had left, was made
+	owner, and the workspace gained an owner who could do nothing. Somebody returning is reactivated
+	first.
+
+	**Asked by the permission**, as :func:`_deletes` is, since a workspace's roles are its own to
+	rename. **Only a member is asked about this workspace** (Simon, 2026-11-18): nobody being added
+	is one yet, and an active agent whose person is not here may be added before them, listed as
+	stopped until they arrive. A member's agent whose person was taken out has stopped, and is
+	refused.
+	"""
+
+	if subroutine.permissions.WORKSPACE_ADMIN not in (role.permissions or []):
+		return
+
+	if subroutine.domain.accountability.can_act(
+		session, user, workspace_id=workspace.id if seated else None
+	):
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{user.username} "
+		f"{'has stopped working here' if user.is_service_account else 'has left'}, "
+		f"so they cannot administer {workspace.slug}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="role",
+				code="invalid_field_value",
+				message=f"{user.username} cannot act here.",
+				hint="Choose somebody who can act.",
+			)
+		],
+	)
+
+
 def add_member (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
@@ -862,6 +907,7 @@ def add_member (
 
 	role = find_role(session, workspace.id, role_key)
 	_refuse_an_owner_to_anybody_but_an_owner(session, workspace, role, actor=actor, making=role)
+	_refuse_administering_by_who_cannot_act(session, workspace, user, role, seated=False)
 
 	return _joined(session, workspace, user, role, role_key=role_key, actor=actor)
 
@@ -967,6 +1013,7 @@ def set_member_role (
 	_refuse_an_owner_to_anybody_but_an_owner(
 		session, workspace, held, wanted, actor=actor, making=wanted
 	)
+	_refuse_administering_by_who_cannot_act(session, workspace, user, wanted, seated=True)
 
 	# **The guard is reached from here too, and it was written for removals only** — a
 	# demotion strands a workspace exactly as a removal does, by a different verb, and the

@@ -524,6 +524,10 @@ upgrade involves.
   them, anybody who can see the project stands in where it, or a project above it, is private, so
   it is never stranded, and the departed owner's own share can be removed. A public project whose
   owner can no longer act is its administrators' to hide or hand over.
+- **A workspace's owner and administrator roles are refused to an account that cannot act.**
+  Somebody who had left, or an agent that had stopped, could be given either role, and the
+  workspace gained an administrator who could do nothing. Reactivate them first. An active agent
+  can still be added before the person it answers to, and is listed as stopped until they join.
 - **Moving a task or a document into a private project, out of one or between two is for the
   steward of the project it leaves.** A contributor shared into a private project moved a task
   assigned to somebody else into it, and the person it was assigned to, the project's owner and
