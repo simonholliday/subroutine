@@ -276,7 +276,7 @@ def create (
 			None
 			if body.assignee is None
 			else subroutine.domain.tasks.assignee_for(
-				session, workspace.id, body.assignee, caller=actor.user
+				session, workspace.id, body.assignee, reader=actor
 			).id
 		)
 
@@ -966,7 +966,7 @@ def change (
 			None
 			if body.assignee is None
 			else subroutine.domain.tasks.assignee_named(
-				session, task, body.assignee, caller=actor.user
+				session, task, body.assignee, reader=actor
 			)
 		)
 

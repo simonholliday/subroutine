@@ -293,7 +293,7 @@ def create (
 		# the foreign key and left as an unhandled `IntegrityError`, which is a 500 for a
 		# field a caller sent, and a real account outside the workspace was accepted.
 		named = subroutine.domain.users.member(
-			session, project.workspace_id, str(owner_id), field="owner_id"
+			session, project.workspace_id, str(owner_id), field="owner_id", reader=actor
 		)
 
 		# **A person's act** (`SR#4565`, decision `#4515`, with `#4523`): an agent names itself or
@@ -574,7 +574,7 @@ def update (
 		# the request was answered 201. `users.member` is the same question `assignee_for`
 		# already asked properly about a task.
 		named = subroutine.domain.users.member(
-			session, document.workspace_id, str(owner_id), field="owner_id"
+			session, document.workspace_id, str(owner_id), field="owner_id", reader=actor
 		)
 
 		# **A person's act** (`SR#4565`, decision `#4515`, with `#4523`): an agent hands a document

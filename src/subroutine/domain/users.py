@@ -774,7 +774,7 @@ def member (
 	given: str,
 	*,
 	field: str,
-	caller: subroutine.db.models.identity.User | None = None,
+	reader: subroutine.domain.authentication.Principal | None,
 ) -> subroutine.db.models.identity.User:
 	"""Return the member of this workspace named by a username or an id, or refuse by name.
 
@@ -794,7 +794,9 @@ def member (
 
 	A value that parses as a UUID is taken as an id, matching ``id_or_ref`` and ``id_or_key``
 	and :func:`subroutine.domain.selection.user`, and as a username where no member has it as an
-	id; anything else is a username. ``caller`` is the account :data:`CALLER` stands for.
+	id; anything else is a username. ``reader`` is whoever asks: :data:`CALLER` stands for their
+	account, and their reach decides whether a refusal lists the members (`SR#5311`). Required, so
+	a door cannot forget it.
 	"""
 
 	# **Half a character is refused by name** (`#4287`, M4 of the cold review of 2026-10-03):
@@ -805,14 +807,14 @@ def member (
 	# **``me`` is whoever is asking** (`SR#5144`, decision `#5097`), as a filter already reads it.
 	# It is reserved, so no account holds it, and it was refused as nobody called 'me' - a reason
 	# that was false. An agent asking is the agent itself (`#158`), and a member like anybody.
-	if caller is not None and given == CALLER:
-		given = caller.username
+	if reader is not None and given == CALLER:
+		given = reader.user.username
 
 	try:
 		identifier = uuid.UUID(given)
 
 	except ValueError:
-		return _member_by_name(session, workspace_id, given, field=field)
+		return _member_by_name(session, workspace_id, given, field=field, reader=reader)
 
 	model = subroutine.db.models.identity.User
 	found = session.scalars(_members(workspace_id).where(model.id == identifier)).one_or_none()
@@ -841,7 +843,12 @@ def member (
 
 
 def _member_by_name (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, username: str, *, field: str
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	username: str,
+	*,
+	field: str,
+	reader: subroutine.domain.authentication.Principal | None,
 ) -> subroutine.db.models.identity.User:
 	"""Return a member of this workspace by username, or say who is here."""
 
@@ -854,10 +861,21 @@ def _member_by_name (
 		return found
 
 	# **Only those who can act there** (`SR#5104`): the hint never offers somebody who would be refused.
-	available = sorted(
-		one.username
+	acting = [
+		one
 		for one in session.scalars(_members(workspace_id))
 		if subroutine.domain.accountability.can_act(session, one, workspace_id=workspace_id)
+	]
+
+	# **And only to a credential that may read every one** (`SR#5311`, L-1 of the cold review of
+	# 2026-11-11, decision `#5097`): one refused the member listing was given the roster here. **All
+	# or none**, since a credential reads its own account without the workspace, and a list cut to
+	# what it may read would read as everybody.
+	readable = reached_among(session, reader, [one.id for one in acting])
+	available = (
+		sorted(one.username for one in acting)
+		if all(one.id in readable for one in acting)
+		else []
 	)
 
 	raise subroutine.errors.ValidationError(

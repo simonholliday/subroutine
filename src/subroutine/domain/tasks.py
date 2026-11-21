@@ -1474,7 +1474,7 @@ def create_from_text (
 				workspace.id,
 				captured.assignee,
 				field="assignee",
-				caller=None if actor is None else actor.user,
+				reader=actor,
 			).id
 		),
 	}
@@ -1501,7 +1501,7 @@ def assignee_for (
 	workspace_id: uuid.UUID,
 	given: str,
 	*,
-	caller: subroutine.db.models.identity.User | None = None,
+	reader: subroutine.domain.authentication.Principal | None,
 ) -> subroutine.db.models.identity.User:
 	"""Return the member this names, whether it was named by username or by id — `#493`.
 
@@ -1519,7 +1519,7 @@ def assignee_for (
 	"""
 
 	return subroutine.domain.users.member(
-		session, workspace_id, given, field="assignee", caller=caller
+		session, workspace_id, given, field="assignee", reader=reader
 	)
 
 
@@ -1528,7 +1528,7 @@ def assignee_named (
 	task: subroutine.db.models.work.Task,
 	given: str,
 	*,
-	caller: subroutine.db.models.identity.User | None = None,
+	reader: subroutine.domain.authentication.Principal | None,
 ) -> uuid.UUID:
 	"""Return who a change of assignee names, never asking about the one it has - `SR#5302`.
 
@@ -1545,15 +1545,15 @@ def assignee_named (
 		else session.get(subroutine.db.models.identity.User, task.assignee_id)
 	)
 	named = (
-		caller.username
-		if caller is not None and given == subroutine.domain.users.CALLER
+		reader.user.username
+		if reader is not None and given == subroutine.domain.users.CALLER
 		else given
 	)
 
 	if current is not None and _names(current, named):
 		return current.id
 
-	return assignee_for(session, task.workspace_id, given, caller=caller).id
+	return assignee_for(session, task.workspace_id, given, reader=reader).id
 
 
 def _names (account: subroutine.db.models.identity.User, given: str) -> bool:

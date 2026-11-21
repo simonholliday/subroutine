@@ -3890,7 +3890,7 @@ class Client:
 					None
 					if assignee is None
 					else subroutine.domain.tasks.assignee_named(
-						session, row, assignee, caller=actor.user
+						session, row, assignee, reader=actor
 					)
 				)
 

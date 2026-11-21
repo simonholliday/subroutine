@@ -427,7 +427,9 @@ upgrade involves.
   the workspaces it reaches, and one that may not read a workspace - narrowed to tasks alone, say -
   reads only its own chain. *Reading one account outside that now answers as a name nobody has.*
   Naming somebody to act still works for any account - adding them to a workspace, sharing a
-  project with them - and where everybody shares a workspace nothing changes.
+  project with them - and where everybody shares a workspace nothing changes. A refusal naming
+  somebody who is not a member lists the workspace's members by the same rule: only to a credential
+  that may read them all, and otherwise not at all.
 - **Whoever an agent answers to sees the private projects shared with it.** Somebody whose agent
   made a private project could not see it or share themselves into it, though they stand in as
   its owner. Sight now follows the chain of accountability upward, through other agents too, so

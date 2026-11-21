@@ -183,4 +183,6 @@ def test_me_without_anybody_asking_names_nobody (session: sqlalchemy.orm.Session
 	setup = test_api_tasks._world(session)
 
 	with pytest.raises(subroutine.errors.ValidationError, match="nobody called 'me'"):
-		subroutine.domain.users.member(session, setup.workspace.id, "me", field="assignee")
+		subroutine.domain.users.member(
+			session, setup.workspace.id, "me", field="assignee", reader=None
+		)

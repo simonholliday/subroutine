@@ -1236,7 +1236,9 @@ def member_who_sees (
 	naming it names nothing hidden from them.
 	"""
 
-	named = subroutine.domain.users.member(session, workspace_id, str(user_id), field=field)
+	named = subroutine.domain.users.member(
+		session, workspace_id, str(user_id), field=field, reader=actor
+	)
 
 	# **And who can act there** (`SR#5104`, M-10 of the cold review of 2026-10-17, decision `#4509`):
 	# a member who had left, or an agent that had stopped, was handed a task, a document or a project
