@@ -46,6 +46,7 @@ import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
@@ -300,6 +301,43 @@ def test_a_role_moves_through_either_transport_and_the_other_sees_it (
 	}
 
 	assert seen[thomas.username] == "viewer"
+
+
+def test_both_say_an_agent_whose_person_is_not_here_is_stopped (pair: Pair) -> None:
+	"""`SR#5312` (L-1 of the cold review of 2026-11-11): the local client answered no ``stopped``.
+
+	ghost and sati answer to niobe, who is not a member here, so neither can act here yet. Adding
+	each, and moving each to another role, says so on both transports, as the listing does.
+	"""
+
+	niobe = subroutine.domain.users.create(pair.session, username="niobe")
+	ghost, sati = (
+		subroutine.domain.users.create(
+			pair.session, username=name, is_service_account=True, responsible_user_id=niobe.id
+		)
+		for name in ("ghost", "sati")
+	)
+	pair.session.flush()
+	slug = pair.workspace.slug
+
+	with _as_the_operator(pair) as local:
+		answers = {
+			"added locally": local.add_member(
+				username=ghost.username, role="member", workspace=slug
+			),
+			"added over HTTP": pair.remote.add_member(
+				username=sati.username, role="member", workspace=slug
+			),
+			"moved locally": local.set_member_role(
+				username=sati.username, role="viewer", workspace=slug
+			),
+			"moved over HTTP": pair.remote.set_member_role(
+				username=ghost.username, role="viewer", workspace=slug
+			),
+		}
+
+	for how, answer in answers.items():
+		assert answer.stopped == subroutine.domain.accountability.OUTSIDE, how
 
 
 def test_both_refuse_moving_somebody_who_is_not_a_member (pair: Pair) -> None:

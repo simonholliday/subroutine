@@ -639,7 +639,9 @@ def join (
 	)
 	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
 
-	return _one_member(session, actor, found, membership, account, role)
+	return subroutine.views.one_member(
+		session, actor, found, membership, account=account, role=role
+	)
 
 
 @router.patch(
@@ -682,33 +684,8 @@ def regrade (
 	)
 	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
 
-	return _one_member(session, actor, found, membership, account, role)
-
-
-def _one_member (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	found: subroutine.db.models.identity.Workspace,
-	membership: subroutine.db.models.identity.WorkspaceMember,
-	account: subroutine.db.models.identity.User,
-	role: subroutine.db.models.identity.Role,
-) -> subroutine.views.Member:
-	"""Render the one membership an act made or changed, as the listing renders each - `#5062`."""
-
-	answers_to = subroutine.domain.accountability.answerable_name(session, account)
-	outside = subroutine.domain.accountability.outside_in(
-		session, found.id, [account], {} if answers_to is None else {account.id: answers_to}
-	)
-
-	return subroutine.views.member(
-		membership,
-		account=account,
-		role=role,
-		within=found,
-		prioritised=_focus(session, actor, found),
-		answers_to=answers_to,
-		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
-		stopped=subroutine.domain.accountability.OUTSIDE if outside else None,
+	return subroutine.views.one_member(
+		session, actor, found, membership, account=account, role=role
 	)
 
 

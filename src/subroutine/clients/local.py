@@ -2746,16 +2746,8 @@ class Client:
 			)
 			held = subroutine.domain.workspaces.find_role(session, chosen.id, role)
 
-			return subroutine.views.member(
-				membership,
-				account=account,
-				role=held,
-				within=chosen,
-				prioritised=subroutine.domain.projects.prioritised_addresses(
-					session, actor, workspace_ids=[chosen.id]
-				).get(chosen.id),
-				answers_to=subroutine.domain.accountability.answerable_name(session, account),
-				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
+			return subroutine.views.one_member(
+				session, actor, chosen, membership, account=account, role=held
 			)
 
 	def set_member_role (
@@ -2773,16 +2765,8 @@ class Client:
 			)
 			held = subroutine.domain.workspaces.find_role(session, chosen.id, role)
 
-			return subroutine.views.member(
-				membership,
-				account=account,
-				role=held,
-				within=chosen,
-				prioritised=subroutine.domain.projects.prioritised_addresses(
-					session, actor, workspace_ids=[chosen.id]
-				).get(chosen.id),
-				answers_to=subroutine.domain.accountability.answerable_name(session, account),
-				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
+			return subroutine.views.one_member(
+				session, actor, chosen, membership, account=account, role=held
 			)
 
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:

@@ -7094,6 +7094,42 @@ def member (
 	)
 
 
+def one_member (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	within: subroutine.db.models.identity.Workspace,
+	row: subroutine.db.models.identity.WorkspaceMember,
+	*,
+	account: subroutine.db.models.identity.User,
+	role: subroutine.db.models.identity.Role,
+) -> Member:
+	"""Render the one membership an act made or changed, as the listing renders each - `#5062`.
+
+	**Here, for both transports** (`SR#5312`, L-1 of the cold review of 2026-11-11): it lived in the
+	HTTP router, and the local client rendered its own without asking whether the account is
+	stopped, so the terminal answered ``stopped: null`` for an agent the same act over HTTP said was
+	stopped.
+	"""
+
+	answers_to = subroutine.domain.accountability.answerable_name(session, account)
+	outside = subroutine.domain.accountability.outside_in(
+		session, within.id, [account], {} if answers_to is None else {account.id: answers_to}
+	)
+
+	return member(
+		row,
+		account=account,
+		role=role,
+		within=within,
+		prioritised=subroutine.domain.projects.prioritised_addresses(
+			session, actor, workspace_ids=[within.id]
+		).get(within.id),
+		answers_to=answers_to,
+		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
+		stopped=subroutine.domain.accountability.OUTSIDE if outside else None,
+	)
+
+
 def project_member (
 	row: subroutine.db.models.project.ProjectMember,
 	*,
