@@ -1275,13 +1275,21 @@ def _refuse_stranding_a_private_project (
 	seen = [key for key in keys if key is not None]
 	named = seen if len(seen) == len(keys) else [*seen, subroutine.domain.scoping.UNSEEN]
 
+	# **Counted from what is named** (`SR#5310`, L-1 of the cold review of 2026-11-11, decision
+	# `#4521`): every project the caller cannot see is one *something you cannot see*, so a pronoun
+	# counted from the projects stranded told them there were several.
+	one = len(named) == 1
+	sharing = "it" if one else "each"
+
 	raise subroutine.errors.ValidationError(
 		f"{user.username} is the only person who can see {', '.join(named)}, so taking them "
-		f"out of {workspace.slug} would leave no person able to reach "
-		f"{'it' if len(stranded) == 1 else 'them'}.",
-		hint="Share each with somebody else first, or make it public."
+		f"out of {workspace.slug} would leave no person able to reach {'it' if one else 'them'}.",
+		hint=f"Share {sharing} with somebody else first, or make it public."
 		if len(seen) == len(keys)
-		else f"Ask {user.username} to share each with somebody else first, or to make it public.",
+		else (
+			f"Ask {user.username} to share {sharing} with somebody else first, or to make it "
+			"public."
+		),
 	)
 
 

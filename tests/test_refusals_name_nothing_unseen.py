@@ -33,6 +33,7 @@ def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
 
 
 _person = test_sight_follows_the_chain._person
+_agent = test_sight_follows_the_chain._agent
 _metacortex = test_sight_follows_the_chain._metacortex
 _project = test_sight_follows_the_chain._project
 _principal = test_sight_follows_the_chain._as
@@ -67,12 +68,93 @@ def test_taking_somebody_out_names_no_project_the_caller_cannot_see (
 
 	assert "severance" not in said, said
 	assert "something you cannot see" in said, said
-	assert f"Ask {keanu.username} to share each" in (refused.value.hint or ""), refused.value.hint
+	assert refused.value.hint == _asking(keanu, "it"), refused.value.hint
 
 	with pytest.raises(subroutine.errors.ValidationError) as asked_by_the_installation:
 		subroutine.domain.workspaces.remove_member(session, workspace, keanu, actor=None)
 
 	assert "severance" in asked_by_the_installation.value.detail, "an internal caller reads everything"
+
+
+def _asking (person: typing.Any, sharing: str) -> str:
+	"""Return the hint that sends the caller to ``person``, sharing ``it`` or ``each``."""
+
+	return (
+		f"Ask {person.username} to share {sharing} with somebody else first, or to make it "
+		"public."
+	)
+
+
+def _refused_taking_out (
+	session: sqlalchemy.orm.Session, workspace: typing.Any, keanu: typing.Any, caller: typing.Any
+) -> subroutine.errors.ValidationError:
+	"""Return the refusal ``caller`` is given, taking keanu out of ``workspace``."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.workspaces.remove_member(
+			session, workspace, keanu, actor=_principal(caller)
+		)
+
+	return refused.value
+
+
+def test_two_projects_the_caller_cannot_see_are_one_thing_unseen (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5310` (L-1, cold review of 2026-11-11): *them* after one unseen thing said several."""
+
+	carrieanne = _person(session, "carrieanne")
+	keanu = _person(session, "keanu")
+	workspace = _metacortex(session, carrieanne, keanu=(keanu, "member"))
+	_project(session, workspace, "severance", keanu)
+	_project(session, workspace, "zion", keanu)
+	session.flush()
+
+	refused = _refused_taking_out(session, workspace, keanu, carrieanne)
+
+	assert refused.detail == (
+		f"{keanu.username} is the only person who can see something you cannot see, so taking them "
+		f"out of {workspace.slug} would leave no person able to reach it."
+	), refused.detail
+	assert refused.hint == _asking(keanu, "it"), refused.hint
+
+
+def test_one_the_caller_sees_beside_one_it_does_not_is_two_things (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""keanu's agent tank holds `lab`'s row and sees it, and not keanu's own `severance`."""
+
+	carrieanne = _person(session, "carrieanne")
+	keanu = _person(session, "keanu")
+	tank = _agent(session, "tank", keanu)
+	workspace = _metacortex(session, carrieanne, keanu=(keanu, "member"), tank=(tank, "admin"))
+	_project(session, workspace, "severance", keanu)
+	_project(session, workspace, "lab", tank)
+	session.flush()
+
+	refused = _refused_taking_out(session, workspace, keanu, tank)
+
+	assert refused.detail == (
+		f"{keanu.username} is the only person who can see lab, something you cannot see, so taking "
+		f"them out of {workspace.slug} would leave no person able to reach them."
+	), refused.detail
+	assert refused.hint == _asking(keanu, "each"), refused.hint
+
+
+def test_one_project_the_caller_sees_is_shared_as_it (session: sqlalchemy.orm.Session) -> None:
+	"""Everything named is seen, so the hint is the caller's own act, counted the same way."""
+
+	carrieanne = _person(session, "carrieanne")
+	keanu = _person(session, "keanu")
+	tank = _agent(session, "tank", keanu)
+	workspace = _metacortex(session, carrieanne, keanu=(keanu, "member"), tank=(tank, "admin"))
+	_project(session, workspace, "lab", tank)
+	session.flush()
+
+	refused = _refused_taking_out(session, workspace, keanu, tank)
+
+	assert refused.detail.endswith("would leave no person able to reach it."), refused.detail
+	assert refused.hint == "Share it with somebody else first, or make it public.", refused.hint
 
 
 def test_unsharing_names_no_project_inside_that_the_caller_cannot_see (
