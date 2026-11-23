@@ -563,6 +563,41 @@ def test_nobody_can_set_somebody_else_s_timezone (
 	assert colleague.timezone is None, "nothing was written on the way to being refused"
 
 
+def test_setting_the_timezone_of_somebody_out_of_reach_is_refused_by_the_act (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5340`, the mutant UE2 of the cold review of 2026-11-11: its clause went untested.
+
+	keanu and carrieanne share no workspace, so his reading of her answers that there is nobody of
+	that name. **Setting her timezone is an act**, so the act's own refusal is the answer (decision
+	`#4943`, rule 2), and read through his reach it would have been the same not found.
+	"""
+
+	_instance(session)
+	keanu = subroutine.domain.users.create(
+		session, username=f"keanu-{uuid.uuid4().hex[:8]}", actor=None
+	)
+	carrieanne = subroutine.domain.users.create(
+		session, username=f"carrieanne-{uuid.uuid4().hex[:8]}", actor=None
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=keanu, title="Keanu's"
+	)
+	session.flush()
+
+	with _over_http(session, issued.value.get_secret_value()) as client:
+		with pytest.raises(subroutine.errors.NotFound):
+			client.user(username=carrieanne.username)
+
+		with pytest.raises(subroutine.errors.Forbidden) as refused:
+			client.set_timezone(username=carrieanne.username, timezone="Europe/London")
+
+	assert refused.value.detail == (
+		f"You can set your own timezone, not {carrieanne.username}'s."
+	), refused.value.detail
+	assert carrieanne.timezone is None
+
+
 def test_a_timezone_nobody_has_heard_of_is_refused_where_it_is_typed (
 	session: sqlalchemy.orm.Session,
 ) -> None:

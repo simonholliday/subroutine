@@ -13,8 +13,10 @@ import sqlalchemy.orm
 
 import subroutine.auth
 import subroutine.domain.authentication
+import subroutine.domain.calendars
 import subroutine.domain.sessions
 import subroutine.domain.users
+import subroutine.domain.workspaces
 
 
 def _repeating (monkeypatch: pytest.MonkeyPatch, prefix: str, times: int) -> None:
@@ -70,6 +72,41 @@ def test_a_link_and_a_session_are_minted_past_a_taken_prefix (
 	)
 
 	assert other.token_prefix != token.token_prefix
+
+
+def test_a_calendar_feed_is_minted_past_a_taken_prefix_when_made_and_reset (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5340`, the mutant PR3 of the cold review of 2026-11-11: three kinds of four were covered.
+
+	This file says every kind of credential, and a feed minted through a bare generator passed it.
+	**A second feed, handed the first's prefix once when made and once when reset**, takes the
+	next one each time.
+	"""
+
+	keanu = subroutine.domain.users.create(session, username=f"keanu-{uuid.uuid4().hex[:6]}")
+	workspace = subroutine.domain.workspaces.create(
+		session, slug=f"metacortex-{uuid.uuid4().hex[:6]}", title="Metacortex", owner=keanu
+	)
+	actor = subroutine.domain.authentication.Principal(user=keanu)
+	first, _issued = subroutine.domain.calendars.create(
+		session, actor, workspace_id=workspace.id, title="Errands"
+	)
+	session.flush()
+
+	_repeating(monkeypatch, first.token_prefix, 1)
+	second, _issued = subroutine.domain.calendars.create(
+		session, actor, workspace_id=workspace.id, title="The launch"
+	)
+	session.flush()
+
+	assert second.token_prefix != first.token_prefix
+
+	_repeating(monkeypatch, first.token_prefix, 1)
+	subroutine.domain.calendars.reset(session, second, actor=actor, enabled=True)
+	session.flush()
+
+	assert second.token_prefix != first.token_prefix
 
 
 def test_every_attempt_taken_is_the_refusal_a_token_gives (
