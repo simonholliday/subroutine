@@ -16,7 +16,10 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.project
+import subroutine.domain.authentication
+import subroutine.domain.hierarchy
 import subroutine.domain.projects
+import subroutine.domain.repair
 import subroutine.domain.stewardship
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -168,7 +171,9 @@ def test_making_a_project_private_keeps_somebody_who_can_see_each_private_projec
 	assert unseen.value.detail == (
 		"Making outer private would leave no person able to reach something you cannot see inside it."
 	)
-	assert unseen.value.hint == f"Make {pat.username} the owner of outer first, since they can see it."
+	# **And who sees it, only to somebody who can see it** (`SR#5316`, decision `#5285`).
+	assert unseen.value.hint == "Make somebody who can act its owner first."
+	assert pat.username not in str(unseen.value), unseen.value
 
 	# **thomas, an administrator pat shared ``inner`` with, is told its key**: he can see it.
 	projects.share(session, inner, thomas, actor=_as(pat))
@@ -209,7 +214,8 @@ def test_moving_a_project_under_a_private_one_keeps_somebody_who_can_see_each_pr
 	assert refused.value.detail == (
 		"Moving outer under vault would leave no person able to reach something you cannot see inside it."
 	)
-	assert refused.value.hint == f"'subroutine project share vault {pat.username}' first."
+	# **Who sees it, only to somebody who can see it** (`SR#5316`, decision `#5285`).
+	assert refused.value.hint == "Share vault with whoever can see what is inside outer first."
 	assert outer.parent_id is None and _sees(session, pat, inner)
 
 	projects.share(session, vault, bob, actor=_as(jo))
@@ -219,13 +225,72 @@ def test_moving_a_project_under_a_private_one_keeps_somebody_who_can_see_each_pr
 	with pytest.raises(subroutine.errors.ValidationError) as asked:
 		projects.move(session, den, parent=vault, actor=_as(bob))
 
-	assert asked.value.hint == f"Ask the owner of 'vault' to share it with {pat.username} first."
+	assert asked.value.hint == (
+		"Ask the owner of 'vault' to share it with whoever can see what is inside den first."
+	)
 	assert den.parent_id is None
 
 	projects.share(session, vault, pat, actor=_as(jo))
 	projects.move(session, outer, parent=vault, actor=_as(jo))
 
 	assert outer.parent_id == vault.id and _sees(session, pat, inner)
+
+
+def test_a_move_offers_the_share_only_to_whoever_may_share_on_this_credential (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#5316`, L-6 of the cold review of 2026-11-11: the share hint asked stewardship alone.
+
+	jo stewards her private ``vault``, and her credential may change ``outer`` and ``vault/shelf``
+	but not ``vault``, so moving ``outer`` under ``shelf`` would hide pat's ``inner`` behind
+	``vault``, which this credential would be refused sharing. **She is not offered the share**, as
+	`SR#5106` made every other hint ask. **Asked of the refusal directly**: through ``move`` today,
+	`SR#5102` refuses a narrowed credential any crossing first, so this is the hint that refusal's
+	own order keeps from her, held for the day that order changes.
+	"""
+
+	thomas = _person(session, "thomas")
+	jo = _person(session, "jo")
+	pat = _person(session, "pat")
+	workspace = _metacortex(session, thomas, jo=(jo, "member"), pat=(pat, "member"))
+	vault = _project(session, workspace, "vault", jo)
+	shelf = _project(session, workspace, "shelf", jo, visibility="public", parent=vault)
+	outer = _project(session, workspace, "outer", jo, visibility="public")
+	_project(session, workspace, "inner", pat, parent=outer)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=jo,
+		title=f"jo's {uuid.uuid4().hex[:6]}",
+		project_write_scope=[str(outer.id), str(shelf.id)],
+	)
+	session.flush()
+	narrowed = subroutine.domain.authentication.authenticate(
+		session, issued.value.get_secret_value(), record_use=False
+	)
+	above = tuple(
+		uuid.UUID(segment) for segment in subroutine.domain.hierarchy.path_segments(shelf.path)
+	)
+
+	assert subroutine.domain.stewardship.stewards(session, narrowed, vault)
+
+	for actor, hint in (
+		(_as(jo), "Share vault with whoever can see what is inside outer first."),
+		(
+			narrowed,
+			"Ask the owner of 'vault' to share it with whoever can see what is inside outer first.",
+		),
+	):
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			projects._refuse_stranding(
+				session,
+				actor,
+				outer,
+				afterwards=subroutine.domain.repair.Afterwards(moved=outer.id, above=above),
+				doing="Moving outer under shelf",
+				field="parent",
+			)
+
+		assert refused.value.hint == hint, refused.value.hint
 
 
 def test_what_nobody_could_see_already_is_not_this_acts_to_refuse (
@@ -253,7 +318,8 @@ def test_making_a_project_private_over_http_is_refused_on_its_field_naming_nothi
 	session: sqlalchemy.orm.Session,
 ) -> None:
 	"""The same refusal through the API: 422 on ``visibility``, and the hidden project's key nowhere in
-	it - only the person who can see it, since naming an account is not a read of it (decision `#4943`).
+	it - **nor, since `SR#5316`, who alone sees it** (decision `#5285`): that is an entry of a
+	sharing list the caller cannot read.
 	"""
 
 	world = test_api_tasks._world(session)
@@ -278,5 +344,6 @@ def test_making_a_project_private_over_http_is_refused_on_its_field_naming_nothi
 	assert answer.status_code == 422, answer.text
 	assert answer.json()["errors"][0]["field"] == "visibility", answer.text
 	assert "hush" not in answer.text.lower(), answer.text
-	assert pat.username in answer.json()["hint"], answer.text
+	assert pat.username not in answer.text, answer.text
+	assert answer.json()["hint"] == "Make somebody who can act its owner first.", answer.text
 	assert world.call("GET", "/v1/projects/outer").json()["visibility"] == "public"

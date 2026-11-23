@@ -2030,9 +2030,13 @@ def unshare (
 	# Refusing only a change from somebody to nobody: a project no person could see already is not
 	# this act's to refuse, and an instance administrator's rescue is what brings one back.
 	for one in _losing_sight(session, project):
+		# **Who sees it afterwards first** (`SR#5316`), as :func:`_refuse_stranding` asks it.
+		if subroutine.domain.repair.repairers(session, one, unsharing=membership):
+			continue
+
 		could = subroutine.domain.repair.repairers(session, one)
 
-		if not could or subroutine.domain.repair.repairers(session, one, unsharing=membership):
+		if not could:
 			continue
 
 		# **One row gives sight to one person**: its holder, or whoever its holder answers to.
@@ -2185,7 +2189,8 @@ def _refuse_stranding (
 	``doing`` opens the refusal, *Making outer private*. **Named only to a caller who can see it**
 	(decision `#4521`), and the hint says what to do first: make somebody who can see it the owner of
 	the project made private, since a public project cannot be shared, or share the private project
-	the move would hide it beneath.
+	the move would hide it beneath. **Who that is, too, only to a caller who can see it**
+	(`SR#5316`, decision `#5285`).
 	"""
 
 	# **The workspace is locked before anybody is counted**, as removing somebody and unsharing lock
@@ -2209,11 +2214,18 @@ def _refuse_stranding (
 	becoming = project.visibility != "private" and project.id in afterwards.private
 
 	for one in [project, *inside] if becoming else inside:
+		# **Who sees it afterwards first** (`SR#5316`, L-6 of the cold review of 2026-11-11): it
+		# alone settles the common case, somebody still sees it, and each walk is about 16
+		# statements. The same answer in either order, since making private or moving adds nobody's
+		# sight.
+		if subroutine.domain.repair.repairers(session, one, afterwards=afterwards):
+			continue
+
 		# **A project being made private has somebody before**: whoever makes it private can see it,
 		# and so does the person an agent doing so answers to. Each other is asked who sees it now.
 		could = None if one is project and becoming else subroutine.domain.repair.repairers(session, one)
 
-		if could == set() or subroutine.domain.repair.repairers(session, one, afterwards=afterwards):
+		if could == set():
 			continue
 
 		key = key_named_to(session, actor, one)
@@ -2232,18 +2244,32 @@ def _refuse_stranding (
 		seer = people[0] if people else None
 		hiding = None if seer is None else hidden_by(session, one, seer.id, afterwards=afterwards)
 
+		# **Nobody named whom the caller could not find** (`SR#5316`, decision `#5285`, Open
+		# Question 1 of the cold review of 2026-11-11): who alone sees a project is an entry of its
+		# sharing list, which only somebody who can see it reads (`#4521`). Where the caller cannot
+		# see it, making a project private says `#5097`'s own sentence, and a move's share hint
+		# says where that person is rather than who.
 		if seer is None:
 			hint = "Make somebody who can act its owner first."
 
 		elif hiding is not None and hiding.id != project.id:
-			hint = (
-				f"'subroutine project share {hiding.key} {seer.username}' first."
-				if subroutine.domain.stewardship.stewards(session, actor, hiding)
-				else f"Ask the owner of '{hiding.key}' to share it with {seer.username} first."
+			whom = (
+				f"whoever can see what is inside {project.key}" if key is None else seer.username
 			)
 
+			# **Offered only to whoever may share it on this credential** (`SR#5316`, L-6): its
+			# steward, holding `project:write` there, as `SR#5106` asked it everywhere else.
+			if not may_share(session, actor, hiding):
+				hint = f"Ask the owner of '{hiding.key}' to share it with {whom} first."
+
+			elif key is None:
+				hint = f"Share {hiding.key} with {whom} first."
+
+			else:
+				hint = f"'subroutine project share {hiding.key} {seer.username}' first."
+
 		elif key is None:
-			hint = f"Make {seer.username} the owner of {project.key} first, since they can see it."
+			hint = "Make somebody who can act its owner first."
 
 		else:
 			hint = f"Make {seer.username}, who can see {key}, the owner of {project.key} first."
