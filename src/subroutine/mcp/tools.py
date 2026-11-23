@@ -1881,17 +1881,25 @@ def _a_status_of (
 	**The workspace's own, read rather than assumed** (`SR#5162`, a bullet of L-7 of the cold
 	review of 2026-10-17). A status's key can be renamed, so the seeded ``open`` and
 	``in_progress`` these hints named could be keys the workspace no longer has, and an agent
-	following one was refused. Its default where that is of the category, and otherwise the first
-	of the category in the workspace's order; ``None`` where it has none, and the hint then names
-	no call it would be refused.
+	following one was refused. ``None`` where it has none, and the hint then names no call it would
+	be refused.
+
+	**The first of the category in the workspace's order**, as the terminal's ``start`` and
+	``stop`` and the domain's ``done`` take it (`SR#5338`, L-6 of the cold review of 2026-11-11):
+	this took the category's default first, so a workspace placing ``backlog`` above ``open`` was
+	told one status here and sent another by ``stop``. **Asked each time and never kept**, and only
+	for the two hints that name a status: a vocabulary kept for the process would go stale on a
+	rename, which is the fault `SR#5162` put right.
 	"""
 
-	found = [
-		status
-		for status in client.statuses(workspace=workspace, entity_type="task").items
-		if status.category == category
-	]
-	chosen = next((status for status in found if status.is_default), None) or next(iter(found), None)
+	chosen = next(
+		(
+			status
+			for status in client.statuses(workspace=workspace, entity_type="task").items
+			if status.category == category
+		),
+		None,
+	)
 
 	return None if chosen is None else chosen.key
 

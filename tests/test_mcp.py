@@ -1360,8 +1360,9 @@ def test_the_claim_hints_name_the_workspace_s_own_status_keys (
 
 	A status's key can be renamed, so ``open`` and ``in_progress`` could be keys the workspace no
 	longer has, and an agent following either hint was refused. **In a workspace that renamed
-	both**, each hint names the workspace's own, and the call it names is taken; giving back
-	names the default of the category, ahead of one ordered before it.
+	both**, each hint names the workspace's own, and the call it names is taken. **Each names what
+	the terminal sends** (`SR#5338`, L-6 of the cold review of 2026-11-11): giving back names the
+	first of the category, as ``stop`` sends it, where it named the default ordered after it.
 	"""
 
 	renamed = {"open": "queued", "in_progress": "underway"}
@@ -1387,8 +1388,18 @@ def test_the_claim_hints_name_the_workspace_s_own_status_keys (
 	freed, failed = _called(bound, "subroutine_claim", ref=ref, release=True)
 
 	assert not failed, freed
-	assert f'subroutine_update(ref={ref}, status="queued")' in freed, freed
-	assert not _called(bound, "subroutine_update", ref=ref, status="queued")[1]
+	assert f'subroutine_update(ref={ref}, status="someday")' in freed, freed
+	assert not _called(bound, "subroutine_update", ref=ref, status="someday")[1]
+
+	for category, verb, named in (
+		("in_progress", "start", "underway"),
+		("todo", "stop", "someday"),
+	):
+		sent = subroutine.cli.personal._status_in(
+			local_client, workspace=None, category=category, verb=verb
+		)
+
+		assert sent == named, f"{verb} sends {sent!r}, and the hint named {named!r}"
 
 
 def test_a_claim_names_no_call_where_the_workspace_has_no_status_for_it (
