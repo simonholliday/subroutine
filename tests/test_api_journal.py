@@ -26,6 +26,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.events
 import subroutine.domain.journal
+import subroutine.domain.retention
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.mcp.tools
@@ -1006,6 +1007,138 @@ def test_a_date_is_read_in_the_zone_it_was_written_in (
 	said = [due[:10] if len(due) == 10 else f"{due[:10]}T09:00" for due in dates]
 
 	assert read == [(None, said[0]), (said[0], said[1]), (said[1], said[2])], read
+
+
+def test_a_date_re_written_in_another_zone_says_the_zone_moved_and_not_the_date (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#5318`, L-2 of the cold review of 2026-11-11: *deadline: 2030-09-18 to 2030-09-18*.
+
+	A whole-day deadline written in London, written again for the same day with the zone moved to
+	New York, moves the stored instant with the zone, and each side read in its own zone is the
+	same day. **The zone's line says what moved**, and the date's is left out. An edit whose only
+	line read the same, a deadline moved by seconds, is left out whole.
+	"""
+
+	created = world.call(
+		"POST", "/v1/tasks", json={"title": "Water the plants", "timezone": "Europe/London"}
+	)
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+
+	# **Each edit names its zone**: a date given without one is written in the caller's.
+	for body in (
+		{"due": "2030-09-18", "timezone": "Europe/London"},
+		{"due": "2030-09-18", "timezone": "America/New_York"},
+		{"due": "2030-09-20T16:00:00Z", "timezone": "America/New_York"},
+		{"due": "2030-09-20T16:00:30Z", "timezone": "America/New_York"},
+	):
+		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=body)
+
+		assert answered.status_code == 200, answered.text
+
+	read = [
+		[(change.field, change.before, change.after) for change in entry.changed]
+		for entry in _updated_lines(world, session, ref)
+	]
+
+	assert [[field for field, _, _ in lines] for lines in read] == [
+		["due_at"], ["timezone"], ["due_at"]
+	], read
+
+
+def test_a_date_between_two_zone_moves_is_read_in_the_zone_it_was_written_in (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#5318`, the mutant EV8 of the cold review of 2026-11-11: a zone from the wrong move.
+
+	Every edit above moves the zone, so each row takes its zone from its own change and none is
+	read from a later one. Here the third edit is made in New York with no zone change: it is read
+	in New York, from the move after it, and not in London, from the move before it.
+	"""
+
+	created = world.call(
+		"POST", "/v1/tasks", json={"title": "Water the plants", "timezone": "Europe/London"}
+	)
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+
+	# **Each edit names its zone**, the third the one it already has: a date given without one is
+	# written in the caller's, which would move it.
+	for body in (
+		{"due": "2030-09-18", "timezone": "Europe/London"},
+		{"due": "2030-09-19", "timezone": "America/New_York"},
+		{"due": "2030-09-20", "timezone": "America/New_York"},
+		{"due": "2030-09-21", "timezone": "Asia/Tokyo"},
+	):
+		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=body)
+
+		assert answered.status_code == 200, answered.text
+
+	read = [
+		(change.before, change.after)
+		for entry in _updated_lines(world, session, ref)
+		for change in entry.changed
+		if change.field == "due_at"
+	]
+
+	assert read == [
+		(None, "2030-09-18"),
+		("2030-09-18", "2030-09-19"),
+		("2030-09-19", "2030-09-20"),
+		("2030-09-20", "2030-09-21"),
+	], read
+
+
+def test_an_archived_date_is_read_in_the_zone_it_was_written_in (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#5318`, L-2 of the cold review of 2026-11-11: the zone was looked for in the live table.
+
+	A deadline written in London, then moved with the zone to Tokyo, and both events archived: the
+	journal reads the archive, and the first entry is read in London, where it was written, rather
+	than in Tokyo, where the end of 18 September in London is already the 19th.
+	"""
+
+	created = world.call(
+		"POST", "/v1/tasks", json={"title": "Water the plants", "timezone": "Europe/London"}
+	)
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+
+	for body in (
+		{"due": "2030-09-18", "timezone": "Europe/London"},
+		{"due": "2030-09-20", "timezone": "Asia/Tokyo"},
+	):
+		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=body)
+
+		assert answered.status_code == 200, answered.text
+
+	_settled(session)
+	event = subroutine.db.models.activity.Event
+	newest = session.scalar(sqlalchemy.select(sqlalchemy.func.max(event.seq)))
+
+	assert newest is not None
+
+	archived = subroutine.domain.retention.move(session, through=newest)
+
+	assert archived.moved > 0, archived
+	assert session.scalar(sqlalchemy.select(sqlalchemy.func.count()).select_from(event)) == 0
+
+	read = [
+		(change.before, change.after)
+		for entry in _updated_lines(world, session, ref)
+		for change in entry.changed
+		if change.field == "due_at"
+	]
+
+	assert read == [(None, "2030-09-18"), ("2030-09-18", "2030-09-20")], read
 
 
 def test_a_title_change_says_that_it_changed_and_carries_neither_title (

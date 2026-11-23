@@ -1634,8 +1634,12 @@ def zones_then (
 	absent from the answer was written in the item's zone as it is now.
 
 	**One statement for a page, and none where no row dates a task.** ``changes`` is never filtered
-	on in the database (:func:`subroutine.db.types.json_column`), so the tasks' later events are
+	on in the database (:func:`subroutine.db.types.json_column`), so the tasks' later updates are
 	read and the zone's changes are picked out here.
+
+	**Live and archived** (`SR#5318`, L-2 of the cold review of 2026-11-11): the journal reads
+	:data:`HISTORY`, so an archived entry whose later zone change was archived too was read in the
+	zone the item has now.
 	"""
 
 	asked = [
@@ -1649,15 +1653,19 @@ def zones_then (
 	if not asked:
 		return {}
 
-	event = subroutine.db.models.activity.Event
 	later = session.execute(
-		sqlalchemy.select(event.entity_id, event.seq, event.changes)
+		sqlalchemy.select(HISTORY.entity_id, HISTORY.seq, HISTORY.changes)
 		.where(
-			event.entity_type == "task",
-			event.entity_id.in_({row.entity_id for row in asked}),
-			event.seq > min(row.seq for row in asked),
+			HISTORY.entity_type == "task",
+			# **Only an update moves a zone** (`SR#5318`, L-6 of the cold review of 2026-11-11),
+			# so a column narrows what is read. Beyond it the JSON rule holds, and the cost is per
+			# page, bounded by those tasks' updates: a schema change to give a zone change a
+			# column of its own is worth more than this saves.
+			HISTORY.action == EventAction.UPDATED,
+			HISTORY.entity_id.in_({row.entity_id for row in asked}),
+			HISTORY.seq > min(row.seq for row in asked),
 		)
-		.order_by(event.seq)
+		.order_by(HISTORY.seq)
 	).all()
 	moves: dict[uuid.UUID, list[tuple[int, str]]] = {}
 

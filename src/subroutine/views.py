@@ -4391,11 +4391,12 @@ def journal_entry (
 	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
 	bodies: dict[uuid.UUID, subroutine.domain.journal.Said] | None = None,
 	zones: typing.Mapping[uuid.UUID, str] | None = None,
-) -> JournalEntry:
+) -> JournalEntry | None:
 	"""Render one thing that happened — `#1430`, decision `#1429`.
 
 	``zones`` is :func:`subroutine.domain.events.zones_then`: the zone a row's dates were written
-	in, where the item's has moved since (`SR#5138`).
+	in, where the item's has moved since (`SR#5138`). **``None`` where nothing is left to say**
+	(`SR#5318`): each line the row had was a date reading the same on both sides.
 
 	Three joins the audit log deliberately does not carry: what a comment said, who the actor
 	was, and what the values inside ``changes`` mean. **All three arrive as batches** loaded
@@ -4425,6 +4426,7 @@ def journal_entry (
 
 	written_in = None if zones is None else zones.get(row.id)
 	changed = []
+	left_out = False
 
 	# **The other end of a link, or a project, parent or series, the reader cannot see, said as
 	# unseen** (`SR#4575`, `SR#5148`), and required, so no renderer can forget it: ``unseen`` is
@@ -4458,18 +4460,24 @@ def journal_entry (
 
 				continue
 
-			changed.append(
-				Change(
-					field=field,
-					before=_moved_in_words(
-						field, moved, "from", vocabulary=vocabulary, about=about, written_in=written_in
-					),
-					after=_moved_in_words(
-						field, moved, "to", vocabulary=vocabulary, about=about, written_in=written_in
-					),
-					**shape,
-				)
+			before = _moved_in_words(
+				field, moved, "from", vocabulary=vocabulary, about=about, written_in=written_in
 			)
+			after = _moved_in_words(
+				field, moved, "to", vocabulary=vocabulary, about=about, written_in=written_in
+			)
+
+			# **A date reading the same on both sides says nothing** (`SR#5318`, L-2 of the cold
+			# review of 2026-11-11): re-dated to the same day in another zone, the stored instant
+			# moves with the zone, and the zone's own line beside it says what moved. **Dates
+			# only**: two statuses or two people sharing a name are two things, and saying so is
+			# true.
+			if shape["dated"] and before is not None and before == after:
+				left_out = True
+
+				continue
+
+			changed.append(Change(field=field, before=before, after=after, **shape))
 
 	# **Two changes can share a phrase, and then the phrase is the wrong word to use.**
 	# `field_in_words` maps `importance` and `urgency` both to *how it is ranked*, which is
@@ -4487,6 +4495,11 @@ def journal_entry (
 	for change in changed:
 		if change.said in said_twice:
 			change.said = change.field.removesuffix("_id").removesuffix("_at").replace("_", " ")
+
+	# **And an entry with nothing left to say is no entry** (`SR#5318`): every line it had read
+	# the same on both sides. One that never had a line - somebody made something - is kept.
+	if left_out and not changed:
+		return None
 
 	# **Only where this entry *is* somebody writing something.** A body keyed on the entity id
 	# would otherwise attach a comment's text to the task event that followed it.
@@ -4594,12 +4607,14 @@ def journal_entries (
 
 	zones = subroutine.domain.events.zones_then(session, rows, dated=_DATED)
 
-	return [
+	entries = (
 		journal_entry(
 			row, vocabulary=vocabulary, unseen=unseen, described=described, bodies=bodies, zones=zones
 		)
 		for row in rows
-	]
+	)
+
+	return [entry for entry in entries if entry is not None]
 
 
 def comment (
