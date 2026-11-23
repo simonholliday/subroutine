@@ -3580,6 +3580,9 @@ def test_a_database_password_is_never_written_onto_a_command_line () -> None:
 	assert subroutine.db.backup._secret_of(engine) == {"PGPASSWORD": "hunter2"}
 
 
+# **PostgreSQL alone** (`SR#5332`, L-7 of the cold review of 2026-11-11): its SQLite half
+# returned before asserting anything, and passed.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
 def test_a_postgresql_url_with_a_space_in_its_query_backs_up_and_restores (
 	own_database: str,
 ) -> None:
@@ -3588,11 +3591,8 @@ def test_a_postgresql_url_with_a_space_in_its_query_backs_up_and_restores (
 	A ``database_url`` setting a server option per connection - ``options=-c%20jit%3Doff``, libpq's
 	own way - served every ordinary command, and every backup, upgrade and restore failed: the tools
 	were handed the space written ``+``, which libpq does not read as a space. On SQLite there is no
-	such option and nothing to hand a tool, so that leg asks nothing.
+	such option and nothing to hand a tool, so it runs on PostgreSQL alone.
 	"""
-
-	if own_database.startswith("sqlite"):
-		return
 
 	subroutine.db.migrate.upgrade(own_database)
 	_seed_instance(own_database)
@@ -3683,6 +3683,9 @@ def _reporting (version: int | None, ran: list[list[str]]) -> typing.Callable[..
 	return reported
 
 
+# **PostgreSQL alone** (`SR#5332`, L-7 of the cold review of 2026-11-11): its SQLite half
+# returned before asserting anything, and passed.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
 def test_a_restore_refuses_a_pg_restore_newer_than_its_server (
 	own_database: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3694,9 +3697,6 @@ def test_a_restore_refuses_a_pg_restore_newer_than_its_server (
 	the real one, and this is a clone**, so a check that let it through would load for real and
 	change the instance's identity.
 	"""
-
-	if own_database.startswith("sqlite"):
-		return
 
 	subroutine.db.migrate.upgrade(own_database)
 	identity = _seed_instance(own_database)
@@ -3754,13 +3754,13 @@ def test_a_pg_restore_no_newer_than_its_server_is_not_refused (
 	assert ran == ([["pg_restore", "--version"]] if postgresql else [])
 
 
+# **PostgreSQL alone** (`SR#5332`, L-7 of the cold review of 2026-11-11): its SQLite half
+# returned before asserting anything, and passed.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
 def test_a_script_backup_does_not_ask_the_tool_s_version (
 	own_database: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""A script from before `#1554` is loaded by ``psql`` and holds what its own ``pg_dump`` wrote."""
-
-	if own_database.startswith("sqlite"):
-		return
 
 	ran: list[list[str]] = []
 	monkeypatch.setattr(
@@ -3777,6 +3777,9 @@ def test_a_script_backup_does_not_ask_the_tool_s_version (
 	assert ran == []
 
 
+# **PostgreSQL alone** (`SR#5332`, L-7 of the cold review of 2026-11-11): its SQLite half
+# returned before asserting anything, and passed.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
 def test_db_restore_refuses_newer_tools_before_taking_a_safety_copy (
 	own_database: str,
 	run: typing.Callable[..., typer.testing.Result],
@@ -3789,9 +3792,6 @@ def test_db_restore_refuses_newer_tools_before_taking_a_safety_copy (
 	file for nothing. This instance is not protected, so a check that let it through would take
 	the copy and restore for real - which is what the code before did, exiting 0.
 	"""
-
-	if own_database.startswith("sqlite"):
-		return
 
 	subroutine.db.migrate.upgrade(own_database)
 	_seed_instance(own_database)
