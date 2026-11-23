@@ -11,8 +11,12 @@ import importlib.util
 import json
 import os
 import pathlib
+import signal
+import subprocess
 import sys
+import threading
 import types
+import typing
 
 import pytest
 import sqlalchemy.exc
@@ -242,6 +246,231 @@ def test_a_command_that_asks_a_question_reads_nothing_rather_than_waiting (
 		os.close(reading)
 
 	assert said.strip() == "''", f"a command read what was on the caller's input: {said!r}"
+
+
+#: A rehearsal's database, as :func:`database_address` names one.
+REHEARSED = "postgresql+psycopg:///rehearsal_0123456789ab"
+
+
+def _stand_in (
+	rehearsal: types.ModuleType,
+	monkeypatch: pytest.MonkeyPatch,
+	work: pathlib.Path,
+	*,
+	interrupted: bool,
+) -> list[str]:
+	"""Stand in for everything ``main`` runs, and return the databases it drops.
+
+	Nothing is installed and no command runs: the PostgreSQL rehearsal records its database, and
+	stands for one interrupted where asked.
+	"""
+
+	dropped: list[str] = []
+
+	def rehearsed (
+		backend: str,
+		release: typing.Any,
+		build: typing.Any,
+		where: pathlib.Path,
+		databases: list[str],
+	) -> typing.Any:
+		"""Record the database a PostgreSQL rehearsal makes, and stop where interrupted."""
+
+		outcome = rehearsal.Outcome(backend)
+
+		if backend == "postgresql":
+			databases.append(REHEARSED)
+
+			if interrupted:
+				rehearsal._stop(signal.SIGINT, None)
+				outcome.problems.append("it was interrupted")
+
+		return outcome
+
+	monkeypatch.setattr(rehearsal, "STOPPING", threading.Event())
+	monkeypatch.setattr(rehearsal.shutil, "which", lambda _name: "/usr/bin/uv")
+	monkeypatch.setattr(rehearsal.tempfile, "mkdtemp", lambda **_options: str(work))
+	monkeypatch.setattr(
+		rehearsal, "install", lambda version, _where, _uv: rehearsal.Program(version, ("true",))
+	)
+	monkeypatch.setattr(rehearsal, "rehearse", rehearsed)
+	monkeypatch.setattr(rehearsal, "drop_database", dropped.append)
+
+	return dropped
+
+
+@pytest.mark.parametrize("keep", [True, False], ids=["--keep", "without it"])
+def test_keep_leaves_the_rehearsal_s_database_and_names_what_drops_it (
+	rehearsal: types.ModuleType,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+	keep: bool,
+) -> None:
+	"""`SR#5327`, L-3 of the cold review of 2026-11-11: *Kept* beside a database already dropped.
+
+	Every database was dropped before ``--keep`` was asked. **Under it the database is left, and
+	named with the command that drops it**; without it, it is dropped and the work removed.
+	"""
+
+	work = tmp_path / "work"
+	work.mkdir()
+	dropped = _stand_in(rehearsal, monkeypatch, work, interrupted=False)
+
+	assert rehearsal.main(["--from", "0.10.0", *(["--keep"] if keep else [])]) == 0
+
+	said = capsys.readouterr().out
+	named = "Kept: the PostgreSQL database rehearsal_0123456789ab"
+
+	if keep:
+		assert dropped == [], "the kept rehearsal's database was dropped"
+		assert f"{named} - drop it with: dropdb rehearsal_0123456789ab" in said, said
+		assert work.exists()
+
+	else:
+		assert dropped == [REHEARSED], said
+		assert "Kept" not in said, said
+		assert not work.exists()
+
+
+def test_an_interrupted_rehearsal_puts_away_what_it_made_and_says_so (
+	rehearsal: types.ModuleType,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""`SR#5327`: once interrupted, its database is dropped, its work removed, and it says so."""
+
+	work = tmp_path / "work"
+	work.mkdir()
+	dropped = _stand_in(rehearsal, monkeypatch, work, interrupted=True)
+
+	assert rehearsal.main(["--from", "0.10.0"]) == 1
+
+	said = capsys.readouterr().out
+
+	assert said.rstrip().endswith("Not rehearsed: it was interrupted."), said
+	assert "Stopping the rehearsal and removing what it made..." in said, said
+	assert dropped == [REHEARSED], said
+	assert not work.exists()
+
+
+def test_an_interrupted_rehearsal_starts_no_further_command (
+	rehearsal: types.ModuleType, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5327`, L-3 of the cold review of 2026-11-11: both workers went on running commands.
+
+	**Asked before every command**, including the sweep's: interrupted, the next is refused
+	unrun, so each rehearsal ends within one command and its clean-up runs.
+	"""
+
+	monkeypatch.setattr(rehearsal, "STOPPING", threading.Event())
+	here = rehearsal.Installation(tmp_path / "installation", "sqlite", None)
+	ran = tmp_path / "ran"
+	marking = rehearsal.Program(
+		"a marker", (sys.executable, "-c", f"open({str(ran)!r}, 'w').close()")
+	)
+
+	here.run(marking)
+
+	assert ran.exists(), "the command did not run before the interrupt"
+
+	ran.unlink()
+	rehearsal._stop(signal.SIGINT, None)
+
+	with pytest.raises(rehearsal.Refused, match="interrupted"):
+		here.run(marking)
+
+	with pytest.raises(rehearsal.Refused, match="interrupted"):
+		rehearsal.sweep(here, marking, "after the upgrade")
+
+	assert not ran.exists(), "a command ran after the interrupt"
+
+
+def test_a_rehearsal_s_database_is_recorded_before_it_is_made (
+	rehearsal: types.ModuleType, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5327`: recorded once made, one made just before an interruption was left behind."""
+
+	databases: list[str] = []
+	recorded: list[list[str]] = []
+
+	def made (address: str) -> None:
+		"""Note what was recorded when the database is made, and fail as an unreachable server."""
+
+		recorded.append(list(databases))
+
+		raise rehearsal.Refused("PostgreSQL could not be reached")
+
+	monkeypatch.setattr(rehearsal, "make_database", made)
+	program = rehearsal.Program("a release", ("true",))
+
+	with pytest.raises(rehearsal.Refused):
+		rehearsal.rehearse("postgresql", program, program, tmp_path, databases)
+
+	assert len(databases) == 1 and databases[0].startswith("postgresql"), databases
+	assert recorded == [databases], "the database was made before it was recorded"
+
+
+class _Interrupted:
+	"""A rehearsal whose wait the operator interrupts, and which then stops within ``stops``."""
+
+	def __init__ (self, stops: bool) -> None:
+		"""Remember whether it stops when asked."""
+
+		self.stops = stops
+		self.waits: list[float | None] = []
+		self.signals: list[int] = []
+		self.killed = False
+
+	def wait (self, timeout: float | None = None) -> int:
+		"""Be interrupted the first time, and then stop or outlast the time given."""
+
+		self.waits.append(timeout)
+
+		if len(self.waits) == 1:
+			raise KeyboardInterrupt
+
+		if timeout is not None and not self.stops:
+			raise subprocess.TimeoutExpired("rehearse_upgrade.py", timeout)
+
+		return 1
+
+	def send_signal (self, number: int) -> None:
+		"""Record the signal sent."""
+
+		self.signals.append(number)
+
+	def kill (self) -> None:
+		"""Record that it was ended."""
+
+		self.killed = True
+
+
+@pytest.mark.parametrize("stops", [True, False], ids=["it stops", "it does not"])
+def test_a_release_interrupted_mid_rehearsal_gives_it_time_to_put_away (
+	monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stops: bool
+) -> None:
+	"""`SR#5327`, L-3 of the cold review of 2026-11-11: the rehearsal was killed at once.
+
+	``subprocess.run`` kills its child a quarter of a second after an interrupt, so the clean-up
+	never ran. **Told to stop, and waited for**, and ended only after the time given, saying what
+	may then be left.
+	"""
+
+	release = _load("release")
+	child = _Interrupted(stops)
+	monkeypatch.setattr(release.subprocess, "Popen", lambda *_arguments, **_options: child)
+
+	with pytest.raises(KeyboardInterrupt):
+		release._rehearse()
+
+	said = capsys.readouterr().out
+
+	assert child.signals == [signal.SIGINT]
+	assert child.waits[:2] == [None, release.REHEARSAL_STOPS_SECONDS]
+	assert child.killed is not stops
+	assert ("may be left behind" in said) is not stops, said
 
 
 def test_an_item_number_is_read_past_what_follows_the_answer (rehearsal: types.ModuleType) -> None:

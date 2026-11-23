@@ -29,7 +29,8 @@ kind of person's, and a viewer is meant to be turned away.
 
 ``scripts/release.py`` runs it before it writes anything. It needs ``uv`` and the package index,
 and PostgreSQL where the suite finds it (``SUBROUTINE_TEST_POSTGRES_ADMIN_URL``); it takes about
-half an hour, and keeps nothing unless ``--keep`` is given.
+half an hour, and keeps nothing unless ``--keep`` is given, which keeps its database too and says
+what drops it. Interrupted, it starts no further command and removes what it made.
 
 **The fill is written for the last release**, so it uses only commands that release has. When a
 release removes one, the rehearsal after it refuses at the step that uses it, which is the moment
@@ -45,9 +46,11 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import typing
 import uuid
 
@@ -77,6 +80,11 @@ BORDERS = re.compile(r"[\u2500-\u257f]+")
 #: How long one command may take before it counts as hung, and one sweep.
 COMMAND_SECONDS = 300
 SWEEP_SECONDS = 3600
+
+#: Set once the rehearsal is interrupted (`SR#5327`, L-3 of the cold review of 2026-11-11). Every
+#: command asks it before it starts, so both rehearsals stop within one command and what they made
+#: is put away; ended at once, as it was, neither finished and nothing was.
+STOPPING = threading.Event()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -156,6 +164,8 @@ class Installation:
 	) -> Ran:
 		"""Run one command with one program, write it to this installation's log, and return it."""
 
+		unless_stopping()
+
 		try:
 			# **No input is nothing to read**, never the caller's: run from a release at a terminal,
 			# a command that asked a question would otherwise wait on the operator's keyboard. Not
@@ -194,6 +204,27 @@ class Outcome:
 	backend: str
 	lines: list[str] = dataclasses.field(default_factory=list)
 	problems: list[str] = dataclasses.field(default_factory=list)
+
+
+def unless_stopping () -> None:
+	"""Refuse to start another command once the rehearsal has been interrupted (`SR#5327`)."""
+
+	if STOPPING.is_set():
+		raise Refused("it was interrupted")
+
+
+def _stop (_number: int, _frame: typing.Any) -> None:
+	"""Ask both rehearsals to stop before their next command, rather than ending this process.
+
+	**An interrupt ended the process with both rehearsals' workers still running commands**
+	(`SR#5327`, L-3 of the cold review of 2026-11-11), so the databases and the work directory
+	were left behind. The commands running now have the interrupt too, from the terminal.
+	"""
+
+	if not STOPPING.is_set():
+		print("Stopping the rehearsal and removing what it made...", flush=True)
+
+	STOPPING.set()
 
 
 def masked (said: str) -> str:
@@ -358,14 +389,24 @@ def install (version: str, work: pathlib.Path, uv: str) -> Program:
 	return Program(version, (str(environment / "bin" / "subroutine"),))
 
 
-def make_database () -> str:
-	"""Make an empty PostgreSQL database for one rehearsal, and return its address.
+def database_address () -> str:
+	"""Return the address of a new PostgreSQL database for one rehearsal, before it is made.
 
 	**Rendered with the password shown**, because a URL's ``str()`` masks it and the result then
 	authenticates as the literal ``***`` - invisible on a machine with peer authentication.
 	"""
 
-	name = f"rehearsal_{uuid.uuid4().hex[:12]}"
+	address = sqlalchemy.engine.make_url(POSTGRES_ADMIN_URL).set(
+		database=f"rehearsal_{uuid.uuid4().hex[:12]}"
+	)
+
+	return address.render_as_string(hide_password=False)
+
+
+def make_database (address: str) -> None:
+	"""Make the empty PostgreSQL database ``address`` names, for one rehearsal."""
+
+	name = sqlalchemy.engine.make_url(address).database
 	engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")
 
 	try:
@@ -377,10 +418,6 @@ def make_database () -> str:
 
 	finally:
 		engine.dispose()
-
-	address = sqlalchemy.engine.make_url(POSTGRES_ADMIN_URL).set(database=name)
-
-	return address.render_as_string(hide_password=False)
 
 
 def drop_database (address: str) -> None:
@@ -758,6 +795,8 @@ def drive (here: Installation, build: Program) -> tuple[int, list[str], int]:
 def sweep (here: Installation, build: Program, label: str) -> list[dict[str, typing.Any]]:
 	"""Ask every read route of the installation under the build, and return what each answered."""
 
+	unless_stopping()
+
 	kept = here.root / "kept.json"
 	answers = here.root / f"answers-{label}.json"
 	kept.write_text(json.dumps(here.kept), encoding="utf-8")
@@ -788,9 +827,13 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 	outcome = Outcome(backend)
 	database_url = None
 
+	# **Recorded before it is made** (`SR#5327`, L-3 of the cold review of 2026-11-11): recorded
+	# once ``CREATE DATABASE`` had returned, one made just before an interruption was left behind.
+	# Dropping it asks ``IF EXISTS``, so one never made costs nothing.
 	if backend == "postgresql":
-		database_url = make_database()
+		database_url = database_address()
 		databases.append(database_url)
+		make_database(database_url)
 
 	here = Installation(work / backend, backend, database_url)
 
@@ -845,9 +888,40 @@ def _arguments (argv: list[str] | None) -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
 	parser.add_argument("--from", dest="release", help="the release to upgrade from (default: the newest published)")
 	parser.add_argument("--build", type=pathlib.Path, default=ROOT, help="the checkout to rehearse (default: this one)")
-	parser.add_argument("--keep", action="store_true", help="keep the installations and their logs, and say where")
+	parser.add_argument(
+		"--keep",
+		action="store_true",
+		help="keep the installations, their logs and their database, and say where",
+	)
 
 	return parser.parse_args(argv)
+
+
+def put_away (work: pathlib.Path, databases: list[str], *, keep: bool) -> None:
+	"""Remove what the rehearsal made, or under ``--keep`` say where each part of it is.
+
+	**Its databases too** (`SR#5327`, L-3 of the cold review of 2026-11-11): they were dropped
+	before ``--keep`` was asked, and *Kept* was said beside an installation whose database was gone.
+	"""
+
+	if keep:
+		print(f"Kept: {work}")
+
+		for address in databases:
+			name = sqlalchemy.engine.make_url(address).database
+			print(f"Kept: the PostgreSQL database {name} - drop it with: dropdb {name}")
+
+		return
+
+	for address in databases:
+		try:
+			drop_database(address)
+
+		except sqlalchemy.exc.SQLAlchemyError as failure:
+			name = sqlalchemy.engine.make_url(address).database
+			print(f"The rehearsal's database {name} could not be dropped: {failure}")
+
+	shutil.rmtree(work, ignore_errors=True)
 
 
 def main (argv: list[str] | None = None) -> int:
@@ -869,6 +943,7 @@ def main (argv: list[str] | None = None) -> int:
 	work = pathlib.Path(tempfile.mkdtemp(prefix="subroutine-rehearsal-"))
 	databases: list[str] = []
 	outcomes: list[Outcome] = []
+	before = signal.signal(signal.SIGINT, _stop)
 
 	try:
 		release = install(version, work, uv)
@@ -882,18 +957,13 @@ def main (argv: list[str] | None = None) -> int:
 		return 1
 
 	finally:
-		for address in databases:
-			try:
-				drop_database(address)
+		signal.signal(signal.SIGINT, before)
+		put_away(work, databases, keep=arguments.keep)
 
-			except sqlalchemy.exc.SQLAlchemyError as failure:
-				print(f"The rehearsal's database {sqlalchemy.engine.make_url(address).database} could not be dropped: {failure}")
+	if STOPPING.is_set():
+		print("Not rehearsed: it was interrupted.")
 
-		if arguments.keep:
-			print(f"Kept: {work}")
-
-		else:
-			shutil.rmtree(work, ignore_errors=True)
+		return 1
 
 	problems = [f"{outcome.backend}: {problem}" for outcome in outcomes for problem in outcome.problems]
 

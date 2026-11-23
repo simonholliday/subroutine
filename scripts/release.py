@@ -33,6 +33,7 @@ import datetime
 import json
 import pathlib
 import re
+import signal
 import subprocess
 import sys
 
@@ -281,6 +282,10 @@ def _gate () -> str | None:
 	)
 
 
+#: How long an interrupted rehearsal is given to put away what it made (`SR#5327`).
+REHEARSAL_STOPS_SECONDS = 60
+
+
 def _rehearse () -> str | None:
 	"""Rehearse the upgrade from the last release to this tree, and say what to do if it fails.
 
@@ -303,13 +308,35 @@ def _rehearse () -> str | None:
 	print("Rehearsing the upgrade from the last release. It installs that release from the "
 	      "package index and takes about half an hour.")
 
-	ran = subprocess.run(
-		[sys.executable, str(ROOT / "scripts" / "rehearse_upgrade.py")],
-		cwd=ROOT,
-		check=False,
+	rehearsal = subprocess.Popen(
+		[sys.executable, str(ROOT / "scripts" / "rehearse_upgrade.py")], cwd=ROOT
 	)
 
-	if ran.returncode == 0:
+	# **Given time to put away what it made** (`SR#5327`, L-3 of the cold review of 2026-11-11):
+	# ``subprocess.run`` kills its child a quarter of a second after an interrupt, so the
+	# rehearsal's own clean-up never ran, and its database and work directory were left behind.
+	# Told to stop as well, for an interrupt that reached this process alone.
+	try:
+		code = rehearsal.wait()
+
+	except KeyboardInterrupt:
+		rehearsal.send_signal(signal.SIGINT)
+
+		try:
+			rehearsal.wait(timeout=REHEARSAL_STOPS_SECONDS)
+
+		except subprocess.TimeoutExpired:
+			rehearsal.kill()
+			rehearsal.wait()
+			print(
+				f"The rehearsal did not stop within {REHEARSAL_STOPS_SECONDS} seconds and was"
+				" ended, so a directory named subroutine-rehearsal-... in the temporary directory,"
+				" and a PostgreSQL database named rehearsal_..., may be left behind."
+			)
+
+		raise
+
+	if code == 0:
 		return None
 
 	return (
