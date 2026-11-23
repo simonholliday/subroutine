@@ -14,7 +14,10 @@ side comes out empty: a project's list replaced its workspace's whole, so a proj
 them rather than inheriting what its workspace hides.
 
 **Going back merges the two lists into one**, which is all the revision before can say: a key
-hidden from either kind is hidden from both again.
+hidden from either kind is hidden from both again. **A project stating one list takes the other
+from its workspace** (`SR#5323`, L-2 of the cold review of 2026-11-11): each list inherits on its
+own here, and in the revision before a project's one list replaces its workspace's whole, so a
+project hiding only ``draft`` under a workspace hiding ``blocked`` would show ``blocked`` again.
 
 Revision ID: 507ebc014a86
 Revises: bc50ce7db4bc
@@ -121,16 +124,38 @@ def upgrade () -> None:
 
 
 def downgrade () -> None:
-    """Merge each row's two lists into one, which is all the revision before can say."""
+    """Merge each row's two lists into one, which is all the revision before can say.
+
+    **A project stating either list merges it with its workspace's list of the other kind**
+    (`SR#5323`), since its one list will replace its workspace's whole. A workspace stating the
+    task list alone is already the revision before's shape.
+    """
 
     connection = op.get_bind()
+    stored = _stored(connection)
+    above = {
+        identity: settings
+        for table, _workspace_id, identity, settings in stored
+        if table is workspace and isinstance(settings, dict)
+    }
 
-    for table, _workspace_id, identity, settings in _stored(connection):
-        if not isinstance(settings, dict) or DOCUMENTS not in settings:
+    for table, workspace_id, identity, settings in stored:
+        if not isinstance(settings, dict) or (TASKS not in settings and DOCUMENTS not in settings):
             continue
 
+        if table is workspace and DOCUMENTS not in settings:
+            continue
+
+        inherited = above.get(workspace_id, {}) if table is project else {}
         merged = {key: value for key, value in settings.items() if key != DOCUMENTS}
-        lists = [one for one in (settings.get(TASKS), settings[DOCUMENTS]) if isinstance(one, list)]
+        lists = [
+            one
+            for one in (
+                settings[kind] if kind in settings else inherited.get(kind)
+                for kind in (TASKS, DOCUMENTS)
+            )
+            if isinstance(one, list)
+        ]
 
         if lists:
             merged[TASKS] = sorted({str(key) for one in lists for key in one})

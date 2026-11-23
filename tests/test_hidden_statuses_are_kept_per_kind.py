@@ -22,6 +22,7 @@ import subroutine.db.seed
 import subroutine.db.session
 import subroutine.domain.projects
 import subroutine.domain.settings
+import subroutine.domain.vocabulary
 import test_api_tasks
 import test_api_vocabulary
 import test_migrations
@@ -323,6 +324,13 @@ def test_the_upgrade_splits_each_list_by_kind_and_going_back_merges_them (
 	even where a side comes out empty, because its one list replaced its workspace's whole: one
 	hiding only ``blocked`` offered every document status, and goes on doing so. One that said
 	nothing gains nothing. Going back merges each pair into one list.
+
+	**A second workspace** (`SR#5323`, M-17's mutant HS3 of the cold review of 2026-11-11): zion
+	holds ``on_hold`` as a task status, where metacortex holds it only as a project's, so a split
+	reading every workspace's statuses rather than the row's own gives metacortex a task key none
+	of its statuses has. **And a project stating one list** at this revision, which going back
+	merges with its workspace's other, since in the revision before its one list replaces the
+	workspace's whole.
 	"""
 
 	engine = subroutine.db.session.create_engine(migrated_url)
@@ -370,9 +378,22 @@ def test_the_upgrade_splits_each_list_by_kind_and_going_back_merges_them (
 				key: subroutine.domain.projects.create(
 					session, workspace_id=workspace.id, key=key, title=key.title()
 				).id
-				for key in ("web", "errands", "docs", "garden")
+				for key in ("web", "errands", "docs", "garden", "notes", "ops")
 			}
 			workspace_id = workspace.id
+			zion = subroutine.db.models.identity.Workspace(slug="zion", title="Zion")
+
+			session.add(zion)
+			subroutine.db.seed.seed_workspace(session, zion)
+			session.flush()
+			subroutine.domain.vocabulary.create_status(
+				session,
+				workspace_id=zion.id,
+				entity_type="task",
+				key="on_hold",
+				label="On hold",
+				category="todo",
+			)
 
 			session.commit()
 
@@ -405,11 +426,20 @@ def test_the_upgrade_splits_each_list_by_kind_and_going_back_merges_them (
 			"a project that said nothing about statuses was given a list"
 		)
 
+		# **One list each, stated at this revision**: the other is inherited.
+		write("project", made["notes"], {DOCUMENTS: ["draft"]})
+		write("project", made["ops"], {TASKS: ["blocked"]})
+
 		subroutine.db.migrate.downgrade(migrated_url, BEFORE)
 
 		assert read("workspace", workspace_id) == {TASKS: ["blocked", "draft", "superseded"]}, (
 			"going back did not merge the two lists into one"
 		)
+
+		for name in ("notes", "ops"):
+			assert read("project", made[name]) == {TASKS: ["blocked", "draft", "superseded"]}, (
+				f"going back showed {name} a status its workspace hides"
+			)
 		assert read("project", made["docs"]) == {TASKS: ["draft"], "appearance.colour": "teal"}
 		assert read("project", made["garden"]) == {"appearance.colour": "green"}
 
