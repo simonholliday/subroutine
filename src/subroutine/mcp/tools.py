@@ -5057,13 +5057,17 @@ def _account_zone (client: subroutine.clients.base.Client, workspace: str | None
 	# capability is absent and a call reaching it are two statements that must not disagree.
 	# ``subroutine_whoami`` already reaches ``me``, so nothing about what an agent can do moves.
 	me = client.me()
-	wanted = None if workspace is None else workspace.strip().lower()
 
 	# **By its name or its id** (`SR#5122`, M-15 of the cold review of 2026-10-17): every tool's
 	# schema says either names a workspace, and an id matched none, so a day an agent named was read
-	# in the server's zone on every relayed call that named its workspace that way.
+	# in the server's zone on every relayed call that named its workspace that way. **As the write
+	# reads it** (`SR#5334`, L-2 of the cold review of 2026-11-11): compared here by hand, *My
+	# Team* and an id without its hyphens found the workspace for the write and read the day in
+	# another zone.
 	for candidate in me.workspaces:
-		if wanted is not None and wanted not in (candidate.slug, str(candidate.id)):
+		if workspace is not None and not subroutine.addressing.names_workspace(
+			workspace, slug=candidate.slug, identifier=candidate.id
+		):
 			continue
 
 		if candidate.reader_timezone is not None:

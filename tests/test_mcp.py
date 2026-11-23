@@ -47,6 +47,7 @@ import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.seed
@@ -5146,6 +5147,62 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone_however_its_workspa
 		), f"named {named!r}, 'today' was read in another zone"
 
 	assert subroutine.mcp.tools._account_zone(local_client, "nowhere") == "Pacific/Auckland"
+
+
+def test_a_day_an_agent_writes_is_read_in_the_zone_of_the_workspace_however_it_is_named (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5334`, L-2 of the cold review of 2026-11-11, and the mutant MT1: two readings of a name.
+
+	**The account has no zone and the workspace has one**, the only arrangement where reading the
+	workspace's zone and falling back give different days: 13:00 UTC is already tomorrow in
+	Auckland, and the instance is in UTC. The write finds the workspace by any of these, and the
+	day was read in the instance's zone for its name spelled as a title and its id without
+	hyphens. **Its short name has a hyphen**, which the title spells as a space.
+	"""
+
+	[who] = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	[place] = session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace)).all()
+	instance = session.scalars(sqlalchemy.select(subroutine.db.models.system.Instance)).one()
+	who.timezone = None
+	place.timezone = "Pacific/Auckland"
+	place.slug = "metacortex-hq"
+	instance.timezone = "UTC"
+	session.flush()
+
+	frozen = datetime.datetime.fromisoformat("2027-08-05T13:00:00Z")
+	monkeypatch.setattr(subroutine.db.types, "utcnow", lambda: frozen)
+
+	forms = {
+		"short name": place.slug,
+		"in capitals": place.slug.upper(),
+		"as a title": f" {place.slug.replace('-', ' ').title()} ",
+		"id": str(place.id),
+		"id in capitals": str(place.id).upper(),
+		"id without hyphens": place.id.hex,
+	}
+
+	for form, named in forms.items():
+		ref = _added(bound, "Sand the door")
+		changed, failed = _called(
+			bound, "subroutine_update", ref=ref, plan="today", workspace=named
+		)
+
+		assert not failed, (form, changed)
+
+		row = session.scalars(
+			sqlalchemy.select(subroutine.db.models.work.Task).where(
+				subroutine.db.models.work.Task.ref == ref
+			)
+		).one()
+
+		assert row.starts_at is not None, (form, changed)
+
+		day = row.starts_at.astimezone(zoneinfo.ZoneInfo("Pacific/Auckland")).date()
+
+		assert day == datetime.date(2027, 8, 6), f"named {form!r}: 'today' was read in another zone"
 
 
 def test_an_agent_naming_a_start_and_an_end_is_read_as_one_span (
