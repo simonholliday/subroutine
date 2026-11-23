@@ -44,7 +44,20 @@ FORBIDDEN = {
 	"a reference to docs/design.md, which is not published": re.compile(r"SPEC\.md|design\.md"),
 	"a specification section sign": re.compile(r"§"),
 	"the hidden synonym 'ls' rather than 'list'": re.compile(r"'ls'"),
+	# **Decision `#3728`'s retired names** (`SR#5348`): every example is set at MetaCortex, with
+	# the film's cast, and the help still wrote ``acme`` and ``sam`` after the pages did not.
+	"a name decision #3728 retired, 'acme' or 'sam'": re.compile(r"\b(?:acme|sam)\b", re.I),
 }
+
+
+def test_a_retired_example_name_is_caught_and_a_word_holding_one_is_not () -> None:
+	"""`SR#5348`: the pattern above, fed help that names a retired workspace and an agent."""
+
+	retired = FORBIDDEN["a name decision #3728 retired, 'acme' or 'sam'"]
+
+	assert retired.search("subroutine user list --workspace acme")
+	assert retired.search("subroutine user create Sam --superuser")
+	assert not retired.search("the same sample, from Acmeville")
 
 
 def _commands () -> typing.Iterator[tuple[str, typing.Any]]:

@@ -493,13 +493,13 @@ From then on one list shows both:
 
   subroutine list
     Local
-                #1  Pay the gas bill
+                      #1  Pay the gas bill
     work
-      work/acme/#1  Fix the deploy script
+      work/metacortex/#1  Fix the deploy script
 
 Reading always spans everything you can reach, so nothing is hidden by
 being in the wrong place. Only writing picks one, and 'subroutine use
-work/acme' is how you move it.
+work/metacortex' is how you move it.
 
 On a server other people use, whoever can see a project sees what is
 in it - in their lists, their searches and their calendars. Something
@@ -583,8 +583,8 @@ you do not have. Hard is not the same as blocked.
 It goes back to one person, chosen in this order:
 
   1. Whoever assigned it to you. 'subroutine show 42' says who, as
-     'assigned by @jo'. Not when that is you, and not when it came to
-     you as a question: that one you answer, or pass up.
+     'assigned by @laurence'. Not when that is you, and not when it
+     came to you as a question: that one you answer, or pass up.
   2. Otherwise your account parent, the account yours was created by.
      'subroutine whoami' names it. Every agent answers to a person in
      the end, so a question always reaches one.
@@ -599,7 +599,7 @@ How you hand it over says what you mean:
 
 Asking is three commands:
 
-  subroutine update 42 --status needs_input --assignee jo
+  subroutine update 42 --status needs_input --assignee laurence
   subroutine comment 42 "Which way should the flag read? I'd pick the second."
   subroutine release 42
 

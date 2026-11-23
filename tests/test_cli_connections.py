@@ -1409,6 +1409,10 @@ def test_the_command_explain_connecting_names_for_moving_writes_is_one_that_work
 	world its own example draws, is accepted.**
 	"""
 
+	# **The world the topic draws** (`SR#5348`): its server's workspace is MetaCortex, where this
+	# fixture's served instance names its own otherwise.
+	run("-c", "work", "workspace", "create", "metacortex", "MetaCortex")
+
 	said = " ".join(run("explain", "connecting").output.split())
 	found = re.search(r"'subroutine use (\S+)' is how you move it", said)
 

@@ -6090,7 +6090,7 @@ def _chosen (program: Program, world: World, where: str) -> tuple[str, str]:
 		program.stop(
 			f"{where!r} is not a place to work.",
 			"Give a workspace, or a connection and a workspace - 'subroutine use "
-			"work/acme'.",
+			"work/metacortex'.",
 		)
 
 	name = parts[0] if len(parts) == 2 else world.current.connection
@@ -9026,7 +9026,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine project share secret jo
+		  subroutine project share secret carrieanne
 
 		This grants sight and nothing else - what they may do in the project is still their
 		role in the workspace, so they have to be in it already.
@@ -9051,7 +9051,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine project unshare secret jo
+		  subroutine project unshare secret carrieanne
 
 		You may always remove yourself; removing anybody else is for whoever may share it. The
 		owner cannot be removed while they can act, and neither can the last person who can see
@@ -9249,9 +9249,9 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine project move WEB --under ACME
+		  subroutine project move web --under ops
 
-		  subroutine project move WEB --root
+		  subroutine project move web --root
 
 		Nothing is renumbered and nothing is refiled: every item keeps its number and stays in
 		the project it was in. What moves is where that project sits.
@@ -9985,9 +9985,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user create keanu --terminal
 
-		  subroutine user create keanu --browser --terminal --workspace acme
+		  subroutine user create keanu --browser --terminal --workspace metacortex
 
-		  subroutine user create sam --superuser
+		  subroutine user create laurence --superuser
 
 		One command rather than five. It makes the account, puts them in a workspace with a
 		role, and - if you say how they will reach this instance - produces the sign-in link
@@ -10151,7 +10151,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user list
 
-		  subroutine user list --workspace acme
+		  subroutine user list --workspace metacortex
 
 		Without --workspace this is everybody you share a workspace with, and any agents that
 		answer to you, oldest first. Somebody who administers accounts sees every account. With
@@ -10230,7 +10230,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user add keanu --role member
 
-		  subroutine user add keanu --role admin --workspace acme
+		  subroutine user add keanu --role admin --workspace metacortex
 
 		The role is named rather than assumed. What somebody may do is the decision being
 		taken here, and a default would be this command taking it quietly on your behalf.
@@ -10275,7 +10275,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user role keanu admin
 
-		  subroutine user role keanu viewer --workspace acme
+		  subroutine user role keanu viewer --workspace metacortex
 
 		The role is positional rather than an option, unlike 'user add': there it is one
 		decision among several, and here it is the whole of what this command is for.
@@ -10382,7 +10382,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user transfer deploy-bot --to jo
+		  subroutine user transfer claude --to keanu
 
 		Agents stop when the person answerable for them leaves, so this is how one is kept when
 		somebody goes. Only a person can hand an agent over. It can go to a person, or to an
@@ -10564,7 +10564,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 
 		  subroutine workspace create personal Personal
 
-		  subroutine workspace create acme "Acme Ltd" --timezone Europe/London
+		  subroutine workspace create metacortex MetaCortex --timezone Europe/London
 
 		Numbers start again at 1 in a new workspace, so the two do not have to share a
 		sequence - and nothing in one is visible from the other unless you are in both.
@@ -10643,7 +10643,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 
 		  subroutine workspace update projects --title Projects
 
-		  subroutine workspace update acme --timezone Europe/London
+		  subroutine workspace update metacortex --timezone Europe/London
 
 		The zone is the one that matters: every date in the workspace is read in it, so a
 		workspace set up in the wrong one shows every deadline at the wrong time. Clearing it
@@ -10690,7 +10690,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine workspace delete acme
+		  subroutine workspace delete metacortex
 
 		Nothing is destroyed: its items keep their numbers and come back exactly as they were
 		with 'subroutine workspace restore'. Its short name is freed, so if something else
@@ -10709,7 +10709,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine workspace restore acme
+		  subroutine workspace restore metacortex
 		"""
 
 		_workspace_restored(program, slug=slug)
@@ -10961,7 +10961,7 @@ def register (
 
 		  subroutine -w work agenda
 
-		  subroutine -w work agenda --project acme
+		  subroutine -w work agenda --project web
 
 		A named day is shown as it stands now, so anything already late appears under
 		Overdue whether or not it was late on that day.
@@ -11060,9 +11060,9 @@ def register (
 
 		  subroutine list --order -priority_score
 
-		  subroutine list --project SR --order due_at
+		  subroutine list --project web --order due_at
 
-		  subroutine list --assignee si --status blocked
+		  subroutine list --assignee keanu --status blocked
 
 		  subroutine list --claimed-by claude --order claimed_at
 
@@ -11127,7 +11127,7 @@ def register (
 
 		  subroutine search "#errand"
 
-		  subroutine search "pagination" --project SR
+		  subroutine search "pagination" --project web
 
 		  subroutine search "boiler" --filter created_at.gte=yesterday
 		"""
@@ -11666,7 +11666,7 @@ def register (
 
 		  subroutine update 42 --estimate 2h --type bug
 
-		  subroutine update 42 --assignee jo --due friday
+		  subroutine update 42 --assignee carrieanne --due friday
 
 		  subroutine update 42 --title "Fix the parser, not the tokeniser"
 
@@ -11857,11 +11857,11 @@ def register (
 
 		  subroutine use
 
-		  subroutine use acme
+		  subroutine use metacortex
 
-		  subroutine use work/acme
+		  subroutine use work/metacortex
 
-		  subroutine use --here --project SR
+		  subroutine use --here --project web
 
 		  subroutine use --reset
 
@@ -11889,7 +11889,7 @@ def register (
 				stop(
 					"--project only means something with --here.",
 					"A project belongs to a directory, not to the whole machine: "
-					"'subroutine use --here --project SR'.",
+					"'subroutine use --here --project web'.",
 				)
 
 			if not where.strip():
@@ -12004,14 +12004,14 @@ def register (
 
 		Examples:
 
-		  subroutine connections add work --url https://tasks.example.com
+		  subroutine connections add work --url https://subroutine.example.com
 
-		  subroutine connections add work --url https://tasks.example.com --read-only
+		  subroutine connections add work --url https://subroutine.example.com --read-only
 
-		  subroutine connections add acme --url https://acme.example --token-env ACME_TOKEN
+		  subroutine connections add work --url https://subroutine.example.com --token-env MY_TOKEN
 
 		The name is yours and nobody else's. It becomes the first part of every address that
-		instance's items print as, so work/acme/42, and two people reaching one server may
+		instance's items print as, so work/metacortex/42, and two people reaching one server may
 		call it different things.
 
 		It asks for the token unless one is already set for that name, checks that the

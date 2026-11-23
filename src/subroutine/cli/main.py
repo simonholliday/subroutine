@@ -883,7 +883,7 @@ def mcp (
 
 	  subroutine mcp --connection work
 
-	  subroutine mcp --connection work --workspace acme
+	  subroutine mcp --connection work --workspace metacortex
 
 	Speaks the Model Context Protocol over stdio, so a client starts this as a child process
 	rather than connecting to a port. There is nothing to expose and no listener: if the
@@ -2767,9 +2767,9 @@ def token_create (
 
 	  subroutine token create --service-account claude --scope task:read --scope task:write
 
-	  subroutine token create --service-account claude --workspace projects --project WEB
+	  subroutine token create --service-account claude --workspace metacortex --project web
 
-	  subroutine token create --title "Acme, this month" --expires now+30d
+	  subroutine token create --title "MetaCortex, this month" --expires now+30d
 
 	Named on its own it is yours. '--username' issues for somebody who already has an
 	account; '--service-account' issues for a machine identity and creates one if there is
@@ -3135,15 +3135,15 @@ def agent_create (
 
 	Examples:
 
-	  subroutine agent create web --workspace acme --here
+	  subroutine agent create web --workspace metacortex --here
 
-	  subroutine agent create claude --profile worker --project WEB
+	  subroutine agent create claude --profile worker --project web
 
-	  subroutine agent create sam --profile collaborator --project SR --write SUBSAMPLE
+	  subroutine agent create scout --profile collaborator --project web --project ops --write web
 
 	  subroutine agent create reporter --profile observer --expires now+30d
 
-	  subroutine agent create subsample --workspace projects --project SUBSAMPLE
+	  subroutine agent create web --workspace metacortex --project web
 
 	This is 'user create', 'user add' and 'token create' as one act, because they are one
 	decision: an account with no membership authenticates and can do nothing, which reads as a
@@ -3180,7 +3180,7 @@ def agent_create (
 	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
 	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
 	and changes nothing. A combination that means two things at once is refused rather than
-	resolved - '--profile observer --write WEB' is not a narrower observer.
+	resolved - '--profile observer --write web' is not a narrower observer.
 
 	The credential is checked by being presented, not by being described: what it can actually
 	do is read back from the instance before this command claims anything.
