@@ -175,7 +175,7 @@ def from_bearer_token (
 #:
 #: **A literal with a guard rather than an import** — `api/mcp.py` imports this module, so
 #: reading ``subroutine.api.mcp.PATH`` here would be a cycle.
-#: ``tests/test_api_security.py`` holds this against that constant, which is what stops the two
+#: ``tests/test_event_interface.py`` holds this against that constant, which is what stops the two
 #: drifting: a copy nothing compares is this codebase's signature defect, and a copy something
 #: compares is a copy that cannot rot.
 MCP_PATH = "/mcp"

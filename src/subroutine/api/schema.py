@@ -117,8 +117,10 @@ def disagreement (application: fastapi.FastAPI) -> tuple[str, str] | None:
 	what lets ``db upgrade`` put an instance back into use without a restart. The cost is one
 	query per write, paid only while the instance is refusing them anyway.
 
-	Not read at startup, for `#179`'s reason: the database may not be up yet, which is the whole
-	reason ``/readyz`` exists. ``state.serving_instance`` is latched the same way and says so.
+	Read once as ``serve`` starts, for no longer than ``SCHEMA_ASKED_FOR_SECONDS`` (`#5058`), since
+	the database may not be up yet - `#179`'s reason, and the reason ``/readyz`` exists. An
+	application started any other way is not asked until a request comes. ``state.serving_instance``
+	is latched the same way and says so.
 	"""
 
 	if getattr(application.state, "schema_agrees", False):

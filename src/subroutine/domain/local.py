@@ -110,8 +110,8 @@ def _from_token (
 		# **Named from where it actually came from** (`#175`). This said "SUBROUTINE_TOKEN
 		# was set" whatever the source was, and then told the operator to unset a variable
 		# that in the common case was never set — while the credential sat in
-		# `credentials.toml`, unmentioned. `credentials.resolve` has always known which of the
-		# four places won; it simply was not asked.
+		# `credentials.toml`, unmentioned. `credentials.resolve` has always known where it came
+		# from; it simply was not asked.
 		where = f"The token from {source}" if source else "The token supplied"
 
 		raise subroutine.errors.Unauthenticated(

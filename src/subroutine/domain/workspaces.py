@@ -289,7 +289,7 @@ def update (
 	if settings is not subroutine.domain.patch.UNSET:
 		# **What the registry says gates each key, asked before any value is read** (`#2120`).
 		# `WORKSPACE_WRITE` above is what changing a workspace's own fields costs; a setting may
-		# declare more, and both of the two declared today do — a workspace's setting is what
+		# declare more, and every one the registry holds today does — a workspace's setting is what
 		# everything under it inherits, so writing one is administration.
 		subroutine.domain.settings.authorized(
 			session,

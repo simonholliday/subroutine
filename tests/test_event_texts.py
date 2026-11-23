@@ -213,7 +213,7 @@ def test_an_event_shown_without_its_texts_is_refused_rather_than_published (
 
 
 def test_restored_puts_back_only_what_it_names () -> None:
-	"""The pure half, which the merge script shares with the readers.
+	"""The pure half, which :func:`events.descriptions` reads every kept text back through.
 
 	The kept-texts migration's downgrade keeps a copy of its own (`SR#4297`), as a migration
 	declares what it needs.

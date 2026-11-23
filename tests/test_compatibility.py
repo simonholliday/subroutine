@@ -34,11 +34,11 @@ written by hand. That distinction is the point: a fixture written from the curre
 agrees with them by construction and would have passed on both of the days above. Identifiers
 are replaced with fixed ones; nothing about the shape is edited.
 
-**Requests are the other half, and before 1.0 they are not promised** (`SR#2618`). Simon's answer
-of 2026-09-14 was *reading only*, so an instance one release behind may refuse a parameter or a
-route this build sends. What is held at the end of this file is the refusal's sentence, which
-named a parameter the reader never typed (`SR#2625`), and those answers were captured from the
-tag too.
+**Requests are the other half, and they are not promised** (`SR#2618`, decision `#5264`). Simon's
+answer of 2026-09-14 was *reading only*, and from 1.0 as before it, an instance one release behind
+may refuse a parameter or a route this build sends. What is held at the end of this file is the
+refusal's sentence, which named a parameter the reader never typed (`SR#2625`), and those answers
+were captured from the tag too.
 """
 
 import inspect
@@ -560,7 +560,8 @@ def _at_0_8_15 (running: str) -> subroutine.clients.http.Client:
 def test_a_request_the_release_before_lacks_is_refused_naming_both_releases (command: str) -> None:
 	"""`SR#2625`: *"This endpoint does not accept 'limit'."*, to somebody who typed `user list`.
 
-	Before 1.0 the command need not work (`SR#2618`), so what is held is the sentence. It names
+	The command need not work against an older instance (`SR#2618`, decision `#5264`), so what is
+	held is the sentence. It names
 	what each side is running before anything else, keeps the instance's own words after that so
 	nothing the instance said is lost, and keeps the code a program reads.
 	"""

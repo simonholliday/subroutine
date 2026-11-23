@@ -99,7 +99,7 @@ class Stored:
 
 @dataclasses.dataclass(frozen=True, repr=False)
 class Resolved:
-	"""One connection's token, and which of the four places supplied it.
+	"""One connection's token, and which of :func:`resolve`'s places supplied it.
 
 	``source`` exists for ``subroutine connections``, which reports where each token came from
 	*without printing any of them*. The standing footgun in comparable tooling is not having

@@ -289,8 +289,8 @@ def _the_settings (settings: subroutine.config.Settings) -> list[Finding]:
 	**The lesson is one this codebase already recorded one command along.** ``db/backup.py``'s
 	``check_engine`` (`#172`): *"docs/hosting.md already stated the rule, which is the shape
 	worth noticing: the document knew and the program did not."* Here the *code* knows —
-	``config.py`` measures and documents the ``["*"]`` danger in full, and ``docs/hosting.md``
-	gives the operator a curl one-liner to check it — and the program said nothing.
+	``config.py`` documents what ``["*"]`` admits, and ``docs/hosting.md`` gives the operator a
+	curl one-liner to check it — and the program said nothing.
 
 	**Only when ``public_url`` is set**, because that is what says this instance is reachable
 	by somebody other than the person at the keyboard. It is the same signal `#286` and `#832`

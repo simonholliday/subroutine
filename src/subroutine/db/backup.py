@@ -102,7 +102,7 @@ _INSTANCE_COPY = re.compile(
 #: installation, so it cannot be held to the shape of ``Base.metadata`` today. These are the
 #: tables the initial migration creates; every revision since has added tables and dropped
 #: none, so they are the floor at *every* restorable revision rather than at the newest one.
-#: ``tests/test_backup.py`` asserts they are still a subset of the live metadata, so dropping
+#: ``tests/test_instances.py`` asserts they are still a subset of the live metadata, so dropping
 #: one fails the build loudly instead of quietly making every backup unrestorable.
 CORE_TABLES = frozenset(
 	{

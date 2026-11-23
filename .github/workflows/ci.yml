@@ -1,8 +1,8 @@
 name: CI
 
-# Two jobs rather than one matrix doing everything. Lint and type results are identical on
-# every Python version, so running them three times would add nothing but three places to
-# read the same failure.
+# Separate jobs rather than one matrix doing everything. Lint and type results are identical
+# on every Python version, so `checks` runs once rather than once per version, which would add
+# nothing but more places to read the same failure.
 #
 # Every job names its image, `ubuntu-24.04`, rather than `ubuntu-latest` (`SR#5281`). That label
 # moved to Ubuntu 26.04 by itself in November 2026 and turned this red with no commit of ours to
