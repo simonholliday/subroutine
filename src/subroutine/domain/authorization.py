@@ -270,7 +270,15 @@ def explain (
 	reached = _reached(session, principal, workspace_id=workspace_id, project=project)
 
 	if reached is None:
-		return Grant(permissions=frozenset(), from_role=None, narrowed_by_token=False)
+		granted = _administered_from_the_instance(
+			session, principal, workspace_id, project=project
+		)
+
+		return Grant(
+			permissions=granted,
+			from_role=None,
+			narrowed_by_token=bool(granted) and principal.narrows,
+		)
 
 	scopes = principal.scopes
 	# **The one definition, asked rather than worked out again** (`#3934`). This spelled out three
@@ -323,6 +331,34 @@ def explain (
 	)
 
 	return Grant(permissions=permitted, from_role=reached.title, narrowed_by_token=narrowed)
+
+
+def _administered_from_the_instance (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	workspace_id: uuid.UUID,
+	*,
+	project: subroutine.db.models.project.Project | None,
+) -> frozenset[str]:
+	"""Return what the instance lets a superuser do in a workspace they do not reach - `SR#5341`.
+
+	**The decision's one clause past reach** (decision `#4519`): listing its members, joining it and
+	deleting it, granted to a superuser member or not. :func:`explain` offered one who is not a
+	member nothing, and so disagreed with :func:`authorize` about exactly those three (the review's
+	Open Question 4 of the cold review of 2026-11-11, decided in `#5285`). Each is asked of the
+	decision, with no project named, as the clause is; and only of a superuser, so nobody else costs
+	a query.
+	"""
+
+	if project is not None or not principal.is_superuser:
+		return frozenset()
+
+	return frozenset(
+		permission
+		for permission in subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
+		if _refusal(session, principal, permission, workspace_id=workspace_id, project=None)
+		is None
+	)
 
 
 def _writes_inside (

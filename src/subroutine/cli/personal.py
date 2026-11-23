@@ -6523,9 +6523,18 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 
 			return
 
+		# **What the instance lets a superuser outside a workspace do there, said on its line**
+		# (`SR#5341`, decided in `#5285`): nothing said it until a command was tried. Whoever reads
+		# this listing administers the installation; a read-only connection lists the members alone.
+		offered = (
+			"not a member - you may list its members"
+			if where.client.connection.read_only
+			else "not a member - you may list its members, join it or delete it"
+		)
+
 		for one in found:
 			people = "1 person" if one.members == 1 else f"{one.members} people"
-			mark = "" if one.joined else "  - you are not a member"
+			mark = "" if one.joined else f"  - {offered}"
 
 			if one.slug in orphaned:
 				mark += "  - nobody can administer it"

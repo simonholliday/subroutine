@@ -25,12 +25,14 @@ import sqlalchemy.orm
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 import test_api_tasks
 
 
@@ -67,6 +69,49 @@ def test_a_superuser_who_is_not_a_member_still_cannot_reach_a_workspace (
 	)
 
 	assert world.workspace.id not in {row.id for row in reachable}
+
+
+@pytest.mark.parametrize(
+	"how",
+	["not a member", "a member", "not a member, through the agent tools"],
+)
+def test_what_a_superuser_is_offered_in_a_workspace_is_what_the_decision_grants (
+	session: sqlalchemy.orm.Session, how: str
+) -> None:
+	"""`SR#5341`, the review's Open Question 4 of the cold review of 2026-11-11: offered nothing.
+
+	The decision lets a superuser list a workspace's members, join it and delete it, member or not
+	(decision `#4519`'s one clause), and ``explain`` offered one who is not a member nothing.
+	**Every workspace verb, asked of both**, agrees for one outside, one inside, and one outside
+	through the agent tools, whom the clause does not reach.
+	"""
+
+	world = test_api_tasks._world(session)
+	other, _theirs = _a_second_superuser(session, world)
+
+	if how == "a member":
+		subroutine.domain.workspaces.add_member(session, world.workspace, other, role_key="viewer")
+		session.flush()
+
+	principal = subroutine.domain.authentication.Principal(
+		user=other, through_the_agent_tools=how.endswith("agent tools")
+	)
+	offered = subroutine.domain.authorization.explain(
+		session, principal, world.workspace.id
+	).permissions
+
+	for permission in sorted(subroutine.permissions.WORKSPACE_LEVEL):
+		decided = subroutine.domain.authorization.refusal(
+			session, principal, permission, workspace_id=world.workspace.id
+		)
+
+		assert (permission in offered) is (decided is None), (permission, decided)
+
+	if how == "not a member":
+		assert offered == subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE, offered
+
+	if how.endswith("agent tools"):
+		assert offered == frozenset(), offered
 
 
 def test_an_administrator_can_find_out_a_workspace_exists (

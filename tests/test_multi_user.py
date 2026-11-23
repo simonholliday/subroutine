@@ -1385,6 +1385,39 @@ def test_a_line_after_the_agents_says_and (
 	], warned
 
 
+def test_instance_workspaces_says_what_you_may_do_where_you_are_not_a_member (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5341`, decided in `#5285`: the line said only *you are not a member*.
+
+	The installation lets whoever administers it list a workspace's members, join it and delete it
+	without being in it, and nothing said so until one was tried. **Said on the line of each
+	workspace they are not in**, and on a read-only connection only what it lets them do.
+	"""
+
+	run("init", "--workspace", "Metacortex", "--username", "morpheus")
+	run("user", "create", "trinity", "--name", "Trinity")
+	run("workspace", "create", "zion", "Zion")
+	run("user", "add", "trinity", "--workspace", "zion", "--role", "owner")
+	run("user", "remove", "morpheus", "--workspace", "zion")
+
+	offered = "not a member - you may list its members, join it or delete it"
+	listed = run("instance", "workspaces").output.splitlines()
+
+	assert [line for line in listed if offered in line] == [
+		line for line in listed if line.strip().startswith("zion ")
+	], listed
+
+	with subroutine.config.config_file_path().open("a", encoding="utf-8") as handle:
+		handle.write("\n[connections.local]\nread_only = true\n")
+
+	read_only = run("instance", "workspaces").output.splitlines()
+	[zion] = [line for line in read_only if line.strip().startswith("zion ")]
+
+	assert zion.endswith("not a member - you may list its members"), read_only
+	assert not [line for line in read_only if "join it" in line], read_only
+
+
 def test_instance_workspaces_lists_against_a_server_that_cannot_mark_them (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

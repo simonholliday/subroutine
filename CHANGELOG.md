@@ -304,6 +304,9 @@ upgrade involves.
   now carries `read_only`, the installation's permissions are listed as what the session reads with,
   and `whoami` and the agent tools say the session only reads. A credential that writes only in some
   projects is offered its write permissions only in the workspaces those projects are in.
+- **`instance workspaces` says what you may do in a workspace you are not in**: list its members,
+  join it or delete it, which the installation lets whoever administers it do there and nothing said
+  until one was tried. On a read-only connection it says you may list its members.
 - **Whether a rule binds the whole workspace is the instance's to say.** A credential narrowed
   to a project inside a private one was told a rule filed there bound the whole workspace, and the
   agent tools listed it among the conventions wherever the agent stood, because that was worked
