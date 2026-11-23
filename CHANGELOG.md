@@ -142,7 +142,9 @@ upgrade involves.
   cookie's write was accepted from any page that named itself, so a page on any site could read and
   change things as anybody signed in who visited it. With `*`, a page may still call this instance
   with an API token; name an origin to let a page there use your people's sessions. `doctor`
-  reports `*` as what it admits rather than as needing attention.
+  reports `*` as what it admits rather than as needing attention. An origin named beside `*` is
+  answered without credentials too, so list it without `*` if a signed-in page there must read
+  replies: a session cookie's write from it is refused, and `serve` and `doctor` name it.
 
 - **Two connections whose names differ only by `-` and `_` are refused - check `config.toml`
   before upgrading.** `my-work` and `my_work` both read their token from

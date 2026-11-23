@@ -198,6 +198,29 @@ def profile_names () -> list[str]:
 LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
 
 
+def without_credentials (origins: typing.Sequence[str]) -> list[str]:
+	"""Return each origin named beside ``*`` in ``cors_origins``, which is answered without
+	credentials as every other origin is - `SR#5342`, decided in `#5285`.
+
+	**Named, so the operator is told what they lost**: ``serve`` and ``doctor`` said only that the
+	list held ``*``, and a sibling subdomain the operator had named lost its signed-in readers'
+	replies without a word. Empty where the list holds no ``*``.
+	"""
+
+	if "*" not in origins:
+		return []
+
+	return [one.strip() for one in origins if one.strip() not in ("", "*")]
+
+
+#: What ``serve`` and ``doctor`` say of an origin named beside ``*`` (`SR#5342`): decision `#5285`'s
+#: words.
+LOST_CREDENTIALS = (
+	"cors_origins holds '*', so {origin} is answered without credentials too - remove '*' if a "
+	"signed-in page there must read replies."
+)
+
+
 def is_loopback (host: str) -> bool:
 	"""Report whether binding to this host keeps the socket on one machine.
 

@@ -1209,6 +1209,11 @@ def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> No
 		"token, though none may act as anybody signed in."
 	)
 
+	# **And each origin named beside it, which loses its credentials too** (`SR#5342`, decided in
+	# `#5285`).
+	for origin in subroutine.config.without_credentials(settings.cors_origins):
+		_say(f"  Note: {subroutine.config.LOST_CREDENTIALS.format(origin=origin)}")
+
 
 def _warn_about_osc_elsewhere (settings: subroutine.config.Settings) -> None:
 	"""Say when this server and the rest of its machine would decide OSC differently - `#4024`.

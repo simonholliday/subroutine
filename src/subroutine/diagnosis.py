@@ -314,6 +314,17 @@ def _the_settings (settings: subroutine.config.Settings) -> list[Finding]:
 				),
 			)
 		)
+
+		# **Each origin named beside it, as needing attention** (`SR#5342`, decided in `#5285`): an
+		# operator who named it meant its signed-in readers to read replies, and they cannot.
+		findings.extend(
+			Finding(
+				area="cors_origins",
+				detail=subroutine.config.LOST_CREDENTIALS.format(origin=origin).rstrip("."),
+				ok=False,
+			)
+			for origin in subroutine.config.without_credentials(settings.cors_origins)
+		)
 	else:
 		findings.append(
 			Finding(

@@ -1576,6 +1576,35 @@ def test_a_wildcard_admits_a_token_and_no_signed_in_browser (
 	assert answered.headers["access-control-allow-credentials"] == "true"
 
 
+def test_an_origin_named_beside_a_wildcard_has_no_credentials_and_no_cookie_writes (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`SR#5342`, the review's Open Question 6 of the cold review of 2026-11-11, decided in `#5285`.
+
+	With ``["*", <origin>]`` the middleware answers the named origin as ``*`` and without
+	credentials, and the cookie-write check still admitted it, so the two disagreed. **Neither
+	admits it**: its page reads no reply as anybody signed in, and its cookie write is refused.
+	Named alone, it keeps both, which the tests above hold.
+	"""
+
+	application, held = _served_allowing(session, setup.user, "*", NAMED)
+
+	answered = api_support.call(application, "GET", "/v1/meta", headers={"origin": NAMED})
+
+	assert answered.headers["access-control-allow-origin"] == "*", answered.headers
+	assert "access-control-allow-credentials" not in answered.headers, answered.headers
+
+	refused = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
+		headers={"origin": NAMED},
+	)
+
+	assert refused.status_code == 403, refused.text
+
+
 #: One case per axis a token can be narrowed on, because a session expresses none of them and
 #: the escalation `#829` records loses all four at once. Parametrised over the *axes* rather
 #: than over a list of examples, so a fifth axis added to `authentication.narrowing` and not to

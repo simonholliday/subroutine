@@ -362,6 +362,51 @@ class TestWhatItLooksAt:
 
 		assert _named(named, "cors_origins").ok
 
+	def test_an_origin_named_beside_a_wildcard_is_named_as_losing_its_credentials (
+		self, home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+	) -> None:
+		"""`SR#5342`, decided in `#5285`: ``doctor`` and ``serve`` said only that ``*`` was there.
+
+		**Each origin named beside it is named**, as needing attention, in the decision's words;
+		named alone, nothing is said of it.
+		"""
+
+		mixed = subroutine.config.Settings(
+			secret_key="k",
+			public_url="https://example.test",
+			cors_origins=["*", "https://app.example.test"],
+		)
+		lost = [
+			finding
+			for finding in subroutine.diagnosis.examine(mixed)
+			if finding.area == "cors_origins" and not finding.ok
+		]
+
+		assert [finding.detail for finding in lost] == [
+			"cors_origins holds '*', so https://app.example.test is answered without credentials "
+			"too - remove '*' if a signed-in page there must read replies"
+		], lost
+
+		said: list[str] = []
+		monkeypatch.setattr(subroutine.cli.main, "_say", said.append)
+		subroutine.cli.main._warn_about_an_open_origin_list(mixed)
+
+		assert said[1:] == [
+			"  Note: cors_origins holds '*', so https://app.example.test is answered without "
+			"credentials too - remove '*' if a signed-in page there must read replies."
+		], said
+
+		said.clear()
+		subroutine.cli.main._warn_about_an_open_origin_list(
+			subroutine.config.Settings(
+				secret_key="k",
+				public_url="https://example.test",
+				cors_origins=["https://app.example.test"],
+			)
+		)
+
+		assert said == [], said
+
 	def test_rate_limiting_turned_off_on_a_published_instance_is_a_fault (
 		self, home: pathlib.Path
 	) -> None:

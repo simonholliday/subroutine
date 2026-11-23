@@ -421,9 +421,16 @@ def refuse_a_write_from_elsewhere (
 	"""
 
 	settings: subroutine.config.Settings = request.app.state.settings
-	answered: set[str | None] = {
-		origin_of(one) or one.strip() for one in settings.cors_origins if one.strip() != "*"
-	}
+
+	# **No origin named beside ``*``** (`SR#5342`, the review's Open Question 6 of the cold review
+	# of 2026-11-11, decided in `#5285`): a list holding ``*`` is answered without credentials, a
+	# named origin in it included, and this still admitted that origin's cookie writes, so the two
+	# disagreed about it. Asked as the middleware asks it.
+	answered: set[str | None] = (
+		set()
+		if "*" in settings.cors_origins
+		else {origin_of(one) or one.strip() for one in settings.cors_origins}
+	)
 
 	answered.add(origin_of(settings.public_url))
 	answered.add(origin_of(str(request.base_url)))
