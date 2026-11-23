@@ -165,11 +165,13 @@ def refuse_for_an_agent (key: str) -> None:
 	)
 
 
-def named (key: str) -> Profile:
+def named (key: str, *, for_an_agent: bool = False) -> Profile:
 	"""Return the profile of that name, or refuse with the ones that exist.
 
 	Listing the alternatives is not politeness. A refusal naming only what was wrong leaves
-	the reader to go and find a list, and the list is four items long.
+	the reader to go and find a list, and the list is four items long. **``for_an_agent`` lists
+	only the profiles an agent may be made with** (`SR#5324`, L-2 of the cold review of
+	2026-11-11): ``agent create`` listed ``colleague``, and then refused it.
 	"""
 
 	found = BY_KEY.get(key)
@@ -184,7 +186,7 @@ def named (key: str) -> Profile:
 				field="profile",
 				code="invalid_field_value",
 				message=f"{key!r} is not one of the profiles.",
-				hint=_alternatives(),
+				hint=_alternatives(for_an_agent=for_an_agent),
 			)
 		],
 	)
@@ -352,11 +354,17 @@ def _described (profile: Profile) -> str:
 	return f"{profile.reach.value}, writing {profile.writes.value}"
 
 
-def _alternatives () -> str:
-	"""List every profile with its one line, for a refusal that names no valid choice."""
+def _alternatives (*, for_an_agent: bool = False) -> str:
+	"""List every profile with its one line, for a refusal that names no valid choice.
+
+	``for_an_agent`` leaves out the profiles an agent may not be made with, as
+	:func:`catalogue_help` does.
+	"""
 
 	return "The profiles are: " + "; ".join(
-		f"{profile.key} - {profile.summary}" for profile in CATALOGUE
+		f"{profile.key} - {profile.summary}"
+		for profile in CATALOGUE
+		if profile.for_an_agent or not for_an_agent
 	)
 
 

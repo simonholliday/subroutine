@@ -2080,6 +2080,37 @@ def test_agent_create_refuses_the_colleague_profile_and_issues_nothing (
 	assert "in acme only" in run("token", "list").output
 
 
+def test_agent_create_names_only_an_agents_profiles_where_one_is_unknown (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#5324`, L-2 of the cold review of 2026-11-11: it listed ``colleague``, then refused it.
+
+	``agent create --profile nope`` named the four profiles to choose from, ``colleague`` among
+	them, which ``agent create`` refuses as for another person. It names the three an agent may be
+	made with; ``token create`` still names all four.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	refused = " ".join(
+		run("agent", "create", "carl", "--profile", "nope", "--workspace", "acme", expect=1)
+		.output.split()
+	)
+
+	assert "There is no 'nope' profile." in refused, refused
+
+	for key in ("worker", "collaborator", "observer"):
+		assert f"{key} - " in refused, refused
+
+	assert "colleague" not in refused, refused
+
+	listed = " ".join(
+		run("token", "create", "--profile", "nope", "--workspace", "acme", expect=1).output.split()
+	)
+
+	assert "colleague - " in listed, listed
+
+
 def test_handing_an_agent_over_names_a_project_beneath_its_share (
 	run: typing.Callable[..., typer.testing.Result], piped: None
 ) -> None:

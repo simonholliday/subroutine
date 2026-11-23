@@ -2658,6 +2658,7 @@ def _shaped_by_profile (
 	write: list[str] | None,
 	scope: list[str] | None,
 	workspace: str,
+	for_an_agent: bool = False,
 ) -> subroutine.domain.profiles.Shape:
 	"""Turn what was typed into the arguments a credential is issued with — item ``#372``.
 
@@ -2682,7 +2683,8 @@ def _shaped_by_profile (
 
 	try:
 		return subroutine.domain.profiles.expand(
-			subroutine.domain.profiles.named(chosen),
+			# **Only an agent's profiles named to ``agent create``** (`SR#5324`).
+			subroutine.domain.profiles.named(chosen, for_an_agent=for_an_agent),
 			projects=projects,
 			writes=writes,
 			scopes=scopes,
@@ -3189,7 +3191,12 @@ def agent_create (
 		_fail(error)
 
 	shaped = _shaped_by_profile(
-		profile, project=project, write=write, scope=scope, workspace=workspace
+		profile,
+		project=project,
+		write=write,
+		scope=scope,
+		workspace=workspace,
+		for_an_agent=True,
 	)
 	wanted = name.strip()
 

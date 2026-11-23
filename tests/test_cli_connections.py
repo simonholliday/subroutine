@@ -4355,8 +4355,9 @@ def test_an_unknown_profile_lists_the_ones_that_exist (
 
 	refused = run("agent", "create", "x", "--profile", "supervisor", expect=1).output
 
+	# **An agent's profiles alone, to ``agent create``** (`SR#5324`), which refuses the others.
 	for profile in subroutine.domain.profiles.CATALOGUE:
-		assert profile.key in refused
+		assert (profile.key in refused) is profile.for_an_agent, (profile.key, refused)
 
 
 def test_whoami_names_a_credentials_write_set (
