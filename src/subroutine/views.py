@@ -7187,10 +7187,20 @@ class UnreachableProject(pydantic.BaseModel):
 	#: workspace, so where this is false, joining it comes first.
 	member_of_workspace: bool
 
+	#: When it was put in the trash, or null where it is not there (`SR#5313`, decision `#5285`):
+	#: one in the trash nobody can see is listed too, and letting somebody in restores it first.
+	#: **The trash's name on every other view.** Defaulted, for an instance older than the field.
+	deleted_at: datetime.datetime | None = None
+
 	def address (self) -> str:
 		"""Return what a caller names this by when letting somebody back in."""
 
 		return f"{self.workspace}/{self.project}"
+
+	def label (self) -> str:
+		"""Return its address as a list of them says it, saying where it is in the trash."""
+
+		return self.address() if self.deleted_at is None else f"{self.address()} (in the trash)"
 
 	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return one project as the cells of one compact line."""
@@ -7209,6 +7219,7 @@ def unreachable_project (row: subroutine.domain.projects.Unreachable) -> Unreach
 		created_at=row.project.created_at,
 		members=row.members,
 		member_of_workspace=row.member_of_workspace,
+		deleted_at=row.project.deleted_at,
 	)
 
 

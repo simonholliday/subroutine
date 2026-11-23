@@ -6604,7 +6604,7 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 			stranded = []
 			unchecked = refused.detail
 
-		stranding = [one.address() for one in stranded]
+		stranding = [one.label() for one in stranded]
 
 		# **And the workspaces nobody could administer afterwards** (`#4154`, decided on `#3950`):
 		# allowed, as a private project's last member leaving is, and never silent. Asked of the
@@ -6762,7 +6762,7 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 
 			stranded, unchecked = [], "this instance cannot be asked it."
 
-		stranding = [one.address() for one in stranded]
+		stranding = [one.label() for one in stranded]
 
 		if (stranding or unchecked) and not yes:
 			if stranding:
@@ -6880,8 +6880,9 @@ def _unreachable_listed (program: Program, *, json_output: bool) -> None:
 				else f"{one.members} members, none of whom can see it"
 			)
 			outside = "" if one.member_of_workspace else f"  - you do not belong to {one.workspace}"
+			trashed = "" if one.deleted_at is None else "  - in the trash"
 
-			program.say(f"  {one.address()}  {one.title}  ({held}){outside}")
+			program.say(f"  {one.address()}  {one.title}  ({held}){trashed}{outside}")
 
 		program.say("")
 

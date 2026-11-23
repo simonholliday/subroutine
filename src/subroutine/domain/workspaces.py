@@ -1262,7 +1262,8 @@ def _refuse_stranding_a_private_project (
 			),
 			project.workspace_id == workspace.id,
 			project.visibility == "private",
-			project.deleted_at.is_(None),
+			# **The trash too** (`SR#5313`, decision `#5285`): a private project in it only
+			# they see is theirs to restore, and was left to nobody.
 		)
 		.order_by(project.key)
 	)
@@ -1280,16 +1281,30 @@ def _refuse_stranding_a_private_project (
 	# counted from the projects stranded told them there were several.
 	one = len(named) == 1
 	sharing = "it" if one else "each"
-
-	raise subroutine.errors.ValidationError(
-		f"{user.username} is the only person who can see {', '.join(named)}, so taking them "
-		f"out of {workspace.slug} would leave no person able to reach {'it' if one else 'them'}.",
-		hint=f"Share {sharing} with somebody else first, or make it public."
+	hint = (
+		f"Share {sharing} with somebody else first, or make it public."
 		if len(seen) == len(keys)
 		else (
 			f"Ask {user.username} to share {sharing} with somebody else first, or to make it "
 			"public."
-		),
+		)
+	)
+
+	# **Restored before it is shared** (`SR#5313`, Simon's answer of 2026-11-21): a project in the
+	# trash is neither shared nor made public, so the hint says how it comes out first.
+	if any(row.deleted_at is not None for row in stranded):
+		hint = subroutine.domain.projects.trash_hint(
+			session,
+			workspace.id,
+			user,
+			asking=actor is None or actor.user.id != user.id,
+			several=not one,
+		)
+
+	raise subroutine.errors.ValidationError(
+		f"{user.username} is the only person who can see {', '.join(named)}, so taking them "
+		f"out of {workspace.slug} would leave no person able to reach {'it' if one else 'them'}.",
+		hint=hint,
 	)
 
 

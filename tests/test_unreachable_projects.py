@@ -125,10 +125,19 @@ def test_a_project_whose_last_member_left_is_found_by_an_administrator (
 	assert found[0]["members"] == 1
 
 	# **Nothing from inside it**: what exists and where, and no description, settings or work.
+	# **And where it is in the trash** (`SR#5313`, decision `#5285`): null for this one.
 	assert set(found[0]) == {
-		"id", "workspace", "project", "title", "created_at", "members", "member_of_workspace"
+		"id",
+		"workspace",
+		"project",
+		"title",
+		"created_at",
+		"members",
+		"member_of_workspace",
+		"deleted_at",
 	}
 	assert found[0]["member_of_workspace"] is True
+	assert found[0]["deleted_at"] is None
 
 
 def test_a_project_only_an_agent_holds_is_listed_once_its_person_cannot_act (

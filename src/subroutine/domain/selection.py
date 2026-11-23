@@ -478,7 +478,8 @@ def project_to_share (
 			sqlalchemy.select(model).where(
 				model.workspace_id == workspace.id,
 				model.visibility == "private",
-				model.deleted_at.is_(None),
+				# **The trash too** (`SR#5313`, decision `#5285`): the rescue restores it, then
+				# shares it.
 			)
 		)
 	)

@@ -726,6 +726,10 @@ NOT_OWNERSHIP: dict[str, str] = {
 		"with it: reach, decision `#4943`, and nobody's ownership."
 	),
 	"domain/workspaces.py:on_instance": "The workspaces the caller belongs to, `#2626`.",
+	"domain/workspaces.py:_refuse_stranding_a_private_project": (
+		"Whether the caller is the person being taken out, so the hint is said to them rather than "
+		"about them (`SR#5313`): whose words, never whose a thing is."
+	),
 }
 
 #: The module that answers whose a thing is, and so the one that may ask.

@@ -157,6 +157,13 @@ upgrade involves.
   first now and is refused, as it would have been a moment later - and so is an unshare made while
   somebody is taken out of the workspace.
 
+- **A private project in the trash is counted, named and rescued like a live one.** Making its
+  parent private, taking the only person who can see it out of the workspace, or unsharing them,
+  left it with nobody who could see, restore or find it. Each is refused now, saying how it comes
+  out of the trash first. `subroutine instance projects`, `GET /v1/instance/unreachable-projects`
+  (with its `deleted_at`) and what `user deactivate` and `user transfer` name include it, marked
+  as in the trash, and letting somebody back in restores it.
+
 - **An account or a project that cannot be found is said to be out of reach, not missing.** A
   refusal said "There is no project 'web' here." of a private project the reader is not a member
   of, and "There is no account called 'keanu' here." of an account outside their workspaces - a

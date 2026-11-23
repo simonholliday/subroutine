@@ -993,6 +993,22 @@ def restore (
 	)
 	subroutine.domain.versions.require(project, expected_version, noun="This project")
 
+	return _restored(session, project, actor=actor)
+
+
+def _restored (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> subroutine.db.models.project.Project:
+	"""Take a project out of the trash for a caller who may - :func:`restore` and the rescue.
+
+	**The rescue restores without the permission restoring asks** (`SR#5313`, decision `#5285`):
+	nobody holds ``project:delete`` on a private project nobody can see, which is the state being
+	repaired, and the event still names who restored it.
+	"""
+
 	if project.deleted_at is None:
 		return project
 
@@ -1507,7 +1523,8 @@ def unreachable (
 		.join(workspace, workspace.id == project.workspace_id)
 		.where(
 			project.visibility == "private",
-			project.deleted_at.is_(None),
+			# **The trash too** (`SR#5313`, L-1 of the cold review of 2026-11-11, decision `#5285`):
+			# a private project in it nobody can see was recoverable by nobody and named nowhere.
 			workspace.deleted_at.is_(None),
 		)
 		.order_by(workspace.slug, project.key, project.id)
@@ -1759,6 +1776,12 @@ def share (
 			],
 		)
 
+	# **A project nobody can reach comes out of the trash first** (`SR#5313`, decision `#5285`):
+	# an item in the trash changes only by restoring it (decision `#4943`), so the rescue restores
+	# it and then shares it, and whoever it is shared with may put it back.
+	if project.deleted_at is not None and rescuable(session, actor, project):
+		_restored(session, project, actor=actor)
+
 	membership = subroutine.db.models.project.ProjectMember(
 		workspace_id=project.workspace_id,
 		project_id=project.id,
@@ -1862,6 +1885,57 @@ def may_rescue (actor: subroutine.domain.authentication.Principal | None) -> boo
 		return False
 
 	return subroutine.domain.authorization.may_instance(actor, subroutine.permissions.INSTANCE_ADMIN)
+
+
+def trash_hint (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	seer: subroutine.db.models.identity.User,
+	*,
+	asking: bool,
+	several: bool = False,
+) -> str:
+	"""Return what to do first where what would be stranded is in the trash - `SR#5313`.
+
+	**Restored before it is shared** (decision `#5285`, Simon's answer of 2026-11-21): an item in
+	the trash changes only by restoring it (decision `#4943`), so sharing it or making it public,
+	which a live one's hint offers, is no step at all. Only ``seer`` sees it, and they restore it
+	only with a role that may delete projects, so the hint says what each case needs. ``asking`` is
+	a caller who is not them.
+	"""
+
+	what, again, sharing = ("what is in the trash", "it", "each") if several else ("it", "it", "it")
+	name = seer.username
+	may = (
+		subroutine.domain.authorization.refusal(
+			session,
+			subroutine.domain.authentication.Principal(user=seer),
+			subroutine.permissions.PROJECT_DELETE,
+			workspace_id=workspace_id,
+		)
+		is None
+	)
+
+	if may and asking:
+		return (
+			f"Ask {name} to restore {what} from the trash and share {sharing} with somebody else "
+			"first."
+		)
+
+	if may:
+		return f"Restore {what} from the trash and share {sharing} with somebody else first."
+
+	if asking:
+		return (
+			f"{name}'s role cannot restore {what} from the trash. Give {name} a role that may "
+			f"delete projects first, then ask them to restore {again} and share {sharing} with "
+			"somebody else."
+		)
+
+	return (
+		f"Your role cannot restore {what} from the trash. Ask an administrator for one that may "
+		f"delete projects, then restore {again} and share {sharing} with somebody else."
+	)
 
 
 def rescuable (
@@ -1992,6 +2066,15 @@ def unshare (
 		else:
 			hint = f"Ask the owner of '{key}' to share it with somebody else first."
 
+		# **Restored before it is shared** (`SR#5313`): a project in the trash takes neither act.
+		if one.deleted_at is not None:
+			hint = trash_hint(
+				session,
+				one.workspace_id,
+				user if last is None else last,
+				asking=actor is None or actor.user.username != seer,
+			)
+
 		raise subroutine.errors.ValidationError(
 			f"{seer} is the only person who can see {named}{inside} so removing "
 			f"{'them' if seer == user.username else user.username} would leave no person able "
@@ -2075,7 +2158,8 @@ def _losing_sight (
 				model.path.like(f"{project.path}%"),
 				model.id != project.id,
 				model.visibility == "private",
-				model.deleted_at.is_(None),
+				# **The trash too** (`SR#5313`, decision `#5285`): a private project in it only
+				# they see is theirs to restore, and was left to nobody.
 			)
 			.order_by(model.path)
 		),
@@ -2116,7 +2200,8 @@ def _refuse_stranding (
 				model.workspace_id == project.workspace_id,
 				subroutine.domain.hierarchy.subtree(model, project),
 				model.visibility == "private",
-				model.deleted_at.is_(None),
+				# **The trash too** (`SR#5313`, decision `#5285`): a private project in it only
+				# they see is theirs to restore, and was left to nobody.
 			)
 			.order_by(model.path)
 		)
