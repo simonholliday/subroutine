@@ -5503,6 +5503,35 @@ def test_an_empty_default_connection_variable_leaves_the_file_s_default_standing
 	assert diagnosed == ["work", "local"], diagnosed
 
 
+def test_config_show_names_where_a_default_connection_came_from_past_an_empty_variable (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5331`, L-6 of the cold review of 2026-11-11: two readers of one rule disagreed.
+
+	The empty variable is unsaid, so the value is the file's or the default, and ``config show``
+	said it came from the environment. **One predicate for both**: it names the default, and then
+	the file once the file sets one.
+	"""
+
+	monkeypatch.setenv(subroutine.config.DEFAULT_CONNECTION_VARIABLE, "")
+
+	def said () -> str:
+		"""Return what ``config show`` says of the default connection."""
+
+		shown = run("config", "show").output.splitlines()
+
+		return next(line for line in shown if line.split()[:1] == ["default_connection"])
+
+	assert said().endswith("[default]"), said()
+
+	_default_is(home, "work")
+
+	assert said().endswith("config.toml]"), said()
+
+
 def _a_git (directory: pathlib.Path, script: str | None) -> str:
 	"""Return a ``PATH`` whose git runs ``script``, or on which there is no git at all."""
 

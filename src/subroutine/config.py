@@ -1264,7 +1264,12 @@ def setting_sources (settings: Settings) -> dict[str, str]:
 	sources: dict[str, str] = {}
 
 	for name in type(settings).model_fields:
-		if os.environ.get(f"SUBROUTINE_{name.upper()}") is not None:
+		given = os.environ.get(f"SUBROUTINE_{name.upper()}")
+
+		# **What the environment leaves unsaid is not its** (`SR#5331`, L-6 of the cold review of
+		# 2026-11-11): an empty default connection is dropped where settings are read, and was
+		# still said here to come from the environment.
+		if given is not None and not unsaid_in_the_environment(name, given):
 			sources[name] = "environment"
 
 		elif name in file_data:
@@ -1547,10 +1552,21 @@ class _Environment(pydantic_settings.EnvSettingsSource):
 
 		said = super().__call__()
 
-		if not str(said.get("default_connection", "unsaid")).strip():
-			del said["default_connection"]
+		for name in [one for one, value in said.items() if unsaid_in_the_environment(one, value)]:
+			del said[name]
 
 		return said
+
+
+def unsaid_in_the_environment (name: str, value: typing.Any) -> bool:
+	"""Report whether the environment's value for a setting is read as not given at all.
+
+	**One rule for both its readers** (`SR#5331`, L-6 of the cold review of 2026-11-11): where
+	settings are read, and :func:`setting_sources`, which says where each came from. Only an empty
+	default connection, since `SR#5157`: set and empty, it overrode the file's.
+	"""
+
+	return name == "default_connection" and not str(value).strip()
 
 
 def load_settings (**overrides: typing.Any) -> Settings:
