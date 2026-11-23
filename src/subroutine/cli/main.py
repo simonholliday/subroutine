@@ -2520,13 +2520,19 @@ def database_restore (
 	except subroutine.errors.SubroutineError as error:
 		_fail(error)
 
-	# **And whether what is restored can be upgraded, where nothing could be asked once it is**
-	# (`SR#5153`, decision `#5097`, M-16): a backup on an older schema is offered an upgrade after
-	# the restore, and refusing that question then would follow a restore that succeeded.
-	if head != subroutine.db.migrate.head_revision() and not yes:
-		subroutine.cli.personal.answerable(UPGRADE_THE_RESTORED)
-
 	_confirm_destructive(settings, "About to replace the database of", yes=yes)
+
+	# **Whether to upgrade what is restored, asked before anything is replaced and done once it is**
+	# (`SR#5330`, L-3 of the cold review of 2026-11-11; `SR#5153`, decision `#5097`, M-16). Asked
+	# after the restore, an empty pipe passed the check that something could answer, and the
+	# question then ended in *Aborted.*, the database restored and behind its schema. A blank line
+	# still takes the default, as at a terminal.
+	newest = subroutine.db.migrate.head_revision()
+	upgrading = False
+
+	if head != newest:
+		_say(f"That backup is on schema {head}; this version is at {newest}.")
+		upgrading = yes or subroutine.cli.personal.confirmed(UPGRADE_THE_RESTORED, default=True)
 
 	if safety_backup and not _nothing_to_save(settings):
 		_safety_copy(settings, yes=yes)
@@ -2543,25 +2549,20 @@ def database_restore (
 	if as_clone:
 		_say("This is now a separate instance: new identity, and the stored context cleared.")
 
-	newest = subroutine.db.migrate.head_revision()
+	if upgrading:
+		# Restored, and the upgrade of what was restored refused (`SR#5155`): said, not crashed.
+		try:
+			subroutine.db.migrate.upgrade(settings.database_url)
 
-	if head != newest:
-		_say(f"That backup is on schema {head}; this version is at {newest}.")
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
 
-		if yes or subroutine.cli.personal.confirmed(UPGRADE_THE_RESTORED, default=True):
-			# Restored, and the upgrade of what was restored refused (`SR#5155`): said, not crashed.
-			try:
-				subroutine.db.migrate.upgrade(settings.database_url)
-
-			except subroutine.errors.SubroutineError as error:
-				_fail(error)
-
-			_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
+		_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
 
 
-#: The question ``db restore`` asks once it has restored a backup on an older schema, and the one
-#: it is refused with beforehand where nothing could answer it then (`SR#5153`).
-UPGRADE_THE_RESTORED = "Upgrade the restored database now?"
+#: The question ``db restore`` asks before it restores a backup on an older schema, whose answer it
+#: acts on once the backup is restored (`SR#5153`, `SR#5330`).
+UPGRADE_THE_RESTORED = "Upgrade it once it is restored?"
 
 
 @profile_app.command("list")

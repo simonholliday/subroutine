@@ -22,9 +22,11 @@ import alembic.script
 import pytest
 import typer.testing
 
+import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.config
 import subroutine.db.migrate
+import subroutine.db.session
 import test_instances
 import test_personal_path
 
@@ -263,9 +265,68 @@ def test_a_restore_that_could_not_be_asked_about_its_upgrade_is_refused_before_i
 
 	refused = run("db", "restore", name, "--recover", expect=2)
 
-	assert "Upgrade the restored database now?" in _said(refused), refused.output
+	assert subroutine.cli.main.UPGRADE_THE_RESTORED in _said(refused), refused.output
 	assert subroutine.cli.personal.NOTHING_CAN_CONFIRM in _said(refused), refused.output
 	assert "Feed the cat" in run("list").output, "the restore went ahead"
+
+
+@pytest.mark.parametrize(
+	("answered", "upgraded"),
+	[("", None), ("\n", True), ("n\n", False)],
+	ids=["an empty pipe", "a blank line", "no"],
+)
+def test_a_restore_asks_about_its_upgrade_before_it_replaces_anything (
+	run: Run, piped: None, answered: str, upgraded: bool | None
+) -> None:
+	"""`SR#5330`, L-3 of the cold review of 2026-11-11: the question came after the restore.
+
+	An empty pipe passed the check that something could answer, and the question, put once the
+	backup was restored, ended in *Aborted.*, the database left behind its schema. **Asked before
+	anything is replaced**: an empty pipe is refused with nothing restored, a blank line takes the
+	default and restores and upgrades, and *n* restores without upgrading.
+	"""
+
+	run("init")
+	run("add", "Collect the package from reception")
+	url = subroutine.config.load_settings().database_url
+	head = subroutine.db.migrate.head_revision()
+
+	assert head is not None
+
+	script = alembic.script.ScriptDirectory.from_config(subroutine.db.migrate.build_config(url))
+	earlier = script.get_revision(head).down_revision
+
+	assert isinstance(earlier, str), earlier
+
+	subroutine.db.migrate.stamp(url, earlier)
+
+	try:
+		name = test_instances._backup_name(run("db", "backup").output)
+
+	finally:
+		subroutine.db.migrate.stamp(url, head)
+
+	run("add", "Feed the cat")
+	said = run(
+		"db", "restore", name, "--recover", input=answered, expect=2 if upgraded is None else 0
+	)
+
+	if upgraded is None:
+		assert subroutine.cli.personal.NOTHING_CAN_CONFIRM in _said(said), said.output
+		assert "Restored" not in said.output, said.output
+		assert "Feed the cat" in run("list").output, "the restore went ahead"
+
+		return
+
+	assert "Restored" in said.output, said.output
+	assert ("Schema is at" in said.output) is upgraded, said.output
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		assert subroutine.db.migrate.current_revision(engine) == (head if upgraded else earlier)
+
+	finally:
+		engine.dispose()
 
 
 class _Closed:
