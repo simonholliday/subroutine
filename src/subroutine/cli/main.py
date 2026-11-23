@@ -1070,6 +1070,9 @@ def serve (
 	# it is the only form we can give it in.
 	access.redact_access_logs()
 
+	# **And the server's second traceback of a failure already reported** (`SR#5335`).
+	access.report_each_error_once()
+
 	shown = f"[{where}]" if ":" in where else where
 
 	# **What is running is read off the routes, not described here** (`#780`). This line used

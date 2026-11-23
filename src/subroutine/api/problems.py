@@ -11,6 +11,7 @@ is. The error classes themselves stay ignorant of frameworks so the CLI can repo
 same failures without one.
 """
 
+import contextlib
 import dataclasses
 import json
 import logging
@@ -367,6 +368,10 @@ def handle_a_key_taken_meanwhile (
 	return respond(request, answer)
 
 
+#: What :func:`handle_unexpected_error` sets on an exception it has reported (`SR#5335`).
+REPORTED = "subroutine_reported"
+
+
 def handle_unexpected_error (
 	request: starlette.requests.Request, exception: Exception
 ) -> starlette.responses.Response:
@@ -397,13 +402,25 @@ def handle_unexpected_error (
 		exc_info=exception,
 	)
 
+	# **Marked as reported** (`SR#5335`, L-4 of the cold review of 2026-11-11). Starlette re-raises
+	# an exception once its handler has answered, and the server then logged the whole traceback a
+	# second time, after the warning below that the log is meant to end on.
+	# :class:`subroutine.api.logs.ReportedOnce` drops the server's record of a marked one.
+	with contextlib.suppress(AttributeError):
+		setattr(exception, REPORTED, True)
+
 	# **While the database is not at the schema this build expects, that is what is said**
 	# (`#5057`). An instance in that state serves reads (`#973`), and a read can need what a
 	# migration has yet to add: over a database at the 0.9.13 schema forty of seventy-six read
 	# routes failed, `/v1/me` and every calendar feed among them, each as the bare sentence
 	# below while `/readyz` knew the reason. Asked only once something has failed, so a read
-	# that works is served as it was, and what failed is in the log either way.
-	mismatch = subroutine.api.schema.disagreement(request.app)
+	# that works is served as it was, and what failed is in the log either way. **Not where reaching
+	# the database is what failed** (`SR#5335`): asked there, a pool that had timed out was waited
+	# on for a second timeout before the caller heard anything.
+	unreached = isinstance(
+		exception, (sqlalchemy.exc.TimeoutError, sqlalchemy.exc.DisconnectionError)
+	)
+	mismatch = None if unreached else subroutine.api.schema.disagreement(request.app)
 
 	if mismatch is not None:
 		detail, hint = mismatch

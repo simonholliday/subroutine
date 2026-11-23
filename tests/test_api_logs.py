@@ -11,12 +11,15 @@ import logging
 import urllib.parse
 
 import pytest
+import sqlalchemy.exc
 import sqlalchemy.orm
 import uvicorn.logging
 
 import subroutine.api.app
 import subroutine.api.logs
+import subroutine.api.problems
 import subroutine.api.routing
+import subroutine.api.schema
 import subroutine.api.security
 import subroutine.api.sessions
 import subroutine.domain.authentication
@@ -380,6 +383,100 @@ def _fails (*_given: object, **_named: object) -> str:
 	"""Fail as a bug would."""
 
 	raise RuntimeError("an unexpected failure")
+
+
+def _a_failing_feed (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch, raised: BaseException
+) -> tuple[test_api_tasks.World, str]:
+	"""Return a world and a calendar feed's path whose serving raises ``raised``."""
+
+	world = test_api_tasks._world(session, instance={"calendars_enabled": True})
+	_row, minted = subroutine.domain.calendars.create(
+		session,
+		subroutine.domain.authentication.Principal(user=world.user),
+		workspace_id=world.workspace.id,
+		title="Errands",
+	)
+	session.flush()
+	address = subroutine.domain.calendars.address("https://example.test", minted)
+
+	def failing (*_given: object, **_named: object) -> str:
+		"""Fail with the exception given."""
+
+		raise raised
+
+	monkeypatch.setattr(subroutine.domain.icalendar, "render", failing)
+
+	return world, str(urllib.parse.urlsplit(address).path)
+
+
+def test_an_unexpected_failure_is_logged_with_one_traceback (
+	session: sqlalchemy.orm.Session,
+	monkeypatch: pytest.MonkeyPatch,
+	caplog: pytest.LogCaptureFixture,
+) -> None:
+	"""`SR#5335`, L-4 of the cold review of 2026-11-11: every unexpected 500 logged two tracebacks.
+
+	Starlette re-raises an exception once its handler has answered, and uvicorn logs it again with
+	the whole traceback, after the schema warning the handler's record is meant to end on. **The
+	handler marks what it reported, and the server's record of a marked exception is dropped**;
+	one it never reported is kept.
+	"""
+
+	raised = RuntimeError("an unexpected failure")
+	world, path = _a_failing_feed(session, monkeypatch, raised)
+
+	assert world.call("GET", path).status_code == 500
+	assert getattr(raised, subroutine.api.problems.REPORTED, False), "the handler did not mark it"
+
+	logger = logging.getLogger("subroutine.test.error")
+	logger.filters.clear()
+	subroutine.api.logs.report_each_error_once(logger)
+	unreported = RuntimeError("never reported")
+
+	try:
+		with caplog.at_level(logging.ERROR, logger=logger.name):
+			for failure in (raised, unreported):
+				logger.error("Exception in ASGI application\n", exc_info=failure)
+
+	finally:
+		logger.filters.clear()
+
+	kept = [
+		record.exc_info[1]
+		for record in caplog.records
+		if record.name == logger.name and record.exc_info
+	]
+
+	assert kept == [unreported], kept
+	assert subroutine.api.logs.ERROR_LOGGER == "uvicorn.error"
+
+
+@pytest.mark.parametrize(
+	"failure",
+	[
+		sqlalchemy.exc.TimeoutError("QueuePool limit of size 5 overflow 10 reached"),
+		sqlalchemy.exc.DisconnectionError("the connection was lost"),
+		RuntimeError("an unexpected failure"),
+	],
+	ids=["a pool timeout", "a lost connection", "anything else"],
+)
+def test_a_database_that_could_not_be_reached_is_not_asked_its_schema (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+	"""`SR#5335`, L-4 of the cold review of 2026-11-11: a failing pool was waited on twice.
+
+	The handler asks whether the database is at this build's schema once something has failed, and
+	a pool that had timed out then waited out a second timeout. **Not asked where reaching the
+	database is what failed**; asked for anything else.
+	"""
+
+	asked: list[object] = []
+	monkeypatch.setattr(subroutine.api.schema, "disagreement", lambda application: asked.append(1))
+	world, path = _a_failing_feed(session, monkeypatch, failure)
+
+	assert world.call("GET", path).status_code == 500
+	assert len(asked) == (1 if isinstance(failure, RuntimeError) else 0), asked
 
 
 def test_a_feed_that_fails_unexpectedly_keeps_its_secret_out_of_the_application_log (

@@ -51,6 +51,7 @@ import re
 import urllib.parse
 
 import subroutine.api.app
+import subroutine.api.problems
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.sessions
@@ -65,6 +66,9 @@ REDACTED = "REDACTED"
 #: Where uvicorn's access logger sends its records. Named because installing on the root logger
 #: would filter everything this process ever logs, for the sake of one line.
 ACCESS_LOGGER = "uvicorn.access"
+
+#: Where uvicorn records a request whose application raised, with the whole traceback.
+ERROR_LOGGER = "uvicorn.error"
 
 #: Which position of that logger's ``args`` holds the path. **Uvicorn's own formatter unpacks
 #: five in this order** — client address, method, full path, HTTP version, status — and both
@@ -327,4 +331,38 @@ def redact_access_logs (logger: logging.Logger | None = None) -> None:
 		return
 
 	target.addFilter(Redacting())
+
+
+class ReportedOnce (logging.Filter):
+	"""Drop the server's record of a failure the application has already reported - `SR#5335`.
+
+	**One traceback for each unexpected failure** (L-4 of the cold review of 2026-11-11).
+	Starlette's ``ServerErrorMiddleware`` re-raises once the handler has answered, and uvicorn
+	logged *Exception in ASGI application* with the whole traceback again, after the schema warning
+	the handler's record is meant to end on. Only an exception the handler marked is dropped;
+	anything else the server reports is kept.
+	"""
+
+	def filter (self, record: logging.LogRecord) -> bool:
+		"""Keep every record but the second report of an exception already reported."""
+
+		raised = record.exc_info[1] if record.exc_info else None
+
+		return not getattr(raised, subroutine.api.problems.REPORTED, False)
+
+
+def report_each_error_once (logger: logging.Logger | None = None) -> None:
+	"""Install :class:`ReportedOnce` on the server's error log, once.
+
+	**Where the server is started**, as :func:`redact_access_logs` is and for its reason, so an
+	operator's own uvicorn logs both unless they call this. ``logger`` is an argument so a test can
+	hand in its own.
+	"""
+
+	target = logger if logger is not None else logging.getLogger(ERROR_LOGGER)
+
+	if any(isinstance(one, ReportedOnce) for one in target.filters):
+		return
+
+	target.addFilter(ReportedOnce())
 
