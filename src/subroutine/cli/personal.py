@@ -9851,10 +9851,13 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 				"this is. 'subroutine use --here --project <key>' writes one."
 			)
 
+		# **Read whatever it is encoded in** (`SR#5326`, L-2 of the cold review of 2026-11-11): an
+		# agent file in Latin-1 crashed this after the hook was written. The question is only
+		# whether the line is in it, which a replaced byte cannot change.
 		for file in _agent_files(root):
 			line = _pointer(marker) if marker is not None else ""
 
-			if not line or line.strip() in file.read_text(encoding="utf-8"):
+			if not line or line.strip() in file.read_text(encoding="utf-8", errors="replace"):
 				continue
 
 			program.say(f"  {file.name} does not name the project. One line worth adding:")

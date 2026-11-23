@@ -306,11 +306,14 @@ def read () -> dict[str, str]:
 	if not path.is_file():
 		return {}
 
+	# **A byte that is not UTF-8 too** (`SR#5326`, L-2 of the cold review of 2026-11-11):
+	# ``tomllib`` decodes the bytes itself, so one Latin-1 byte raised ``UnicodeDecodeError`` past
+	# ``TOMLDecodeError`` and every personal command crashed. Both are ``ValueError``.
 	try:
 		with path.open("rb") as handle:
 			data = tomllib.load(handle)
 
-	except (OSError, tomllib.TOMLDecodeError):
+	except (OSError, ValueError):
 		return {}
 
 	return {

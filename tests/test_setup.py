@@ -183,6 +183,27 @@ def test_it_writes_a_session_end_hook_and_says_what_it_cannot_check (
 	assert "Nothing here can confirm" in written, written
 
 
+def test_an_agent_file_in_another_encoding_is_still_read_for_the_pointer (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5326`, L-2 of the cold review of 2026-11-11: a Latin-1 agent file crashed it.
+
+	Beside a marker, the command reads each agent file for the line naming the project, and one
+	Latin-1 byte ended it in the crash report after it had written the hook. It finishes, saying
+	what it says of a file without the line.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "web", "Website")
+	run("use", "--here", "--project", "web")
+	(home / "AGENTS.md").write_bytes("Notes for the caf\u00e9 rebuild.\n".encode("latin-1"))
+
+	written = run("setup", "claude", "--yes").output
+
+	assert "Wired" in written, written
+	assert "AGENTS.md does not name the project. One line worth adding:" in written, written
+
+
 def test_it_says_when_the_hook_would_find_nothing_to_run (
 	run: typing.Callable[..., typer.testing.Result],
 	home: pathlib.Path,

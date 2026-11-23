@@ -201,6 +201,21 @@ def test_an_unreadable_file_is_treated_as_absent (home: pathlib.Path) -> None:
 	assert subroutine.context.resolve(roster()).workspace is None
 
 
+def test_a_byte_that_is_not_utf8_is_treated_as_absent (home: pathlib.Path) -> None:
+	"""`SR#5326`, L-2 of the cold review of 2026-11-11: one Latin-1 byte crashed every command.
+
+	``tomllib`` decodes the file itself, and its decoding error is not the one this caught, so
+	every command that reads the context ended in the crash report.
+	"""
+
+	path = subroutine.context.file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_bytes(b'workspace = "acme"\n\xe9\n')
+
+	assert subroutine.context.read() == {}
+	assert subroutine.context.resolve(roster()).workspace is None
+
+
 def test_the_description_names_where_the_context_came_from (home: pathlib.Path) -> None:
 	"""Provenance is the part that earns its keep.
 

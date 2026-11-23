@@ -249,6 +249,11 @@ upgrade involves.
   exited before it answered, so a client saw a dead server. It now says which byte, as
   `config.toml` already did.
 
+- **A `context.toml` or an agent file that is not UTF-8 no longer crashes a command.** One
+  Latin-1 byte in the stored context ended every personal command in the crash report; it is read
+  as absent, as a context file that cannot be read always was. And `setup claude` ended there on
+  a project's agent file written in Latin-1, after writing its hook; it finishes.
+
 - **A command no longer waits for ever where nothing can answer it.** Run without what it
   needs - `done` with no number, `add` with no text, a rename without `--yes` - where its input
   is not a terminal and holds no answer yet, it stops at once with its usage and says to give it
