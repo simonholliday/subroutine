@@ -13,6 +13,7 @@ Somebody's data in an agent's context is the part that decides this is not merel
 precisely about not reading twice.
 """
 
+import re
 import typing
 
 import sqlalchemy.exc
@@ -142,6 +143,38 @@ def busy (
 	)
 
 
+#: The columns whose unique key holds a name somebody chose (`SR#5321`, decision `#5285`): a
+#: project's key, a workspace's short name, a username or an address, a saved view's or a
+#: status's key, a type's or a link type's, a role's, and a tag's name. A key holding none of
+#: them - a share, a membership - is no name, so its race is not said to be one.
+NAMES = frozenset({"key", "slug", "username", "email", "name", "name_normalized"})
+
+
+def _columns (exception: BaseException) -> set[str] | None:
+	"""Return the columns of the unique key a row repeated, or ``None`` where it cannot be read.
+
+	**Read for the sentence and never said** (`#161`): PostgreSQL names them in its detail, *Key
+	(project_id, user_id)=(...) already exists*, and SQLite in its message, *UNIQUE constraint
+	failed: project_member.project_id, project_member.user_id*. An index SQLite names only by its
+	name, or a driver saying neither, reads as unknown.
+	"""
+
+	original = getattr(exception, "orig", None)
+	detail = getattr(getattr(original, "diag", None), "message_detail", None)
+
+	if detail:
+		found = re.match(r"Key \(([^)]*)\)=", str(detail))
+
+		return None if found is None else set(re.findall(r"\w+", found.group(1)))
+
+	found = re.search(r"constraint failed: ([\w.]+(?:, [\w.]+)*)$", str(original))
+
+	if found is None:
+		return None
+
+	return {column.rpartition(".")[2] for column in found.group(1).split(", ")}
+
+
 def duplicated (exception: BaseException) -> subroutine.errors.Conflict | None:
 	"""Return the refusal for a key another request wrote first, or ``None`` for anything else.
 
@@ -158,6 +191,18 @@ def duplicated (exception: BaseException) -> subroutine.errors.Conflict | None:
 
 	if sqlstate(exception) not in DUPLICATED_STATES and errorname(exception) not in DUPLICATED_NAMES:
 		return None
+
+	columns = _columns(exception)
+
+	# **A race with no name in it says so neutrally** (`SR#5321`, decision `#5285`, L-2 of the
+	# cold review of 2026-11-11): a share and a membership have no name, so *by the same name* and
+	# *choose another name* were false of them. A key that cannot be read keeps the name's
+	# sentence, which every race said before.
+	if columns is not None and not columns & NAMES:
+		return subroutine.errors.Conflict(
+			"Somebody else made the same change while yours was being written.",
+			hint="Nothing was changed. Look at what is there now: it may already be as you asked.",
+		)
 
 	return subroutine.errors.Conflict(
 		"Somebody else made one by the same name while yours was being written.",

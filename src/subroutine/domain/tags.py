@@ -204,7 +204,11 @@ def ensure (
 					"name": wanted[key],
 					"name_normalized": key,
 				}
-				for key in missing
+				# **In one fixed order** (`SR#5321`, L-2 of the cold review of 2026-11-11):
+				# PostgreSQL takes each row's index entry in turn, so two requests making ``a, b``
+				# and ``b, a`` at once could each wait on the other. What is returned still
+				# follows the order asked for.
+				for key in sorted(missing)
 			],
 		)
 		existing.update(
@@ -270,6 +274,38 @@ def _joined (item: typing.Any) -> Joined:
 	return found
 
 
+def _attached (
+	session: sqlalchemy.orm.Session,
+	join: Joined,
+	owner_id: uuid.UUID,
+	tag_ids: typing.Sequence[uuid.UUID],
+) -> None:
+	"""Write an item's join rows to these tags, doing nothing for one already there - `SR#5321`.
+
+	**A race to tag an item is a no-op** (decision `#5285`, L-2 of the cold review of 2026-11-11),
+	as making a new tag is in :func:`ensure`: two requests adding one tag to one task at once each
+	read that it was not there, and the second failed its whole request on the join's key. **In
+	one fixed order**, for :func:`ensure`'s reason, so two adding ``a, b`` and ``b, a`` cannot each
+	wait on the other. What is pending is flushed first, since a row here names the item.
+	"""
+
+	session.flush()
+
+	if not tag_ids:
+		return
+
+	table = typing.cast(sqlalchemy.Table, join.rows.__table__)
+	insert = (
+		sqlalchemy.dialects.postgresql.insert(table)
+		if session.get_bind().dialect.name == "postgresql"
+		else sqlalchemy.dialects.sqlite.insert(table)
+	)
+	session.execute(
+		insert.on_conflict_do_nothing(index_elements=[join.owner.key, "tag_id"]),
+		[{join.owner.key: owner_id, "tag_id": tag_id} for tag_id in sorted(set(tag_ids))],
+	)
+
+
 def apply_to (
 	session: sqlalchemy.orm.Session,
 	item: typing.Any,
@@ -286,20 +322,13 @@ def apply_to (
 
 	join = _joined(item)
 
-	already = set(
+	already: set[uuid.UUID] = set(
 		session.scalars(
 			sqlalchemy.select(join.rows.tag_id).where(join.owner == item.id)
 		)
 	)
 
-	for tag in tags:
-		if tag.id in already:
-			continue
-
-		session.add(join.rows(**{join.owner.key: item.id, "tag_id": tag.id}))
-		already.add(tag.id)
-
-	session.flush()
+	_attached(session, join, item.id, [tag.id for tag in tags if tag.id not in already])
 
 
 def on (
@@ -476,11 +505,7 @@ def set_on (
 			sqlalchemy.delete(join.rows).where(join.owner == item.id, join.rows.tag_id == tag_id)
 		)
 
-	for tag in tags:
-		if tag.id not in already:
-			session.add(join.rows(**{join.owner.key: item.id, "tag_id": tag.id}))
-
-	session.flush()
+	_attached(session, join, item.id, [tag.id for tag in tags if tag.id not in already])
 
 
 def names_on (
