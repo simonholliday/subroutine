@@ -3175,6 +3175,14 @@ def _planned (
 		# clearable only over HTTP, on a command whose own ``--until`` documents ``''`` as the
 		# clear. ``UNGIVEN`` is what separates them, and it is why the sentinel exists.
 		cleared = when == ""
+
+		# **Left out is asked for** (`SR#5165`): the marker telling it from ``''`` was handed on as
+		# the day, so its NUL byte reached the terminal and nothing asked. **Asked once, for both
+		# ends** (`SR#5320`, L-2 of the cold review of 2026-11-11): asked inside the start's
+		# reading, the answer never reached ``--until``, which counted from today, so *friday*
+		# answered beside ``--until monday`` on a Saturday was refused where the same day typed
+		# is a long weekend. Still asked before which occurrences.
+		day = when if cleared else _asked("" if when is UNGIVEN else when, "Which day?")
 		changed = client.schedule(
 			ref=task.ref,
 			workspace=located.workspace,
@@ -3183,9 +3191,7 @@ def _planned (
 			else subroutine.domain.schedule.on_the_day(
 				_starting(
 					world,
-					# **Left out is asked for** (`SR#5165`): the marker telling it from ``''`` was
-					# handed on as the day, so its NUL byte reached the terminal and nothing asked.
-					_asked("" if when is UNGIVEN else when, "Which day?"),
+					day,
 					until=until,
 					at=located,
 					timezone=zone,
@@ -3197,7 +3203,7 @@ def _planned (
 			applies_to=_which_occurrences(
 				program, task, just_this_one=just_this_one, from_now_on=from_now_on
 			),
-			**_until(world, until, beside=when, at=located, task=task, timezone=zone),
+			**_until(world, until, beside=day, at=located, task=task, timezone=zone),
 		)
 
 		# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is right in

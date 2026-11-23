@@ -12905,6 +12905,40 @@ def test_a_span_written_as_two_bare_days_is_planned_as_one_pair (
 	)
 
 
+def test_a_day_answered_at_the_prompt_pairs_with_until_as_the_day_typed_does (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	piped: None,
+) -> None:
+	"""`SR#5320`, L-2 of the cold review of 2026-11-11: the answer never reached ``--until``.
+
+	``plan 1 --until monday``, answered *friday* on a Saturday, counted the Monday from today, two
+	days off, and was refused *It cannot finish before it starts*, where ``plan 1 friday --until
+	monday`` is the long weekend `SR#1557` reads as a pair. **The clock is pinned**: 29 August
+	2026 is a Saturday.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.db.types,
+		"utcnow",
+		lambda: datetime.datetime(2026, 8, 29, 10, 0, tzinfo=datetime.UTC),
+	)
+
+	run("init")
+	run("add", "A long weekend")
+
+	planned = run("plan", "1", "--until", "monday", input="friday\n")
+
+	assert "Which day?" in planned.output, planned.output
+
+	shown = run("show", "1").output
+
+	# **As the long weekend above reads it**: a stored instant's date is its zone's to say.
+	assert re.search(r"Fri 4 Sep(?: 2026)? to Mon 7 Sep\b", shown), (
+		f"the Monday was read against today rather than against the Friday:\n{shown}"
+	)
+
+
 def test_a_plan_whose_end_names_its_year_counts_its_start_back_as_capture_does (
 	run: typing.Callable[..., typer.testing.Result],
 	monkeypatch: pytest.MonkeyPatch,
