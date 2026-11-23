@@ -1047,7 +1047,7 @@ class Client:
 				],
 				# **Null, as the route says** (`#3158`): ``Page``'s rule is that the limit is what
 				# limited the page, and nothing did.
-				page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
+				page=subroutine.views.Page.whole(len(rows)),
 			)
 
 	def saved_view (
@@ -1165,7 +1165,7 @@ class Client:
 
 			return subroutine.views.Collection[subroutine.views.Status](
 				items=[subroutine.views.status(row) for row in rows],
-				page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
+				page=subroutine.views.Page.whole(len(rows)),
 			)
 
 	def create_status (
@@ -1239,7 +1239,7 @@ class Client:
 
 			return subroutine.views.Collection[subroutine.views.LinkType](
 				items=[subroutine.views.link_type(row) for row in rows],
-				page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
+				page=subroutine.views.Page.whole(len(rows)),
 			)
 
 	def create_link_type (

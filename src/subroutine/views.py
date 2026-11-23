@@ -99,7 +99,10 @@ class Page(pydantic.BaseModel):
 	next_cursor: str | None = None
 	has_more: bool = False
 
-	#: Null unless ``include_total=true`` was asked for.
+	#: Null unless ``include_total=true`` was asked for, or the collection is returned whole, where
+	#: it is how many rows there are - `SR#5336`, decided in `#5285`. **Every whole collection says
+	#: so**: a workspace's and a project's members and the four instance listings said null, where
+	#: every other one counted, and 1.0 freezes whichever it is. :meth:`whole` builds such a page.
 	total: int | None = None
 
 	#: How many otherwise-startable rows were held back because something above them in the
@@ -128,6 +131,16 @@ class Page(pydantic.BaseModel):
 	#: not a filter that failed, and reporting it would put a line of explanation under every
 	#: ordinary search that happens to contain a colon.
 	unread: list[str] | None = None
+
+	@classmethod
+	def whole (cls, count: int) -> typing.Self:
+		"""Return the page of a collection returned whole, which holds ``count`` rows - `SR#5336`.
+
+		**One way to say it**: nothing limited it, nothing follows it, and its total is its count.
+		Each listing built this by hand, and six said null where the rest counted.
+		"""
+
+		return cls(limit=None, next_cursor=None, total=count)
 
 
 # ``LinkEnd`` and ``Edge`` sit above ``Collection`` because ``Collection.links`` annotates

@@ -16,19 +16,44 @@ SOURCE = pathlib.Path(__file__).resolve().parent.parent / "src" / "subroutine"
 #: What a whole collection wrote where its limit goes: a row count wearing a limit's name.
 COUNTED = "limit=len("
 
+#: A whole collection's page built by hand (`SR#5336`), where ``Page.whole`` says it one way.
+BY_HAND = "has_more=False"
+
 #: The test's own fixture, bound here so pytest finds it.
 world = test_api_tasks.world
 World = test_api_tasks.World
 
 
-def _counting (root: pathlib.Path) -> list[str]:
-	"""Return each module under ``root`` that reports a row count as a page's limit."""
+def _counting (root: pathlib.Path, written: str = COUNTED) -> list[str]:
+	"""Return each module under ``root`` that holds ``written``, a row count as a limit unless
+	asked otherwise."""
 
 	return sorted(
 		str(path.relative_to(root))
 		for path in root.rglob("*.py")
-		if COUNTED in path.read_text(encoding="utf-8")
+		if written in path.read_text(encoding="utf-8")
 	)
+
+
+def test_no_whole_collection_builds_its_page_by_hand () -> None:
+	"""`SR#5336`, L-6 of the cold review of 2026-11-11: each said its total its own way.
+
+	Six whole collections said ``total: null`` where the rest counted, each having written its page
+	out. **``Page.whole`` is the one way**, and a module writing ``has_more=False`` is building one
+	by hand.
+	"""
+
+	assert _counting(SOURCE, BY_HAND) == []
+
+
+def test_the_scan_finds_a_page_built_by_hand (tmp_path: pathlib.Path) -> None:
+	"""The scan above, fed an offender through its own entry point."""
+
+	(tmp_path / "somewhere.py").write_text(
+		"page = Page(limit=None, has_more=False, total=None)\n", encoding="utf-8"
+	)
+
+	assert _counting(tmp_path, BY_HAND) == ["somewhere.py"]
 
 
 def test_nothing_reports_a_row_count_as_a_limit () -> None:
@@ -74,6 +99,10 @@ def test_every_whole_collection_says_nothing_limited_it (world: World) -> None:
 
 		assert answered.status_code == 200, (path, answered.text)
 		assert answered.json()["page"]["limit"] is None, path
+
+		# **And says how many rows it holds** (`SR#5336`, decided in `#5285`): a workspace's and a
+		# project's members and the four instance listings said null.
+		assert answered.json()["page"]["total"] == len(answered.json()["items"]), path
 
 
 def test_a_links_far_end_names_its_workspace (world: World) -> None:

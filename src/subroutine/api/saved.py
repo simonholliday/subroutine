@@ -173,7 +173,7 @@ def list_views (
 			)
 			for row in rows
 		],
-		page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
+		page=subroutine.views.Page.whole(len(rows)),
 	)
 
 

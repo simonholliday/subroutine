@@ -190,9 +190,7 @@ def listing (
 			)
 			for row in found
 		],
-		subroutine.views.Page(
-			limit=None, has_more=False, next_cursor=None, total=len(found)
-		),
+		subroutine.views.Page.whole(len(found)),
 		shape,
 	)
 

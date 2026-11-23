@@ -124,6 +124,10 @@ upgrade involves.
   now, as for the six before. A link's `other.workspace` was always `null`. And `/app/sw.js` and
   `/app/manifest.webmanifest` refused a query such as `?v=2`, which the app's other files take.
 
+- **Every collection returned whole says how many rows it holds, in `page.total`.** A workspace's
+  and a project's members and the four instance listings said `null`, where every other
+  collection returned whole gave its count; each gives it now.
+
 - **An item's address in another workspace is no longer read as a mention of this workspace's
   item.** `metacortex/#42`, pasted from the terminal into a description or a comment, made a
   backlink on this workspace's `#42`, and the browser linked it there. An item here is mentioned

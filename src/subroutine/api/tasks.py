@@ -1228,7 +1228,7 @@ def verifications (
 
 	return subroutine.views.Collection(
 		items=_recorded(session, found, ref=task.ref),
-		page=subroutine.views.Page(limit=None, has_more=False, total=len(found)),
+		page=subroutine.views.Page.whole(len(found)),
 	)
 
 
