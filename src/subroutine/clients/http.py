@@ -18,7 +18,6 @@ results it did get.
 """
 
 import datetime
-import re
 import types
 import typing
 import urllib.parse
@@ -2607,7 +2606,9 @@ class Client:
 
 		running = self._read(self._call("GET", "/v1/meta")).get("instance_version")
 
-		if not isinstance(running, str) or not _at_least(running, READ_ONLY_FLOOR):
+		if not isinstance(running, str) or not subroutine.installations.at_least(
+			running, READ_ONLY_FLOOR
+		):
 			detail, hint = subroutine.clients.base.too_old_to_hold_read_only(
 				self.connection, running if isinstance(running, str) else None
 			)
@@ -2666,28 +2667,6 @@ class Client:
 #: **The first release a read-only connection cannot write to** (`SR#5116`): from 0.7.5 every route
 #: refuses a query parameter it does not know, so ``read_only`` is refused or enforced, never ignored.
 READ_ONLY_FLOOR = (0, 7, 5)
-
-#: The release a build between releases names, as in ``0.9.11.dev4+g7a85a3683`` or ``1.0.0rc1``.
-_NAMED_RELEASE = re.compile(r"(\d+)\.(\d+)\.(\d+)(?=[.+a-z])")
-
-
-def _at_least (version: str, floor: tuple[int, ...]) -> bool:
-	"""Say whether an instance's release is ``floor`` or later, answering no where it cannot tell.
-
-	A release of three plain numbers is compared as they are (:func:`installations.ordered`). A build
-	between releases comes before the release it names and after every one beneath that, so it
-	clears the floor only when the release it names is above it: ``0.9.11.dev4+g7a85a3683`` does,
-	and a build named for 0.7.5 itself does not, since it may predate what 0.7.5 changed.
-	"""
-
-	exact = subroutine.installations.ordered(version)
-
-	if exact is not None:
-		return exact >= floor
-
-	named = _NAMED_RELEASE.match(version)
-
-	return named is not None and tuple(int(part) for part in named.groups()) > floor
 
 
 def _parsed (response: httpx.Response) -> dict[str, typing.Any] | None:

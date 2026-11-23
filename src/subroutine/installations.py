@@ -25,6 +25,7 @@ follows, and for the same reason.
 import json
 import os
 import pathlib
+import re
 import typing
 
 import subroutine
@@ -73,6 +74,11 @@ def ordered (version: str) -> tuple[int, ...] | None:
 	Two orderings of one thing is how the reach and the write set came apart in `#413`, and a
 	release refusal disagreeing with a diagnostic about which version leads would be the same
 	shape with worse consequences.
+
+	**Two questions, both answered here** (`SR#5339`, L-6 of the cold review of 2026-11-11). This
+	one is *how do two versions compare*, and declines anything but three plain numbers;
+	:func:`at_least` is *does a version clear a floor*, which places a build between releases by
+	the release it names, and answers no where it cannot tell.
 	"""
 
 	parts = version.split(".")
@@ -81,6 +87,33 @@ def ordered (version: str) -> tuple[int, ...] | None:
 		return None
 
 	return tuple(int(part) for part in parts)
+
+
+#: The release a build between releases names, as in ``0.9.11.dev4+g7a85a3683`` or ``1.0.0rc1``.
+_NAMED_RELEASE = re.compile(r"(\d+)\.(\d+)\.(\d+)(?=[.+a-z])")
+
+
+def at_least (version: str, floor: tuple[int, ...]) -> bool:
+	"""Say whether a release is ``floor`` or later, answering no where it cannot tell.
+
+	A release of three plain numbers is compared as they are (:func:`ordered`). A build between
+	releases comes before the release it names and after every one beneath that, so it clears the
+	floor only when the release it names is above it: ``0.9.11.dev4+g7a85a3683`` clears 0.7.5, and
+	a build named for 0.7.5 itself does not, since it may predate what 0.7.5 changed.
+
+	**Here, beside :func:`ordered`** (`SR#5339`, L-6 of the cold review of 2026-11-11): it was the
+	HTTP client's own, a second ordering of versions in a second module. The read-only floor asks
+	it, since an instance it must place may well run a build between releases.
+	"""
+
+	exact = ordered(version)
+
+	if exact is not None:
+		return exact >= floor
+
+	named = _NAMED_RELEASE.match(version)
+
+	return named is not None and tuple(int(part) for part in named.groups()) > floor
 
 
 def plugin () -> str | None:

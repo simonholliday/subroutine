@@ -315,6 +315,40 @@ class TestOrderingTwoVersions:
 		assert "subroutine.installations.ordered(" in script
 		assert "def _ordered (" not in script, "the script kept a second copy"
 
+	@pytest.mark.parametrize(
+		("version", "clears"),
+		[
+			("0.7.5", True),
+			("0.10.0", True),
+			("0.7.4", False),
+			("0.10.1.dev4+g7a85a36", True),
+			("1.0.0rc1", True),
+			("0.7.5.dev3+gabcdef0", False),
+			("0.7.5rc1", False),
+			("0.7.4.dev9", False),
+			("not a version", False),
+		],
+	)
+	def test_a_floor_is_cleared_by_the_release_a_build_names (
+		self, version: str, clears: bool
+	) -> None:
+		"""`SR#5339`, L-6 of the cold review of 2026-11-11: the second ordering, moved here.
+
+		**A build between releases clears a floor only where the release it names is above it**,
+		so one named for the floor itself does not, since it may predate what that release changed;
+		and what cannot be placed does not clear it.
+		"""
+
+		assert subroutine.installations.at_least(version, (0, 7, 5)) is clears
+
+	def test_one_module_orders_versions (self) -> None:
+		"""`SR#5339`: the HTTP client asks :func:`installations.at_least`, and keeps no copy."""
+
+		client = (ROOT / "src" / "subroutine" / "clients" / "http.py").read_text(encoding="utf-8")
+
+		assert "subroutine.installations.at_least(" in client
+		assert "_NAMED_RELEASE" not in client, "the client kept a second ordering"
+
 
 def _skew (
 	me: subroutine.views.Me, *, program: str | None, plugin: str | None = None
