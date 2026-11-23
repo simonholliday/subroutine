@@ -229,7 +229,9 @@ upgrade involves.
   `.claude/settings.json` holding a list, written in Latin-1, or with `hooks` in another shape
   than Claude Code reads ended in the crash report; each is refused by name and the file is left
   as it was. It wrote the file in place, so an interrupted write could leave your settings half
-  there; it writes a new file and renames it over the old one now, keeping its permissions.
+  there; it writes a new file and renames it over the old one now, keeping its permissions, its
+  group and on Linux its access lists, and a `.claude` folder it cannot write in is refused in a
+  sentence.
 
 - **A request body sent in pieces past `max_body_bytes` is refused as too large.** With no
   `Content-Length` it was answered 400 `malformed_request`, which said nothing about why; it is

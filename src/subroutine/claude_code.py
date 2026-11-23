@@ -32,6 +32,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import typing
 
@@ -245,13 +246,22 @@ def write (
 	)
 
 
-def whole (destination: pathlib.Path, held: dict[str, typing.Any], *, mode: int) -> None:
+def whole (
+	destination: pathlib.Path, held: dict[str, typing.Any], *, mode: int, keeping: bool = False
+) -> None:
 	"""Write ``held`` to ``destination`` as JSON, through a new file and a rename.
 
 	**Never in place**, for the reasons :func:`write` gives. Out of it since `SR#5158`, so ``setup
 	claude`` writes ``.claude/settings.json`` this way too, where an interrupted write could leave
 	somebody's settings half there. ``mode`` is the new file's, set before a byte is in it: its
 	owner's alone for a credential, and what the old file had otherwise.
+
+	**``keeping`` gives the new file what the old one carried** (`SR#5325`, L-2 of the cold review
+	of 2026-11-11), for a file somebody else may share: its mode exactly, which the umask masked,
+	so 0664 became 0644; its group, where the writer belongs to it; and on Linux its extended
+	attributes, which hold a POSIX ACL. **Not its owner**: only root can give a file to somebody
+	else, so the new file is the writer's. Not for a credential, whose mode a umask only makes
+	stricter, and where a share that ignores modes is modelled by the mode given at creation.
 	"""
 
 	destination.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +278,9 @@ def whole (destination: pathlib.Path, held: dict[str, typing.Any], *, mode: int)
 			handle.write("*\n")
 
 		descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+
+		if keeping and destination.is_file():
+			_carried_over(destination, descriptor)
 
 		# **On the disk before its name moves**, as ``config.write_private`` has it, so a crash
 		# cannot leave the settings file's name on a file that is not all there.
@@ -286,6 +299,26 @@ def whole (destination: pathlib.Path, held: dict[str, typing.Any], *, mode: int)
 
 		with contextlib.suppress(OSError):
 			staging.rmdir()
+
+
+def _carried_over (old: pathlib.Path, descriptor: int) -> None:
+	"""Give an open new file the mode, group and extended attributes an old one has - `SR#5325`.
+
+	**Each as far as the writer may**: a group they are not in, or an attribute this filesystem
+	will not hold, is left as the new file has it rather than refused, since the settings are still
+	written and the old file's contents are in them.
+	"""
+
+	held = old.stat()
+	os.fchmod(descriptor, stat.S_IMODE(held.st_mode))
+
+	with contextlib.suppress(OSError):
+		os.fchown(descriptor, -1, held.st_gid)
+
+	if sys.platform == "linux":
+		with contextlib.suppress(OSError):
+			for name in os.listxattr(old):
+				os.setxattr(descriptor, name, os.getxattr(old, name))
 
 
 @dataclasses.dataclass(frozen=True)

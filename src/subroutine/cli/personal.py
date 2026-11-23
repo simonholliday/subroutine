@@ -9815,7 +9815,21 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 		# in place, an interrupted write could leave the reader's settings half there. The file keeps
 		# its own permissions, being one to commit and holding no credential.
 		kept = stat.S_IMODE(where.stat().st_mode) if where.is_file() else 0o644
-		subroutine.claude_code.whole(where.resolve(), _with_the_hook(existing), mode=kept)
+
+		# **Its mode, group and attributes too** (`SR#5325`, L-2 of the cold review of
+		# 2026-11-11), and **refused in a sentence where it cannot be written**: a ``.claude``
+		# nobody may write in ended in the crash report. Nothing is left behind, so the refusal can
+		# say so.
+		try:
+			subroutine.claude_code.whole(
+				where.resolve(), _with_the_hook(existing), mode=kept, keeping=True
+			)
+
+		except OSError as refused:
+			program.stop(
+				f"{where} could not be written: {refused.strerror or refused}.",
+				"Nothing was changed. Run this again where you may write in that folder.",
+			)
 
 		# **Read back rather than assumed** (`#236`). Installing something and its taking
 		# effect are separate moments and only the first one reports — so this checks the file

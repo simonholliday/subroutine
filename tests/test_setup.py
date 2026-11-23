@@ -380,6 +380,76 @@ def test_it_leaves_an_env_it_does_not_add_to_as_it_is (
 	assert subroutine.cli.personal._hooked(after)
 
 
+def test_a_settings_file_keeps_its_mode_whatever_the_umask (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5325`, L-2 of the cold review of 2026-11-11: 0664 came back 0644 under a umask of 022.
+
+	The new file was made with the old one's mode, which the umask masks, so a file a team shares
+	lost its group's write. It keeps the mode exactly, and an extended attribute where the
+	filesystem holds one, which is where a POSIX ACL lives.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	where = home / ".claude" / "settings.json"
+	where.parent.mkdir(parents=True, exist_ok=True)
+	where.write_text("{}\n", encoding="utf-8")
+	where.chmod(0o664)
+	attributes = hasattr(os, "setxattr")
+
+	if attributes:
+		try:
+			os.setxattr(where, "user.subroutine.kept", b"yes")
+
+		except OSError:
+			attributes = False
+
+	masked = os.umask(0o022)
+
+	try:
+		run("setup", "claude", "--yes")
+
+	finally:
+		os.umask(masked)
+
+	assert stat.S_IMODE(where.stat().st_mode) == 0o664
+
+	if attributes:
+		assert os.getxattr(where, "user.subroutine.kept") == b"yes"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes into a folder whatever its mode")
+def test_a_settings_folder_that_cannot_be_written_is_refused_in_a_sentence (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#5325`, L-2 of the cold review of 2026-11-11: an unwritable ``.claude`` crashed it.
+
+	The settings are staged in a folder made inside ``.claude``, so where nobody may write there
+	the command ended in the crash report. It refuses, saying the file could not be written and
+	that nothing was changed, and nothing was.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	where = home / ".claude" / "settings.json"
+	where.parent.mkdir(parents=True, exist_ok=True)
+	where.write_text('{"permissions": {}}\n', encoding="utf-8")
+	where.parent.chmod(0o555)
+
+	try:
+		refused = run("setup", "claude", "--yes", expect=1).output
+
+	finally:
+		where.parent.chmod(0o755)
+
+	said = " ".join(refused.split())
+
+	assert "settings.json could not be written: Permission denied." in said, refused
+	assert "Nothing was changed." in said, refused
+	assert "Something went wrong" not in said, refused
+	assert where.read_text(encoding="utf-8") == '{"permissions": {}}\n'
+	assert sorted(path.name for path in where.parent.iterdir()) == ["settings.json"]
+
+
 def test_it_writes_the_settings_through_a_new_file_keeping_their_permissions (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:
