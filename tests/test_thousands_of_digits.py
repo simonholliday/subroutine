@@ -44,6 +44,43 @@ def made (session: sqlalchemy.orm.Session) -> Made:
 	return Made(world, task, document)
 
 
+def test_a_body_reference_of_thousands_of_digits_is_refused_as_one_out_of_range (
+	made: Made,
+) -> None:
+	"""`SR#5337`, L-6 of the cold review of 2026-11-11: refused in Python's own words.
+
+	A body field naming an item, such as a new task's parent, was converted with a bare ``int``,
+	which refuses more than 4,300 digits in its own sentence. **Refused as a number one past the
+	largest ref is**, naming the range.
+	"""
+
+	beyond = str(subroutine.domain.refs.MAX_REF + 1)
+	said = {
+		number: made.world.call(
+			"POST", "/v1/tasks", json={"title": "Read the report", "parent_task_id": number}
+		)
+		for number in (NINES, beyond)
+	}
+
+	assert said[beyond].status_code == 422, said[beyond].text[:300]
+	assert said[NINES].status_code == 422, said[NINES].text[:300]
+	assert "an item's number is between 1 and" in said[NINES].text, said[NINES].text[:300]
+	assert "Exceeds the limit" not in said[NINES].text, said[NINES].text[:300]
+
+
+def test_a_body_reference_in_superscript_digits_is_refused_without_python_s_words (
+	made: Made,
+) -> None:
+	"""`SR#5337`: ``isdigit`` is true of ``²``, so it reached ``int``, which refused it."""
+
+	answered = made.world.call(
+		"POST", "/v1/tasks", json={"title": "Read the report", "parent_task_id": "\u00b2"}
+	)
+
+	assert 400 <= answered.status_code < 500, answered.text[:300]
+	assert "invalid literal" not in answered.text, answered.text[:300]
+
+
 @pytest.mark.parametrize(
 	("method", "path", "body"),
 	[

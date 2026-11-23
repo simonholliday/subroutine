@@ -53,10 +53,17 @@ def _reference (value: typing.Any) -> typing.Any:
 	if isinstance(value, bool):
 		raise ValueError("a reference is an item's number or its id, not a boolean")
 
+	written = value.strip().lstrip(subroutine.domain.refs.SIGIL) if isinstance(value, str) else ""
+
 	# A digit string and an integer mean the same thing and must be bounded the same way,
-	# or `{"target": 2147483648}` is refused and `{"target": "2147483648"}` is a 404.
-	if isinstance(value, str) and value.strip().lstrip(subroutine.domain.refs.SIGIL).isdigit():
-		candidate: int | None = int(value.strip().lstrip(subroutine.domain.refs.SIGIL))
+	# or `{"target": 2147483648}` is refused and `{"target": "2147483648"}` is a 404. **ASCII
+	# digits, read as every ref is** (`SR#5337`, L-6 of the cold review of 2026-11-11): ``isdigit``
+	# is true of a superscript ``²``, which ``int`` then refused in its own words, and ``int``
+	# refuses more than 4,300 digits in its own. :func:`subroutine.domain.refs.from_digits`
+	# measures the run first, and a run it cannot read is out of range.
+	if written.isascii() and written.isdigit():
+		found = subroutine.domain.refs.from_digits(written)
+		candidate: int | None = subroutine.domain.refs.MAX_REF + 1 if found is None else found
 
 	elif isinstance(value, int):
 		candidate = value
