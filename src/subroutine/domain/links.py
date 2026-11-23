@@ -28,6 +28,7 @@ import sqlalchemy.orm
 import subroutine.db.mixins
 import subroutine.db.models.activity
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.seed
@@ -792,9 +793,14 @@ def _refuse_a_loop (
 
 	# **Withdrawing a link is offered only where the caller may** (`SR#5106`, decision `#4521`): a
 	# link with an end out of their sight is not theirs to withdraw, so a ring every link of which
-	# runs through something unseen is somebody else's to break.
+	# runs through something unseen is somebody else's to break. **Nor one with an end they may
+	# only read** (`SR#5317`, L-1 of the cold review of 2026-11-11): :func:`remove` asks
+	# ``task:write`` of both ends, so a credential reading a third item in the ring was offered
+	# what it is refused.
+	changeable = _changeable_for(session, actor, workspace_id=workspace_id, chain=chain)
 	withdrawable = any(
-		subroutine.domain.scoping.UNSEEN not in pair for pair in itertools.pairwise(named)
+		first in changeable and second in changeable
+		for (_, first), (_, second) in itertools.pairwise(chain)
 	)
 
 	here = subroutine.domain.refs.format_ref(source.ref)
@@ -877,8 +883,9 @@ def _why_a_ring_is_wrong (
 ) -> str:
 	"""Say what is actually wrong with this ring, and what to do instead.
 
-	``withdrawable`` says whether some link in it has both ends in the caller's sight; where none
-	does, withdrawing one is offered to somebody who can see both ends of it (`SR#5106`).
+	``withdrawable`` says whether some link in it has both ends the caller may change, in sight and
+	``task:write`` on each (`SR#5106`, `SR#5317`); where none does, withdrawing one is left to
+	somebody who may change both ends of it.
 
 	**The two categories are wrong in different ways and the hint said only one of them**
 	(`#1158`). *Neither could ever be started* is the cost of a ``gating`` ring and is **false**
@@ -899,7 +906,7 @@ def _why_a_ring_is_wrong (
 	withdraw = (
 		"Withdraw a link in that chain"
 		if withdrawable
-		else "Somebody who can see both ends of a link in that chain may withdraw it"
+		else "Somebody who may change both ends of a link in that chain may withdraw it"
 	)
 
 	if link_type.key == SUPERSEDING:
@@ -945,8 +952,8 @@ def _why_a_ring_is_wrong (
 	if not withdrawable:
 		return (
 			f"{wrong} Join them with {instead.title!r} instead, which says they are connected without "
-			"saying which is first, or ask somebody who can see both ends of a link in that chain to "
-			"withdraw it."
+			"saying which is first, or ask somebody who may change both ends of a link in that "
+			"chain to withdraw it."
 		)
 
 	return (
@@ -1025,6 +1032,66 @@ def _walked_back (
 		chain.append(came_from[chain[-1]])
 
 	return list(reversed(chain))
+
+
+def _changeable_for (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+	chain: list[_Node],
+) -> set[uuid.UUID]:
+	"""Return which of these items the caller may change: in their sight, and ``task:write`` there.
+
+	**As :func:`remove` asks it of a link's ends** (`SR#5317`), so a withdrawal is offered only
+	where it would be taken: the item resolved, beneath the trash as well, and the permission asked
+	of its project. Read in one statement per kind, as :func:`_named_for` reads them, and asked once
+	per project.
+	"""
+
+	found: dict[uuid.UUID, uuid.UUID] = {}
+
+	for entity_type, model in (
+		("task", subroutine.db.models.work.Task),
+		("document", subroutine.db.models.work.Document),
+	):
+		wanted = [identifier for kind, identifier in chain if kind == entity_type]
+
+		if not wanted:
+			continue
+
+		found.update(
+			session.execute(
+				_visible(
+					session,
+					principal,
+					workspace_id=workspace_id,
+					entity_type=entity_type,
+					beneath_trash=True,
+				)
+				.with_only_columns(model.id, model.project_id)
+				.where(model.id.in_(wanted))
+			).all()
+		)
+
+	if principal is None:
+		return set(found)
+
+	writable = set()
+
+	for project_id in set(found.values()):
+		project = session.get(subroutine.db.models.project.Project, project_id)
+
+		if project is not None and subroutine.domain.authorization.refusal(
+			session,
+			principal,
+			subroutine.permissions.TASK_WRITE,
+			workspace_id=workspace_id,
+			project=project,
+		) is None:
+			writable.add(project_id)
+
+	return {identifier for identifier, project_id in found.items() if project_id in writable}
 
 
 def _named_for (

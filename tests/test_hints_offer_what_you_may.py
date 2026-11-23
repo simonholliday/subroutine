@@ -175,4 +175,4 @@ def test_a_ring_nobody_here_may_break_offers_no_withdrawal (
 		)
 
 		assert ("Withdraw a link in that chain" in said) is withdrawable, said
-		assert ("can see both ends of a link in that chain" in said) is not withdrawable, said
+		assert ("may change both ends of a link in that chain" in said) is not withdrawable, said

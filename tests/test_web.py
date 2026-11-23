@@ -17373,6 +17373,36 @@ def test_prioritise_is_offered_only_to_a_reader_who_may_write_the_workspace (
 		f"a reader the server refuses was offered Prioritise: {contributing!r}"
 	)
 
+	# **And the agenda's *Stop prioritising*** (`SR#5317`, L-1 of the cold review of 2026-11-11),
+	# which sends the same request and was left on ``task:write``. Another project's agenda, so the
+	# heading's own toggle is not the one counted.
+	def agenda (permissions: tuple[str, ...]) -> str:
+		"""Another project's agenda, in a workspace with a project raised, as flat text."""
+
+		reader = {
+			"user": {"username": "si", "is_service_account": False},
+			"workspaces": [{
+				"slug": "projects", "id": "w1", "title": "Projects", "role": "member",
+				"permissions": list(permissions), "prioritised_project": "subroutine",
+			}],
+			"instance_permissions": [],
+			"credential": None,
+		}
+		page = _driven(tmp_path, pathname="/projects/web", answers={"/v1/me": reader})
+
+		return " ".join(page["said"].split())
+
+	stopping = agenda(("task:write", "comment:write", "workspace:write"))
+	kept = agenda(("task:write", "comment:write"))
+
+	assert "Stop prioritising" in stopping, (
+		f"a reader who may stop prioritising was not offered it: {stopping!r}"
+	)
+	assert "subroutine is prioritised" in kept, f"the agenda stopped saying so: {kept!r}"
+	assert "Stop prioritising" not in kept, (
+		f"a reader the server refuses was offered Stop prioritising: {kept!r}"
+	)
+
 
 def test_every_select_has_a_name_a_screen_reader_can_read () -> None:
 	"""`#927`'s L-7. A combo box announced as *"combo box"* and nothing else.

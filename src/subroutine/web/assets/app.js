@@ -361,7 +361,8 @@ export function App () {
 	const mayWrite = allowed.has("task:write");
 	/* **Prioritising writes the workspace, so it asks the workspace's verb** (`SR#5142`): it
 	   was drawn for anybody who could write a task, and a member or a contributor pressing it
-	   was refused by the server. */
+	   was refused by the server. **So does the agenda's *Stop prioritising*** (`SR#5317`), which
+	   sends the same request and was still drawn for `task:write`. */
 	const mayPrioritise = allowed.has("workspace:write");
 	/* **There is no `mayComment` beside this, and `#684`'s dead-code guard is what said so.**
 	   The comment box is offered on an open item and nowhere else, so the only permission check
@@ -4118,7 +4119,7 @@ export function App () {
 						     project's own agenda the heading's toggle says *Stop prioritising*, and
 						     two identical buttons read as two different settings - the listing's
 						     rule, one arrangement along. */ null}
-						onStop=${mayWrite
+						onStop=${mayPrioritise
 							&& !(project && prioritisedHere(
 								me ? me.workspaces : [], workspace,
 							).includes(project))

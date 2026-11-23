@@ -110,7 +110,8 @@ upgrade involves.
 
 - **The browser no longer marks cancelled work Overdue, and offers Prioritise only to whoever may
   use it.** A cancelled task with a passed deadline read *Overdue* beside *cancelled*, and members
-  and contributors were shown Prioritise, which then refused them.
+  and contributors were shown Prioritise, and on the agenda *Stop prioritising*, which then refused
+  them.
 
 - **The browser starts dark.** A reader who has not chosen a theme now gets the dark one, whatever
   their device prefers, and so does the page a sign-in link opens. *Match system* and *Light* are
@@ -325,8 +326,8 @@ upgrade involves.
 - **A refusal's hint offers only what you may do.** Handing work to somebody who could not see
   it offered the command to share the project with them, and removing a project's last viewer
   offered to make it public, to a credential that would then be refused either; a ring of links
-  that ran through something you cannot see offered to withdraw a link, which is not yours to
-  withdraw. Each now offers what you may do, or says who may.
+  that ran through something you cannot see, or may only read, offered to withdraw a link, which is
+  not yours to withdraw. Each now offers what you may do, or says who may.
 - **An administrator of the installation can restore a workspace they are not in.** They could
   delete any workspace, member or not, and only its owners could bring it back, so one whose
   owners had left stayed in the trash. Whoever may delete a workspace may now restore it, by its

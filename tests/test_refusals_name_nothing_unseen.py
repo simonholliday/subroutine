@@ -327,12 +327,79 @@ def test_a_ring_keeps_its_length_and_shows_a_step_the_caller_cannot_see_as_unsee
 	# **Every link in it has an end keanu cannot see**, so withdrawing one is not his to offer
 	# (`SR#5106`); the owner, who sees them all, is offered it.
 	assert "Withdraw a link in that chain" not in refused.json()["hint"], refused.text
-	assert "can see both ends of a link in that chain" in refused.json()["hint"], refused.text
+	assert "may change both ends of a link in that chain" in refused.json()["hint"], refused.text
 
 	told = world.call("POST", f"/v1/tasks/{last['ref']}/links", json=closing)
 
 	assert f"#{hidden['ref']}" in told.json()["errors"][0]["message"], told.text
 	assert "Withdraw a link in that chain" in told.json()["hint"], told.text
+
+
+def test_a_ring_through_an_item_the_credential_only_reads_offers_no_withdrawal (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#5317`, L-1 of the cold review of 2026-11-11: withdrawal was offered on sight alone.
+
+	keanu's credential may change ``web`` and only read ``ops``, and both links of the chain
+	``#first -> #mid -> #last`` run to ``#mid`` in ``ops``, so withdrawing either asks him to change
+	what he may only read. **He is told who may withdraw one, and is refused withdrawing it**;
+	with a credential that may change all three he is offered it.
+	"""
+
+	keanu, whole = _member(world, "keanu", "member")
+	places: dict[str, str] = {}
+
+	for key in ("web", "ops"):
+		made = world.call("POST", "/v1/projects", json={"key": key, "title": key.title()})
+
+		assert made.status_code == 201, made.text
+
+		places[key] = made.json()["id"]
+
+	def task (title: str, project: str) -> dict[str, typing.Any]:
+		"""Make a task as the world's own account."""
+
+		made = world.call("POST", "/v1/tasks", json={"title": title, "project": project})
+
+		assert made.status_code == 201, made.text
+
+		return dict(made.json())
+
+	first = task("Book the venue", "web")
+	mid = task("Pay the deposit", "ops")
+	last = task("Send the invitations", "web")
+	links: list[dict[str, typing.Any]] = []
+
+	for source, target in ((first, mid), (mid, last)):
+		linked = world.call(
+			"POST",
+			f"/v1/tasks/{source['ref']}/links",
+			json={"target_type": "task", "target": target["ref"], "link_type": "blocks"},
+		)
+
+		assert linked.status_code == 201, linked.text
+
+		links.append(linked.json())
+
+	narrowed = test_document_binds._credential(
+		world, keanu, project_write_scope=[places["web"]]
+	)
+	closing = {"target_type": "task", "target": first["ref"], "link_type": "blocks"}
+	refused = _as(world, narrowed, "POST", f"/v1/tasks/{last['ref']}/links", json=closing)
+
+	assert refused.status_code == 409, refused.text
+	assert "Withdraw a link in that chain" not in refused.json()["hint"], refused.text
+	assert "may change both ends of a link in that chain" in refused.json()["hint"], refused.text
+
+	withdrawing = _as(
+		world, narrowed, "DELETE", f"/v1/tasks/{first['ref']}/links/{links[0]['id']}"
+	)
+
+	assert withdrawing.status_code == 403, withdrawing.text
+
+	offered = _as(world, whole, "POST", f"/v1/tasks/{last['ref']}/links", json=closing)
+
+	assert "Withdraw a link in that chain" in offered.json()["hint"], offered.text
 
 
 def test_a_ring_with_one_link_in_sight_offers_withdrawing_it (
