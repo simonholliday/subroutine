@@ -1165,6 +1165,11 @@ BY_ACT: dict[str, frozenset[str]] = {
 #: **The words each act's own rule refuses in**, any one of them, so an over-refusal a rule excuses
 #: is that rule's (`SR#5124`, M-22 of the cold review of 2026-10-17): over-refusals were excused
 #: wherever an act had a rule, and no rule's own refusal was asserted.
+#: How an administrator kept out of administering by the agent tools' ceiling, or by a credential
+#: narrowed to some projects, is refused by a rule asking whether they administer (`SR#5315`): in
+#: the words of what kept them out.
+KEPT_OUT = ("through the agent tools does not hold", "acts beyond the projects")
+
 RULE_SAYS: dict[str, tuple[str, ...]] = {
 	"user": ("There is no account called",),
 	"complete beneath the trash": ("which is in the trash",),
@@ -1173,15 +1178,15 @@ RULE_SAYS: dict[str, tuple[str, ...]] = {
 	"edit comment": ("Only the person who wrote a comment",),
 	"rename a hidden tag": ("There is no tag with that id",),
 	"update saved view": ("belongs to somebody else",),
-	"forget saved view": ("Only the owner of the view",),
-	"stop sharing a view": ("Only the owner of the view",),
+	"forget saved view": ("Only the owner of the view", *KEPT_OUT),
+	"stop sharing a view": ("Only the owner of the view", *KEPT_OUT),
 	"create project": ("acts beyond the projects",),
 	"move project": ("There is no project 'web' that you can reach", "acts beyond the projects"),
-	"reveal a private project": ("Only the owner of",),
-	"share project": ("Only the owner of",),
-	"unshare project": ("Only the owner of",),
-	"hide a project": ("Only the owner of",),
-	"move work into a private project": ("Only the owner of",),
+	"reveal a private project": ("Only the owner of", *KEPT_OUT),
+	"share project": ("Only the owner of", *KEPT_OUT),
+	"unshare project": ("Only the owner of", *KEPT_OUT),
+	"hide a project": ("Only the owner of", *KEPT_OUT),
+	"move work into a private project": ("Only the owner of", *KEPT_OUT),
 	"restore workspace": ("Only a member of it",),
 	"issue own token": (
 		"cannot grant more",

@@ -221,6 +221,9 @@ def refuse_unless_managing (
 	if manages(session, actor, owner_id, workspace_id=workspace_id, project=project, seen=seen):
 		return
 
+	if seen:
+		_refuse_as_the_credential(session, actor, workspace_id=workspace_id)
+
 	_refuse(
 		_acting_owner(session, owner_id, workspace_id=workspace_id),
 		whose=whose,
@@ -228,6 +231,43 @@ def refuse_unless_managing (
 		field=field,
 		message="What is owned is managed by its owner, or by somebody who administers this "
 		"workspace.",
+	)
+
+
+def _refuse_as_the_credential (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+) -> None:
+	"""Raise the refusal of what kept an administrator from administering, where their role does.
+
+	**`SR#5107`'s inversion, for an administrator** (`SR#5315`, L-4 of the cold review of
+	2026-11-11): :func:`_administers` reads every refusal of ``workspace:admin`` as *not an
+	administrator*, so somebody who administers the workspace, working through the agent tools or on
+	a credential narrowed to some projects, was told only the owner or an administrator may, and to
+	ask one. **Their role is what the sentence is about**, so it stays where the role refused, or
+	where they are not in the workspace at all; every other refusal is the session's or the
+	credential's, and says so in its own words. The check asks the role before the scopes, the
+	ceiling and the places, so only somebody whose role administers is told any of those.
+	"""
+
+	if actor is None:
+		return
+
+	failure = subroutine.domain.authorization.refusal(
+		session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=workspace_id
+	)
+
+	if failure in (
+		None,
+		subroutine.domain.authorization.AuthorizationFailure.ROLE_LACKS_PERMISSION,
+		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_REACH,
+	):
+		return
+
+	subroutine.domain.authorization.authorize(
+		session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=workspace_id
 	)
 
 
@@ -385,6 +425,8 @@ def refuse_unless_steward (
 
 	if stewards(session, actor, project):
 		return
+
+	_refuse_as_the_credential(session, actor, workspace_id=project.workspace_id)
 
 	# **Never an owner who cannot see it** (`SR#5307`): that sent whoever was refused to ask
 	# somebody who could not find the project.
