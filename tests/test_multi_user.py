@@ -1151,6 +1151,82 @@ def test_handing_an_agent_to_somebody_outside_its_workspace_says_where_it_stops 
 	assert "stops working" not in quiet, quiet
 
 
+def test_handing_an_agent_over_names_every_agent_beneath_it_past_a_page (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5314`, L-2 of the cold review of 2026-11-11: the agents beneath it were read as one page.
+
+	Three agents answer to deploy-bot and a page holds two, so the third, which stops with it, went
+	unnamed. **Exactly which**: the lines are compared whole, so a list naming every account fails
+	too.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "remove", "thomas", "--workspace", "acme")
+	run("agent", "create", "deploy-bot", "--workspace", "acme")
+
+	beneath = ["build-bot", "lint-bot", "test-bot"]
+
+	for agent in beneath:
+		run("agent", "create", agent, "--workspace", "acme")
+		run("user", "transfer", agent, "--to", "deploy-bot")
+
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_PAGE_SIZE", "2")
+
+	handed = run("user", "transfer", "deploy-bot", "--to", "thomas").output
+	stopping = [line for line in handed.splitlines() if "stops working" in line]
+
+	assert stopping == [
+		"deploy-bot stops working in acme, where the person it now answers to is not a member.",
+		*(f"{agent}, one of deploy-bot's agents, stops working in acme." for agent in beneath),
+	], handed
+
+
+def test_a_departure_that_strands_a_project_and_a_workspace_joins_the_two_with_and (
+	run: typing.Callable[..., typer.testing.Result], piped: None
+) -> None:
+	"""`SR#5314`: the line after a stranded project opens *And nobody*, as `SR#4314` wrote it.
+
+	Thomas is the last member of a private project in acme and the only owner of zion, which the
+	operator has left. The two commands share what they say of a stranded project now, and the
+	opening of the line after it is handed back by that shared step, which nothing asked.
+	"""
+
+	run("init", "--workspace", "Acme", "--username", "morpheus")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("workspace", "create", "zion", "Zion")
+	run("user", "add", "thomas", "--workspace", "zion", "--role", "owner")
+	run("user", "remove", "morpheus", "--workspace", "zion")
+
+	engine = subroutine.db.session.create_engine(subroutine.config.load_settings().database_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			acme = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Workspace).where(
+					subroutine.db.models.identity.Workspace.slug == "acme"
+				)
+			).one()
+			subroutine.domain.projects.create(
+				session,
+				workspace_id=acme.id,
+				key="secret",
+				title="Redundancies",
+				visibility="private",
+				owner_id=subroutine.domain.users.by_username(session, "thomas").id,
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	warned = run("user", "deactivate", "thomas", input="y\n").output
+
+	assert "Nobody will be able to see 1 private project(s): acme/secret\n" in warned, warned
+	assert "And nobody will be able to administer 1 workspace(s): zion\n" in warned, warned
+
+
 def test_a_departure_that_cannot_be_checked_for_stranded_projects_says_so (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch, piped: None
 ) -> None:

@@ -6604,8 +6604,6 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 			stranded = []
 			unchecked = refused.detail
 
-		stranding = [one.label() for one in stranded]
-
 		# **And the workspaces nobody could administer afterwards** (`#4154`, decided on `#3950`):
 		# allowed, as a private project's last member leaving is, and never silent. Asked of the
 		# server for the agents' reason, and a refusal is said rather than read as *none*.
@@ -6645,7 +6643,7 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		# silently stops a shared agent is how somebody learns to stop deactivating leavers, which
 		# costs more than the thing it was protecting.
 		if (
-			stopping or stranding or unchecked or orphaned or unasked or unowned or unowned_unasked
+			stopping or stranded or unchecked or orphaned or unasked or unowned or unowned_unasked
 		) and not yes:
 			# **"And" only after a line** (`#4314`, of the cold review of 2026-10-03): with no agents
 			# to name, the warning opened *And nobody will be able to...*.
@@ -6654,16 +6652,7 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 			if stopping:
 				program.say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
 
-			if stranding:
-				program.say(
-					f"{nobody} will be able to see {len(stranding)} private project(s): "
-					f"{', '.join(stranding)}"
-				)
-				nobody = "And nobody"
-
-			if unchecked:
-				program.say(f"Whether this strands a private project was not checked: {unchecked}")
-				nobody = "And nobody"
+			nobody = _name_stranding(program, stranded, unchecked, nobody=nobody)
 
 			if orphaned:
 				program.say(
@@ -6701,8 +6690,7 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		for name in stopping:
 			program.say(f"  {name} has stopped")
 
-		for address in stranding:
-			program.say(f"  {address} can be seen by nobody")
+		_name_stranded(program, stranded)
 
 		for slug in orphaned:
 			program.say(
@@ -6716,21 +6704,7 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 				f"{slug}', by somebody who administers it, makes one"
 			)
 
-		# **Joining comes first where the operator is outside** (`#2626`): somebody is let back in
-		# from inside a workspace, and an administrator joins one rather than reaching into it.
-		if any(not one.member_of_workspace for one in stranded):
-			_suggest(
-				program.console,
-				JOIN_A_WORKSPACE,
-				"first, for a workspace you do not belong to",
-			)
-
-		if stranding:
-			_suggest(
-				program.console,
-				"subroutine -w <workspace> project share <project> <username>",
-				"lets somebody back in; 'subroutine instance projects' lists them",
-			)
+		_offer_the_way_back(program, stranded)
 
 
 def _transferred (program: Program, *, username: str, to: str, yes: bool) -> None:
@@ -6762,17 +6736,8 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 
 			stranded, unchecked = [], "this instance cannot be asked it."
 
-		stranding = [one.label() for one in stranded]
-
-		if (stranding or unchecked) and not yes:
-			if stranding:
-				program.say(
-					f"Nobody will be able to see {len(stranding)} private project(s): "
-					f"{', '.join(stranding)}"
-				)
-
-			if unchecked:
-				program.say(f"Whether this strands a private project was not checked: {unchecked}")
+		if (stranded or unchecked) and not yes:
+			_name_stranding(program, stranded, unchecked, nobody="Nobody")
 
 			if not confirmed(f"Hand {username} to {to}?"):
 				program.say("Left as it was.")
@@ -6783,8 +6748,7 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 
 		program.say(f"{to} now answers for {username}")
 
-		for address in stranding:
-			program.say(f"  {address} can be seen by nobody")
+		_name_stranded(program, stranded)
 
 		# **And where that stops it** (`#4546`, decision `#4518`): an agent works in a workspace only
 		# while the person at the top of its chain is a member there too.
@@ -6805,20 +6769,69 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 		if unlisted:
 			program.say(f"Workspaces this credential cannot list were not checked: {unlisted}")
 
-		# **Joining comes first where the operator is outside** (`#2626`), as after a deactivation.
-		if any(not one.member_of_workspace for one in stranded):
-			_suggest(
-				program.console,
-				JOIN_A_WORKSPACE,
-				"first, for a workspace you do not belong to",
-			)
+		_offer_the_way_back(program, stranded)
 
-		if stranding:
-			_suggest(
-				program.console,
-				"subroutine -w <workspace> project share <project> <username>",
-				"lets somebody back in; 'subroutine instance projects' lists them",
-			)
+
+def _name_stranding (
+	program: Program,
+	stranded: list[subroutine.views.UnreachableProject],
+	unchecked: str | None,
+	*,
+	nobody: str,
+) -> str:
+	"""Say, before an act, which private projects it leaves nobody able to see - `#1453`.
+
+	**One copy for deactivating somebody and handing an agent over** (`SR#5314`, L-6 of the cold
+	review of 2026-11-11), which each carried their own. ``unchecked`` is why it could not be asked,
+	said rather than read as *nothing stranded*. ``nobody`` opens the first line, *And nobody* after
+	a line before it (`#4314`), and what is returned opens the next.
+	"""
+
+	if stranded:
+		program.say(
+			f"{nobody} will be able to see {len(stranded)} private project(s): "
+			f"{', '.join(one.label() for one in stranded)}"
+		)
+		nobody = "And nobody"
+
+	if unchecked:
+		program.say(f"Whether this strands a private project was not checked: {unchecked}")
+		nobody = "And nobody"
+
+	return nobody
+
+
+def _name_stranded (
+	program: Program, stranded: list[subroutine.views.UnreachableProject]
+) -> None:
+	"""Say, once an act is done, each private project it left nobody able to see - `#1453`."""
+
+	for one in stranded:
+		program.say(f"  {one.label()} can be seen by nobody")
+
+
+def _offer_the_way_back (
+	program: Program, stranded: list[subroutine.views.UnreachableProject]
+) -> None:
+	"""Say how somebody is let back into what an act stranded - `#1453`.
+
+	**Joining comes first where the operator is outside** (`#2626`): somebody is let back in from
+	inside a workspace, and an administrator joins one rather than reaching into it.
+	"""
+
+	if any(not one.member_of_workspace for one in stranded):
+		_suggest(
+			program.console,
+			JOIN_A_WORKSPACE,
+			"first, for a workspace you do not belong to",
+		)
+
+	if stranded:
+		_suggest(
+			program.console,
+			"subroutine -w <workspace> project share <project> <username>",
+			"lets somebody back in; 'subroutine instance projects' lists them",
+		)
 
 
 def _register_unreachable (instance_app: typer.Typer, program: Program) -> None:
@@ -10425,7 +10438,15 @@ def _where_it_stops (
 	try:
 		holder = client.user(username=to)
 		person = holder.answers_to if holder.is_service_account else holder.username
-		agents = [agent, *(one.username for one in client.users(answers_to=agent))]
+		# **Every one of them, not a page of them** (`SR#5314`, L-2 of the cold review of
+		# 2026-11-11), as `SR#2624` asked it of a deactivation: the 51st stopped unnamed.
+		agents = [
+			agent,
+			*(
+				one.username
+				for one in client.users(answers_to=agent, limit=subroutine.clients.base.EVERY_ROW)
+			),
+		]
 
 		try:
 			slugs = [one.slug for one in client.instance_workspaces()]

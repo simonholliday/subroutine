@@ -602,27 +602,14 @@ def after_saving (done: str, refused: SubroutineError, *, hint: str) -> Subrouti
 	a narrowed credential's says what is missing, and without it *ask again for the rest* was
 	advice the next request would be refused for too.
 
-	**Rebuilt through the base constructor, never the refusal's own** (`#3756`). A narrowed
-	credential's refusal, a private project's and an unaccepted token's each take a constructor of
-	their own, so calling their class with the base's arguments raised ``TypeError`` - the answer
-	named neither what stood nor what was refused. What each carries of its own comes across as
-	it was.
+	**Rebuilt by** :func:`_rebuilt`, for the reason it gives.
 	"""
 
 	own = refused.hint if refused.hint and refused.status not in _TRY_AGAIN else None
-	rebuilt = type(refused).__new__(type(refused))
-	rebuilt.__dict__.update(vars(refused))
 
-	SubroutineError.__init__(
-		rebuilt,
-		f"{done} {refused.detail}",
-		code=refused.code,
-		errors=refused.errors,
-		hint=hint if own is None else f"{hint} {own}",
-		extensions=refused.extensions,
+	return _rebuilt(
+		refused, detail=f"{done} {refused.detail}", hint=hint if own is None else f"{hint} {own}"
 	)
-
-	return rebuilt
 
 
 def refused_by (connection: str, refused: SubroutineError) -> SubroutineError:
@@ -634,8 +621,21 @@ def refused_by (connection: str, refused: SubroutineError) -> SubroutineError:
 	own words, and its own remedy follows - which waiting will not stand in for when the database is
 	behind or the credential is refused.
 
-	**Rebuilt as** :func:`after_saving` **rebuilds one, and for its reason**: some refusals take a
-	constructor of their own, and what each carries comes across as it was.
+	**Rebuilt by** :func:`_rebuilt`, as :func:`after_saving` rebuilds one.
+	"""
+
+	return _rebuilt(refused, detail=f"{connection}: {refused.detail}", hint=refused.hint)
+
+
+def _rebuilt (refused: SubroutineError, *, detail: str, hint: str | None) -> SubroutineError:
+	"""Return ``refused`` saying ``detail`` and ``hint``, and the rest as it came - `#3756`.
+
+	**Through the base constructor, never the refusal's own.** A narrowed credential's refusal, a
+	private project's and an unaccepted token's each take a constructor of their own, so calling
+	their class with the base's arguments raised ``TypeError`` - the answer named neither what stood
+	nor what was refused. What each carries of its own, its kind, code, fields and extensions,
+	comes across as it was. **One copy for both rewrappers** (`SR#5314`, L-6 of the cold review of
+	2026-11-11), which each carried their own.
 	"""
 
 	rebuilt = type(refused).__new__(type(refused))
@@ -643,10 +643,10 @@ def refused_by (connection: str, refused: SubroutineError) -> SubroutineError:
 
 	SubroutineError.__init__(
 		rebuilt,
-		f"{connection}: {refused.detail}",
+		detail,
 		code=refused.code,
 		errors=refused.errors,
-		hint=refused.hint,
+		hint=hint,
 		extensions=refused.extensions,
 	)
 
