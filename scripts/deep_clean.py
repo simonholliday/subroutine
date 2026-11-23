@@ -196,6 +196,16 @@ def _settings_before_removal () -> typing.Any:
 	if not subroutine.config.config_file_path().exists():
 		return None
 
+	# **Past a setting written inside a connection's table, saying so, as ``doctor`` does**
+	# (`SR#5329`, L-3 of the cold review of 2026-11-11). Since `SR#5166` that refuses the file, and
+	# the refusal was read below as a file too broken to read, so the report left out the configured
+	# database, the backups and the connections. Read past for the rest of this process, which is
+	# what lets :func:`_elsewhere` name the connections too.
+	inside = subroutine.config.read_past_settings_inside_a_connection()
+
+	if inside is not None:
+		print(f"  note     config          {inside.detail} {inside.hint}")
+
 	try:
 		return subroutine.config.load_settings()
 
@@ -713,18 +723,6 @@ def _things_nobody_else_may_decide (
 		for name, where in connections
 	)
 
-	if os.environ.get("SUBROUTINE_PROFILE"):
-		steps.append(Step(
-			"environment",
-			"SUBROUTINE_PROFILE",
-			"SKIPPED",
-			detail=(
-				"set in the shell that started this, which no child process can unset; take "
-				"it out of your shell profile too"
-			),
-			by_hand="unset SUBROUTINE_PROFILE",
-		))
-
 	# **``SUBROUTINE_TEST_*`` configures the harness, not the product**, which is the same line
 	# ``tests/conftest.py`` draws and for the same reason. Reporting them told somebody running
 	# the suite that their machine carried overrides it did not — and it was the *gate* that
@@ -734,9 +732,6 @@ def _things_nobody_else_may_decide (
 		for one in os.environ
 		if one.startswith("SUBROUTINE_") and not one.startswith("SUBROUTINE_TEST_")
 	):
-		if name == "SUBROUTINE_PROFILE":
-			continue
-
 		steps.append(Step(
 			"environment",
 			name,
@@ -914,6 +909,22 @@ def main (
 		"--yes", action="store_true", help="do not ask; the report is printed either way"
 	)
 	options = parser.parse_args(argv)
+
+	# **Refused under a profile, before anything is listed or asked** (`SR#5329`, L-3 of the cold
+	# review of 2026-11-11). This removes the ordinary install's roots, and every profile under
+	# them with it, yet under one it named the default's database as the one removed and the
+	# profile's as left behind, in the data directory it removed. A profile alone is ``profile
+	# destroy``'s to remove; so this refusal is also why no step says to unset the variable.
+	profile = os.environ.get(subroutine.config.PROFILE_VARIABLE, "").strip()
+
+	if profile:
+		print(
+			f"A profile is set ({profile}), and this removes the ordinary install, every profile in"
+			f" it included. Unset {subroutine.config.PROFILE_VARIABLE} and run it again, or remove"
+			f" that profile alone: subroutine profile destroy {shlex.quote(profile)}"
+		)
+
+		return 1
 
 	named = home is not None
 	home = home or pathlib.Path.home()

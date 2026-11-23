@@ -620,7 +620,8 @@ def test_a_by_hand_line_is_always_a_command_and_never_advice (
 	the explanation goes under *reason*, which is what that field is for.
 	"""
 
-	monkeypatch.setenv("SUBROUTINE_PROFILE", "spare")
+	# **Not the profile's variable** (`SR#5329`): a clean under a profile is refused outright.
+	monkeypatch.setenv("SUBROUTINE_CONNECTION", "spare")
 	monkeypatch.setattr(shutil, "which", lambda _name: None)
 
 	_installed()
@@ -840,6 +841,72 @@ def _outcomes (printed: str, kind: str) -> list[str]:
 		for parts in (line.split() for line in printed.splitlines())
 		if len(parts) > 2 and parts[1] == kind
 	]
+
+
+@pytest.mark.parametrize("asked", ["--dry-run", "--yes"])
+def test_a_clean_under_a_profile_is_refused_before_anything_is_listed_or_removed (
+	tmp_path: pathlib.Path,
+	capsys: pytest.CaptureFixture[str],
+	monkeypatch: pytest.MonkeyPatch,
+	asked: str,
+) -> None:
+	"""`SR#5329`, L-3 of the cold review of 2026-11-11: it said it left a database it removed.
+
+	Under ``SUBROUTINE_PROFILE`` the report named the default's database as the one removed and the
+	profile's as *SKIPPED*, while the data directory holding it went with everything else. **This
+	removes the ordinary install, every profile in it included**, so under one it is refused
+	before anything is listed, asked or removed, and says how to remove a profile alone.
+	"""
+
+	made = _installed()
+	monkeypatch.setenv(subroutine.config.PROFILE_VARIABLE, "probe")
+
+	assert deep_clean.main([asked], home=tmp_path) == 1
+
+	printed = capsys.readouterr().out
+
+	assert "Unset SUBROUTINE_PROFILE and run it again" in printed, printed
+	assert printed.rstrip().endswith("subroutine profile destroy probe"), printed
+	assert not _outcomes(printed, "database"), f"a database was listed:\n{printed}"
+	assert not _outcomes(printed, "data"), f"the data directory was listed:\n{printed}"
+	assert all(path.exists() for path in made.values()), "something was removed"
+
+
+def test_a_setting_inside_a_connection_s_table_leaves_the_report_whole (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#5329`, L-3 of the cold review of 2026-11-11: the file was read as one too broken to read.
+
+	Since `SR#5166` a setting of the instance written under ``[connections.<name>]`` refuses the
+	file, and this took the refusal for a file it could not read, assumed the defaults, and left
+	the configured database, the backups and the connections out of the report. **Read past, as
+	``doctor`` does**, below a note naming the setting.
+	"""
+
+	made = _installed()
+	backups = tmp_path / "zion" / "backups"
+	backups.mkdir(parents=True)
+	made["config"].write_text(
+		"database_url = 'postgresql+psycopg://keanu@db.example.invalid/metacortex'\n"
+		f"backup_directory = {str(backups)!r}\n\n"
+		"[connections.local]\nenabled = true\nprotected = true\n\n"
+		"[connections.work]\nurl = 'https://example.invalid'\n",
+		encoding="utf-8",
+	)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+	printed = capsys.readouterr().out
+
+	assert "assuming defaults" not in printed, printed
+	assert "'protected' is written inside [connections.local]" in printed, printed
+	assert any(
+		"SKIPPED" in line and "db.example.invalid/metacortex" in line
+		for line in printed.splitlines()
+	), f"the configured database was left out:\n{printed}"
+	assert _outcomes(printed, "backups") == ["SKIPPED"], printed
+	assert any(
+		"connection" in line and "work" in line for line in printed.splitlines()
+	), f"the served connection was left out:\n{printed}"
 
 
 def test_a_backup_directory_beside_the_data_directory_is_outside_it (
