@@ -111,7 +111,16 @@ def test_an_administrator_who_is_not_an_owner_still_hears_only_an_owner_may (
 
 
 def test_an_owner_holding_everything_still_may (session: sqlalchemy.orm.Session) -> None:
-	"""keanu with a credential nothing narrows demotes carrieanne."""
+	"""keanu with a credential nothing narrows demotes carrieanne.
+
+	**And she is demoted** (`SR#5346`, L-7 of the cold review of 2026-11-11): nothing was asserted,
+	so a demotion that wrote nothing passed every test here.
+	"""
 
 	here = Workspace(session)
 	here.demote(here.presenting(here.keanu))
+	roles = {
+		user.id: role.key for _member, user, role in workspaces.members(session, here.metacortex)
+	}
+
+	assert roles[here.carrieanne.id] == "member", roles

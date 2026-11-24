@@ -62,14 +62,23 @@ def test_a_narrowed_credential_moves_nothing_across_a_privacy_boundary (
 		assert refused.json()["errors"][0]["field"] == field, refused.text
 		assert "credential reaches the whole workspace" in refused.text, refused.text
 
-	# **Nothing moved**, and the same moves are the unnarrowed credential's.
+	# **Nothing moved**, and the same moves are the unnarrowed credential's. **All four are
+	# checked each way** (`SR#5346`, L-7 of the cold review of 2026-11-11): two were checked
+	# unmoved, and the unnarrowed moves by their status alone.
+	assert world.call("GET", "/v1/projects/hidden/secret").status_code == 200
 	assert world.call("GET", "/v1/projects/open/shown").status_code == 200
 	assert world.call("GET", f"/v1/tasks/{task}").json()["project_key"] == "open"
+	assert world.call("GET", f"/v1/documents/{document}").json()["project_key"] == "open"
 
 	for method, path, body, _field in moves:
 		made = world.call(method, path, json=body)
 
 		assert made.status_code == 200, made.text
+
+	assert world.call("GET", "/v1/projects/open/secret").status_code == 200
+	assert world.call("GET", "/v1/projects/hidden/shown").status_code == 200
+	assert world.call("GET", f"/v1/tasks/{task}").json()["project_key"] == "hidden"
+	assert world.call("GET", f"/v1/documents/{document}").json()["project_key"] == "hidden"
 
 
 def test_a_narrowed_credential_still_moves_work_that_crosses_no_boundary (
@@ -88,3 +97,7 @@ def test_a_narrowed_credential_still_moves_work_that_crosses_no_boundary (
 
 	assert moved.status_code == 200, moved.text
 	assert _as(world, narrowed, "PATCH", f"/v1/tasks/{task}", json={"project": "spare"}).status_code == 200
+
+	# **And both moved** (`SR#5346`).
+	assert world.call("GET", "/v1/projects/spare/shown").status_code == 200
+	assert world.call("GET", f"/v1/tasks/{task}").json()["project_key"] == "spare"

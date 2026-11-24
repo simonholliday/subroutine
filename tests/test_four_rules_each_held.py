@@ -90,8 +90,14 @@ def test_a_person_stops_their_agent_s_own_agent (
 
 		return
 
-	with pytest.raises(subroutine.errors.Forbidden):
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as refused:
 		subroutine.domain.users.set_active(session, here.scout, active=False, actor=actor)
+
+	# **Refused by the installation's verb, his role holding none of it** (`SR#5346`).
+	assert refused.value.failure is (
+		subroutine.domain.authorization.AuthorizationFailure.NOT_A_SUPERUSER
+	), refused.value.detail
+	assert here.scout.is_active is True
 
 
 @pytest.mark.parametrize(("who", "may"), [("carrieanne", True), ("hugo", False)])
@@ -113,11 +119,20 @@ def test_a_person_stands_in_for_their_agent_s_own_agent_as_owner (
 
 	if may:
 		subroutine.domain.saved.delete(session, view, actor=actor)
+		session.flush()
+
+		# **And it is gone** (`SR#5346`, L-7 of the cold review of 2026-11-11).
+		assert session.get(type(view), view.id) is None, "allowed, and the view is still there"
 
 		return
 
-	with pytest.raises(subroutine.errors.Forbidden):
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
 		subroutine.domain.saved.delete(session, view, actor=actor)
+
+	assert str(refused.value.detail).startswith(
+		"Only the owner of the view 'scouting', whoever that agent answers to,"
+	), refused.value.detail
+	assert session.get(type(view), view.id) is not None
 
 
 @pytest.mark.parametrize(
