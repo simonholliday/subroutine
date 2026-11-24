@@ -202,7 +202,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `request_timeout_seconds` | `30` | How long the database work behind one request may spend on any single statement before it is given up on. A backstop rather than a budget: a request that reaches it has met something the design does not account for, and a bound is what turns a hang into a message somebody can act on. **PostgreSQL only** - see below |
 | `max_body_bytes` | `10485760` | The largest request body this instance will read. A backstop against the request nobody meant to send, not a policy - every field has its own limit, and ten megabytes is far more than any legitimate write |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
-| `cors_origins` | `[]` | Other origins a browser may call this API from - **and, for an origin you name, act as a signed-in reader from**; `*` admits a page that calls with an API token, and none as somebody signed in. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
+| `cors_origins` | `[]` | Other origins a browser may call this API from - **and, for an origin you name, act as a signed-in reader from**; `*` admits a page that calls with an API token, and none as somebody signed in - an origin named beside it included. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
 | `log_level` | `INFO` | How much `serve` logs |
 | `dev_mode` | `false` | Development only. Makes a signing key up each time the instance starts when `secret_key` is unset, so a throwaway instance starts without one - and its cursors do not survive a restart. Refused at start beside a `public_url`. Never set it on anything real |
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
@@ -805,6 +805,11 @@ instance with an API token, which that page has to hold already, and it is answe
 credentials, so no page uses your people's sessions through it. A page on another address that
 did, before this release, stops until you name its origin.
 
+**An origin named beside `*` gets nothing more.** A list holding `*` is answered as `*` for
+every origin, the one you named included, so a signed-in page there reads no replies and its
+writes are refused. List the origin without `*` if a signed-in page there must read replies;
+`serve` and `doctor` name each origin this applies to.
+
 So:
 
 ```toml
@@ -816,7 +821,7 @@ cors_origins = ["https://boards.example.com"]
 this setting in its own right - `empty, so only this instance's own pages may call it`, or
 `1 named`, or, if the list is `*`, what that admits. It is stated either way rather than only
 when something is wrong, so you can tell *this is what I chose* from *nothing looked*. `serve`
-says the same at startup for a `*`.
+says the same at startup for a `*`, and for each origin named beside it.
 
 **And a way to check what your instance actually answers**, which is the question neither of
 those asks - they read the setting, this reads the reply:
