@@ -58,6 +58,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.grammar
+import subroutine.domain.mentions
 import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.refs
@@ -8522,24 +8523,49 @@ def test_a_mention_becomes_a_link_and_only_a_real_one (tmp_path: pathlib.Path) -
 	assert "<a " not in rendered[3], "a mention was linked with nowhere to point"
 
 
-def test_the_browser_and_the_index_share_one_mention_rule () -> None:
+#: Text the browser and the index must read alike (`SR#5319`): what neither takes, a letter
+#: outside ASCII either side of a ref, refs joined by a slash, and another workspace's address
+#: on this connection and on another, alone and joined to a ref.
+MENTION_CORPUS = (
+	"See #42 for why.",
+	"#42FF00 is a colour, ##1 is not a ref, issue#1 is not either, and #007 has a zero.",
+	"Written as café#42 or #42é, it is a word.",
+	"Both of #12/#13, and #14/#15/#16 too.",
+	"Copied from metacortex/#7 and work/metacortex/#8.",
+	"Not metacortex/#9/#10 either, but (#11) is.",
+	"A slash alone, /#17, joins it to nothing.",
+)
+
+
+def test_the_browser_and_the_index_share_one_mention_rule (tmp_path: pathlib.Path) -> None:
 	"""Two copies of a rule that must agree is this codebase's signature defect.
 
-	The copy in `markdown.js` is deliberate — the browser cannot import Python — so it is
-	compared against the original here rather than trusted to have been kept in step.
+	The copy in `markdown.js` is deliberate — the browser cannot import Python — so both are run
+	over one corpus here rather than trusted to have been kept in step. **Run, not compared as
+	text** (`SR#5319`): the two patterns matched character for character while the browser's
+	flags made its `\\w` ASCII, so `#42é` was a link there and no mention in the index.
 	"""
 
-	import subroutine.domain.mentions
+	module = _staged(tmp_path)
+	rendered = _ran(tmp_path, f"""
+		import * as markdown from "{(module.parent / "markdown.js").as_uri()}";
+		import * as app from "{module.as_uri()}";
 
-	original = subroutine.domain.mentions.REF_PATTERN.pattern
-	inside = _served_modules()["markdown.js"]
+		const where = app.mentionHref("projects");
+		const sources = {json.dumps(MENTION_CORPUS)};
 
-	# The JavaScript copy is written escaped for `new RegExp`, so it is unescaped before
-	# comparing: `\\w` in the source is `\w` in the pattern the engine sees.
-	assert original.replace("\\", "\\\\") in inside, (
-		f"markdown.js no longer carries {original!r}, so the browser and the mention index "
-		f"can disagree about what a reference is"
-	)
+		process.stdout.write(JSON.stringify(sources.map((s) => markdown.render(s, where))));
+	""")
+
+	linked = [
+		[int(ref) for ref in re.findall(r'<a href="/projects/(\d+)" class="mention">', html)]
+		for html in rendered
+	]
+	indexed = [subroutine.domain.mentions.candidates(text) for text in MENTION_CORPUS]
+
+	assert linked == indexed, list(zip(MENTION_CORPUS, linked, indexed, strict=True))
+	# **A floor**, since two copies that both read nothing agree too.
+	assert indexed == [[42], [], [], [12, 13, 14, 15, 16], [], [11], []]
 
 
 def test_a_mention_of_something_that_is_not_there_is_a_note (tmp_path: pathlib.Path) -> None:

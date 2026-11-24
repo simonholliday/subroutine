@@ -37,15 +37,17 @@ import subroutine.domain.scoping
 #: * **Lookarounds, never ``\b``.** ``\b`` sits between a letter and an apostrophe, which
 #:   is how ``\btomorrow\b`` came to match inside ``tomorrow's`` in ``domain.capture``
 #:   and mangle a title. The same mistake here would index the wrong item.
-#: * **No ``/`` before it** (`SR#5146`). The terminal prints an item in another workspace as
-#:   ``metacortex/#42``, and on another connection as ``work/metacortex/#42``, so an address
-#:   pasted from it was indexed as this workspace's ``#42``. The cost, accepted: this
-#:   workspace's own item written in its long form is not indexed either, and inside its own
-#:   workspace the terminal prints the short form.
+#: * **A ``/`` before it only where a ref is before that** (`SR#5146`, `SR#5319`). The
+#:   terminal prints an item in another workspace as ``metacortex/#42``, and on another
+#:   connection as ``work/metacortex/#42``, so an address pasted from it is not this
+#:   workspace's ``#42``; but ``#12/#13`` names two items. A lookbehind of fixed width cannot
+#:   tell them apart, so :func:`candidates` does. The cost, accepted: this workspace's own item
+#:   written in its long form is not indexed, and inside its own workspace the terminal prints
+#:   the short form.
 #:
 #: ``#42`` cannot open a markdown heading — CommonMark requires a space after the ``#``
 #: run — and cannot be a ``#tag`` from quick capture, which must begin with a letter.
-REF_PATTERN = re.compile(r"(?<![\w#/])#([1-9][0-9]*)(?!\w)")
+REF_PATTERN = re.compile(r"(?<![\w#])#([1-9][0-9]*)(?!\w)")
 
 #: The explicit form, ``[label](subroutine:42)``. It carries no sigil, so the pattern
 #: above cannot see it and this one is not a convenience.
@@ -71,7 +73,8 @@ def candidates (*texts: str | None) -> list[int]:
 	``[label](subroutine:42)``. A cross-workspace link is deliberately skipped — it names
 	a workspace this index does not cover, and resolving it locally would silently point
 	at whatever happens to share the number here — and so is an item's address in another
-	workspace as the terminal prints it, ``metacortex/#42`` (`SR#5146`).
+	workspace as the terminal prints it, ``metacortex/#42`` (`SR#5146`). Two refs joined by a
+	slash, ``#12/#13``, are both read (`SR#5319`).
 
 	A number too large to be a ref is left as prose, for the reason
 	:data:`subroutine.domain.refs.MAX_REF` gives.
@@ -85,6 +88,8 @@ def candidates (*texts: str | None) -> list[int]:
 			continue
 
 		local = FOREIGN_LINK_PATTERN.sub(" ", text)
+		# Where each ref written in the text ends, so a slash there joins the next one to it.
+		ends: set[int] = set()
 
 		# Ordered by where each reference appears rather than by which spelling found it,
 		# so "in order of first appearance" is true of the text and not of this function.
@@ -94,6 +99,18 @@ def candidates (*texts: str | None) -> list[int]:
 		)
 
 		for match in matches:
+			if match.re is REF_PATTERN:
+				start = match.start()
+
+				# **After a slash, only where the slash follows a ref** (`SR#5319`, L-2 of the cold
+				# review of 2026-11-11): ``#12/#13`` names two items, and ``metacortex/#42`` is
+				# another workspace's address. Read off the pattern's matches rather than its
+				# value, so the browser's lookbehind, which cannot read a value, says the same.
+				if start and local[start - 1] == "/" and start - 1 not in ends:
+					continue
+
+				ends.add(match.end())
+
 			ref = subroutine.domain.refs.from_digits(match.group(1))
 
 			# **A number too large to be a ref is prose, not a reference** (`#978`). This

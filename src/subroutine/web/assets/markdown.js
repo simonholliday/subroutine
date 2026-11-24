@@ -101,23 +101,32 @@ const INLINE = new RegExp(
 		"~~(?!\\s)([\\s\\S]+?)(?<!\\s)~~",            /* 6    — struck through */
 		"\\*(?!\\s)([^*\\n]+?)(?<!\\s)\\*",           /* 7    — italic */
 		"(https?://[^\\s<>\"'`)\\]]+)",               /* 8    — a bare address */
-		"(?<![\\w#/])#([1-9][0-9]*)(?!\\w)",          /* 9    — a mention of an item */
+		/* 9 — a mention of an item */
+		"(?<![\\p{L}\\p{N}_#])(?:(?<!/)|(?<=(?:^|[^\\p{L}\\p{N}_#/])(?:#[1-9][0-9]*/)+))" +
+			"#([1-9][0-9]*)(?![\\p{L}\\p{N}_])",
 	].join("|"),
-	"g"
+	"gu"
 );
 
 /*
-	**The mention rule is `mentions.REF_PATTERN`, character for character.**
+	**The mention rule is `mentions.candidates`', written for this engine.**
 
 	Lookarounds rather than `\b`, and no leading zero: that is what keeps `#42FF00`, `##1`,
-	`issue#1`, `#007` and another workspace's `metacortex/#42` (`SR#5146`) out of the index
-	server-side, and a browser that disagreed would
-	underline things the backlink graph does not know about. A second copy of this rule is
-	this codebase's signature defect, so the copy is deliberate, marked, and identical —
-	`tests/test_web.py` compares them.
+	`issue#1` and `#007` out of the index server-side, and a browser that disagreed would
+	underline things the backlink graph does not know about. **A ref after a slash is one only
+	where the slash follows a ref** (`SR#5146`, `SR#5319`), so `#12/#13` names two items and
+	another workspace's `metacortex/#42` none: Python's lookbehind has a fixed width, so the
+	index says this in code, and this engine's may be any length, so it says it here, from a
+	ref with nothing before it through every `#n/` after. **A word character is a letter, a
+	digit or `_` in any script**, as Python's `\w` is: this engine's `\w` is ASCII, so
+	`#42é` was linked here and never indexed.
+
+	A second copy of this rule is this codebase's signature defect, so the copy is deliberate,
+	marked, and run beside the original over one corpus by `tests/test_web.py`.
 
 	It sits last in the alternation, so a `#42` inside backticks or inside a link's text is
-	claimed by those first.
+	claimed by those first. The `u` flag the Unicode classes need covers every alternative
+	above it too.
 */
 
 

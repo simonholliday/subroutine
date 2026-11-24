@@ -23,7 +23,9 @@ upgrade involves.
 > program refuses one that has. `subroutine-remote` takes its tools from your server, so it
 > follows whatever version the server runs.
 
-> **This release changes the database schema**, to `507ebc014a86`.
+> **This release changes the database schema**, to `32df552a240f`. Its last step changes no table:
+> it finds the mentions again in every description, document and comment holding `/#`, so a
+> backlink another workspace's address made is gone after it.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result - in that order. Stop the service
@@ -131,7 +133,11 @@ upgrade involves.
 - **An item's address in another workspace is no longer read as a mention of this workspace's
   item.** `metacortex/#42`, pasted from the terminal into a description or a comment, made a
   backlink on this workspace's `#42`, and the browser linked it there. An item here is mentioned
-  as `#42`: its own long form is not read as a mention either.
+  as `#42`: its own long form is not read as a mention either. A backlink one made before goes
+  when the database is upgraded.
+- **The browser no longer links a `#42` written against a letter outside ASCII**, as in `#42é`
+  or `café#42`. The index has never read either as a mention, so the link led to an item that
+  listed no backlink from the text it came from.
 
 - **A sign-in no longer fails now and then because its link or session was given an identifier
   another already holds.** API tokens and calendar feeds already tried another; sign-in links and
