@@ -75,7 +75,8 @@ Each run creates and drops its own database, named with a random suffix, so two 
 processes on one machine do not destroy each other's schema.
 
 That is also what makes the suite safe to spread across every core, which is worth doing -
-it is a large suite, every test run on both backends, and the great majority of them are fast:
+it is a large suite, every test that touches a database runs on both backends, and the great
+majority are fast:
 
 ```console
 $ pytest -n auto --dist worksteal
