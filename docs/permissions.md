@@ -146,7 +146,7 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Put a project inside another | `project:write` | a project | The new parent is written into, so it is within reach too. |
 | Make a private project public | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, never as an administrator. |
 | Share a private project with one more person | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, never as an administrator. |
-| Take a private project away from somebody | `project:write` | a private project | Whoever stewards a private project decides who sees it. |
+| Take a private project away from somebody | `project:write` | a private project | Whoever stewards a private project decides who sees it. Through the agent tools, never as an administrator. |
 | Make a public project private | `project:write` | a project | Whoever stewards a project decides who sees it. Through the agent tools, never as an administrator. |
 | Move a task out of a public project into a private one | `task:read`, `task:write` | a private project | Work leaves the sight of who can see it only by its project's steward. Through the agent tools, never as an administrator. |
 | Put a project in the trash | `project:delete` | a project | - |
@@ -160,6 +160,10 @@ terminal, the HTTP API and the agent tools - so it says what the instance does.
 | Describe a workspace | `workspace:write` | the workspace | - |
 | Change a workspace's short name | `workspace:write` | the workspace | - |
 | Choose the colour a workspace's work is marked with | `workspace:write`, `workspace:admin` | the workspace | Never through the agent tools. |
+| Choose which task statuses a workspace offers | `workspace:write`, `workspace:admin` | the workspace | Never through the agent tools. |
+| Choose which document statuses a workspace offers | `workspace:write`, `workspace:admin` | the workspace | Never through the agent tools. |
+| Choose where a workspace sends OSC | `workspace:write`, `workspace:admin` | the workspace | Never through the agent tools. |
+| Choose whether a workspace's OSC carries titles | `workspace:write`, `workspace:admin` | the workspace | Never through the agent tools. |
 | Delete a workspace | `workspace:delete` | the workspace | Never through the agent tools. |
 | Bring a deleted workspace back | `workspace:delete` | - | Only somebody who could delete it brings a workspace back. Never through the agent tools. |
 | Add somebody to a workspace | `user:admin` | the workspace | - |

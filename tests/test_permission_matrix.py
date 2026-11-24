@@ -25,10 +25,12 @@ outlive what it excuses.
 about seventy times, which makes this the slowest file in the suite by design.
 """
 
+import contextlib
 import dataclasses
 import datetime
 import json
 import pathlib
+import types
 import typing
 import uuid
 
@@ -51,6 +53,7 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.local
 import subroutine.domain.projects
+import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -173,7 +176,9 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 
 	# **Tank is acted on and never acts**, so an act on somebody else's account is never a principal
 	# acting on its own.
-	for person in ("keanu", "carrieanne", "hugo", "gloria", "joe", "marcus", "tank"):
+	# **Dozer is shared into the vault and never acts** (`SR#5343`): taking it away from somebody
+	# else is driven on him, so no principal's sight of the vault changes when it is.
+	for person in ("keanu", "carrieanne", "hugo", "gloria", "joe", "marcus", "tank", "dozer"):
 		people[person] = subroutine.domain.users.create(session, username=f"{person}-{suffix}")
 
 	people["claude"] = subroutine.domain.users.create(
@@ -200,6 +205,7 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 		("joe", "viewer"),
 		("claude", "member"),
 		("tank", "member"),
+		("dozer", "member"),
 		("scout", "member"),
 	):
 		subroutine.domain.workspaces.add_member(session, workspace, people[person], role_key=role)
@@ -403,6 +409,7 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 		).key
 
 		laurence.share_project("vault", username=cast.people["carrieanne"].username, workspace=slug)
+		laurence.share_project("vault", username=cast.people["dozer"].username, workspace=slug)
 
 		cast.names["deleted"] = f"nebuchadnezzar-{suffix}"
 		laurence.create_workspace(slug=cast.names["deleted"], title="Nebuchadnezzar")
@@ -422,7 +429,7 @@ def _furnish (cast: Cast, suffix: str, zion: str) -> None:
 			text=cast.plant(f"Collect the package {suffix}", P.TASK_READ, "zion"), workspace=zion
 		).task.ref
 
-	for name in ("tank", "claude", "scout"):
+	for name in ("tank", "claude", "scout", "dozer"):
 		cast.names[name] = cast.people[name].username
 
 
@@ -594,6 +601,7 @@ THEIRS: dict[str, str] = {
 	"stop sharing a view": "laurence",
 	"reveal a private project": "laurence",
 	"share project": "laurence",
+	"unshare project": "laurence",
 	"hide a project": "laurence",
 	"move work into a private project": "laurence",
 }
@@ -895,9 +903,7 @@ DRIVES: dict[str, Drive] = {
 		lambda c, s: c.share_project("vault", username=s.names["tank"], workspace=s.slug),
 	),
 	"unshare project": Drive(
-		lambda c, s: c.unshare_project(
-			"vault", username=s.people["carrieanne"].username, workspace=s.slug
-		),
+		lambda c, s: c.unshare_project("vault", username=s.names["dozer"], workspace=s.slug),
 	),
 	"hide a project": Drive(
 		lambda c, s: c.update_project("web", visibility="private", workspace=s.slug),
@@ -1004,6 +1010,21 @@ DRIVES: dict[str, Drive] = {
 	),
 	"colour workspace": Drive(
 		lambda c, s: c.update_workspace(s.slug, settings={"appearance.colour": "green"}),
+	),
+	"hide task statuses": Drive(
+		lambda c, s: c.update_workspace(s.slug, settings={"statuses.hidden": ["blocked"]}),
+	),
+	"hide document statuses": Drive(
+		lambda c, s: c.update_workspace(
+			s.slug, settings={"document_statuses.hidden": ["superseded"]}
+		),
+	),
+	# **To a port nothing listens on, on this machine**, so a cell sends nothing anywhere.
+	"aim osc": Drive(
+		lambda c, s: c.update_workspace(s.slug, settings={"osc.send_to": "127.0.0.1:9"}),
+	),
+	"title osc": Drive(
+		lambda c, s: c.update_workspace(s.slug, settings={"osc.titles": True}),
 	),
 }
 
@@ -1210,12 +1231,9 @@ RULE_SAYS: dict[str, tuple[str, ...]] = {
 	"transfer an agent": ("needs the 'instance:user_create'", "a person's act"),
 }
 
-#: Rules nobody in the cast is refused by, each with why, so the rule test asks the rest.
-RULE_UNMET: dict[str, str] = {
-	"unshare project": "Everybody who sees the vault stewards it here - Laurence, its owner, and "
-	"Carrie-Anne, who administers MetaCortex - and unsharing is not an act on somebody's own "
-	"thing, so the agent tools refuse her nothing either.",
-}
+#: Rules nobody in the cast is refused by, each with why, so the rule test asks the rest. Empty
+#: since `SR#5343`: unsharing was the one, until the agent tools refused it to an administrator.
+RULE_UNMET: dict[str, str] = {}
 
 
 def _writable (who: Who) -> Who:
@@ -1876,6 +1894,80 @@ def test_every_act_is_driven_and_nothing_else () -> None:
 	assert set(DRIVES) - described == set(), "a drive naming no act of the table"
 	assert set(THEIRS) == own, "THEIRS and the table's acts on somebody's own thing differ"
 	assert ON_OPS - projects == set(), "ON_OPS names an act that does not land on a project"
+
+
+class _SettingsWritten:
+	"""A client recording the settings a drive writes, and having nothing else."""
+
+	def __init__ (self) -> None:
+		"""Start with nothing written."""
+
+		self.written: set[str] = set()
+
+	def update_workspace (
+		self, *_given: object, settings: dict[str, object], **_named: object
+	) -> None:
+		"""Record which settings were written."""
+
+		self.written |= set(settings)
+
+
+#: The verb changing a place's own settings asks, which a setting gated on nothing more needs no act
+#: of its own for.
+OWN_VERB = {
+	subroutine.domain.settings.WORKSPACE: P.WORKSPACE_WRITE,
+	subroutine.domain.settings.PROJECT: P.PROJECT_WRITE,
+}
+
+
+def _unacted (
+	settings: typing.Mapping[str, subroutine.domain.settings.Setting],
+	drives: typing.Mapping[str, Drive],
+) -> set[str]:
+	"""Return each setting asking more than its place's own verb that no act's drive writes.
+
+	**Asked of the drives, not of a list** (`SR#5343`): each is run against a client that records
+	what it writes and has nothing else, so a drive of any other act fails and writes nothing.
+	"""
+
+	written: set[str] = set()
+	stand_in = types.SimpleNamespace(slug="metacortex", names={}, refs={}, ids={}, people={})
+
+	for drive in drives.values():
+		recording = _SettingsWritten()
+
+		with contextlib.suppress(Exception):
+			drive.call(typing.cast(Client, recording), typing.cast(Cast, stand_in))
+
+		written |= recording.written
+
+	return {
+		key
+		for key, setting in settings.items()
+		if any(verb != OWN_VERB.get(scope) for scope, verb in setting.permission.items())
+		and key not in written
+	}
+
+
+def test_every_setting_asking_more_than_its_place_is_an_act () -> None:
+	"""`SR#5343`, L-5 of the cold review of 2026-11-11, decided in `#5285`: four had none.
+
+	Hiding a workspace's task or document statuses and both OSC settings ask ``workspace:admin``,
+	which the agent tools never hold, and the permissions page, written from the act table, named
+	only the colour. **A per-method check cannot see this**: they are arguments to one client
+	method, which the test below already counts as driven.
+	"""
+
+	assert _unacted(subroutine.domain.settings.SETTINGS, DRIVES) == set()
+
+
+def test_that_scan_finds_a_setting_no_act_writes () -> None:
+	"""The scan above, fed a setting asking ``workspace:admin`` that no drive writes."""
+
+	shade = subroutine.domain.settings.COLOUR._replace(key="appearance.shade")
+
+	assert _unacted({shade.key: shade}, DRIVES) == {"appearance.shade"}
+	assert _unacted({"appearance.colour": subroutine.domain.settings.COLOUR}, DRIVES) == set()
 
 
 def test_every_client_method_is_an_act_or_says_why_not () -> None:

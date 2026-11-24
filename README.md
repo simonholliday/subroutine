@@ -130,8 +130,10 @@ skill - and none of them has to be taught to it, by you or by anybody.
   the build rather than misleading a reader.
 - **The tool surface is a deliberate budget**: a small set, and one of them reaches the routes
   the others do not, bar what the agent tools never do: mint a secret, administer the
-  installation, or colour, delete or bring back a workspace. Every name an agent has to be
-  taught is context spent for ever, where a grammar it can discover costs nothing.
+  installation, change a workspace's settings, such as its colour or the statuses it offers, or
+  delete or bring one back - [the permissions page](https://github.com/simonholliday/subroutine/blob/main/docs/permissions.md)
+  marks every act they never take. Every name an agent has to be taught is context spent for
+  ever, where a grammar it can discover costs nothing.
 - **Conventions travel with the work.** `subroutine://conventions` carries everything in force
   in your workspace - decisions, specifications, designs and dead ends - and any MCP client can
   read it before its first write.

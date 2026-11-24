@@ -95,6 +95,24 @@ def _in (group: str, *acts: Act) -> tuple[Act, ...]:
 #: kept in `#5097`). Stopping only removes, so it takes nothing from anybody else.
 STOPPING_SOMEBODY = "An administrator of accounts does this, or whoever the account answers to."
 
+
+def _stopping (key: str, says: str) -> Act:
+	"""Return an act stopping another account, which whoever it answers to may take too.
+
+	**The rule and the flag written once** (`SR#5343`, L-6 of the cold review of 2026-11-11): the
+	four acts each wrote :data:`STOPPING_SOMEBODY` and ``chain`` by hand. Not ``chain`` derived from
+	the rule's words, since rewording the sentence would then change what the matrix drives.
+	"""
+
+	return Act(
+		key,
+		says,
+		verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
+		place=INSTALLATION,
+		rule=STOPPING_SOMEBODY,
+		chain=True,
+	)
+
 #: **Starting anything for another account**: issuing it a credential, minting it a sign-in link and
 #: handing it over, which stay with the administrator of accounts (decision `#4524`). The page said
 #: the account's chain could, which the code has never let it (`SR#5123`).
@@ -711,8 +729,11 @@ ACTS: tuple[Act, ...] = (
 			"Take a private project away from somebody",
 			verbs=(subroutine.permissions.PROJECT_WRITE,),
 			place=PRIVATE_PROJECT,
-			# Decision `#4509`.
+			# Decision `#4509`. **On somebody's own thing, as sharing is** (`SR#5343`, L-5 of
+			# the cold review of 2026-11-11): an administrator who is not its owner is refused it
+			# through the agent tools, and the page did not say so.
 			rule="Whoever stewards a private project decides who sees it.",
+			own=True,
 		),
 		Act(
 			"hide a project",
@@ -768,6 +789,33 @@ ACTS: tuple[Act, ...] = (
 		Act(
 			"colour workspace",
 			"Choose the colour a workspace's work is marked with",
+			verbs=(subroutine.permissions.WORKSPACE_WRITE, subroutine.permissions.WORKSPACE_ADMIN),
+			place=WORKSPACE,
+		),
+		# **Every workspace setting asking more than describing it asks** (`SR#5343`, L-5 of
+		# the cold review of 2026-11-11, decided in `#5285`): the colour alone was here, so the page
+		# left out four acts the agent tools refuse an administrator. The matrix's guard holds it.
+		Act(
+			"hide task statuses",
+			"Choose which task statuses a workspace offers",
+			verbs=(subroutine.permissions.WORKSPACE_WRITE, subroutine.permissions.WORKSPACE_ADMIN),
+			place=WORKSPACE,
+		),
+		Act(
+			"hide document statuses",
+			"Choose which document statuses a workspace offers",
+			verbs=(subroutine.permissions.WORKSPACE_WRITE, subroutine.permissions.WORKSPACE_ADMIN),
+			place=WORKSPACE,
+		),
+		Act(
+			"aim osc",
+			"Choose where a workspace sends OSC",
+			verbs=(subroutine.permissions.WORKSPACE_WRITE, subroutine.permissions.WORKSPACE_ADMIN),
+			place=WORKSPACE,
+		),
+		Act(
+			"title osc",
+			"Choose whether a workspace's OSC carries titles",
 			verbs=(subroutine.permissions.WORKSPACE_WRITE, subroutine.permissions.WORKSPACE_ADMIN),
 			place=WORKSPACE,
 		),
@@ -854,22 +902,8 @@ ACTS: tuple[Act, ...] = (
 			rule=STARTING_FOR_SOMEBODY,
 			secret=True,
 		),
-		Act(
-			"sign somebody out",
-			"Sign another person out everywhere",
-			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
-			place=INSTALLATION,
-			rule=STOPPING_SOMEBODY,
-			chain=True,
-		),
-		Act(
-			"revoke somebody's token",
-			"Revoke another person's credential",
-			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
-			place=INSTALLATION,
-			rule=STOPPING_SOMEBODY,
-			chain=True,
-		),
+		_stopping("sign somebody out", "Sign another person out everywhere"),
+		_stopping("revoke somebody's token", "Revoke another person's credential"),
 		Act(
 			"reset somebody's feed",
 			"Reset another person's calendar feed",
@@ -877,22 +911,8 @@ ACTS: tuple[Act, ...] = (
 			rule="Only its owner resets a feed.",
 			secret=True,
 		),
-		Act(
-			"revoke somebody's feed",
-			"Revoke another person's calendar feed",
-			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
-			place=INSTALLATION,
-			rule=STOPPING_SOMEBODY,
-			chain=True,
-		),
-		Act(
-			"deactivate somebody",
-			"Mark somebody as having left",
-			verbs=(subroutine.permissions.INSTANCE_USER_CREATE,),
-			place=INSTALLATION,
-			rule=STOPPING_SOMEBODY,
-			chain=True,
-		),
+		_stopping("revoke somebody's feed", "Revoke another person's calendar feed"),
+		_stopping("deactivate somebody", "Mark somebody as having left"),
 		Act(
 			"transfer an agent",
 			"Hand somebody's agent to another person",
