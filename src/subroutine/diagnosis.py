@@ -86,6 +86,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 		*_the_handovers(resolved),
 		*_the_backups(resolved),
 		*_the_set_aside(resolved, connections),
+		*_the_dump_tools(resolved, connections),
 		*_the_retention(resolved, connections),
 	]
 
@@ -468,6 +469,58 @@ def _one_connection (
 		area=connection.name,
 		detail=f"{version}{schema}, as {me.user.username} ({kind})",
 	)
+
+
+def _the_dump_tools (
+	settings: subroutine.config.Settings, connections: typing.Sequence[Finding] = ()
+) -> list[Finding]:
+	"""Warn where this machine's ``pg_dump`` is newer than the server it backs up - `#5333`.
+
+	**Before a backup, not at a restore** (decided in `#5285`): from 17, ``pg_dump`` writes
+	archives version 16's tools cannot read, so every backup such a machine takes restores only
+	into a newer server, and nothing said so until somebody restored one. Asked of the ``pg_dump``
+	on this terminal's path, which is the one ``db backup`` here runs. **Silent where the database
+	was not reached**, for :func:`_the_set_aside`'s reason, which also names an unusable address;
+	and where ``pg_dump`` is missing, which a backup says itself.
+	"""
+
+	if settings.is_sqlite or not settings.database_url:
+		return []
+
+	try:
+		local = {
+			one.name
+			for one in subroutine.connections.roster(settings).connections
+			if one.url is None
+		}
+
+	except subroutine.errors.SubroutineError:
+		local = set()
+
+	if any(not one.ok and one.area in local for one in connections):
+		return []
+
+	try:
+		engine = subroutine.db.session.create_engine(settings.database_url)
+
+	except Exception:
+		return []
+
+	try:
+		ahead = subroutine.db.backup.tools_ahead(engine)
+
+	except Exception:
+		return []
+
+	finally:
+		engine.dispose()
+
+	if ahead is None:
+		return []
+
+	return [
+		Finding(area="backups", detail=subroutine.db.backup.newer_tools_warning(ahead), ok=False)
+	]
 
 
 def _the_set_aside (

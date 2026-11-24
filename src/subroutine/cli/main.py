@@ -1996,6 +1996,7 @@ def upgrade (
 
 	_say(f"Backed up to {written.path} ({written.size_bytes:,} bytes).")
 	_say_if_still_marked(written)
+	_say_if_only_newer_tools_read_it(written)
 
 	# **Say what the rule is, because an operator cannot otherwise find out** (`#1676`, `#1712`).
 	# This used to say that nothing removed the copy and that every upgrade left one, which was
@@ -2143,6 +2144,7 @@ def database_backup (
 	_say(f"Backed up {_instance_label()} to {written.path}")
 	_say(f"{written.size_bytes:,} bytes, schema {written.schema_head}.")
 	_say_if_still_marked(written)
+	_say_if_only_newer_tools_read_it(written)
 
 	# **Says what it copied, because a hollow backup passed every check there was** (`#395`).
 	# Size and schema were both correct for four backups of an empty instance — an empty
@@ -2177,6 +2179,19 @@ def _say_if_still_marked (written: subroutine.db.backup.Backup) -> None:
 		f"The copy is whole, but stays marked unfinished, so nothing lists or prunes it: its marker "
 		f"could not be removed ({written.still_marked}). To count it: {written.marker_removal}"
 	)
+
+
+def _say_if_only_newer_tools_read_it (written: subroutine.db.backup.Backup) -> None:
+	"""Say that only tools newer than the server can read a copy just taken - `#5333`.
+
+	**Taken all the same** (decided in `#5285`): a backup somebody can restore into a newer server
+	is worth more than none, and the warning says what makes the next one restorable here.
+	"""
+
+	if written.tools_ahead is None:
+		return
+
+	_warn(subroutine.db.backup.newer_tools_warning(written.tools_ahead))
 
 
 def _say_unfinished (stopped: list[subroutine.db.backup.Unfinished]) -> None:
@@ -4200,6 +4215,7 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 
 	_say(f"The database being replaced was saved to {kept.path}")
 	_say_if_still_marked(kept)
+	_say_if_only_newer_tools_read_it(kept)
 
 
 def _report_the_newest_release () -> None:

@@ -208,6 +208,11 @@ class Backup:
 	#: said nothing of it described a backup no listing shows. Only a copy just taken knows this.
 	still_marked: str | None = None
 
+	#: The major versions of the ``pg_dump`` that wrote this copy and of its server, where the first
+	#: is newer (`#5333`, decided in `#5285`): only that version's tools or newer can read it, and
+	#: they do not restore into this server. Read off the archive just written; ``None`` otherwise.
+	tools_ahead: tuple[int, int] | None = None
+
 	@property
 	def name (self) -> str:
 		"""Return the filename, which is what an operator names on the command line."""
@@ -1672,6 +1677,8 @@ def take (
 		shutil.rmtree(staged.parent, ignore_errors=True)
 
 	held = _holdings(engine)
+	# **Whether only newer tools can read it** (`#5333`), off the archive itself.
+	ahead = None if _is_sqlite(engine) else _ahead(_dumped_by(target), _server_major(engine))
 
 	# **Written now, because now is the only moment anything knows** (`#432`). The counts come
 	# off the *source*, and by the time somebody lists this directory the source may have moved
@@ -1690,6 +1697,7 @@ def take (
 		removed=tuple(_pruned_after(settings, taken_for=taken_for, keep=keep, now=taken_at)),
 		left_out=left_out,
 		still_marked=still_marked,
+		tools_ahead=ahead,
 	)
 
 
@@ -2573,6 +2581,117 @@ def _major_version (printed: str) -> int | None:
 	return None if found is None else int(found.group(1))
 
 
+#: What every archive ``pg_dump`` writes opens with.
+_ARCHIVE_MAGIC = b"PGDMP"
+
+
+def _dump_version_in (head: bytes) -> int | None:
+	"""Return the major version of the ``pg_dump`` an archive's opening says wrote it, or ``None``.
+
+	**Read from the archive, not from a table of format versions** (`#5333`; the table is what
+	`#5285` did not take). The custom format's header says it in a fixed place, as ``pg_restore
+	-l`` prints it: the magic, three version bytes, the sizes of an integer and an offset, the
+	format, then the compression - a byte from format 1.15, an integer before - seven integers of
+	timestamp, and three strings: the database's name, the server's version and the version of
+	the ``pg_dump`` that wrote it. An integer is a sign byte and that many bytes, little-endian; a
+	string is its length and its bytes. **Anything else is ``None``**, so an archive this cannot
+	read leaves a remedy as it was rather than naming a cause nothing established.
+	"""
+
+	if not head.startswith(_ARCHIVE_MAGIC) or len(head) < 11 or (head[5], head[6]) < (1, 10):
+		return None
+
+	size = head[8]
+	at = 11 + (1 if (head[5], head[6]) >= (1, 15) else 1 + size) + 7 * (1 + size)
+	said: list[bytes] = []
+
+	for _string in range(3):
+		if at + 1 + size > len(head) or head[at]:
+			return None
+
+		length = int.from_bytes(head[at + 1 : at + 1 + size], "little")
+		at += 1 + size
+		said.append(head[at : at + length])
+		at += length
+
+	if at > len(head):
+		return None
+
+	return _major_version(f"(PostgreSQL) {said[2].decode(errors='replace')}")
+
+
+def _dumped_by (source: pathlib.Path) -> int | None:
+	"""Return the major version of the ``pg_dump`` that wrote an archive, or ``None`` if unsaid."""
+
+	try:
+		with source.open("rb") as archive:
+			return _dump_version_in(archive.read(4096))
+
+	except OSError:
+		return None
+
+
+def _server_major (engine: sqlalchemy.engine.Engine) -> int:
+	"""Return the major version of the PostgreSQL server ``engine`` reaches."""
+
+	with engine.connect() as connection:
+		number: str = connection.exec_driver_sql("SHOW server_version_num").scalar_one()
+
+	return int(number) // 10000
+
+
+def _ahead (tools: int | None, server: int) -> tuple[int, int] | None:
+	"""Return the tools' and the server's major versions where the tools are newer, or ``None``."""
+
+	return None if tools is None or tools <= server else (tools, server)
+
+
+def tools_ahead (engine: sqlalchemy.engine.Engine) -> tuple[int, int] | None:
+	"""Return this machine's ``pg_dump`` and the server's major versions where it is newer.
+
+	For ``doctor``, which has no archive just written to read it off (`#5333`). ``None`` where they
+	agree, where ``pg_dump`` is older, or where its version cannot be read.
+	"""
+
+	tools = _major_version(_run(["pg_dump", "--version"], what="pg_dump"))
+
+	return _ahead(tools, _server_major(engine))
+
+
+def newer_tools_warning (ahead: tuple[int, int]) -> str:
+	"""Say what a backup by a ``pg_dump`` newer than its server costs, and what to do - `#5333`."""
+
+	tools, server = ahead
+
+	return (
+		f"This pg_dump is version {tools} and the server is version {server}, so a backup can be "
+		f"read only by version {tools}'s tools or newer, and they do not restore into a version "
+		f"{server} server. Put version {server}'s client tools first on PATH before backing up; on "
+		f"Debian and Ubuntu they come in the postgresql-client-{server} package."
+	)
+
+
+def _what_restores (server: int, dumped: int | None) -> str:
+	"""Say which tools restore an archive into this server, or that none do - `#5283`, `#5333`.
+
+	**The server's own, unless newer ones wrote the archive**: those cannot read it, and the tools
+	that can do not restore into an older server, so it needs a newer one.
+	"""
+
+	if dumped is not None and dumped > server:
+		return (
+			f"Only version {dumped}'s tools or newer can read this backup, and they do not restore "
+			f"into a version {server} server. Restore it into a server of version {dumped} or "
+			"newer."
+		)
+
+	return (
+		f"Put version {server}'s client tools first on PATH, then restore again. On Debian and "
+		f"Ubuntu they come in the postgresql-client-{server} package, in "
+		f"/usr/lib/postgresql/{server}/bin."
+	)
+
+
 def check_tools (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None:
 	"""Refuse a ``pg_restore`` newer than the server it would restore into (`#5280`, `#5283`).
 
@@ -2593,11 +2712,19 @@ def check_tools (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None
 		return
 
 	tool = _major_version(_run(["pg_restore", "--version"], what="pg_restore"))
+	server = _server_major(engine)
+	dumped = _dumped_by(source)
 
-	with engine.connect() as connection:
-		number: str = connection.exec_driver_sql("SHOW server_version_num").scalar_one()
-
-	server = int(number) // 10000
+	# **An archive this pg_restore cannot read** (`#5333`, decided in `#5285`): from 17, ``pg_dump``
+	# writes a format version 16's ``pg_restore`` refuses, *unsupported version (1.16) in file
+	# header*, measured on 2026-11-24 - so the server's own tools, which the refusal below named
+	# alone, could not load a backup newer tools had taken.
+	if tool is not None and dumped is not None and tool < dumped:
+		raise subroutine.errors.ServiceUnavailable(
+			f"This backup was written by pg_dump {dumped}, and this pg_restore is version {tool}, "
+			f"which cannot read an archive from newer tools. Nothing has been changed.",
+			hint=_what_restores(server, dumped),
+		)
 
 	if tool is None or tool <= server:
 		return
@@ -2606,11 +2733,7 @@ def check_tools (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None
 		f"This pg_restore is version {tool} and the server is version {server}, and PostgreSQL's "
 		f"tools do not promise to restore into a server older than themselves. Nothing has been "
 		f"changed.",
-		hint=(
-			f"Put version {server}'s client tools first on PATH, then restore again. On Debian and "
-			f"Ubuntu they come in the postgresql-client-{server} package, in "
-			f"/usr/lib/postgresql/{server}/bin."
-		),
+		hint=_what_restores(server, dumped),
 	)
 
 

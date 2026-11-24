@@ -3814,6 +3814,191 @@ def test_db_restore_refuses_newer_tools_before_taking_a_safety_copy (
 	assert sorted(path.name for path in written.path.parent.iterdir()) == kept, "a copy was taken"
 
 
+#: The opening of an archive pg_dump 18.7 wrote from a version 16 server, as far as the version
+#: it gives, measured on 2026-11-24 (`SR#5333`): format 1.16, which version 16's pg_restore
+#: refuses as unsupported.
+DUMPED_BY_18 = bytes.fromhex(
+	"5047444d5001100004080101000e000000001100000000100000000018000000000a000000007e000000000000"
+	"00000008000000706f737467726573001f00000031362e3136202844656269616e2031362e31362d312e706764"
+	"6731332b3129001d00000031382e37202844656269616e2031382e372d312e7067646731332b3529"
+)
+
+
+def _archive_by (major: int, path: pathlib.Path, minor: int = 16) -> pathlib.Path:
+	"""Write the opening of an archive ``pg_dump`` ``major`` wrote, in format 1.``minor``."""
+
+	def number (value: int) -> bytes:
+		"""Return an integer as the format writes one: a sign byte, then four bytes."""
+
+		return b"\x00" + value.to_bytes(4, "little")
+
+	def text (value: str) -> bytes:
+		"""Return a string as the format writes one: its length, then its bytes."""
+
+		return number(len(value)) + value.encode()
+
+	compression = b"\x00" if minor >= 15 else number(0)
+	path.write_bytes(
+		b"PGDMP" + bytes([1, minor, 0, 4, 8, 1]) + compression
+		+ b"".join(number(0) for _field in range(7))
+		+ text("postgres") + text(f"{major}.1") + text(f"{major}.1")
+	)
+
+	return path
+
+
+def _dumping (version: int, ran: list[list[str]]) -> typing.Callable[..., str]:
+	"""Stand in for ``_run``: ``pg_dump --version`` says ``version``, and every other tool runs."""
+
+	real = subroutine.db.backup._run
+
+	def reported (command: list[str], *, what: str, secrets: dict[str, str] | None = None) -> str:
+		"""Answer the version question as told, and hand everything else to the real tool."""
+
+		ran.append(command)
+
+		if command == ["pg_dump", "--version"]:
+			return f"pg_dump (PostgreSQL) {version}.0\n"
+
+		return real(command, what=what, secrets=secrets)
+
+	return reported
+
+
+def test_an_archive_says_which_pg_dump_wrote_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#5333`: read off the archive's own header, and nothing where it says nothing.
+
+	The measured opening of pg_dump 18's archive, one written here for a format with the
+	compression as a byte and one for the format before, where it was an integer; and what is no
+	archive, an archive cut short and a file that is not there.
+	"""
+
+	read = subroutine.db.backup._dump_version_in
+
+	assert read(DUMPED_BY_18) == 18
+	assert read(_archive_by(17, tmp_path / "a.dump").read_bytes()) == 17
+	assert read(_archive_by(14, tmp_path / "b.dump", minor=14).read_bytes()) == 14
+	assert read(b"-- PostgreSQL database dump") is None
+	assert read(DUMPED_BY_18[:100]) is None
+	assert subroutine.db.backup._dumped_by(tmp_path / "missing.dump") is None
+
+
+# **PostgreSQL alone**, as `SR#5332` set the tests beside these: on SQLite nothing is asked.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
+def test_a_backup_says_when_only_newer_tools_can_read_it (
+	own_database: str,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5333`: a backup by a pg_dump newer than its server is taken, and said to be one.
+
+	**Read off the archive the backup wrote**, which here says what this machine's pg_dump is. A
+	newer one is faked by what the archive is read as, one major version ahead of the server.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", own_database)
+	server = _server_major(own_database)
+	here = subroutine.db.backup._major_version(
+		subprocess.run(["pg_dump", "--version"], capture_output=True, text=True).stdout
+	)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	assert subroutine.db.backup._dumped_by(written.path) == here
+	assert written.tools_ahead == subroutine.db.backup._ahead(here, server)
+
+	monkeypatch.setattr(subroutine.db.backup, "_dumped_by", lambda _path: server + 1)
+	backed_up = run("db", "backup")
+	said = " ".join(backed_up.output.split())
+
+	assert f"This pg_dump is version {server + 1} and the server is version {server}" in said, said
+	assert f"postgresql-client-{server}" in said, said
+	assert "Backed up" in said, "the backup was not taken"
+
+
+# **PostgreSQL alone**, as `SR#5332` set the tests beside these.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
+def test_a_restore_names_only_tools_that_can_read_the_backup (
+	own_database: str, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#5333`: an archive newer tools wrote is refused by older ones, and the remedy fits it.
+
+	With the server's own pg_restore, an archive pg_dump one version newer wrote is refused before
+	anything is touched; with a pg_restore newer than the server, the refusal names a newer server
+	rather than the server's own tools, which cannot read it. An archive by the server's own
+	version still names those.
+	"""
+
+	server = _server_major(own_database)
+	suffix = subroutine.db.backup.POSTGRESQL_ARCHIVE_SUFFIX
+	newer = _archive_by(server + 1, tmp_path / f"newer{suffix}")
+	own = _archive_by(server, tmp_path / f"own{suffix}")
+	engine = subroutine.db.session.create_engine(own_database)
+
+	def refusal (tool: int, archive: pathlib.Path) -> subroutine.errors.ServiceUnavailable:
+		"""Return what the check says of one archive, with ``pg_restore`` saying ``tool``."""
+
+		monkeypatch.setattr(subroutine.db.backup, "_run", _reporting(tool, []))
+
+		with pytest.raises(subroutine.errors.ServiceUnavailable) as refused:
+			subroutine.db.backup.check_tools(engine, archive)
+
+		return refused.value
+
+	try:
+		unreadable = refusal(server, newer)
+		older = refusal(server + 1, newer)
+		ordinary = refusal(server + 1, own)
+
+	finally:
+		engine.dispose()
+
+	assert (
+		f"written by pg_dump {server + 1}, and this pg_restore is version {server}"
+		in unreadable.detail
+	)
+	assert "Nothing has been changed" in unreadable.detail
+	assert f"server of version {server + 1} or newer" in (unreadable.hint or "")
+	assert f"version {server + 1} and the server is version {server}" in older.detail
+	assert f"server of version {server + 1} or newer" in (older.hint or "")
+	assert "postgresql-client" not in (older.hint or ""), "it named tools that cannot read it"
+	assert f"postgresql-client-{server}" in (ordinary.hint or "")
+
+
+# **PostgreSQL alone**, as `SR#5332` set the tests beside these.
+@pytest.mark.parametrize("own_database", ["postgresql"], indirect=True)
+def test_doctor_warns_of_a_pg_dump_newer_than_its_server (
+	own_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#5333`: said before a backup is taken, and nothing where pg_dump is the server's own."""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+	server = _server_major(own_database)
+	settings = subroutine.config.Settings(dev_mode=True, database_url=own_database)
+
+	monkeypatch.setattr(subroutine.db.backup, "_run", _dumping(server + 1, []))
+	ahead = subroutine.diagnosis._the_dump_tools(settings)
+	# **Asked by doctor itself**, past its connections' check, which this database's lack of an
+	# account would fail and so silence it, as it silences the set-aside check.
+	monkeypatch.setattr(subroutine.diagnosis, "_the_connections", lambda _settings: [])
+	examined = subroutine.diagnosis.examine(settings)
+	monkeypatch.setattr(subroutine.db.backup, "_run", _dumping(server, []))
+	level = subroutine.diagnosis._the_dump_tools(settings)
+
+	assert [(one.area, one.ok) for one in ahead] == [("backups", False)], ahead
+	assert f"This pg_dump is version {server + 1}" in ahead[0].detail
+	assert ahead[0] in examined, "doctor does not ask it"
+	assert level == []
+
+
 # --------------------------------------------------------------------------------------
 # Three lifetimes in one directory (`#1712`)
 # --------------------------------------------------------------------------------------

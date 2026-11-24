@@ -44,7 +44,11 @@ upgrade involves.
   version 17 cannot restore into a version 16 server, so on a machine whose client tools are newer
   than its server - Ubuntu 26.04's beside a `postgres:16` container, say - every restore failed in
   PostgreSQL's words, naming neither version. `db restore` now refuses before anything is touched,
-  naming both versions and the tools to use instead.
+  naming both versions and the tools to use instead. **And from version 17 `pg_dump` writes
+  archives version 16's tools cannot read**, so on such a machine every backup could be restored
+  only into a newer server, and nothing said so until a restore: `db backup` and `doctor` now say
+  so, and a restore of an archive newer tools wrote names what can restore it rather than tools
+  that cannot read it.
 - **`db restore --recover` refuses a backup taken from another instance.** Recovering one instance's
   backup into another restored it without a word and gave the second the first's identity, so two
   instances claimed one and an agent's cache keyed on it pointed at the wrong data. It now refuses
