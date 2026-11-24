@@ -8537,6 +8537,34 @@ MENTION_CORPUS = (
 )
 
 
+def test_only_a_missing_answer_asks_which_occurrences (tmp_path: pathlib.Path) -> None:
+	"""`SR#5322`: the refusal asking which occurrences is answered by asking, and nothing else is.
+
+	**A wrong answer is never asked about again**, so an answer the instance turns down cannot
+	put the question back in a loop.
+	"""
+
+	module = _staged(tmp_path)
+	asked = _ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const refused = (status, code, field = "applies_to") => (
+			{{ status, body: {{ errors: [{{ field, code, message: "-" }}] }} }}
+		);
+
+		process.stdout.write(JSON.stringify([
+			refused(422, "missing_field"),
+			refused(422, "invalid_field_value"),
+			refused(422, "missing_field", "recurrence"),
+			refused(409, "missing_field"),
+			{{ status: 422 }},
+			null,
+		].map(app.asksWhichOccurrences)));
+	""")
+
+	assert asked == [True, False, False, False, False, False]
+
+
 def test_the_browser_and_the_index_share_one_mention_rule (tmp_path: pathlib.Path) -> None:
 	"""Two copies of a rule that must agree is this codebase's signature defect.
 

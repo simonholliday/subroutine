@@ -979,6 +979,31 @@ REFUSED: dict[str, typing.Any] = {
 	"detail": "This needs the 'task:write' permission.",
 }
 
+#: The instance asking which occurrences a write is for, as it refuses one that does not say
+#: (`SR#5322`): `missing_field` on ``applies_to``, its own words.
+WHICH_OCCURRENCES: dict[str, typing.Any] = {
+	"type": "about:blank", "title": "Unprocessable Content", "status": 422, "code": "missing_field",
+	"detail": "That repeats, so this change has to say which occurrences it is for.",
+	"errors": [{
+		"field": "applies_to", "code": "missing_field",
+		"message": "An edit to a repeating item says whether it is for this one or every one "
+		"from now on.",
+	}],
+}
+
+#: An answer the instance turns down, in its own words - which the page says, and never asks
+#: about again (`SR#5322`).
+NOT_FROM_NOW_ON: dict[str, typing.Any] = {
+	"type": "about:blank", "title": "Unprocessable Content", "status": 422,
+	"code": "invalid_field_value",
+	"detail": "Every one from now on includes one where you cannot see it, so this cannot change "
+	"from here.",
+	"errors": [{
+		"field": "applies_to", "code": "invalid_field_value",
+		"message": "One of them is where you cannot see it.",
+	}],
+}
+
 #: The row for :data:`CARD` itself, by its own address rather than by position.
 CARD_ROW = ".rows li:has(a[href$='/42'])"
 
@@ -1151,6 +1176,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: ``written`` count what was stored; the whole address, because which workspace it asked
 	#: travels as ``?workspace_id=`` and the path alone cannot say.
 	previewed: list[tuple[str, str | None]] = []
+	#: Whether a write that does not say which occurrences is refused for it (`SR#5322`), as the
+	#: instance refuses an occurrence of a stopped series filed where its reader cannot see, which
+	#: reads as a one-off; and every one from now on is then refused in the instance's words.
+	unasked: list[bool] = [False]
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
 	#: The problem document a refused write carries - `SR#2434`. A holder for `listing`'s reason,
@@ -1237,6 +1266,20 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# Fourth time a harness gap here has been indistinguishable from a missing test.
 				if wanted.startswith("v1/workspaces/") and route.request.method == "PATCH":
 					_prioritised(roster, wanted.split("/")[2], route.request.post_data)
+
+				# **Asked which occurrences, where the write does not say** (`SR#5322`).
+				if unasked[0] and route.request.method == "PATCH":
+					answer = json.loads(route.request.post_data or "{}").get("applies_to")
+					refusal = {None: WHICH_OCCURRENCES, "from_now_on": NOT_FROM_NOW_ON}.get(answer)
+
+					if refusal is not None:
+						route.fulfill(
+							status=422,
+							body=json.dumps(refusal),
+							content_type="application/problem+json",
+						)
+
+						return
 
 				# **A write can be made to fail**, because half of what a form does is decided
 				# by the refusal: a page that only ever succeeds cannot show whether typing
@@ -1469,6 +1512,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		roster[0] = IDENTITY
 		missing[0] = set()
 		repeating[0] = False
+		unasked[0] = False
 		previewed.clear()
 		written.clear()
 		reads.clear()
@@ -1478,7 +1522,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		yield (
 			# `refused_with` before `restore`, because `tidy` takes `restore` from the end.
 			opened, written, refusing, roster, missing, reads, unreadable, repeating, previewed,
-			refused_with, restore,
+			unasked, refused_with, restore,
 		)
 	finally:
 		context.close()
@@ -3090,7 +3134,8 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 	a deferral until M-21 of the cold review of 2026-09-28 found it.
 	"""
 
-	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating, *_ = running
+	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating, *rest = running
+	unasked = rest[1]
 
 	repeating[0] = True
 
@@ -3166,8 +3211,50 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 			f"emptying the Until day did not clear the end: {cleared}"
 		)
 
+		# **And asked after all, where only the instance knows it repeats** (`SR#5322`, decided
+		# in `SR#5285`), folded in because this already saves and hands over: an occurrence of a
+		# stopped series filed where its reader cannot see reads as a one-off, so the page asked
+		# nothing and every save was refused. The refusal puts the question; *just this one* saves
+		# it, and *every one from now on* is said in the instance's words and not asked again.
+		repeating[0] = False
+		unasked[0] = True
+		page = opened("/")
+		page.wait_for_selector(".listing.agenda", timeout=10_000)
+		page.click(".listing.agenda a.row[href='/projects/subroutine/ui/94']")
+		page.wait_for_selector(".detail button.edit", timeout=10_000)
+		page.click(".detail button.edit")
+		page.wait_for_selector(".detail form.editing input[name=title]", timeout=10_000)
+		written.clear()
+
+		page.fill(".detail form.editing input[name=title]", "Fix the deploy script today")
+		page.click(".detail form.editing button[type='submit']")
+		page.wait_for_selector(".asking", timeout=10_000)
+		page.click(".asking button:text('Just this one')")
+		_until(page, lambda: len([one for one in written if one[0] == "PATCH"]) == 2)
+
+		saves = [json.loads(one[2] or "{}") for one in written if one[0] == "PATCH"]
+
+		assert "applies_to" not in saves[0] and saves[1].get("applies_to") == "this_one", saves
+		assert saves[1]["title"] == "Fix the deploy script today", saves
+
+		page.wait_for_selector(".detail .doing label.assign", timeout=10_000)
+		written.clear()
+		page.select_option(".detail .doing label.assign:last-of-type select", "si")
+		page.wait_for_selector(".asking", timeout=10_000)
+		page.click(".asking button:text('Every one from now on')")
+		page.wait_for_selector(".note.bad", timeout=10_000)
+
+		handed = [json.loads(one[2] or "{}") for one in written if one[0] == "PATCH"]
+
+		assert [one.get("applies_to") for one in handed] == [None, "from_now_on"], handed
+		assert "where you cannot see it" in page.inner_text(".note.bad"), (
+			"the instance's refusal of every one from now on was not said"
+		)
+		assert page.locator(".asking").count() == 0, "a refused answer was asked about again"
+
 	finally:
 		repeating[0] = False
+		unasked[0] = False
 
 
 def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) -> None:

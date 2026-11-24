@@ -31,8 +31,9 @@ import {
 	withShowing, widened,
 } from "./address.js";
 import {
-	Boundary, aboutTheProject, accumulated, forgiven, inOrder, mergeOrder, newestFirst, notAdded,
-	notChanged, projectGone, refusal, stillSaid, sunkOrder, unpacked, unrenderable, unsaved,
+	Boundary, aboutTheProject, accumulated, asksWhichOccurrences, forgiven, inOrder, mergeOrder,
+	newestFirst, notAdded, notChanged, projectGone, refusal, stillSaid, sunkOrder, unpacked,
+	unrenderable, unsaved,
 } from "./answers.js";
 import {
 	Facts, Foot, Note, Place, Prose, SAVING_VIEW, SavedViews, THEMES, Theme, Wordmark, You,
@@ -2269,7 +2270,7 @@ export function App () {
 		await relist();
 	}, [refresh, relist, stillOpen]);
 
-	const wrote = useCallback(async (row, said, run, { hinted = false } = {}) => {
+	const wrote = useCallback(async (row, said, run, { hinted = false, unasked = null } = {}) => {
 		/*
 			**One path for every write, and the whole of why it exists is the failure case.**
 
@@ -2292,6 +2293,14 @@ export function App () {
 
 			return answer;
 		} catch (failure) {
+			/* **Asked, where the instance says the write has to say** (`SR#5322`): `unasked` puts
+			   the question a write sent without an answer would have put, had the page known. */
+			if (unasked && asksWhichOccurrences(failure)) {
+				unasked();
+
+				return null;
+			}
+
 			setNote({ text: notChanged(row.ref, failure, { hinted }), tone: "bad" });
 
 			return null;
@@ -2326,13 +2335,14 @@ export function App () {
 
 	/* **`inside` for `status`'s reason** (`#1040`): assigning somebody else's item to somebody
 	   is a write nobody can see they made. */
-	const assigning = useCallback((row, who, inside, appliesTo) => wrote(
+	const assigning = useCallback((row, who, inside, appliesTo, unasked = null) => wrote(
 		row,
 		() => ({
 			text: who ? `#${row.ref} is ${who}'s.` : `#${row.ref} is nobody's now.`,
 			tone: "good",
 		}),
 		() => sent(assignRequest(row, who, inside, appliesTo)),
+		{ unasked },
 	), [wrote]);
 
 	/*
@@ -2346,12 +2356,16 @@ export function App () {
 		applies_to* is not something anybody can do from a select.
 	*/
 	const assign = useCallback((row, who, inside = workspace) => {
-		if (!repeats(row)) return assigning(row, who, inside, null);
-
-		setAsking({
+		const asking = {
 			what: who ? `giving it to ${who}` : "taking it off everybody",
 			run: (appliesTo) => assigning(row, who, inside, appliesTo),
-		});
+		};
+
+		/* **And asked after all, where the instance says it repeats** (`SR#5322`): the row can
+		   say nothing of its series, so the question waits for the refusal that says it. */
+		if (!repeats(row)) return assigning(row, who, inside, null, () => setAsking(asking));
+
+		setAsking(asking);
 
 		return null;
 	}, [assigning, workspace]);
@@ -2509,6 +2523,19 @@ export function App () {
 
 			if (theirs) {
 				setConflict(theirs);
+
+				return;
+			}
+
+			/*
+				**The question after all, where the instance asks it** (`SR#5322`, decided in
+				`#5285`): an occurrence of a stopped series filed where its reader cannot see reads
+				as a one-off here, so `save` asked nothing and every save was refused. The answer
+				sends the save again. **Only where nothing moved**, since sending it again would
+				move it a second time; the note below then says the move stands.
+			*/
+			if (appliesTo === null && base === open.item && asksWhichOccurrences(failure)) {
+				setAsking({ what: "this change", run: (answer) => saving(values, answer, opened) });
 
 				return;
 			}
@@ -4371,6 +4398,7 @@ export {
 	WRITTEN_FOR_ANYBODY,
 	aboutTheProject,
 	accumulated,
+	asksWhichOccurrences,
 	forgiven,
 	inOrder,
 	mergeOrder,

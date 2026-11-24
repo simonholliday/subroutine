@@ -422,6 +422,27 @@ const NOTHING_KEPT = Object.freeze({
    which both kinds say together, so no refusal of one kind's is there to forgive. */
 const ONE_KIND_ONLY = ["query.type", "query.status"];
 
+export function asksWhichOccurrences (failure) {
+	/*
+		Whether a refused write is the instance asking which occurrences it is for - `SR#5322`,
+		decided in `#5285`.
+
+		**The page's idea of whether an item repeats can be wrong**, and then only the refusal
+		says so: an occurrence of a stopped series filed where its reader cannot see says nothing
+		of its series, so `repeats` reads it as a one-off, the page never asks, and every save is
+		refused *say which occurrences*. So that refusal is answered by asking.
+
+		**Only the missing answer, never a wrong one** - `missing_field`, not
+		`invalid_field_value` - so a question already answered is never put again: an answer the
+		instance turns down is said in its own words.
+	*/
+	if (!failure || failure.status !== 422 || !failure.body) return false;
+
+	return (failure.body.errors || []).some(
+		(one) => one.field === "applies_to" && one.code === "missing_field"
+	);
+}
+
 export function namesTheOtherKind (failure) {
 	/*
 		Whether a refusal is one collection declining what the other kind has — `#3592`.
