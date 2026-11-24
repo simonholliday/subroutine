@@ -1869,8 +1869,10 @@ Two things worth knowing rather than guessing:
   every unspent link and live session that person has.
 
 **If you run the app under your own uvicorn or gunicorn rather than `subroutine serve`**, call
-`subroutine.api.logs.redact_access_logs()` before starting it; the filter belongs to a logger in
-your process, and nothing else installs it for you.
+`subroutine.api.logs.redact_access_logs()` and `subroutine.api.logs.report_each_error_once()`
+before starting it. The filters belong to loggers in your process, and nothing else installs
+them for you; without the second, each unexpected failure is logged twice, with its whole
+traceback each time.
 
 ## Upgrading
 
