@@ -30,19 +30,21 @@ import subroutine.api.app
 #: The workspaces the rehearsal's installation holds, the last of them deleted by the release.
 WORKSPACES = ("metacortex", "zion", "construct")
 
-#: The listings read back page by page, two rows at a time, and the orders a task listing is
-#: paged in - a computed sort is where a cursor once answered 500 past the first page.
-PAGED = (
-	"/v1/tasks", "/v1/documents", "/v1/changes", "/v1/journal", "/v1/users",
-	"/v1/export/tasks", "/v1/export/events", "/v1/export/users",
-)
+#: The routes taking a cursor that are not read back page by page, each with why. **Every other
+#: one is, two rows at a time, at every address it is asked at** (`SR#5328`, L-3 of the cold review
+#: of 2026-11-11): a list written by hand paged six of the thirty-two, and named two that take no
+#: cursor. ``tests/test_rehearse_upgrade.py`` refuses an entry for a route that takes none.
+NOT_PAGED: dict[str, str] = {}
+
+#: The orders a task listing is paged in beside its own - a computed sort is where a cursor once
+#: answered 500 past the first page.
 ORDERS = ("priority_score", "-priority_score", "due_at", "-due_at")
 
 #: The query parameters a read route declares that :func:`samples` gives no value to, and why.
 #: ``tests/test_rehearse_upgrade.py`` holds the two together both ways, so a parameter a route
 #: gains is asked about from the day it exists, rather than read past by a sweep that says nothing.
 NOT_SAMPLED = {
-	"cursor": "every listing is paged through by its own next cursor",
+	"cursor": "every route taking one is paged through by its own next cursor, bar NOT_PAGED's",
 	"to": "asked only beside 'transferring', and refused alone before anything is read; the pair "
 	"asks what 'leaving' asks, which is sampled",
 	"transferring": "asked only beside 'to', and refused alone before anything is read; the pair "
@@ -81,6 +83,14 @@ def samples (pricing: str) -> dict[str, tuple[str, ...]]:
 		"type": ("bug", "decision"), "unscheduled_limit": ("3",), "until": ("2026-12-31",),
 		"visibility": ("private",), "link": ("not-a-link",),
 	}
+
+
+def paged (declared: dict[str, list[str]]) -> list[str]:
+	"""Return every route taking a cursor that :data:`NOT_PAGED` does not excuse, in order."""
+
+	return sorted(
+		path for path, names in declared.items() if "cursor" in names and path not in NOT_PAGED
+	)
 
 
 def rows_of (body: typing.Any) -> list[typing.Any]:
@@ -145,6 +155,8 @@ class Sweep:
 				}
 			)
 			asked: set[str] = set()
+			cursored = set(paged(self.declared))
+			paging = [one for one in templates if one.replace(":path", "") in cursored]
 
 			for who in (*self.credentials, "nobody"):
 				for workspace in WORKSPACES:
@@ -154,9 +166,13 @@ class Sweep:
 							await self._get(who, path)
 
 				for workspace in WORKSPACES[:2]:
-					for listing in PAGED:
-						scope = f"?workspace_id={workspace}" if "workspace_id" in self.declared.get(listing, []) else ""
-						await self._page_through(who, listing + scope)
+					for template in paging:
+						addresses = self._addresses(
+							template, found[workspace], workspace, usernames, sampled=False
+						)
+
+						for path in addresses:
+							await self._page_through(who, path)
 
 					for order in ORDERS:
 						await self._page_through(who, f"/v1/tasks?workspace_id={workspace}&order={order}")
@@ -237,9 +253,18 @@ class Sweep:
 		return [*names, "nobody-at-all"]
 
 	def _addresses (
-		self, template: str, held: dict[str, list[str]], workspace: str, usernames: list[str]
+		self,
+		template: str,
+		held: dict[str, list[str]],
+		workspace: str,
+		usernames: list[str],
+		*,
+		sampled: bool = True,
 	) -> list[str]:
-		"""Return every address one route is asked at in one workspace, with its query variants."""
+		"""Return every address one route is asked at in one workspace, with its query variants.
+
+		``sampled=False`` leaves the variants out, for a listing that is paged through instead.
+		"""
 
 		paths = [template]
 
@@ -271,7 +296,12 @@ class Sweep:
 
 		declared = self.declared.get(template.replace(":path", ""), [])
 		scope = f"workspace_id={workspace}" if "workspace_id" in declared else ""
-		variants = ["", *(f"{name}={value}" for name in declared for value in self.samples.get(name, ()))]
+		variants = [""]
+
+		if sampled:
+			variants += [
+				f"{name}={value}" for name in declared for value in self.samples.get(name, ())
+			]
 
 		return [
 			path + (f"?{query}" if query else "")

@@ -526,3 +526,70 @@ def test_every_query_parameter_a_read_route_declares_is_asked () -> None:
 	assert not declared - covered, f"asked by no sample and excused nowhere: {sorted(declared - covered)}"
 	assert not covered - declared, f"a sample or an excuse for a parameter no read route declares: {sorted(covered - declared)}"
 	assert not set(sweep.samples("1")) & set(sweep.NOT_SAMPLED), "a parameter is both sampled and excused"
+
+
+def test_every_route_taking_a_cursor_is_paged_unless_excused (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#5328`, L-3 of the cold review of 2026-11-11: a list written by hand paged six of 32.
+
+	Fed routes made up for it: one taking a cursor is paged, one excused is not, and one taking no
+	cursor is not.
+	"""
+
+	sweep = _load("rehearse_sweep")
+	monkeypatch.setattr(sweep, "NOT_PAGED", {"/v1/excused": "a reason"})
+	declared = {
+		"/v1/listing": ["cursor", "limit"], "/v1/excused": ["cursor"], "/v1/one": ["fields"]
+	}
+
+	assert sweep.paged(declared) == ["/v1/listing"]
+
+
+def test_every_route_left_unpaged_takes_a_cursor_and_the_rest_are_paged () -> None:
+	"""The register against the application, and a floor under the routes paged."""
+
+	sweep = _load("rehearse_sweep")
+	declared = {
+		path: [
+			one["name"]
+			for one in methods.get("get", {}).get("parameters", [])
+			if one["in"] == "query"
+		]
+		for path, methods in subroutine.api.app.create_app().openapi()["paths"].items()
+	}
+	taking = {path for path, names in declared.items() if "cursor" in names}
+
+	assert set(sweep.NOT_PAGED) <= taking, "an excuse for a route that takes no cursor"
+	assert set(sweep.paged(declared)) == taking - set(sweep.NOT_PAGED)
+	assert len(taking) > 20 and {"/v1/tasks", "/v1/documents"} <= taking, sorted(taking)
+
+
+def test_a_revoked_feed_must_be_asked_and_refused (rehearsal: types.ModuleType) -> None:
+	"""`SR#5328`: the revoked feed answered is a problem, refused is none, and unasked is one."""
+
+	kept = {rehearsal.REVOKED_FEED: "sr_cal_ab12cd34_s3cr3t_x"}
+	address = "/v1/calendars/ab12cd34/s3cr3t_x.ics"
+
+	def swept (*statuses: int) -> dict[str, typing.Any]:
+		"""Return a sweep that met the revoked feed's address once for each status."""
+
+		return {
+			"answers": [{"who": "keanu", "path": address, "status": one} for one in statuses],
+			"never_asked": [],
+		}
+
+	assert rehearsal.sweep_problems(swept(404, 404), kept) == []
+	assert rehearsal.sweep_problems(swept(404, 200), kept) == [
+		"1 x the revoked calendar feed answered 200, as keanu"
+	]
+	assert rehearsal.sweep_problems(swept(), kept) == ["the revoked calendar feed was never asked"]
+	assert rehearsal.sweep_problems(swept(), {}) == [], "a fill keeping no feed is reported already"
+
+
+def test_a_route_the_sweep_never_asked_is_a_problem (rehearsal: types.ModuleType) -> None:
+	"""`SR#5328`: the sweep named it and nothing read it, so a route it stopped reaching passed."""
+
+	swept = {"answers": [], "never_asked": ["/v1/views/{key}"]}
+
+	assert rehearsal.sweep_problems(swept, {}) == ["the sweep never asked /v1/views/{key}"]

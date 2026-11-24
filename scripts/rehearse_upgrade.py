@@ -77,6 +77,10 @@ TOKEN = re.compile(r"sr_[A-Za-z0-9]+_[A-Za-z0-9_.-]+")
 #: The box-drawing characters a refusal's panel is drawn with, which say nothing in a report.
 BORDERS = re.compile(r"[\u2500-\u257f]+")
 
+#: What the fill keeps the calendar feed it revokes under (`SR#5328`), whose address the sweeps
+#: must find refused.
+REVOKED_FEED = "feed-stop"
+
 #: How long one command may take before it counts as hung, and one sweep.
 COMMAND_SECONDS = 300
 SWEEP_SECONDS = 3600
@@ -350,6 +354,51 @@ def lost (before: list[dict[str, typing.Any]], after: list[dict[str, typing.Any]
 	]
 
 
+def served_revoked (answers: list[dict[str, typing.Any]], kept: dict[str, typing.Any]) -> list[str]:
+	"""Return a line if the revoked feed's address was answered, or never asked at all.
+
+	**Refused, and never answered** (`SR#5328`): a feed revoked for good that an upgrade brought
+	back would hand somebody's calendar to whoever still holds the old address. A server error on
+	it is :func:`server_errors`' to report; a sweep that never asked it proves nothing. Nothing is
+	said where the fill kept no feed, since its failure is reported already.
+	"""
+
+	feed = kept.get(REVOKED_FEED)
+
+	if not isinstance(feed, str):
+		return []
+
+	_scheme, _kind, prefix, secret = feed.split("_", 3)
+	address = f"/v1/calendars/{prefix}/{secret}.ics"
+	met = [one for one in answers if str(one["path"]).split("?", 1)[0] == address]
+
+	if not met:
+		return ["the revoked calendar feed was never asked"]
+
+	served = [one for one in met if int(one["status"]) < 400]
+
+	if not served:
+		return []
+
+	statuses = ", ".join(sorted({str(one["status"]) for one in served}))
+	who = ", ".join(sorted({str(one["who"]) for one in served}))
+
+	return [f"{len(served)} x the revoked calendar feed answered {statuses}, as {who}"]
+
+
+def sweep_problems (swept: dict[str, typing.Any], kept: dict[str, typing.Any]) -> list[str]:
+	"""Return what one sweep found wrong besides its server errors: the revoked feed, the unasked.
+
+	**A route never asked is a problem** (`SR#5328`): the sweep reported it and nothing read it, so
+	a route the sweep stopped reaching read exactly like one that answered.
+	"""
+
+	return [
+		*served_revoked(swept["answers"], kept),
+		*(f"the sweep never asked {template}" for template in swept.get("never_asked", [])),
+	]
+
+
 def crashed (ran: Ran) -> bool:
 	"""Say whether a command crashed, rather than answering or refusing.
 
@@ -482,8 +531,11 @@ def fill (here: Installation, release: Program) -> list[str]:
 
 		return found
 
-	def feed (title: str, *flags: str, keep: str) -> None:
-		"""Make a calendar feed and keep its address, which needs the instance's own address."""
+	def feed (title: str, *flags: str, keep: str) -> str | None:
+		"""Make a calendar feed, keep its address and return its reference, or ``None``.
+
+		The address needs the instance's own, so it is read from a reset that is given one.
+		"""
 
 		said = step("calendar", "create", title, *flags)
 		found = re.search(r"calendar reset ([0-9a-f]+)", said)
@@ -491,7 +543,7 @@ def fill (here: Installation, release: Program) -> list[str]:
 		if found is None:
 			failed.append(f"calendar create {title} printed no reference")
 
-			return
+			return None
 
 		shown = here.run(
 			release, "calendar", "reset", found.group(1),
@@ -502,9 +554,13 @@ def fill (here: Installation, release: Program) -> list[str]:
 		if address is None:
 			failed.append(f"calendar reset for {title} printed no address")
 
-			return
+			return None
 
 		here.kept[keep] = f"sr_cal_{address.group(1)}_{address.group(2)}"
+
+		# **The address's prefix, not the one ``create`` printed**: a reset mints a new address, and
+		# its prefix is the feed's reference from then on, so revoking by the first found nothing.
+		return address.group(1)
 
 	# The installation, with a password the release stored and nothing signs in with. Nothing
 	# after a failed ``init`` can work, so that is the one failure said.
@@ -587,7 +643,12 @@ def fill (here: Installation, release: Program) -> list[str]:
 	# Calendar feeds and sign-in links.
 	feed("Work", "-w", "metacortex", keep="feed-work")
 	feed("Mine on the web", "-w", "metacortex", "--mine", "--project", "web", "--expires", "now+90d", keep="feed-mine")
-	feed("To stop", "-w", "metacortex", keep="feed-stop")
+	stopping = feed("To stop", "-w", "metacortex", keep=REVOKED_FEED)
+
+	# **One feed revoked** (`SR#5328`, L-3 of the cold review of 2026-11-11): nothing revoked one,
+	# so no upgrade was rehearsed over a feed stopped for good, whose address must stay refused.
+	if stopping is not None:
+		step("calendar", "revoke", stopping)
 	step("login", "link")
 	step("login", "link", "--username", "gloria")
 
@@ -792,8 +853,11 @@ def drive (here: Installation, build: Program) -> tuple[int, list[str], int]:
 	return ran_count, crashes, refused
 
 
-def sweep (here: Installation, build: Program, label: str) -> list[dict[str, typing.Any]]:
-	"""Ask every read route of the installation under the build, and return what each answered."""
+def sweep (here: Installation, build: Program, label: str) -> dict[str, typing.Any]:
+	"""Ask every read route of the installation under the build, and return what each answered.
+
+	**With the routes it never asked** (`SR#5328`), which were dropped here.
+	"""
 
 	unless_stopping()
 
@@ -818,7 +882,7 @@ def sweep (here: Installation, build: Program, label: str) -> list[dict[str, typ
 	if ran.returncode != 0:
 		raise Refused(f"the reads {label} could not be made: {tail(ran.stdout + ran.stderr, 1500)}")
 
-	return typing.cast(list[dict[str, typing.Any]], json.loads(answers.read_text(encoding="utf-8"))["answers"])
+	return typing.cast(dict[str, typing.Any], json.loads(answers.read_text(encoding="utf-8")))
 
 
 def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path, databases: list[str]) -> Outcome:
@@ -843,11 +907,13 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 		outcome.problems += [f"{release.name} could not: {line}" for line in failed]
 		before = here.crash_reports()
 
-		answers = sweep(here, build, "before the upgrade")
-		earlier = answers
+		swept = sweep(here, build, "before the upgrade")
+		answers = earlier = swept["answers"]
 		errors = server_errors(answers, before_upgrade=True)
 		outcome.lines.append(f"before the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error")
-		outcome.problems += [f"before the upgrade, {line}" for line in errors]
+		outcome.problems += [
+			f"before the upgrade, {line}" for line in errors + sweep_problems(swept, here.kept)
+		]
 
 		upgraded = here.run(build, "db", "upgrade", "--yes")
 		outcome.lines.append(f"db upgrade: exit {upgraded.code}")
@@ -857,14 +923,17 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 
 			return outcome
 
-		answers = sweep(here, build, "after the upgrade")
+		swept = sweep(here, build, "after the upgrade")
+		answers = swept["answers"]
 		errors = server_errors(answers, before_upgrade=False)
 		refused_now = lost(earlier, answers)
 		outcome.lines.append(
 			f"after the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error, "
 			f"{len(refused_now)} kind(s) of read refused that was answered before"
 		)
-		outcome.problems += [f"after the upgrade, {line}" for line in errors]
+		outcome.problems += [
+			f"after the upgrade, {line}" for line in errors + sweep_problems(swept, here.kept)
+		]
 		outcome.problems += [f"after the upgrade, {line}" for line in refused_now]
 
 		count, crashes, refused = drive(here, build)
