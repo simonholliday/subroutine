@@ -388,12 +388,13 @@ passes through its conversation, because the command prints nothing secret.
 **If the session already acts as an agent** - this machine's, from `agent create --store`, say -
 the new agent answers to that one, and a question it hands back reaches it before you. That can
 only happen where the agent may make accounts. `agent create` then says so, and prints the one
-command that makes you the parent instead, which only a person can run:
+command that makes you the parent instead, which only a person who may make accounts can run:
 
 ```console
 Account parent: claude. Answers to jo.
 A question it hands back goes to claude first. To take it on,
-jo runs 'subroutine user transfer web --to jo' - an agent cannot.
+jo runs 'subroutine user transfer web --to jo' if they may make accounts, or
+asks somebody who may - an agent cannot.
 ```
 
 ### Or run it yourself

@@ -3550,9 +3550,13 @@ def _say_whom_it_answers_to (user: subroutine.views.Caller) -> None:
 		return
 
 	_say(f"A question it hands back goes to {user.account_parent} first. To take it on,")
+	# **If they may make accounts** (`SR#5345`, L-5 of the cold review of 2026-11-11): handing an
+	# agent over asks the installation's ``instance:user_create``, and this told any person to run
+	# a command that refuses most of them.
 	_say(
 		f"{user.answers_to} runs 'subroutine user transfer {user.username} --to "
-		f"{user.answers_to}' - an agent cannot."
+		f"{user.answers_to}' if they may make accounts, or asks somebody who may - an agent "
+		"cannot."
 	)
 
 

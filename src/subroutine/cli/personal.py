@@ -10385,10 +10385,11 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		  subroutine user transfer claude --to keanu
 
 		Agents stop when the person answerable for them leaves, so this is how one is kept when
-		somebody goes. Only a person can hand an agent over. It can go to a person, or to an
-		agent whose own chain ends at one. It works in a workspace only while that person is a
-		member there, and this says where it stops. A private project somebody could see only
-		through the agent, and that nobody could see once it moves, is named before and after.
+		somebody goes. Only a person who may make accounts can hand an agent over. It can go to a
+		person, or to an agent whose own chain ends at one. It works in a workspace only while that
+		person is a member there, and this says where it stops. A private project somebody could
+		see only through the agent, and that nobody could see once it moves, is named before and
+		after.
 		"""
 
 		_transferred(program, username=username, to=to, yes=yes)

@@ -3110,7 +3110,11 @@ def test_an_agent_made_by_an_agent_says_how_its_person_takes_it_on (
 
 	command = "subroutine user transfer web --to jo"
 
-	assert f"jo runs '{command}' - an agent cannot." in made, made
+	# **If they may make accounts** (`SR#5345`): handing an agent over asks that of whoever runs it.
+	assert (
+		f"jo runs '{command}' if they may make accounts, or asks somebody who may - an agent "
+		"cannot."
+	) in made, made
 
 	# As the line says, the agent cannot take this step for the person.
 	refused = run(*command.split()[1:], expect=1).output
