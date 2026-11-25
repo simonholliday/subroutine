@@ -81,7 +81,9 @@ class Workspace:
 		session.flush()
 
 	def presenting (self, user: User, **narrowing: typing.Any) -> Principal:
-		"""Return the principal an instance builds from a fresh credential of ``user``'s, narrowed so."""
+		"""Return the principal an instance builds from a fresh credential of ``user``'s,
+		narrowed so.
+		"""
 
 		_row, issued = subroutine.domain.authentication.issue_token(
 			self.session, user=user, title=f"{user.username}'s {uuid.uuid4().hex[:6]}", **narrowing
@@ -97,7 +99,9 @@ class Workspace:
 def test_handing_work_offers_the_share_only_to_a_credential_that_may_share (
 	session: sqlalchemy.orm.Session, scoped: bool
 ) -> None:
-	"""keanu assigns a task in his vault to hugo, who cannot see it: offered the share only if he may."""
+	"""keanu assigns a task in his vault to hugo, who cannot see it: offered the share only if
+	he may.
+	"""
 
 	here = Workspace(session)
 	keanu = here.presenting(here.keanu, scopes=WORKING) if scoped else here.presenting(here.keanu)
@@ -127,8 +131,8 @@ def test_removing_the_last_viewer_offers_publishing_only_to_a_credential_that_ma
 ) -> None:
 	"""carrieanne, standing in for joe, removes herself from his den, and would strand it.
 
-	**A credential narrowed to some projects may share one and not make it public**, since who sees a
-	project is decided at the workspace's place, so the hint offers it only the share.
+	**A credential narrowed to some projects may share one and not make it public**, since who sees
+	a project is decided at the workspace's place, so the hint offers it only the share.
 	"""
 
 	here = Workspace(session)

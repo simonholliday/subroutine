@@ -98,7 +98,8 @@ class Installation:
 
 
 def _asked (
-	application: fastapi.FastAPI, headers: dict[str, str], method: str, path: str, **kwargs: typing.Any
+	application: fastapi.FastAPI, headers: dict[str, str], method: str, path: str,
+	**kwargs: typing.Any
 ) -> tuple[int, dict[str, typing.Any]]:
 	"""Make one request, returning the status and the body."""
 
@@ -136,13 +137,17 @@ def test_an_agent_that_reaches_nothing_is_told_where_it_is_stopped (
 		f"You are a member of {first} and {second}, and stopped in each because "
 		f"{here.carrieanne.username}, whom you answer to, is not a member of any of them."
 	), said
-	assert said["hint"] == f"Ask an administrator of one of them to add {here.carrieanne.username}.", said
+	assert (
+		said["hint"] == f"Ask an administrator of one of them to add {here.carrieanne.username}."
+	), said
 
 
 def test_an_agent_that_reaches_another_is_told_only_of_the_one_it_named (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""claude still reaches Zion: naming MetaCortex says why, naming a stranger is refused as before."""
+	"""claude still reaches Zion: naming MetaCortex says why, naming a stranger is refused
+	as before.
+	"""
 
 	here = Installation(session, in_zion=True)
 	application = api_support.build_app(api_support.factory_for(session))
@@ -170,7 +175,8 @@ def test_an_agent_that_reaches_another_is_told_only_of_the_one_it_named (
 
 
 def test_who_am_i_lists_where_an_agent_is_stopped (session: sqlalchemy.orm.Session) -> None:
-	"""claude's /v1/me lists both, with carrieanne; pinned to the Dojo, only the Dojo; keanu, none."""
+	"""claude's /v1/me lists both, with carrieanne; pinned to the Dojo, only the Dojo; keanu, none.
+	"""
 
 	here = Installation(session)
 	application = api_support.build_app(api_support.factory_for(session))

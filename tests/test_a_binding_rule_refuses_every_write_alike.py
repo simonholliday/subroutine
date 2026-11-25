@@ -1,4 +1,5 @@
-"""A rule that binds the whole workspace refuses every write from beyond a credential's places alike.
+"""A rule that binds the whole workspace refuses every write from beyond a credential's
+places alike.
 
 `SR#5125`, the *Inconsistent concealment* bullet of M-23 of the cold review of 2026-10-17. A rule
 binding the whole workspace is read by every credential in it (decision `#4134`), so a write to one
@@ -48,7 +49,9 @@ class Bound:
 			type_key="decision",
 			binds="workspace",
 		).ref
-		self.task = subroutine.domain.tasks.create(session, project=web, title="Fix the deploy script").ref
+		self.task = (
+			subroutine.domain.tasks.create(session, project=web, title="Fix the deploy script").ref
+		)
 		_row, issued = subroutine.domain.authentication.issue_token(
 			session, user=setup.user, title="Narrowed to web", project_scope=[str(web.id)]
 		)
@@ -71,7 +74,9 @@ class Bound:
 #: Each write to the rule from beyond the credential's places, as the request it is.
 WRITES: dict[str, typing.Callable[[Bound], tuple[str, str, dict[str, typing.Any]]]] = {
 	"retitling it": lambda here: ("PATCH", f"/v1/documents/{here.rule}", {"title": "Name it"}),
-	"commenting on it": lambda here: ("POST", f"/v1/documents/{here.rule}/comments", {"body": "Agreed."}),
+	"commenting on it": lambda here: (
+		"POST", f"/v1/documents/{here.rule}/comments", {"body": "Agreed."}
+	),
 	"linking a task to it": lambda here: (
 		"POST",
 		f"/v1/tasks/{here.task}/links",
@@ -104,4 +109,6 @@ def test_every_write_to_a_binding_rule_beyond_the_credential_is_refused_as_beyon
 	answer = here.call(method, path, json=body)
 
 	assert answer.status_code == 403, answer.text
-	assert "acts beyond the projects the token you used may change" in answer.json()["detail"], answer.text
+	assert (
+		"acts beyond the projects the token you used may change" in answer.json()["detail"]
+	), answer.text

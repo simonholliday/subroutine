@@ -132,7 +132,8 @@ def test_an_upgrade_refused_after_it_moved_on_names_where_it_stopped_and_the_bac
 
 
 def test_a_restored_backup_whose_upgrade_is_refused_says_so (run: Run) -> None:
-	"""``db restore`` offers to upgrade an older backup once it is back, and that upgrade crashed."""
+	"""``db restore`` offers to upgrade an older backup once it is back, and that upgrade crashed.
+	"""
 
 	run("init", "--workspace", "metacortex")
 	url = _with_a_private_inbox(RELEASED)
@@ -145,7 +146,8 @@ def test_a_restored_backup_whose_upgrade_is_refused_says_so (run: Run) -> None:
 def test_the_revision_a_refused_upgrade_names_is_where_each_backend_left_it (
 	migrated_url: str,
 ) -> None:
-	"""On both backends, through :func:`subroutine.db.migrate.upgrade`, which every command calls."""
+	"""On both backends, through :func:`subroutine.db.migrate.upgrade`, which every command calls.
+	"""
 
 	subroutine.db.migrate.downgrade(migrated_url, EARLIER)
 	engine = subroutine.db.session.create_engine(migrated_url)

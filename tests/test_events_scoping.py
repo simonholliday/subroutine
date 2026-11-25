@@ -885,7 +885,8 @@ def test_a_journal_entry_names_nothing_its_reader_may_not_see (
 	outsider = moved(subroutine.domain.authentication.Principal(user=world.outsider))
 
 	assert outsider.after == "open", outsider
-	# **Said as unseen rather than as nothing** (`SR#5148`, decision `#5097`): it was filed somewhere.
+	# **Said as unseen rather than as nothing** (`SR#5148`, decision `#5097`): it was
+	# filed somewhere.
 	assert outsider.before == subroutine.domain.scoping.UNSEEN, (
 		f"the outsider was told where it came from, or that it came from nowhere: {outsider}"
 	)

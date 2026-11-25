@@ -204,7 +204,8 @@ def test_every_surface_says_a_link_to_something_hidden_in_words (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""`SR#5136`: the feed, an item's history and the journal printed the unseen end as the marker's
-	own repr, ``{'visible': False}``. Each says *something you cannot see* where the number would be,
+	own repr, ``{'visible': False}``. Each says *something you cannot see* where the number
+	would be,
 	through both clients and the agent tools; the browser's half is in ``tests/test_web.py``."""
 
 	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
@@ -216,12 +217,16 @@ def test_every_surface_says_a_link_to_something_hidden_in_words (
 
 	with _over_http(world, scene.secret) as remote, _locally(world, scene.outsider) as local:
 		for client in (remote, local):
-			changed = [event for event in client.changes(workspace=slug) if event.entity_type == "link"]
+			changed = [
+				event for event in client.changes(workspace=slug) if event.entity_type == "link"
+			]
 			history = [
 				event for event in client.history(ref=scene.public, workspace=slug)
 				if event.entity_type == "link"
 			]
-			journal = [entry for entry in client.journal(workspace=slug) if entry.entity_type == "link"]
+			journal = [
+				entry for entry in client.journal(workspace=slug) if entry.entity_type == "link"
+			]
 
 			# **One of the two links is to the hidden task**; the other, to the finished one, is
 			# named as it was.
@@ -229,12 +234,17 @@ def test_every_surface_says_a_link_to_something_hidden_in_words (
 				[subroutine.views.happened(event) for event in changed],
 				[subroutine.views.happened(event) for event in history],
 			):
-				assert len(printed) == 2 and [one for one in printed if unseen in one] == [fed], printed
+				assert (
+					len(printed) == 2 and [one for one in printed if unseen in one] == [fed]
+				), printed
 
 			joining = {subroutine.views.a_link_from_this_side(entry): entry for entry in journal}
 
 			assert len(joining) == 2 and joined in joining, joining
-			assert {change.field: change.after for change in joining[joined].changed}["source"] == unseen
+			assert (
+				{change.field: change.after for change in joining[joined].changed}["source"]
+				== unseen
+			)
 
 		server = subroutine.mcp.protocol.Server(
 			subroutine.mcp.tools.catalogue(remote, workspace=slug), name="subroutine", version="0"

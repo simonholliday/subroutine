@@ -169,8 +169,8 @@ DERIVED: dict[str, str] = {
 	"sub_documents": "counted for the page; filing a document under this one is what moves it.",
 
 	#: **`SR#5120`.** Whether a document binds everyone in its workspace, worked out by the instance
-	#: from its mark, its type, its status, the trash and the privacy of the tree above it - each set
-	#: where it is, so nothing sets this.
+	#: from its mark, its type, its status, the trash and the privacy of the tree above it - each
+	#: set where it is, so nothing sets this.
 	"binds_everyone": "worked out from the mark, the type, the status and the tree above it.",
 
 	#: A project's place in the tree, maintained by `domain.hierarchy` when a project moves.

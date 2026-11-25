@@ -2726,7 +2726,9 @@ class Client:
 				subroutine.views.member(
 					row, account=account, role=role, within=chosen, prioritised=focus,
 					answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
-					stopped=subroutine.domain.accountability.OUTSIDE if account.id in outside else None,
+					stopped=(
+						subroutine.domain.accountability.OUTSIDE if account.id in outside else None
+					),
 				)
 				for row, account, role in roster
 			]

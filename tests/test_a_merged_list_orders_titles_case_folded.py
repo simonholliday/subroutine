@@ -1,10 +1,10 @@
 """A merged listing orders titles case-folded, nearer the order the browser shows - `SR#1059`.
 
 **L-7's collation bullet of the cold review of 2026-10-17, decided in `#5097`**: the terminal's
-``list`` merges a page per workspace and per kind, and re-sorted them by code point, so every capital
-came before every lower-case letter - *Water the plants* before *renew the certificate* - where
-PostgreSQL's collation, which the browser shows, reads them as a person would. The merge is the
-client's own sort over pages already fetched, so the backend that answered changes nothing here.
+``list`` merges a page per workspace and per kind, and re-sorted them by code point, so every
+capital came before every lower-case letter - *Water the plants* before *renew the certificate* -
+where PostgreSQL's collation, which the browser shows, reads them as a person would. The merge is
+the client's own sort over pages already fetched, so the backend that answered changes nothing here.
 """
 
 import types
@@ -61,7 +61,9 @@ def test_the_terminal_lists_a_task_page_and_a_document_page_in_one_title_order (
 	run("doc", "create", "Pick up the dry cleaning", "--body", "Before Friday.")
 
 	listed = run("list", "--order", "title").output
-	titles = ["Call the landlord", "Pick up the dry cleaning", "renew the certificate", "Water the plants"]
+	titles = [
+		"Call the landlord", "Pick up the dry cleaning", "renew the certificate", "Water the plants"
+	]
 
 	assert all(title in listed for title in titles), listed
 	assert sorted(titles, key=listed.index) == titles, listed

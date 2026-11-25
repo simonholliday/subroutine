@@ -3638,7 +3638,9 @@ def test_a_url_with_no_password_adds_nothing_to_the_environment () -> None:
 		("a pg_restore that says nothing about its version\n", None),
 	],
 )
-def test_a_tool_s_major_version_is_read_off_what_it_prints (printed: str, major: int | None) -> None:
+def test_a_tool_s_major_version_is_read_off_what_it_prints (
+	printed: str, major: int | None
+) -> None:
 	"""What ``--version`` prints on the platforms met so far, and a build that says nothing."""
 
 	assert subroutine.db.backup._major_version(printed) == major
@@ -3760,7 +3762,8 @@ def test_a_pg_restore_no_newer_than_its_server_is_not_refused (
 def test_a_script_backup_does_not_ask_the_tool_s_version (
 	own_database: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-	"""A script from before `#1554` is loaded by ``psql`` and holds what its own ``pg_dump`` wrote."""
+	"""A script from before `#1554` is loaded by ``psql`` and holds what its own ``pg_dump`` wrote.
+	"""
 
 	ran: list[list[str]] = []
 	monkeypatch.setattr(
@@ -4248,7 +4251,9 @@ def test_a_backup_goes_into_a_folder_whose_name_a_uri_must_encode (
 
 	assert written.path.is_file()
 	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
-	assert sorted(one.name for one in volume.iterdir()) == [folder], "a stray file was left beside it"
+	assert (
+		sorted(one.name for one in volume.iterdir()) == [folder]
+	), "a stray file was left beside it"
 
 
 @pytest.mark.parametrize("folder", AWKWARD_FOLDERS)

@@ -1,10 +1,10 @@
 """A credential narrowed to some projects makes no crossing move - `SR#5102`.
 
 M-5 of the cold review of 2026-10-17, decided in `#5097`: alice's credential, narrowed to ``hidden``
-and ``open``, could not make ``hidden`` public, and moved ``hidden/secret`` out of it, ``open/shown``
-into it, and a task and a document from ``open`` into it - each changing who can see the work as
-surely. **Each is refused, as changing a project's visibility is**, and made by her unnarrowed
-credential; a move that crosses no boundary stays the narrowed one's.
+and ``open``, could not make ``hidden`` public, and moved ``hidden/secret`` out of it,
+``open/shown`` into it, and a task and a document from ``open`` into it - each changing who can see
+the work as surely. **Each is refused, as changing a project's visibility is**, and made by her
+unnarrowed credential; a move that crosses no boundary stays the narrowed one's.
 """
 
 import typing
@@ -84,19 +84,26 @@ def test_a_narrowed_credential_moves_nothing_across_a_privacy_boundary (
 def test_a_narrowed_credential_still_moves_work_that_crosses_no_boundary (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The control: between two public projects it reaches, nobody's sight changes, so it is allowed."""
+	"""The control: between two public projects it reaches, nobody's sight changes, so it
+	is allowed.
+	"""
 
 	world = test_api_tasks._world(session)
 	opened = _made(world, "/v1/projects", key="open", title="Open")
 	spare = _made(world, "/v1/projects", key="spare", title="Spare")
 	_made(world, "/v1/projects", key="shown", title="Shown", parent=opened)
 	task = _made(world, "/v1/tasks", title="Rotate the disks", project="open")
-	narrowed = _credential(world, world.user, project_scope=[opened, spare], project_write_scope=[opened, spare])
+	narrowed = _credential(
+		world, world.user, project_scope=[opened, spare], project_write_scope=[opened, spare]
+	)
 
 	moved = _as(world, narrowed, "POST", "/v1/projects/open/shown/move", json={"parent": "spare"})
 
 	assert moved.status_code == 200, moved.text
-	assert _as(world, narrowed, "PATCH", f"/v1/tasks/{task}", json={"project": "spare"}).status_code == 200
+	assert (
+		_as(world, narrowed, "PATCH", f"/v1/tasks/{task}", json={"project": "spare"}).status_code
+		== 200
+	)
 
 	# **And both moved** (`SR#5346`).
 	assert world.call("GET", "/v1/projects/spare/shown").status_code == 200

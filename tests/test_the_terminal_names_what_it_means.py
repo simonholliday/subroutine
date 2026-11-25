@@ -112,7 +112,9 @@ def test_update_s_refusal_names_every_field_it_takes (run: Run) -> None:
 			frozenset(),
 			id="project update",
 		),
-		pytest.param(("workspace", "update"), [], ("metacortex",), frozenset(), id="workspace update"),
+		pytest.param(
+			("workspace", "update"), [], ("metacortex",), frozenset(), id="workspace update"
+		),
 		pytest.param(
 			("view", "edit"),
 			[("view", "save", "in-flight", "--q", "status:open")],

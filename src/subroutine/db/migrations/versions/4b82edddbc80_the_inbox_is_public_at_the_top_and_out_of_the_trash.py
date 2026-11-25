@@ -92,9 +92,9 @@ def upgrade () -> None:
         lines = [
             "This installation has an Inbox that is not public, at the top level and out of the "
             "trash, which this version holds every Inbox to: everything filed in a workspace "
-            "without a project goes there, so everybody in it has to be able to reach it. This step "
-            "changed nothing. Making an Inbox public shows its work to the whole workspace, so "
-            "that is yours to choose: run these statements against this database, then upgrade "
+            "without a project goes there, so everybody in it has to be able to reach it. This "
+            "step changed nothing. Making an Inbox public shows its work to the whole workspace, "
+            "so that is yours to choose: run these statements against this database, then upgrade "
             "it again.",
         ]
 

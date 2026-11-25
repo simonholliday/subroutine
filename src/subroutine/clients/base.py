@@ -1367,9 +1367,9 @@ class Client(typing.Protocol):
 		"""List the private projects nobody who can act here is able to see - item `#1453`.
 
 		``leaving`` asks instead which ones one person's departure would strand, which is what
-		``user deactivate`` names before it acts, and ``transferring`` with ``to`` which ones handing
-		an agent to somebody else would (`SR#5101`), which ``user transfer`` names. Needs
-		``instance:admin``.
+		``user deactivate`` names before it acts, and ``transferring`` with ``to`` which ones
+		handing an agent to somebody else would (`SR#5101`), which ``user transfer`` names.
+		Needs ``instance:admin``.
 		"""
 
 		raise NotImplementedError
@@ -2191,7 +2191,8 @@ def too_old_for_read_only (connection: subroutine.connections.Connection) -> tup
 def too_old_to_hold_read_only (
 	connection: subroutine.connections.Connection, version: str | None
 ) -> tuple[str, str]:
-	"""Return what to say when a read-only connection meets a release that would ignore it - `SR#5116`.
+	"""Return what to say when a read-only connection meets a release that would ignore
+	it - `SR#5116`.
 
 	**Said by this program, before anything is sent**, where :func:`too_old_for_read_only` is said
 	of an instance that refused: a release before 0.7.5 takes a write with ``read_only`` on it and
@@ -2208,8 +2209,8 @@ def too_old_to_hold_read_only (
 		running = f"{connection.name} runs {version}, and"
 
 	return (
-		f"{running} a release before 0.7.5 ignores the 'read_only' setting this connection carries, "
-		"so nothing is written there through it.",
+		f"{running} a release before 0.7.5 ignores the 'read_only' setting this connection "
+		"carries, so nothing is written there through it.",
 		f"Upgrade {connection.name}, or remove 'read_only' from [connections.{connection.name}] "
 		f"in {subroutine.config.config_file_path()} if writing there is what you want.",
 	)
@@ -2359,10 +2360,10 @@ def answered_to (client: Client) -> list[str]:
 	"""Return whom the caller answers to, by name and nearest first: nobody, for a person.
 
 	**For saying who sees a private project an agent makes** (`SR#5112`, L-5 of the cold review of
-	2026-10-17): sight follows the chain upward (decision `#4943`), so everybody above the agent sees
-	it, and both surfaces told it only it could. ``/v1/me`` names the first link and the person at
-	the end, so an agent answering to a person costs nothing more; a longer chain is read one account
-	at a time between them, each within the caller's reach as its own chain.
+	2026-10-17): sight follows the chain upward (decision `#4943`), so everybody above the agent
+	sees it, and both surfaces told it only it could. ``/v1/me`` names the first link and the person
+	at the end, so an agent answering to a person costs nothing more; a longer chain is read one
+	account at a time between them, each within the caller's reach as its own chain.
 	"""
 
 	me = client.me().user
@@ -2413,10 +2414,10 @@ def said_to_bind (item: subroutine.views.Task | subroutine.views.Document) -> st
 	**Marked is not binding** (`#4853`). A draft, a note, a rule in the trash and one inside a private
 	project can each be marked for the whole workspace and bind nobody outside, and every surface
 	read the mark alone and said they bound everybody. **Whether it binds everyone is the instance's
-	to say** (`SR#5120`, decision `#5097`), as the view's ``binds_everyone``: it sees the whole tree,
-	where this worked it out from the reader's own listing of projects, which a credential narrowed
-	to a project inside a private one never sees. **Where an older instance does not say, only the
-	mark is said.**
+	to say** (`SR#5120`, decision `#5097`), as the view's ``binds_everyone``: it sees the whole
+	tree, where this worked it out from the reader's own listing of projects, which a credential
+	narrowed to a project inside a private one never sees. **Where an older instance does not say,
+	only the mark is said.**
 
 	**A task carries no mark**, and is asked here rather than by every caller (`SR#5176`): ``show``
 	and both agent tools that print an item each asked again whether it was a document marked for

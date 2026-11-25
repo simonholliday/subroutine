@@ -733,9 +733,9 @@ def materialise (
 		# **Not a series in the trash** (`#4026`, L-1 (2) of the cold review of 2026-09-30): an older
 		# build put one there, and completing it is refused, so its last occurrence could be neither
 		# completed nor skipped, about a row the person never sees. It is out of sight already.
-		# **Nor one beneath it** (`SR#5135`, H-5 of the cold review of 2026-10-17, decided in `#5097`):
-		# a series in a project in the trash, its occurrence moved out, refused the occurrence the
-		# same way, naming a row no listing shows.
+		# **Nor one beneath it** (`SR#5135`, H-5 of the cold review of 2026-10-17, decided in
+		# `#5097`): a series in a project in the trash, its occurrence moved out, refused the
+		# occurrence the same way, naming a row no listing shows.
 		#
 		# **And finished as a consequence of the occurrence, not asked of its reader** (`SR#5141`,
 		# NEW-C-1 of that review's verification): an assignee who could not see the series' project
@@ -1993,8 +1993,8 @@ def update (
 	)
 
 	# **How a series repeats changes only where it can be reached from here** (`SR#5135`, `SR#5141`,
-	# decided in `#5097`): stopping or restarting it, a new rule and an edit from now on each write the
-	# series, which may be beneath the trash, or in a project the reader cannot see, while its
+	# decided in `#5097`): stopping or restarting it, a new rule and an edit from now on each write
+	# the series, which may be beneath the trash, or in a project the reader cannot see, while its
 	# occurrence is in front of them. Asked before anything is assigned.
 	#
 	# **A stop of a series already stopped is no change to how it repeats** (`SR#5292`, M-4 of
@@ -3980,7 +3980,8 @@ def _refuse_changing_a_series_out_of_reach (
 	actor: subroutine.domain.authentication.Principal | None,
 	from_now_on: bool,
 ) -> None:
-	"""Refuse changing how an occurrence repeats where its series cannot be reached - `SR#5135`, `SR#5141`.
+	"""Refuse changing how an occurrence repeats where its series cannot be reached -
+	`SR#5135`, `SR#5141`.
 
 	**Beneath the trash** (H-5 of the cold review of 2026-10-17): decision `#4943`'s *Change* rule -
 	an item in the trash, or beneath anything in it, takes no write but restore and delete - holds
@@ -3990,8 +3991,8 @@ def _refuse_changing_a_series_out_of_reach (
 	that there was no such project, about a task the reader could see and was assigned.
 
 	**Said in the reader's words**: the place is named only to a reader who can see it, and to
-	anybody else is *something you cannot see* (decision `#4521`); the series' number never. Asked of
-	every caller for the trash, as that gate is, and of a principal alone for sight.
+	anybody else is *something you cannot see* (decision `#4521`); the series' number never. Asked
+	of every caller for the trash, as that gate is, and of a principal alone for sight.
 
 	**Sight is reach, and a series reached is written as any row is** (`SR#5292`, M-4 of the cold
 	review of 2026-11-11): sight was asked as ``project:read``, so a credential scoped to tasks was
@@ -4214,17 +4215,24 @@ def _named_to (
 	actor: subroutine.domain.authentication.Principal | None,
 	container: subroutine.domain.trash.Item | subroutine.db.models.project.Project,
 ) -> str | None:
-	"""Return what in the trash a refusal may name to this caller, or ``None`` where they cannot see it."""
+	"""Return what in the trash a refusal may name to this caller, or ``None`` where they cannot
+	see it.
+	"""
 
 	if isinstance(container, subroutine.db.models.project.Project):
 		if subroutine.domain.projects.key_named_to(session, actor, container) is None:
 			return None
 
-		return subroutine.domain.projects.paths_for(session, {container.id}).get(container.id, container.key)
+		return subroutine.domain.projects.paths_for(session, {container.id}).get(
+			container.id, container.key
+		)
 
 	filed_in = session.get(subroutine.db.models.project.Project, container.project_id)
 
-	if filed_in is None or subroutine.domain.projects.key_named_to(session, actor, filed_in) is None:
+	if (
+		filed_in is None
+		or subroutine.domain.projects.key_named_to(session, actor, filed_in) is None
+	):
 		return None
 
 	return subroutine.domain.refs.format_ref(container.ref)

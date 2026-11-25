@@ -495,7 +495,8 @@ def listing (
 			# work, so a document listing has no rule that holds rows back and nothing to say.
 			unread=dates.unread,
 			# **Which columns the open listing never looked at** (`SR#5139`), as the task listing
-			# says of its finished ones: a board drew *Nothing* over the retired columns it left out.
+			# says of its finished ones: a board drew *Nothing* over the retired columns it
+			# left out.
 			unreached=subroutine.domain.grouping.unreached(
 				axis, kind="document", reaching_finished=reaching_retired
 			),

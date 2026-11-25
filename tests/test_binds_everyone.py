@@ -162,7 +162,9 @@ def test_a_rule_that_binds_nobody_blocks_nothing_and_is_not_named (world: test_a
 	moved = world.call("POST", "/v1/projects/ops/move", json={"parent": "vault"})
 
 	assert moved.status_code == 200, moved.text
-	assert world.call("POST", "/v1/projects/vault/ops/move", json={"parent": "web"}).status_code == 200
+	assert (
+		world.call("POST", "/v1/projects/vault/ops/move", json={"parent": "web"}).status_code == 200
+	)
 	assert _as(world, narrowed, "DELETE", "/v1/projects/web/ops").status_code < 300
 
 	# **Somebody else's private project beneath binds nobody outside it**, so it is neither counted nor
@@ -423,17 +425,19 @@ def test_a_mark_is_said_to_bind_only_where_the_instance_says_it_does (
 
 	``show``, the browser and the agent tools said *binds the whole workspace* of any marked
 	document. The words follow the view's ``binds_everyone``, which the instance works out from the
-	whole tree, and say only that it is marked where it says no - or where an older one does not say.
+	whole tree, and say only that it is marked where it says no - or where an older one does
+	not say.
 	"""
 
 	assert subroutine.clients.base.said_to_bind(_marked(**facts)) == said
 
 
 def _nested (world: test_api_tasks.World) -> dict[str, typing.Any]:
-	"""Make private ``vault`` with ``blog`` under it, public ``web``, and public ``ops`` with ``sub``.
+	"""Make private ``vault`` with ``blog`` under it, public ``web``, and public ``ops``
+	with ``sub``.
 
-	keanu is shared into ``vault``, so he reads ``blog``; a marked decision sits in ``blog`` and one in
-	``ops/sub``. Returned are keanu, the projects' ids and the two decisions' refs, by name.
+	keanu is shared into ``vault``, so he reads ``blog``; a marked decision sits in ``blog`` and one
+	in ``ops/sub``. Returned are keanu, the projects' ids and the two decisions' refs, by name.
 	"""
 
 	vault = _project(world, "vault", visibility="private")
@@ -460,8 +464,12 @@ def _nested (world: test_api_tasks.World) -> dict[str, typing.Any]:
 
 	assert shared.status_code < 300, shared.text
 
-	hidden = _written(world, title="Draft posts in the vault", binds="workspace", project=str(blog.id))
-	open_rule = _written(world, title="Rotate the disks weekly", binds="workspace", project=str(sub.id))
+	hidden = _written(
+		world, title="Draft posts in the vault", binds="workspace", project=str(blog.id)
+	)
+	open_rule = _written(
+		world, title="Rotate the disks weekly", binds="workspace", project=str(sub.id)
+	)
 
 	return {
 		"keanu": keanu, "vault": vault, "web": web, "blog": str(blog.id), "sub": str(sub.id),
@@ -494,7 +502,9 @@ def test_a_reader_narrowed_inside_a_private_project_is_not_told_a_rule_there_bin
 	keanu = made["keanu"]
 	path = f"/v1/documents/{made['hidden']}"
 
-	for secret in (_credential(world, keanu), _credential(world, keanu, project_scope=[made["blog"]])):
+	for secret in (
+		_credential(world, keanu), _credential(world, keanu, project_scope=[made["blog"]])
+	):
 		answer = _as(world, secret, "GET", path)
 
 		assert answer.status_code == 200, answer.text
@@ -512,7 +522,8 @@ def test_a_reader_narrowed_inside_a_private_project_is_not_told_a_rule_there_bin
 def test_the_conventions_list_only_a_rule_that_binds_where_the_agent_stands (
 	world: test_api_tasks.World,
 ) -> None:
-	"""`SR#5120`: narrowed to ``blog`` and ``web``, standing in ``web``, the vault's rule is not listed.
+	"""`SR#5120`: narrowed to ``blog`` and ``web``, standing in ``web``, the vault's rule is
+	not listed.
 
 	And the review's warning measured the other way: narrowed to ``ops/sub`` and ``web``, the rule
 	under public ``ops`` binds everyone and is listed - the case a client-side guess that every

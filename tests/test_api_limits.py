@@ -707,7 +707,9 @@ def test_a_body_with_no_declared_length_is_refused_as_too_large_by_the_whole_app
 		asyncio.run(world.application(scope, receive, send))
 
 		status = next(one["status"] for one in sent if one["type"] == "http.response.start")
-		content = b"".join(one.get("body", b"") for one in sent if one["type"] == "http.response.body")
+		content = b"".join(
+			one.get("body", b"") for one in sent if one["type"] == "http.response.body"
+		)
 
 		return status, json.loads(content)
 

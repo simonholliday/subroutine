@@ -201,9 +201,12 @@ def test_a_list_of_views_offers_what_each_view_offers_on_its_own (
 		return len(listed.json()["items"])
 
 	seen = sum(compared(who, secret) for who, secret in readers.items())
-	subroutine.domain.workspaces.set_member_role(world.session, world.workspace, trinity, role_key="viewer")
+	subroutine.domain.workspaces.set_member_role(
+		world.session, world.workspace, trinity, role_key="viewer"
+	)
 	world.session.flush()
 
-	# The author's four, the shared two for the administrator and the other member, and the four again.
+	# The author's four, the shared two for the administrator and the other member, and the
+	# four again.
 	assert seen == 12, f"{seen} views were compared, so the scene is not what it says"
 	assert compared("its author, demoted to viewer", author) == 4

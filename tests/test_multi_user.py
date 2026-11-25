@@ -2090,7 +2090,8 @@ def test_handing_an_agent_over_names_the_agents_that_stop_with_it (
 def test_agent_create_refuses_the_colleague_profile_and_issues_nothing (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""`SR#5119`, decision `#5097`: the profile pinned through ``token create`` and not through here.
+	"""`SR#5119`, decision `#5097`: the profile pinned through ``token create`` and not
+	through here.
 
 	So ``agent create --profile colleague --workspace acme`` made an agent reaching everything its
 	owner could. It is refused before anything is made, and ``token create`` still pins.

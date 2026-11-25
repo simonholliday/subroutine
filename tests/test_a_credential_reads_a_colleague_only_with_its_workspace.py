@@ -59,7 +59,10 @@ def test_a_colleague_is_read_only_with_the_workspace (session: sqlalchemy.orm.Se
 	read = tasks(f"/v1/users/{keanu.username}")
 
 	assert read.status_code == 404, read.text
-	assert read.json()["detail"] == f"There is no account called {keanu.username!r} that you can reach."
+	assert (
+		read.json()["detail"]
+		== f"There is no account called {keanu.username!r} that you can reach."
+	)
 	assert tasks(f"/v1/workspaces/{world.workspace.slug}/members").status_code == 403
 
 	workspace = _seen(world, secret("task:read", "workspace:read"))

@@ -138,7 +138,9 @@ def test_a_person_stands_in_for_their_agent_s_own_agent_as_owner (
 @pytest.mark.parametrize(
 	("who", "told"),
 	[
-		pytest.param("joe", subroutine.domain.authorization.AuthorizationError, id="a viewer, who may not"),
+		pytest.param(
+			"joe", subroutine.domain.authorization.AuthorizationError, id="a viewer, who may not"
+		),
 		pytest.param("hugo", subroutine.errors.ValidationError, id="a member, who may"),
 	],
 )
@@ -159,7 +161,9 @@ def test_the_permission_is_asked_before_the_trash (
 			session, task, title="Fix it again", actor=Principal(user=getattr(here, who))
 		)
 
-	assert ("in the trash" in str(refused.value.detail)) is (told is subroutine.errors.ValidationError)
+	assert (
+		("in the trash" in str(refused.value.detail)) is (told is subroutine.errors.ValidationError)
+	)
 
 
 def test_nobody_holds_what_nobody_owns (session: sqlalchemy.orm.Session) -> None:
@@ -186,8 +190,8 @@ def test_a_person_manages_their_agents_only_while_they_can_act (
 	"""Decision `#4525`: whoever an agent answers to manages what it owns while it can act there.
 
 	carrieanne manages what claudia and scout own as her own; once claudia is marked as having left,
-	neither is managed as hers - scout stops with claudia - and what they own falls to whoever stands
-	in, as a departed owner's things do.
+	neither is managed as hers - scout stops with claudia - and what they own falls to whoever
+	stands in, as a departed owner's things do.
 	"""
 
 	here = Chain(session)

@@ -157,10 +157,12 @@ def test_a_credential_refused_outside_reach_is_refused_as_for_anybody (
 	[
 		pytest.param("username", "gloria", 404, "is deactivated", id="a person who has left"),
 		pytest.param(
-			"username", "cypher", 404, "Nobody who can act answers for", id="an agent nobody answers for"
+			"username", "cypher", 404, "Nobody who can act answers for",
+			id="an agent nobody answers for"
 		),
 		pytest.param(
-			"service_account", "carrieanne", 422, "is a person's account", id="a person, as a machine"
+			"service_account", "carrieanne", 422, "is a person's account",
+			id="a person, as a machine"
 		),
 	],
 )
@@ -171,7 +173,9 @@ def test_an_administrator_of_accounts_still_hears_the_reason (
 
 	here = Installation(session)
 	application = api_support.build_app(api_support.factory_for(session))
-	answered, said = _asked(application, here.credential(here.laurence), field, getattr(here, who).username)
+	answered, said = _asked(
+		application, here.credential(here.laurence), field, getattr(here, who).username
+	)
 
 	assert answered == status, said
 	assert reason in str(said.get("detail")), said

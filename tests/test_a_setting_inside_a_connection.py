@@ -74,7 +74,8 @@ def _put_back (before: str) -> None:
 
 
 def test_a_restore_is_refused_before_anything_is_replaced (run: Run) -> None:
-	"""The act the setting exists to stop: ``db restore --recover`` replaced the database unasked."""
+	"""The act the setting exists to stop: ``db restore --recover`` replaced the database unasked.
+	"""
 
 	run("init", "--workspace", "Real")
 	run("add", "Keep me")
@@ -166,7 +167,8 @@ def test_two_are_named_in_one_refusal (home: pathlib.Path) -> None:
 	path = subroutine.config.config_file_path()
 	path.parent.mkdir(parents=True, exist_ok=True)
 	path.write_text(
-		'[connections.local]\nprotected = true\n\n[connections.work]\nurl = "https://tasks.example.com"'
+		'[connections.local]\nprotected = true\n\n[connections.work]\nurl = '
+		'"https://tasks.example.com"'
 		"\nport = 9000\n",
 		encoding="utf-8",
 	)

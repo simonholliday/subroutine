@@ -1,4 +1,5 @@
-"""Rehearse the upgrade from the last release to this build, and refuse on a server error or a crash.
+"""Rehearse the upgrade from the last release to this build, and refuse on a server error or
+a crash.
 
 Item ``#5063``. **The suite cannot see an upgrade, by construction**: it builds its schema from the
 models and seeds from the current code, so no test holds a row only an older release would have
@@ -23,9 +24,9 @@ command that crashed or that this build does not take as written, and a step of 
 release could not do. A refusal is any other answer and is not a fault: the commands are every
 kind of person's, and a viewer is meant to be turned away.
 
-    python scripts/rehearse_upgrade.py                  # from the newest release in docs/releases.json
-    python scripts/rehearse_upgrade.py --from 0.9.13    # from another
-    python scripts/rehearse_upgrade.py --build <dir>    # rehearse another checkout's src
+  python scripts/rehearse_upgrade.py                # from the newest release in docs/releases.json
+  python scripts/rehearse_upgrade.py --from 0.9.13  # from another
+  python scripts/rehearse_upgrade.py --build <dir>  # rehearse another checkout's src
 
 ``scripts/release.py`` runs it before it writes anything. It needs ``uv`` and the package index,
 and PostgreSQL where the suite finds it (``SUBROUTINE_TEST_POSTGRES_ADMIN_URL``); it takes about
@@ -173,7 +174,8 @@ class Installation:
 		try:
 			# **No input is nothing to read**, never the caller's: run from a release at a terminal,
 			# a command that asked a question would otherwise wait on the operator's keyboard. Not
-			# an empty pipe either - a program told something was piped in says so, after its answer.
+			# an empty pipe either - a program told something was piped in says so, after
+			# its answer.
 			ran = subprocess.run(
 				[*program.command, *arguments],
 				env=self.environment(program, extra),
@@ -190,7 +192,9 @@ class Installation:
 			result = Ran(124, f"It did not finish within {COMMAND_SECONDS} seconds.")
 
 		with (self.root / "commands.log").open("a", encoding="utf-8") as log:
-			log.write(f"\n$ [{program.name}] subroutine {' '.join(arguments)}\n[exit {result.code}]\n")
+			log.write(
+				f"\n$ [{program.name}] subroutine {' '.join(arguments)}\n[exit {result.code}]\n"
+			)
 			log.write(masked(result.said))
 
 		return result
@@ -240,7 +244,9 @@ def masked (said: str) -> str:
 def tail (said: str, width: int = 400) -> str:
 	"""Return the end of what a command said, on one line, masked, without a panel's borders."""
 
-	flat = " | ".join(line.strip() for line in BORDERS.sub(" ", masked(said)).splitlines() if line.strip())
+	flat = " | ".join(
+		line.strip() for line in BORDERS.sub(" ", masked(said)).splitlines() if line.strip()
+	)
 
 	return re.sub(r" {2,}", " ", flat)[-width:]
 
@@ -426,13 +432,17 @@ def install (version: str, work: pathlib.Path, uv: str) -> Program:
 
 	for step in (
 		[uv, "venv", "--quiet", "--python", sys.executable, str(environment)],
-		[uv, "pip", "install", "--quiet", "--python", str(python), f"subroutine[postgres]=={version}"],
+		[
+			uv, "pip", "install", "--quiet", "--python", str(python),
+			f"subroutine[postgres]=={version}",
+		],
 	):
 		ran = subprocess.run(step, capture_output=True, text=True, check=False)
 
 		if ran.returncode != 0:
 			raise Refused(
-				f"{version} could not be installed from the package index: {tail(ran.stdout + ran.stderr)}"
+				f"{version} could not be installed from the package index: "
+				f"{tail(ran.stdout + ran.stderr)}"
 			)
 
 	return Program(version, (str(environment / "bin" / "subroutine"),))
@@ -463,7 +473,9 @@ def make_database (address: str) -> None:
 			connection.execute(sqlalchemy.text(f'CREATE DATABASE "{name}"'))
 
 	except sqlalchemy.exc.SQLAlchemyError as failure:
-		raise Refused(f"PostgreSQL could not be reached at {POSTGRES_ADMIN_URL}: {failure}") from failure
+		raise Refused(
+			f"PostgreSQL could not be reached at {POSTGRES_ADMIN_URL}: {failure}"
+		) from failure
 
 	finally:
 		engine.dispose()
@@ -500,7 +512,9 @@ def fill (here: Installation, release: Program) -> list[str]:
 
 		return (today + datetime.timedelta(days=days)).isoformat()
 
-	def step (*arguments: str, stdin: str | None = None, keep: str | None = None, may_fail: bool = False) -> str:
+	def step (
+		*arguments: str, stdin: str | None = None, keep: str | None = None, may_fail: bool = False
+	) -> str:
 		"""Run one step with the release, keeping the credential it prints under ``keep``."""
 
 		ran = here.run(release, *arguments, stdin=stdin)
@@ -565,7 +579,8 @@ def fill (here: Installation, release: Program) -> list[str]:
 	# The installation, with a password the release stored and nothing signs in with. Nothing
 	# after a failed ``init`` can work, so that is the one failure said.
 	step(
-		"init", "--username", "keanu", "--workspace", "Metacortex", "--instance-name", "Nebuchadnezzar",
+		"init", "--username", "keanu", "--workspace", "Metacortex", "--instance-name",
+		"Nebuchadnezzar",
 		"--password-stdin", "--non-interactive", stdin="follow-the-white-rabbit\n",
 	)
 
@@ -587,7 +602,10 @@ def fill (here: Installation, release: Program) -> list[str]:
 	step("instance", "update", "--timezone", "Europe/London")
 
 	# A second workspace, and a third that ends in the trash.
-	step("workspace", "create", "zion", "Zion", "--description", "The last city", "--timezone", "Europe/London")
+	step(
+		"workspace", "create", "zion", "Zion", "--description", "The last city", "--timezone",
+		"Europe/London",
+	)
 	step("user", "add", "hugo", "-w", "zion", "--role", "member")
 	step("user", "add", "marcus", "-w", "zion", "--role", "admin")
 	step("workspace", "create", "construct", "The Construct")
@@ -606,7 +624,10 @@ def fill (here: Installation, release: Program) -> list[str]:
 
 	# Agents and credentials, of every narrowing the release offers.
 	step("agent", "create", "claude", "--workspace", "metacortex", keep="claude")
-	step("agent", "create", "scout", "--workspace", "metacortex", "--profile", "worker", "--project", "web", keep="scout")
+	step(
+		"agent", "create", "scout", "--workspace", "metacortex", "--profile", "worker", "--project",
+		"web", keep="scout",
+	)
 	step(
 		"agent", "create", "reporter", "--workspace", "metacortex", "--profile", "observer",
 		"--expires", "now+30d", keep="reporter",
@@ -616,7 +637,10 @@ def fill (here: Installation, release: Program) -> list[str]:
 		"--project", "web", "--project", "vault", "--write", "web", keep="sam",
 	)
 	step("project", "share", "vault", "sam")
-	step("token", "create", "--title", "ci, reading", "--scope", "task:read", "--scope", "comment:read", keep="ci")
+	step(
+		"token", "create", "--title", "ci, reading", "--scope", "task:read", "--scope",
+		"comment:read", keep="ci",
+	)
 	step(
 		"token", "create", "--title", "a scope this release had", "--scope", "token:admin",
 		"--scope", "task:read", keep="tokenadmin",
@@ -626,12 +650,19 @@ def fill (here: Installation, release: Program) -> list[str]:
 		"--title", "legacy bot", keep="legacy",
 	)
 	step(
-		"token", "create", "--username", "hugo", "--workspace", "metacortex", "--scope", "task:read",
+		"token", "create", "--username", "hugo", "--workspace", "metacortex", "--scope",
+		"task:read",
 		"--scope", "comment:write", "--title", "hugo narrowed", keep="hugo-narrowed",
 	)
-	step("token", "create", "--title", "web only", "--project", "web", "--write", "web", keep="webonly")
+	step(
+		"token", "create", "--title", "web only", "--project", "web", "--write", "web",
+		keep="webonly",
+	)
 	step("token", "create", "--title", "keanu's own", keep="keanu")
-	step("token", "create", "--title", "pinned to zion", "--username", "hugo", "--workspace", "zion", keep="hugo-zion")
+	step(
+		"token", "create", "--title", "pinned to zion", "--username", "hugo", "--workspace", "zion",
+		keep="hugo-zion",
+	)
 	step("token", "create", "--title", "to revoke", keep="revoked")
 	step("token", "revoke", str(here.kept.get("revoked", "sr_none_x")).split("_")[1])
 
@@ -642,7 +673,10 @@ def fill (here: Installation, release: Program) -> list[str]:
 
 	# Calendar feeds and sign-in links.
 	feed("Work", "-w", "metacortex", keep="feed-work")
-	feed("Mine on the web", "-w", "metacortex", "--mine", "--project", "web", "--expires", "now+90d", keep="feed-mine")
+	feed(
+		"Mine on the web", "-w", "metacortex", "--mine", "--project", "web", "--expires", "now+90d",
+		keep="feed-mine",
+	)
 	stopping = feed("To stop", "-w", "metacortex", keep=REVOKED_FEED)
 
 	# **One feed revoked** (`SR#5328`, L-3 of the cold review of 2026-11-11): nothing revoked one,
@@ -662,8 +696,14 @@ def fill (here: Installation, release: Program) -> list[str]:
 		"pill": numbered("add", "+vault Take the red pill"),
 		"cat": numbered("add", "+den Feed the cat"),
 		"bill": numbered("add", f"Pay the phone bill on {on(30)}"),
-		"plants": numbered("add", "Water the plants tomorrow", "--repeat", "every 3 days", "--repeat-from", "completion"),
-		"bug": numbered("add", "Deploy is broken on staging", "--type", "bug", "--description", "It answers 502 after the release."),
+		"plants": numbered(
+			"add", "Water the plants tomorrow", "--repeat", "every 3 days", "--repeat-from",
+			"completion",
+		),
+		"bug": numbered(
+			"add", "Deploy is broken on staging", "--type", "bug", "--description",
+			"It answers 502 after the release.",
+		),
 		"question": numbered("add", "Which host do we move to?", "--type", "question"),
 		"launch": numbered("add", "Launch the new site", "--type", "milestone"),
 		"event": numbered("add", f"Team lunch on {on(3)} at 1pm til 2pm", "--type", "event"),
@@ -674,7 +714,9 @@ def fill (here: Installation, release: Program) -> list[str]:
 
 	step("start", str(refs["deploy"]))
 	step("claim", str(refs["deploy"]))
-	step("comment", str(refs["deploy"]), f"The script fails on the second host. See #{refs['bug']}.")
+	step(
+		"comment", str(refs["deploy"]), f"The script fails on the second host. See #{refs['bug']}."
+	)
 	step("done", str(refs["dentist"]))
 	step("done", str(refs["plants"]))
 	step("skip", str(refs["standup"]), "--because", "A bank holiday")
@@ -684,8 +726,9 @@ def fill (here: Installation, release: Program) -> list[str]:
 	step("link", str(refs["launch"]), "includes", f"{refs['pricing']},{refs['versions']}")
 	step("link", str(refs["pricing"]), "precedes", str(refs["versions"]))
 	step(
-		"update", str(refs["versions"]), "--estimate", "3h", "--tags", "api,release", "--assignee", "carrieanne",
-		"--importance", "3", "--urgency", "5", "--remind", "1d", "--because", "The partner integration needs it",
+		"update", str(refs["versions"]), "--estimate", "3h", "--tags", "api,release", "--assignee",
+		"carrieanne", "--importance", "3", "--urgency", "5", "--remind", "1d", "--because",
+		"The partner integration needs it",
 	)
 	step("update", str(refs["question"]), "--status", "blocked")
 	step("update", str(refs["cat"]), "--due", on(6), "--timezone", "America/New_York")
@@ -697,26 +740,36 @@ def fill (here: Installation, release: Program) -> list[str]:
 	step("restore", str(refs["restored"]))
 
 	refs["decision"] = numbered(
-		"document", "create", "We run PostgreSQL in production", "--type", "decision", "--binds", "workspace",
+		"document", "create", "We run PostgreSQL in production", "--type", "decision", "--binds",
+		"workspace",
 		"--body", "Decided at the start. SQLite stays for one machine.", "--no-body",
 	)
 	refs["note"] = numbered(
-		"document", "create", "Notes on the deploy", "--type", "note", "--project", "web", "--body", "-", "--no-body",
+		"document", "create", "Notes on the deploy", "--type", "note", "--project", "web", "--body",
+		"-", "--no-body",
 		stdin=f"The second host has an older kernel.\n\nSee #{refs['deploy']}.\n",
 	)
-	step("document", "edit", str(refs["note"]), "--body", "The second host has an older kernel, and is being replaced.")
+	step(
+		"document", "edit", str(refs["note"]), "--body",
+		"The second host has an older kernel, and is being replaced.",
+	)
 	numbered(
-		"document", "create", "What the redirects must keep", "--type", "spec", "--parent", str(refs["decision"]),
+		"document", "create", "What the redirects must keep", "--type", "spec", "--parent",
+		str(refs["decision"]),
 		"--body", "Every old address.", "--no-body",
 	)
 	refs["draft"] = numbered(
-		"document", "create", "A dead end: moving to another host", "--type", "dead_end", "--status", "draft",
+		"document", "create", "A dead end: moving to another host", "--type", "dead_end",
+		"--status", "draft",
 		"--body", "Not now.", "--no-body",
 	)
 	step("comment", str(refs["decision"]), "Carried at the first meeting.")
 	step("link", str(refs["decision"]), "documents", str(refs["deploy"]))
 
-	step("view", "save", "Urgent on the web", "--q", "+web urgency>3", "--as", "board", "--group-by", "status_category", "--shared")
+	step(
+		"view", "save", "Urgent on the web", "--q", "+web urgency>3", "--as", "board", "--group-by",
+		"status_category", "--shared",
+	)
 	step("view", "save", "Mine", "--q", "assignee:me", "--order", "-priority_score")
 
 	# Work in the second workspace, and the third into the trash.
@@ -775,14 +828,17 @@ def drive (here: Installation, build: Program) -> tuple[int, list[str], int]:
 	# Reads, as the founder at their own terminal.
 	for arguments in (
 		("whoami",), ("agenda",), ("agenda", "tomorrow"), ("list",), ("list", "--limit", "100"),
-		("list", "--project", "web"), ("list", "--json"), ("list", "--ready"), ("list", "--to-act-on"),
+		("list", "--project", "web"), ("list", "--json"), ("list", "--ready"),
+		("list", "--to-act-on"),
 		("search", "deploy"), ("search", "type:bug urgency>3"), ("journal",), ("changes",),
 		("project", "list"), ("project", "sharing", "vault"), ("project", "sharing", "den"),
-		("project", "settings", "web"), ("workspace", "list"), ("workspace", "settings", "metacortex"),
+		("project", "settings", "web"), ("workspace", "list"),
+		("workspace", "settings", "metacortex"),
 		("instance", "workspaces"), ("instance", "projects"), ("user", "list"),
 		("user", "list", "--workspace", "metacortex"), ("user", "list", "--workspace", "zion"),
-		("token", "list"), ("calendar", "list"), ("view", "list"), ("view", "run", "urgent-on-the-web"),
-		("view", "run", "mine"), ("config", "show"), ("db", "current"), ("db", "backups"), ("doctor",),
+		("token", "list"), ("calendar", "list"), ("view", "list"),
+		("view", "run", "urgent-on-the-web"), ("view", "run", "mine"), ("config", "show"),
+		("db", "current"), ("db", "backups"), ("doctor",),
 	):
 		command(*arguments)
 
@@ -793,18 +849,27 @@ def drive (here: Installation, build: Program) -> tuple[int, list[str], int]:
 	command("export", str(here.root / "export-before"))
 
 	# The ordinary day's writes.
-	made = str(number_in(command("add", "Check the upgrade went through tomorrow ~15m !3/3 #upgrade", "--json")) or 0)
+	made = str(
+		number_in(
+			command("add", "Check the upgrade went through tomorrow ~15m !3/3 #upgrade", "--json")
+		)
+		or 0
+	)
 	later = (datetime.date.today() + datetime.timedelta(days=21)).isoformat()
 
 	for arguments in (
-		("start", made), ("claim", made), ("comment", made, f"Written after the upgrade. See #{ref('deploy')}."),
+		("start", made), ("claim", made),
+		("comment", made, f"Written after the upgrade. See #{ref('deploy')}."),
 		("update", made, "--estimate", "30m", "--tags", "upgrade,ops", "--assignee", "hugo"),
 		("plan", made, "friday"), ("defer", made, later, "--because", "After the release"),
-		("link", made, "relates-to", ref("deploy")), ("unlink", made, ref("deploy"), "--type", "relates-to"),
-		("update", made, "--project", "web"), ("move", made, "--under", ref("pricing")), ("move", made, "--top"),
+		("link", made, "relates-to", ref("deploy")),
+		("unlink", made, ref("deploy"), "--type", "relates-to"),
+		("update", made, "--project", "web"), ("move", made, "--under", ref("pricing")),
+		("move", made, "--top"),
 		("release", made),
-		("stop", made), ("done", made), ("delete", made), ("restore", made), ("restore", ref("trashed")),
-		("done", ref("standup")), ("skip", ref("standup"), "--because", "Rehearsal"), ("done", ref("deploy")),
+		("stop", made), ("done", made), ("delete", made), ("restore", made),
+		("restore", ref("trashed")), ("done", ref("standup")),
+		("skip", ref("standup"), "--because", "Rehearsal"), ("done", ref("deploy")),
 		("update", ref("question"), "--status", "open"),
 		("update", ref("versions"), "--project", "web", "--because", "Moved after the upgrade"),
 		("comment", ref("decision"), "Still in force after the upgrade."),
@@ -817,32 +882,46 @@ def drive (here: Installation, build: Program) -> tuple[int, list[str], int]:
 		("project", "create", "ops", "Operations", "--description", "Keeping it running"),
 		("project", "create", "safe", "Safe", "--private"), ("project", "share", "safe", "hugo"),
 		("project", "unshare", "safe", "hugo"), ("project", "share", "den", "carrieanne"),
-		("project", "unshare", "vault", "sam"), ("project", "update", "old-launch", "--status", "active"),
+		("project", "unshare", "vault", "sam"),
+		("project", "update", "old-launch", "--status", "active"),
 		("project", "update", "den", "--public"), ("project", "update", "den", "--private"),
-		("project", "rename", "ops", "operations", "--yes"), ("project", "move", "api", "--root", "--yes"),
+		("project", "rename", "ops", "operations", "--yes"),
+		("project", "move", "api", "--root", "--yes"),
 		("project", "move", "api", "--under", "web", "--yes"), ("project", "prioritise", "api"),
 		("user", "create", "nona", "--role", "member", "--terminal", "-w", "metacortex"),
 		("user", "create", "helmut", "--role", "viewer", "--browser", "-w", "metacortex"),
-		("user", "add", "nona", "-w", "zion", "--role", "member"), ("user", "role", "nona", "admin", "-w", "zion"),
-		("user", "remove", "nona", "-w", "zion"), ("user", "role", "joe", "member", "-w", "metacortex"),
+		("user", "add", "nona", "-w", "zion", "--role", "member"),
+		("user", "role", "nona", "admin", "-w", "zion"), ("user", "remove", "nona", "-w", "zion"),
+		("user", "role", "joe", "member", "-w", "metacortex"),
 		("user", "reactivate", "marcus"), ("user", "deactivate", "marcus", "--yes"),
 		("user", "deactivate", "tank", "--yes"), ("user", "reactivate", "tank"),
-		("user", "transfer", "legacy-bot", "--to", "carrieanne"), ("user", "transfer", "morpheus-bot", "--to", "hugo"),
+		("user", "transfer", "legacy-bot", "--to", "carrieanne"),
+		("user", "transfer", "morpheus-bot", "--to", "hugo"),
 		("agent", "create", "trinity-bot", "--workspace", "metacortex"),
 		("agent", "create", "pinned-bot", "--workspace", "zion", "--pin"),
-		("agent", "create", "claude", "--workspace", "metacortex", "--profile", "worker", "--project", "web"),
+		(
+			"agent", "create", "claude", "--workspace", "metacortex", "--profile", "worker",
+			"--project", "web",
+		),
 		("token", "create", "--title", "an old scope, asked for now", "--scope", "token:admin"),
 		("token", "create", "--title", "after the upgrade", "--scope", "task:read"),
 		("token", "create", "--username", "hugo", "--title", "hugo, after"),
-		("token", "create", "--service-account", "legacy-bot", "--title", "legacy, after", "--workspace", "metacortex"),
+		(
+			"token", "create", "--service-account", "legacy-bot", "--title", "legacy, after",
+			"--workspace", "metacortex",
+		),
 		("calendar", "create", "After the upgrade", "-w", "metacortex"), ("login", "link"),
 		("login", "link", "--username", "gloria"), ("login", "revoke", "gloria"),
-		("workspace", "restore", "construct"), ("workspace", "update", "construct", "--description", "Loading"),
-		("workspace", "rename", "construct", "loading", "--yes"), ("workspace", "delete", "loading", "--yes"),
-		("workspace", "create", "sublevel", "Sublevel"), ("view", "save", "After", "--q", "tag:upgrade", "--as", "list"),
+		("workspace", "restore", "construct"),
+		("workspace", "update", "construct", "--description", "Loading"),
+		("workspace", "rename", "construct", "loading", "--yes"),
+		("workspace", "delete", "loading", "--yes"),
+		("workspace", "create", "sublevel", "Sublevel"),
+		("view", "save", "After", "--q", "tag:upgrade", "--as", "list"),
 		("view", "edit", "after", "--q", "tag:ops"), ("view", "forget", "after"),
-		("instance", "update", "--name", "Nebuchadnezzar II"), ("user", "timezone", "America/New_York"),
-		("db", "backup"), ("db", "upgrade", "--yes"), ("whoami",), ("agenda",), ("list", "--limit", "100"),
+		("instance", "update", "--name", "Nebuchadnezzar II"),
+		("user", "timezone", "America/New_York"), ("db", "backup"), ("db", "upgrade", "--yes"),
+		("whoami",), ("agenda",), ("list", "--limit", "100"),
 		("journal",), ("changes",), ("doctor",),
 	):
 		command(*arguments)
@@ -885,7 +964,9 @@ def sweep (here: Installation, build: Program, label: str) -> dict[str, typing.A
 	return typing.cast(dict[str, typing.Any], json.loads(answers.read_text(encoding="utf-8")))
 
 
-def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path, databases: list[str]) -> Outcome:
+def rehearse (
+	backend: str, release: Program, build: Program, work: pathlib.Path, databases: list[str]
+) -> Outcome:
 	"""Fill one installation with the release, then meet it with the build, on one backend."""
 
 	outcome = Outcome(backend)
@@ -910,7 +991,9 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 		swept = sweep(here, build, "before the upgrade")
 		answers = earlier = swept["answers"]
 		errors = server_errors(answers, before_upgrade=True)
-		outcome.lines.append(f"before the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error")
+		outcome.lines.append(
+			f"before the upgrade: {len(answers):,} reads, {len(errors)} kind(s) of server error"
+		)
 		outcome.problems += [
 			f"before the upgrade, {line}" for line in errors + sweep_problems(swept, here.kept)
 		]
@@ -943,7 +1026,10 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 			f"{len(reports)} crash report(s)"
 		)
 		outcome.problems += [f"the terminal crashed: {line}" for line in crashes]
-		outcome.problems += [f"a crash report was written: {tail(path.read_text(encoding='utf-8'), 600)}" for path in reports]
+		outcome.problems += [
+			f"a crash report was written: {tail(path.read_text(encoding='utf-8'), 600)}"
+			for path in reports
+		]
 
 	except Refused as refusal:
 		outcome.problems.append(str(refusal))
@@ -954,9 +1040,18 @@ def rehearse (backend: str, release: Program, build: Program, work: pathlib.Path
 def _arguments (argv: list[str] | None) -> argparse.Namespace:
 	"""Read which release to rehearse from, which build, and whether to keep what was made."""
 
-	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
-	parser.add_argument("--from", dest="release", help="the release to upgrade from (default: the newest published)")
-	parser.add_argument("--build", type=pathlib.Path, default=ROOT, help="the checkout to rehearse (default: this one)")
+	# The docstring's first paragraph, joined: it is wrapped to fit the source.
+	summary = " ".join(__doc__.split("\n\n")[0].split()) if __doc__ else None
+	parser = argparse.ArgumentParser(description=summary)
+	parser.add_argument(
+		"--from", dest="release", help="the release to upgrade from (default: the newest published)"
+	)
+	parser.add_argument(
+		"--build",
+		type=pathlib.Path,
+		default=ROOT,
+		help="the checkout to rehearse (default: this one)",
+	)
 	parser.add_argument(
 		"--keep",
 		action="store_true",
@@ -998,16 +1093,30 @@ def main (argv: list[str] | None = None) -> int:
 
 	arguments = _arguments(argv)
 	version = arguments.release or last_release()
-	build = Program("this build", (sys.executable, "-m", "subroutine"), source=(arguments.build / "src").resolve())
+	build = Program(
+		"this build",
+		(sys.executable, "-m", "subroutine"),
+		source=(arguments.build / "src").resolve(),
+	)
 	uv = shutil.which("uv")
 
 	if uv is None:
-		print("Not rehearsed: 'uv' is not on the path, and it is what installs the release to upgrade from.")
+		print(
+			"Not rehearsed: 'uv' is not on the path, and it is what installs the release to "
+			"upgrade from."
+		)
 
 		return 1
 
-	print(f"Rehearsing the upgrade from {version} to {arguments.build.resolve()}, on SQLite and PostgreSQL.")
-	print("It installs that release, fills an installation with it and meets it with this build: about half an hour.", flush=True)
+	print(
+		f"Rehearsing the upgrade from {version} to {arguments.build.resolve()}, on SQLite "
+		"and PostgreSQL."
+	)
+	print(
+		"It installs that release, fills an installation with it and meets it with this build: "
+		"about half an hour.",
+		flush=True,
+	)
 
 	work = pathlib.Path(tempfile.mkdtemp(prefix="subroutine-rehearsal-"))
 	databases: list[str] = []
@@ -1018,7 +1127,12 @@ def main (argv: list[str] | None = None) -> int:
 		release = install(version, work, uv)
 
 		with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-			outcomes = list(pool.map(lambda backend: rehearse(backend, release, build, work, databases), ("sqlite", "postgresql")))
+			outcomes = list(
+				pool.map(
+					lambda backend: rehearse(backend, release, build, work, databases),
+					("sqlite", "postgresql"),
+				)
+			)
 
 	except Refused as refusal:
 		print(f"Not rehearsed: {refusal}")
@@ -1034,7 +1148,9 @@ def main (argv: list[str] | None = None) -> int:
 
 		return 1
 
-	problems = [f"{outcome.backend}: {problem}" for outcome in outcomes for problem in outcome.problems]
+	problems = [
+		f"{outcome.backend}: {problem}" for outcome in outcomes for problem in outcome.problems
+	]
 
 	for outcome in outcomes:
 		print(f"\n{outcome.backend}")
@@ -1050,7 +1166,10 @@ def main (argv: list[str] | None = None) -> int:
 
 		return 1
 
-	print(f"\nThe upgrade from {version} passed the rehearsal: no server error, no crash, every step done.")
+	print(
+		f"\nThe upgrade from {version} passed the rehearsal: no server error, no crash, every "
+		"step done."
+	)
 
 	return 0
 

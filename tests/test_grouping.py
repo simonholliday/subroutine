@@ -678,7 +678,9 @@ def test_a_document_board_on_the_open_listing_says_its_retired_columns_were_left
 
 	reached = {group["key"]: group["reached"] for group in opened.json()["groups"]}
 
-	assert reached == {"draft": True, "current": True, "superseded": False, "archived": False}, reached
+	assert (
+		reached == {"draft": True, "current": True, "superseded": False, "archived": False}
+	), reached
 	assert _drawn(opened.json())["current"] == 1
 
 	everything = world.call("GET", grouped)

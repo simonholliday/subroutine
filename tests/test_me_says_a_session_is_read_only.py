@@ -47,7 +47,9 @@ class Installation:
 		)
 
 		for workspace in (self.metacortex, self.zion):
-			subroutine.domain.workspaces.add_member(session, workspace, self.hugo, role_key="member")
+			subroutine.domain.workspaces.add_member(
+				session, workspace, self.hugo, role_key="member"
+			)
 
 		self.web = subroutine.domain.projects.create(
 			session, workspace_id=self.metacortex.id, key="web", title="Web"
@@ -72,7 +74,9 @@ class Installation:
 		"""Return the real HTTP client a connection builds, read-only or not."""
 
 		return subroutine.clients.http.Client(
-			subroutine.connections.Connection(name="work", url="https://example.com", read_only=read_only),
+			subroutine.connections.Connection(
+				name="work", url="https://example.com", read_only=read_only
+			),
 			token=secret,
 			transport=api_support.SyncTransport(self.application),
 			base_url=api_support.BASE_URL,
@@ -83,8 +87,9 @@ class Installation:
 def test_me_says_whether_a_session_only_reads_and_what_it_reads_with (
 	session: sqlalchemy.orm.Session, read_only: bool
 ) -> None:
-	"""laurence, a superuser: the flag says which, and the installation's permissions are listed both
-	ways, since its verbs gate its listings too; the agent tools' ``whoami`` says it in a line, and the
+	"""laurence, a superuser: the flag says which, and the installation's permissions are listed
+	both ways, since its verbs gate its listings too; the agent tools' ``whoami`` says it in a line,
+	and the
 	terminal's is driven in ``tests/test_cli_connections.py``."""
 
 	here = Installation(session)
@@ -104,7 +109,9 @@ def test_me_says_whether_a_session_only_reads_and_what_it_reads_with (
 def test_a_browser_session_says_whether_it_only_reads (
 	session: sqlalchemy.orm.Session, read_only: bool
 ) -> None:
-	"""A signed-in browser is described as a credential too, and ``read_only=true`` narrows it alike."""
+	"""A signed-in browser is described as a credential too, and ``read_only=true`` narrows
+	it alike.
+	"""
 
 	here = Installation(session)
 	_link, secret = subroutine.domain.sessions.mint_link(session, user=here.hugo)
@@ -127,7 +134,8 @@ def test_a_browser_session_says_whether_it_only_reads (
 def test_a_credential_writing_in_one_workspace_is_offered_no_write_in_another (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""hugo's credential reads ``web`` and ``ops`` and writes only in ``web``: Zion offers no write."""
+	"""hugo's credential reads ``web`` and ``ops`` and writes only in ``web``: Zion offers no write.
+	"""
 
 	here = Installation(session)
 	secret = here.secret(

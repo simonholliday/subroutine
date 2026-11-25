@@ -1,10 +1,11 @@
-"""A project or series its reader cannot see is unseen in an item's history, the feed and the journal - `SR#5148`.
+"""A project or series its reader cannot see is unseen in an item's history, the feed and the
+journal - `SR#5148`.
 
-**The review's L-7 bullet, widened to `/v1/changes` in its verification, and NEW-C-2**, both decided in
-`#5097`. keanu's weekly series is filed in `aaa`, private to him, and its occurrence was moved to `web`
-and handed to carrieanne, a member who cannot see `aaa`. The occurrence's history and the feed gave
-carrieanne `aaa`'s id as where it was filed, the journal said it had been filed *nowhere*, and the
-occurrence gave her the series' number.
+**The review's L-7 bullet, widened to `/v1/changes` in its verification, and NEW-C-2**, both decided
+in `#5097`. keanu's weekly series is filed in `aaa`, private to him, and its occurrence was moved to
+`web` and handed to carrieanne, a member who cannot see `aaa`. The occurrence's history and the feed
+gave carrieanne `aaa`'s id as where it was filed, the journal said it had been filed *nowhere*, and
+the occurrence gave her the series' number.
 """
 
 import datetime
@@ -61,7 +62,9 @@ def _project_id (place: Place, key: str) -> str:
 def test_the_history_and_the_feed_name_a_private_project_only_to_who_can_see_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""carrieanne is told the occurrence moved from something she cannot see to `web`; keanu, from `aaa`."""
+	"""carrieanne is told the occurrence moved from something she cannot see to `web`; keanu,
+	from `aaa`.
+	"""
 
 	place = Place(session, private=True, count=None)
 	aaa, web = _project_id(place, "aaa"), _project_id(place, "web")
@@ -71,7 +74,9 @@ def test_the_history_and_the_feed_name_a_private_project_only_to_who_can_see_it 
 		his = place.ask(place.keanu, "GET", path)
 
 		assert hers.status_code == 200 and his.status_code == 200, (hers.text, his.text)
-		assert _moves(hers.json()["items"], place.ref) == [{"from": {"visible": False}, "to": web}], path
+		assert (
+			_moves(hers.json()["items"], place.ref) == [{"from": {"visible": False}, "to": web}]
+		), path
 		assert _moves(his.json()["items"], place.ref) == [{"from": aaa, "to": web}], path
 
 	# **What is said is a copy**: the stored row still names `aaa`.
@@ -114,8 +119,12 @@ def test_the_journal_says_something_you_cannot_see_where_it_said_nothing (
 	assert his.before not in (None, subroutine.domain.scoping.UNSEEN), his
 
 
-def test_an_occurrence_numbers_its_series_only_to_who_can_see_it (session: sqlalchemy.orm.Session) -> None:
-	"""carrieanne gets no number and the rule; the rule is what says it repeats, so she is still asked."""
+def test_an_occurrence_numbers_its_series_only_to_who_can_see_it (
+	session: sqlalchemy.orm.Session
+) -> None:
+	"""carrieanne gets no number and the rule; the rule is what says it repeats, so she is
+	still asked.
+	"""
 
 	place = Place(session, private=True, count=None)
 	hers = place.ask(place.carrieanne, "GET", f"/v1/tasks/{place.ref}")
@@ -128,7 +137,9 @@ def test_an_occurrence_numbers_its_series_only_to_who_can_see_it (session: sqlal
 	assert his.json()["recurrence_template_ref"] == place.series.ref
 
 
-def test_the_series_is_numbered_where_it_sits_with_its_occurrence (session: sqlalchemy.orm.Session) -> None:
+def test_the_series_is_numbered_where_it_sits_with_its_occurrence (
+	session: sqlalchemy.orm.Session
+) -> None:
 	"""A series in `aaa` while `aaa` is open is numbered to carrieanne, as it always was."""
 
 	place = Place(session, private=False, count=None)

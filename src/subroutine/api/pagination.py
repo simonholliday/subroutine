@@ -321,7 +321,9 @@ def continued (
 		return order
 
 	try:
-		payload = json.loads(base64.urlsafe_b64decode(cursor.partition(_SEPARATOR)[0].encode("ascii")))
+		payload = json.loads(
+			base64.urlsafe_b64decode(cursor.partition(_SEPARATOR)[0].encode("ascii"))
+		)
 
 	except (ValueError, TypeError):
 		return order

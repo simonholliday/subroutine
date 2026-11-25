@@ -1,4 +1,5 @@
-"""An account or a project out of reach is answered as one nobody has, in words that say so - `SR#5109`.
+"""An account or a project out of reach is answered as one nobody has, in words that say
+so - `SR#5109`.
 
 **Decided in `#5097`**, "A refusal to find an account or a project says it is out of reach, not that
 it does not exist": a read outside reach answers as a name nobody has (decision `#4943`, rule 2),
@@ -38,9 +39,12 @@ def test_an_account_out_of_reach_and_one_nobody_has_are_said_to_be_out_of_reach 
 def test_a_private_project_out_of_reach_and_a_key_nobody_has_are_said_to_be_out_of_reach (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A member with no row on a private project, and a key no project has: one sentence for both."""
+	"""A member with no row on a private project, and a key no project has: one sentence for both.
+	"""
 
-	carrieanne = subroutine.domain.users.create(session, username=f"carrieanne-{uuid.uuid4().hex[:6]}")
+	carrieanne = subroutine.domain.users.create(
+		session, username=f"carrieanne-{uuid.uuid4().hex[:6]}"
+	)
 	keanu = subroutine.domain.users.create(session, username=f"keanu-{uuid.uuid4().hex[:6]}")
 	workspace = subroutine.domain.workspaces.create(
 		session, slug=f"metacortex-{uuid.uuid4().hex[:6]}", title="Metacortex", owner=carrieanne

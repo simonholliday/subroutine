@@ -291,8 +291,8 @@ def _refuse_where_stopped (
 
 	**Told it was a member of no workspace, or could reach none, it told its person the wrong thing
 	to fix** (M-23 of the cold review of 2026-10-17, decision `#5097`). Where it reaches nothing at
-	all, wherever it is stopped is said, whatever it named; where it reaches some, only a workspace it
-	named and is stopped in. Anywhere else, the refusal it would have had stands.
+	all, wherever it is stopped is said, whatever it named; where it reaches some, only a workspace
+	it named and is stopped in. Anywhere else, the refusal it would have had stands.
 	"""
 
 	stopped = subroutine.domain.authorization.stopped_in(session, principal)
@@ -301,7 +301,9 @@ def _refuse_where_stopped (
 		stopped = [
 			(found, person)
 			for found, person in stopped
-			if subroutine.addressing.names_workspace(requested, slug=found.slug, identifier=found.id)
+			if subroutine.addressing.names_workspace(
+				requested, slug=found.slug, identifier=found.id
+			)
 		]
 
 	if not stopped:

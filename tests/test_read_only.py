@@ -97,11 +97,14 @@ def test_saying_false_is_saying_nothing (world: test_api_tasks.World) -> None:
 	assert made.status_code == 201, made.text
 
 
-@pytest.mark.parametrize("order", [("true", "false"), ("false", "true")], ids=["true first", "false first"])
+@pytest.mark.parametrize(
+	"order", [("true", "false"), ("false", "true")], ids=["true first", "false first"]
+)
 def test_a_flag_sent_twice_is_read_only_if_either_says_so (
 	world: test_api_tasks.World, order: tuple[str, str]
 ) -> None:
-	"""**Any true wins, so a repeated parameter can only narrow** - `SR#5131`, L-6 of the cold review
+	"""**Any true wins, so a repeated parameter can only narrow** - `SR#5131`, L-6 of the
+	cold review
 	of 2026-10-17, where nothing sent it twice."""
 
 	refused = world.call(
@@ -141,7 +144,9 @@ def test_a_caller_s_query_cannot_switch_a_read_only_connection_s_flag_off () -> 
 		)
 
 	client = subroutine.clients.http.Client(
-		subroutine.connections.Connection(name="work", url="https://employer.example.com", read_only=True),
+		subroutine.connections.Connection(
+			name="work", url="https://employer.example.com", read_only=True
+		),
 		token="sr_not_a_real_one",
 		transport=httpx.MockTransport(current),
 		base_url="https://employer.example.com",
@@ -149,7 +154,8 @@ def test_a_caller_s_query_cannot_switch_a_read_only_connection_s_flag_off () -> 
 
 	with client:
 		answered = client.call_api(
-			method="POST", path="/v1/tasks", body={"title": "No"}, query={"read_only": "false", "x": "1"}
+			method="POST", path="/v1/tasks", body={"title": "No"},
+			query={"read_only": "false", "x": "1"}
 		)
 
 	assert answered.status == 403, answered.text
@@ -264,8 +270,9 @@ def _problem (detail: str) -> dict[str, typing.Any]:
 
 
 def test_an_instance_that_does_not_know_the_flag_is_said_to_be_too_old () -> None:
-	"""**It fails closed, and says why in terms of what the person set.** Every release from 0.7.5 until
-	this one refuses the parameter as unknown, which keeps a read-only connection from writing to it and
+	"""**It fails closed, and says why in terms of what the person set.** Every release from 0.7.5
+	until this one refuses the parameter as unknown, which keeps a read-only connection from writing
+	to it and
 	reads, to somebody who never typed ``read_only``, as nonsense."""
 
 	def older (request: httpx.Request) -> httpx.Response:
@@ -330,7 +337,12 @@ class Older:
 			return httpx.Response(
 				403,
 				headers={"content-type": "application/problem+json"},
-				json={"type": "about:blank", "title": "Forbidden", "status": 403, "detail": "Read-only."},
+				json={
+					"type": "about:blank",
+					"title": "Forbidden",
+					"status": 403,
+					"detail": "Read-only.",
+				},
 			)
 
 		self.asked_its_release += request.url.path == "/v1/meta"
@@ -343,7 +355,11 @@ class Older:
 			)
 
 		return httpx.Response(
-			200, json={"workspaces": [], **({} if self.version is None else {"instance_version": self.version})}
+			200,
+			json={
+				"workspaces": [],
+				**({} if self.version is None else {"instance_version": self.version}),
+			}
 		)
 
 
@@ -351,7 +367,9 @@ def _read_only_client (server: Older) -> subroutine.clients.http.Client:
 	"""Return a read-only connection's client to an old server."""
 
 	return subroutine.clients.http.Client(
-		subroutine.connections.Connection(name="work", url="https://employer.example.com", read_only=True),
+		subroutine.connections.Connection(
+			name="work", url="https://employer.example.com", read_only=True
+		),
 		token="sr_not_a_real_one",
 		transport=httpx.MockTransport(server),
 		base_url="https://employer.example.com",
@@ -359,14 +377,17 @@ def _read_only_client (server: Older) -> subroutine.clients.http.Client:
 
 
 #: The writes H-3 of the cold review of 2026-10-17 made through a read-only connection to 0.7.1 and
-#: 0.5.0: a credential, an agent's account and credential, a sign-in link, a task and its completion.
+#: 0.5.0: a credential, an agent's account and credential, a sign-in link, a task and
+#: its completion.
 OLD_WRITES: dict[str, typing.Callable[[subroutine.clients.http.Client], typing.Any]] = {
 	"token create": lambda client: client.issue_token(title="Spare"),
 	"agent create": lambda client: client.create_user(username="scout", is_service_account=True),
 	"login link": lambda client: client.create_login_link(),
 	"add": lambda client: client.capture(text="Buy milk"),
 	"done": lambda client: client.complete(ref=1),
-	"call_api": lambda client: client.call_api(method="POST", path="/v1/tasks", body={"title": "No"}),
+	"call_api": lambda client: client.call_api(
+		method="POST", path="/v1/tasks", body={"title": "No"}
+	),
 }
 
 
@@ -388,14 +409,16 @@ def test_a_read_only_connection_writes_nothing_to_a_release_that_would_ignore_it
 	"""`SR#5116`, H-3 of the cold review of 2026-10-17: refused before any write leaves the client.
 
 	The flag fails closed only from 0.7.5, where every route refuses a parameter it does not know;
-	0.7.1 refused it on its listings alone, so its write routes took a credential, a sign-in link, an
-	account and a task from a read-only connection, and 0.5.0 ignored it everywhere. The client now
-	asks the release first, and an instance that cannot be placed is refused like an old one.
+	0.7.1 refused it on its listings alone, so its write routes took a credential, a sign-in link,
+	an account and a task from a read-only connection, and 0.5.0 ignored it everywhere. The client
+	now asks the release first, and an instance that cannot be placed is refused like an old one.
 	"""
 
 	old = server()
 
-	with _read_only_client(old) as client, pytest.raises(subroutine.errors.SubroutineError) as refused:
+	with _read_only_client(old) as client, pytest.raises(
+		subroutine.errors.SubroutineError
+	) as refused:
 		OLD_WRITES[write](client)
 
 	assert old.written == [], f"{write} reached an instance that ignores read_only"
@@ -610,7 +633,8 @@ def test_whoami_through_a_read_only_relay_says_the_session_only_reads (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
 	"""Decision `#5097`'s line, through both relays - `SR#5126`. **In process** the session presents
-	no credential, so the flag ``/v1/me`` carries on one cannot say it, and the tools' client says it
+	no credential, so the flag ``/v1/me`` carries on one cannot say it, and the tools' client
+	says it
 	from the session's own setting."""
 
 	said = json.dumps(_call(_relay(world, monkeypatch, path), "subroutine_whoami", {}))

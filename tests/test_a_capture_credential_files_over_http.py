@@ -18,7 +18,8 @@ import subroutine.domain.bootstrap
 
 
 def _capture_only (session: sqlalchemy.orm.Session) -> tuple[str, str, str]:
-	"""Return a workspace's short name, its owner's whole credential, and one that may only file tasks.
+	"""Return a workspace's short name, its owner's whole credential, and one that may only
+	file tasks.
 
 	A task carrying a tag is filed first with the owner's whole authority, so the vocabulary has a
 	tag in use for the narrow credential not to see.
@@ -38,7 +39,9 @@ def _capture_only (session: sqlalchemy.orm.Session) -> tuple[str, str, str]:
 	with _over_http(session, everything.value.get_secret_value()) as client:
 		client.capture(text="Water the plants #garden", workspace=setup.workspace.slug)
 
-	return setup.workspace.slug, everything.value.get_secret_value(), filing.value.get_secret_value()
+	return (
+		setup.workspace.slug, everything.value.get_secret_value(), filing.value.get_secret_value()
+	)
 
 
 def _over_http (session: sqlalchemy.orm.Session, token: str) -> subroutine.clients.http.Client:
@@ -47,7 +50,9 @@ def _over_http (session: sqlalchemy.orm.Session, token: str) -> subroutine.clien
 	return subroutine.clients.http.Client(
 		subroutine.connections.Connection(name="work", url="https://example.com"),
 		token=token,
-		transport=api_support.SyncTransport(api_support.build_app(api_support.factory_for(session))),
+		transport=api_support.SyncTransport(
+			api_support.build_app(api_support.factory_for(session))
+		),
 		base_url=api_support.BASE_URL,
 	)
 
@@ -55,13 +60,16 @@ def _over_http (session: sqlalchemy.orm.Session, token: str) -> subroutine.clien
 def test_a_capture_credential_reads_the_vocabulary_and_sees_no_tag_in_use (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""``GET /v1/meta`` answers it, and the tag a task it cannot read carries is not among its tags."""
+	"""``GET /v1/meta`` answers it, and the tag a task it cannot read carries is not among its tags.
+	"""
 
 	slug, everything, filing = _capture_only(session)
 	application = api_support.build_app(api_support.factory_for(session))
 
 	def tags (secret: str) -> dict[str, int]:
-		"""Return the tags /v1/meta lists to one credential, with their uses, failing unless it answers."""
+		"""Return the tags /v1/meta lists to one credential, with their uses, failing unless
+		it answers.
+		"""
 
 		answer = api_support.call(
 			application,
@@ -74,7 +82,9 @@ def test_a_capture_credential_reads_the_vocabulary_and_sees_no_tag_in_use (
 
 		return {one["name"]: one["usage"] for one in answer.json()["tags"]["items"]}
 
-	assert tags(everything).get("garden") == 1, "the control: the owner's whole credential counts it"
+	assert (
+		tags(everything).get("garden") == 1
+	), "the control: the owner's whole credential counts it"
 	assert "garden" not in tags(filing)
 
 

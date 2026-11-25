@@ -96,7 +96,8 @@ def test_reactivate_brings_back_an_account_that_had_left (run: Run) -> None:
 
 
 def test_login_revoke_ends_every_session_and_spends_every_unused_link (run: Run) -> None:
-	"""``login revoke keanu`` revokes the browser sessions keanu holds and spends their unused links.
+	"""``login revoke keanu`` revokes the browser sessions keanu holds and spends their
+	unused links.
 
 	**The session and the links are made in the database**, because no terminal command opens a
 	browser session.

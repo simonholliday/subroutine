@@ -124,15 +124,25 @@ class Sweep:
 		self.credentials = {
 			name: value
 			for name, value in kept.items()
-			if isinstance(value, str) and value.startswith("sr_") and not value.startswith("sr_cal_")
+			if (
+				isinstance(value, str)
+				and value.startswith("sr_")
+				and not value.startswith("sr_cal_")
+			)
 		}
 		self.feeds = [
-			value for value in kept.values() if isinstance(value, str) and value.startswith("sr_cal_")
+			value
+			for value in kept.values()
+			if isinstance(value, str) and value.startswith("sr_cal_")
 		]
 		self.refs: dict[str, int] = kept.get("refs", {})
 		self.samples = samples(str(self.refs.get("pricing", 1)))
 		self.declared = {
-			path: sorted(one["name"] for one in methods.get("get", {}).get("parameters", []) if one["in"] == "query")
+			path: sorted(
+				one["name"]
+				for one in methods.get("get", {}).get("parameters", [])
+				if one["in"] == "query"
+			)
 			for path, methods in self.application.openapi()["paths"].items()
 		}
 		self.answers: list[Answer] = []
@@ -142,7 +152,9 @@ class Sweep:
 
 		transport = httpx.ASGITransport(app=self.application, raise_app_exceptions=False)
 
-		async with httpx.AsyncClient(transport=transport, base_url="http://rehearsal", timeout=60) as client:
+		async with httpx.AsyncClient(
+			transport=transport, base_url="http://rehearsal", timeout=60
+		) as client:
 			self.client = client
 			found = await self._found()
 			usernames = await self._usernames()
@@ -161,7 +173,9 @@ class Sweep:
 			for who in (*self.credentials, "nobody"):
 				for workspace in WORKSPACES:
 					for template in templates:
-						for path in self._addresses(template, found[workspace], workspace, usernames):
+						for path in self._addresses(
+							template, found[workspace], workspace, usernames
+						):
 							asked.add(template)
 							await self._get(who, path)
 
@@ -175,7 +189,9 @@ class Sweep:
 							await self._page_through(who, path)
 
 					for order in ORDERS:
-						await self._page_through(who, f"/v1/tasks?workspace_id={workspace}&order={order}")
+						await self._page_through(
+							who, f"/v1/tasks?workspace_id={workspace}&order={order}"
+						)
 
 		return {
 			"answers": self.answers,
@@ -185,7 +201,9 @@ class Sweep:
 	async def _get (self, who: str, path: str) -> httpx.Response | None:
 		"""Make one read as one credential, record how it was answered, and return the answer."""
 
-		headers = {"authorization": f"Bearer {self.credentials[who]}"} if who in self.credentials else {}
+		headers = (
+			{"authorization": f"Bearer {self.credentials[who]}"} if who in self.credentials else {}
+		)
 
 		try:
 			answered = await self.client.get(path, headers=headers)
@@ -193,7 +211,9 @@ class Sweep:
 		# **A read that raised is recorded as a server error**, since nothing a caller sends should
 		# make the application raise past its own handlers.
 		except Exception as failure:
-			self.answers.append({"who": who, "path": path, "status": 599, "detail": repr(failure)[:600]})
+			self.answers.append(
+				{"who": who, "path": path, "status": 599, "detail": repr(failure)[:600]}
+			)
 
 			return None
 
@@ -216,14 +236,22 @@ class Sweep:
 
 			for kind, path, field in (
 				("projects", f"/v1/projects?workspace_id={workspace}&limit=200", "key"),
-				("tasks", f"/v1/tasks?workspace_id={workspace}&limit=200&include_completed=true", "ref"),
+				(
+					"tasks",
+					f"/v1/tasks?workspace_id={workspace}&limit=200&include_completed=true",
+					"ref",
+				),
 				("documents", f"/v1/documents?workspace_id={workspace}&limit=200", "ref"),
 				("views", f"/v1/views?workspace_id={workspace}", "key"),
 			):
 				answered = await self._get("keanu", path)
 
 				if answered is not None and answered.status_code == 200:
-					held[kind] = [str(row[field]) for row in rows_of(answered.json()) if row.get(field) is not None]
+					held[kind] = [
+						str(row[field])
+						for row in rows_of(answered.json())
+						if row.get(field) is not None
+					]
 
 			found[workspace] = held
 
@@ -285,7 +313,9 @@ class Sweep:
 			paths = [template.replace("{key}", key) for key in held["views"]]
 
 		elif "{name}" in template:
-			paths = [template.replace("{name}", name) for name in ("app.js", "styles.css", "nothing.js")]
+			paths = [
+				template.replace("{name}", name) for name in ("app.js", "styles.css", "nothing.js")
+			]
 
 		elif "{prefix}/{secret}" in template:
 			paths = []
@@ -306,7 +336,9 @@ class Sweep:
 		return [
 			path + (f"?{query}" if query else "")
 			for path in paths
-			for query in ("&".join(part for part in (variant, scope) if part) for variant in variants)
+			for query in (
+				"&".join(part for part in (variant, scope) if part) for variant in variants
+			)
 		]
 
 	async def _page_through (self, who: str, path: str) -> None:
@@ -316,7 +348,9 @@ class Sweep:
 		cursor: str | None = None
 
 		for _page in range(4):
-			answered = await self._get(who, path + f"{joiner}limit=2" + (f"&cursor={cursor}" if cursor else ""))
+			answered = await self._get(
+				who, path + f"{joiner}limit=2" + (f"&cursor={cursor}" if cursor else "")
+			)
 
 			if answered is None or answered.status_code != 200:
 				return

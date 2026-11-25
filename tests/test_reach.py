@@ -371,8 +371,9 @@ NOT_IN_CLI: dict[str, Excuse] = {
 	"sign_ins": (
 		"administrative",
 		"`SR#5111`. Decided without a command (decision `#5097`): an administrator of accounts "
-		"reads when each account last signed in through the API, and `subroutine user sign-ins` "
-		"was not taken. **What would remove it**: a command for it, which is a decision of its own.",
+		"reads when each account last signed in through the API, and `subroutine user "
+		"sign-ins` was not taken. **What would remove it**: a command for it, which is a "
+		"decision of its own.",
 	),
 	"count_documents": (
 		"protocol",
@@ -556,7 +557,12 @@ NOT_IN_MCP: dict[str, Excuse] = {
 	),
 	"sign_ins": (
 		"budget",
-		"`SR#5111`. When each account last signed in is an administrator's question, gated by `instance:user_create`, which no role carries and which a session through the agent tools never holds (decision `#4520`). `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",
+		"`SR#5111`. When each account last signed in is an administrator's question, gated by "
+		"`instance:user_create`, which no role carries and which a session through the agent "
+		"tools never holds (decision `#4520`). `subroutine_call_api` reaches the route, against a "
+		"surface at **15 of 15 tools** under \u00a721.2.\n\n"
+		"**What would change it**: an agent that administers people on an installation, which "
+		"this product refuses by decision.",
 	),
 	"instance_workspaces": (
 		"budget",

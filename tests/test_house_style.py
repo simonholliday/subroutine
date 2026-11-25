@@ -336,13 +336,17 @@ def _spacing (path: pathlib.Path) -> tuple[int, list[str]]:
 			above -= 1
 
 		if above >= 0 and blank < 2:
-			found.append(f"{node.lineno}: {blank or 'no'} blank line{'' if blank == 1 else 's'} above it")
+			found.append(
+				f"{node.lineno}: {blank or 'no'} blank line{'' if blank == 1 else 's'} above it"
+			)
 
 	return examined, found
 
 
 def test_blank_lines_keep_the_house_spacing () -> None:
-	"""`SR#5179`: never three in a row, never two inside a body, two above every top-level definition."""
+	"""`SR#5179`: never three in a row, never two inside a body, two above every
+	top-level definition.
+	"""
 
 	examined = 0
 	found: list[str] = []
@@ -352,7 +356,9 @@ def test_blank_lines_keep_the_house_spacing () -> None:
 		examined += seen
 		found.extend(f"{path.relative_to(ROOT)}:{one}" for one in wrong)
 
-	assert examined >= 5000, f"only {examined} top-level definitions were examined, so this checks little"
+	assert (
+		examined >= 5000
+	), f"only {examined} top-level definitions were examined, so this checks little"
 	assert not found, "blank lines out of place:\n" + "\n".join(found)
 
 
@@ -514,7 +520,8 @@ def test_the_except_rule_catches_a_crowded_clause_and_passes_a_commented_one (
 		("two in a body", 'def helper ():\n\t"""Do a thing."""\n\n\n\treturn 1\n'),
 		(
 			"one above a definition",
-			'"""A module."""\n\nimport os\n\ndef helper ():\n\t"""Do a thing."""\n\n\treturn os.sep\n',
+			'"""A module."""\n\nimport os\n\ndef helper ():\n\t"""Do a thing."""\n\n'
+			'\treturn os.sep\n',
 		),
 	],
 )

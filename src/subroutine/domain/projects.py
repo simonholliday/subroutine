@@ -486,8 +486,8 @@ def move (
 
 	# **Nor where it leaves a private project with nobody who could see it** (`SR#5101`, M-4 of the
 	# cold review of 2026-10-17, decision `#5097`): only arriving under a private project it was not
-	# under hides anything. Asked after the reasons above, which are the more particular, and not of a
-	# move beneath itself, which the move refuses by name.
+	# under hides anything. Asked after the reasons above, which are the more particular, and not of
+	# a move beneath itself, which the move refuses by name.
 	above = (
 		()
 		if parent is None
@@ -617,7 +617,8 @@ def update (
 
 	if title is not subroutine.domain.patch.UNSET:
 		cleaned_title = subroutine.domain.text.fit(
-			subroutine.domain.text.require(title, field="title"), field="title", limit=MAX_TITLE_LENGTH
+			subroutine.domain.text.require(title, field="title"), field="title",
+			limit=MAX_TITLE_LENGTH
 		)
 
 	if description is not subroutine.domain.patch.UNSET:
@@ -676,9 +677,9 @@ def update (
 	# handing a project to somebody who could not see it.
 	new_owner: subroutine.db.models.identity.User | None = None
 
-	# **Only a change of owner is asked** (`SR#5104`), as a task's assignee and a document's maintainer
-	# are: the browser sends every field it shows, unchanged ones included, so asking a re-sent owner
-	# who has since left refused every save of the project.
+	# **Only a change of owner is asked** (`SR#5104`), as a task's assignee and a document's
+	# maintainer are: the browser sends every field it shows, unchanged ones included, so asking a
+	# re-sent owner who has since left refused every save of the project.
 	if (
 		owner_id is not subroutine.domain.patch.UNSET
 		and owner_id is not None
@@ -744,9 +745,9 @@ def update (
 
 	# **Nor where it leaves a private project with nobody who could see it** (`SR#5101`, M-4 of the
 	# cold review of 2026-10-17, decision `#5097`): jo made ``outer`` private, and pat's private
-	# project inside it, which pat saw without being shared into ``outer``, was seen by nobody. Asked
-	# last, since the reasons above are the more particular, and counting a new owner, whom this same
-	# change shares in.
+	# project inside it, which pat saw without being shared into ``outer``, was seen by nobody.
+	# Asked last, since the reasons above are the more particular, and counting a new owner, whom
+	# this same change shares in.
 	if visibility == "private" and project.visibility != "private":
 		_refuse_stranding(
 			session,
@@ -754,7 +755,9 @@ def update (
 			project,
 			afterwards=subroutine.domain.repair.Afterwards(
 				private=frozenset({project.id}),
-				granted=frozenset() if new_owner is None else frozenset({(project.id, new_owner.id)}),
+				granted=(
+					frozenset() if new_owner is None else frozenset({(project.id, new_owner.id)})
+				),
 			),
 			doing=f"Making {project.key} private",
 			field="visibility",
@@ -1217,7 +1220,10 @@ def hidden_by (
 		if ancestor is None:
 			continue
 
-		if (ancestor.visibility == "private" or ancestor.id in private) and ancestor.id not in shared:
+		if (
+			(ancestor.visibility == "private" or ancestor.id in private)
+			and ancestor.id not in shared
+		):
 			return ancestor
 
 	return None
@@ -1256,11 +1262,12 @@ def member_who_sees (
 		session, workspace_id, str(user_id), field=field, reader=actor
 	)
 
-	# **And who can act there** (`SR#5104`, M-10 of the cold review of 2026-10-17, decision `#4509`):
-	# a member who had left, or an agent that had stopped, was handed a task, a document or a project
-	# nobody could then act on. Said in its own sentence, since they are a member: the lookup's own
-	# refusal would say there is nobody of that name. **Only where it is handed to them**: a project
-	# made for its own maker is not, nor the Inbox for whoever founds the workspace.
+	# **And who can act there** (`SR#5104`, M-10 of the cold review of 2026-10-17, decision
+	# `#4509`): a member who had left, or an agent that had stopped, was handed a task, a
+	# document or a project nobody could then act on. Said in its own sentence, since they are a
+	# member: the lookup's own refusal would say there is nobody of that name. **Only where it is
+	# handed to them**: a project made for its own maker is not, nor the Inbox for whoever founds
+	# the workspace.
 	if handed and not subroutine.domain.accountability.can_act(
 		session, named, workspace_id=workspace_id
 	):
@@ -1282,13 +1289,14 @@ def member_who_sees (
 	if blocking is None:
 		return named
 
-	# **A share is offered only to a caller it would not refuse** (`SR#5106`, M-23 of the cold review
-	# of 2026-10-17, decision `#4521`): a steward on a credential that may not share was offered the
-	# command and then refused it. Somebody who is not the steward is pointed at the owner.
+	# **A share is offered only to a caller it would not refuse** (`SR#5106`, M-23 of the cold
+	# review of 2026-10-17, decision `#4521`): a steward on a credential that may not share was
+	# offered the command and then refused it. Somebody who is not the steward is pointed at
+	# the owner.
 	if may_share(session, actor, blocking):
 		hint = (
-			f"'subroutine project share {blocking.key} {named.username}' first, or choose somebody who "
-			"can see it."
+			f"'subroutine project share {blocking.key} {named.username}' first, or choose somebody "
+			"who can see it."
 		)
 
 	elif subroutine.domain.stewardship.stewards(session, actor, blocking):
@@ -1296,8 +1304,8 @@ def member_who_sees (
 
 	else:
 		hint = (
-			f"Choose somebody who can see it, or ask the owner of '{blocking.key}' to share it with "
-			"them."
+			f"Choose somebody who can see it, or ask the owner of '{blocking.key}' to share it "
+			"with them."
 		)
 
 	raise subroutine.errors.ValidationError(
@@ -1344,7 +1352,8 @@ def may_publish (
 	actor: subroutine.domain.authentication.Principal | None,
 	project: subroutine.db.models.project.Project,
 ) -> bool:
-	"""Report whether this caller may make ``project`` public, as :func:`update` asks it - `SR#5106`.
+	"""Report whether this caller may make ``project`` public, as :func:`update` asks
+	it - `SR#5106`.
 
 	**Its steward, holding ``project:write`` at the workspace's place**, where who sees a project
 	is decided: a credential narrowed to some projects may share one and not publish it.
@@ -1506,7 +1515,10 @@ def unreachable (
 		moving = frozenset(
 			{
 				agent.id,
-				*(one.id for one in subroutine.domain.accountability.agents_answering_to(session, agent)),
+				*(
+					one.id
+					for one in subroutine.domain.accountability.agents_answering_to(session, agent)
+				),
 			}
 		)
 		afterwards = subroutine.domain.repair.Afterwards(handed=(agent.id, to.id), moving=moving)
@@ -1542,15 +1554,17 @@ def unreachable (
 	# row on it. Each walk is a members query and a climb of the project's chain, bounded, as above,
 	# by how many private projects exist - which is the number to watch if this grows slow.
 	def asked (row: subroutine.db.models.project.Project) -> bool:
-		"""Report whether this project is one the question is about: every one, or what an act leaves."""
+		"""Report whether this project is one the question is about: every one, or what an
+		act leaves.
+		"""
 
 		if leaving is not None:
 			return subroutine.domain.repair.takes_part(
 				session, row, theirs
 			) or leaving.id in subroutine.domain.repair.repairers(session, row)
 
-		# **Only what the transfer changes** (`SR#5101`): a project somebody could see now, through a
-		# share the agent or one beneath it holds, on it or above it (:func:`touched`). One nobody
+		# **Only what the transfer changes** (`SR#5101`): a project somebody could see now, through
+		# a share the agent or one beneath it holds, on it or above it (:func:`touched`). One nobody
 		# could see already is listed as it is.
 		if transferring is not None:
 			return bool(subroutine.domain.repair.repairers(session, row))
@@ -1641,9 +1655,9 @@ def asked_about (
 ]:
 	"""Resolve by name what :func:`unreachable` is asked about, refusing a question half asked.
 
-	**Both doors ask it here** (`SR#5101`, decision `#5097`), the API and the local client: a transfer
-	named without who it goes to, or beside somebody leaving, is refused in one sentence. Naming an
-	account to ask about it is not a read of it (decision `#4943`).
+	**Both doors ask it here** (`SR#5101`, decision `#5097`), the API and the local client: a
+	transfer named without who it goes to, or beside somebody leaving, is refused in one sentence.
+	Naming an account to ask about it is not a read of it (decision `#4943`).
 	"""
 
 	if (transferring is None) != (to is None):
@@ -2055,14 +2069,16 @@ def unshare (
 			inside = f"{inside} and only through their agent {user.username},"
 
 		# **A remedy this caller can take** (`SR#4570`): making it public and sharing it are its
-		# steward's now, so somebody removing themselves who is not is pointed at the one who is. **And
-		# only what their credential may do** (`SR#5106`): making it public is asked at the workspace's
-		# place, which a credential narrowed to some projects does not reach.
+		# steward's now, so somebody removing themselves who is not is pointed at the one who is.
+		# **And only what their credential may do** (`SR#5106`): making it public is asked at the
+		# workspace's place, which a credential narrowed to some projects does not reach.
 		if key is None:
 			hint = f"Ask {seer} to share it with somebody else first."
 
 		elif may_publish(session, actor, one):
-			hint = f"'subroutine project update {key} --public' first, or share it with somebody else."
+			hint = (
+				f"'subroutine project update {key} --public' first, or share it with somebody else."
+			)
 
 		elif may_share(session, actor, one):
 			hint = "Share it with somebody else first."
@@ -2116,7 +2132,8 @@ def key_named_to (
 	actor: subroutine.domain.authentication.Principal | None,
 	project: subroutine.db.models.project.Project,
 ) -> str | None:
-	"""Return a project's key for a refusal to name to this caller, or ``None`` where they cannot see it.
+	"""Return a project's key for a refusal to name to this caller, or ``None`` where they cannot
+	see it.
 
 	**A refusal that names another row resolves it through the caller's reach first** (decision
 	`#4521`, `SR#5100`): one that does not resolve is said as :data:`scoping.UNSEEN`, and its hint
@@ -2183,13 +2200,14 @@ def _refuse_stranding (
 
 	**The last-one question, asked of two more acts** (`SR#5101`, M-4 of the cold review of
 	2026-10-17, decision `#5097`): asked of the project and each private project inside it, of who
-	could see it once the act is taken, computed rather than rehearsed. **Refusing only a change from
-	somebody to nobody**, as :func:`unshare` does: one nobody could reach already is the rescue's.
+	could see it once the act is taken, computed rather than rehearsed. **Refusing only a
+	change from somebody to nobody**, as :func:`unshare` does: one nobody could reach already
+	is the rescue's.
 
 	``doing`` opens the refusal, *Making outer private*. **Named only to a caller who can see it**
-	(decision `#4521`), and the hint says what to do first: make somebody who can see it the owner of
-	the project made private, since a public project cannot be shared, or share the private project
-	the move would hide it beneath. **Who that is, too, only to a caller who can see it**
+	(decision `#4521`), and the hint says what to do first: make somebody who can see it the owner
+	of the project made private, since a public project cannot be shared, or share the private
+	project the move would hide it beneath. **Who that is, too, only to a caller who can see it**
 	(`SR#5316`, decision `#5285`).
 	"""
 
@@ -2223,7 +2241,11 @@ def _refuse_stranding (
 
 		# **A project being made private has somebody before**: whoever makes it private can see it,
 		# and so does the person an agent doing so answers to. Each other is asked who sees it now.
-		could = None if one is project and becoming else subroutine.domain.repair.repairers(session, one)
+		could = (
+			None
+			if one is project and becoming
+			else subroutine.domain.repair.repairers(session, one)
+		)
 
 		if could == set():
 			continue

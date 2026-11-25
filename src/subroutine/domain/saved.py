@@ -707,7 +707,9 @@ def _refuse_writing (
 	own: bool,
 	asked: Asked | None,
 ) -> None:
-	"""Refuse ``task:write`` in a workspace unless this reader holds it, once a listing where one asks."""
+	"""Refuse ``task:write`` in a workspace unless this reader holds it, once a listing where
+	one asks.
+	"""
 
 	key = (workspace_id, own)
 

@@ -112,7 +112,8 @@ def test_a_links_far_end_names_its_workspace (world: World) -> None:
 	two = world.call("POST", "/v1/tasks", json={"title": "Call the landlord"}).json()
 
 	made = world.call(
-		"POST", f"/v1/tasks/{one['ref']}/links", json={"target": two["ref"], "link_type": "relates_to"}
+		"POST", f"/v1/tasks/{one['ref']}/links",
+		json={"target": two["ref"], "link_type": "relates_to"}
 	)
 
 	assert made.status_code == 201, made.text

@@ -8056,13 +8056,28 @@ def test_completing_a_repeating_task_offers_no_undo (tmp_path: pathlib.Path) -> 
 		(
 			"completedNote",
 			[
-				{"ref": 7, "kind": "task", "title": "Water the plants", "status": "open", "recurrence_description": "every week"},
+				{
+					"ref": 7,
+					"kind": "task",
+					"title": "Water the plants",
+					"status": "open",
+					"recurrence_description": "every week",
+				},
 				"personal",
 			],
 		),
 		(
 			"completedNote",
-			[{"ref": 8, "kind": "task", "title": "Fix it", "status": "in progress", "recurrence_description": None}, "personal"],
+			[
+				{
+					"ref": 8,
+					"kind": "task",
+					"title": "Fix it",
+					"status": "in progress",
+					"recurrence_description": None,
+				},
+				"personal",
+			],
 		),
 	])
 
@@ -20019,7 +20034,9 @@ def test_the_browser_asks_about_an_occurrence_whose_series_it_is_not_numbered (
 		import {{ repeats }} from "{(module.parent / "requests.js").as_uri()}";
 
 		process.stdout.write(JSON.stringify([
-			repeats({{ is_template: false, recurrence_template_ref: null, recurrence_rule: "FREQ=WEEKLY" }}),
+			repeats({{
+				is_template: false, recurrence_template_ref: null, recurrence_rule: "FREQ=WEEKLY"
+			}}),
 			repeats({{ is_template: false, recurrence_template_ref: 12, recurrence_rule: null }}),
 			repeats({{ is_template: false, recurrence_template_ref: null, recurrence_rule: null }}),
 		]));
@@ -20290,7 +20307,9 @@ def test_the_journal_says_a_link_it_cannot_name_as_a_link (tmp_path: pathlib.Pat
 	before its ends were recorded, each drew *created it* or *deleted it* beside an item that was
 	neither. **Drawn, and compared with what the terminal says of the same entry.**"""
 
-	def entry (seq: int, action: str, changed: list[subroutine.views.Change]) -> subroutine.views.JournalEntry:
+	def entry (
+		seq: int, action: str, changed: list[subroutine.views.Change]
+	) -> subroutine.views.JournalEntry:
 		"""One link entry under #42, built through the view the surfaces read."""
 
 		return subroutine.views.JournalEntry(
@@ -20302,7 +20321,9 @@ def test_the_journal_says_a_link_it_cannot_name_as_a_link (tmp_path: pathlib.Pat
 
 	unseen = entry(7, "created", [
 		subroutine.views.Change(field="link_type", said="link type", after="blocks"),
-		subroutine.views.Change(field="source", said="source", after=subroutine.domain.scoping.UNSEEN),
+		subroutine.views.Change(
+			field="source", said="source", after=subroutine.domain.scoping.UNSEEN
+		),
 		subroutine.views.Change(field="target", said="target", after="42"),
 	])
 	unrecorded = entry(5, "deleted", [])
@@ -20318,7 +20339,9 @@ def test_the_journal_says_a_link_it_cannot_name_as_a_link (tmp_path: pathlib.Pat
 	for one in (unseen, unrecorded):
 		said = subroutine.views.a_link_from_this_side(one)
 
-		assert said is not None and said in drawn, f"the terminal says {said!r} and the browser drew {drawn}"
+		assert (
+			said is not None and said in drawn
+		), f"the terminal says {said!r} and the browser drew {drawn}"
 
 	assert "linked it to something you cannot see (blocks)" in drawn, drawn
 	assert "created it" not in drawn and "deleted it" not in drawn, drawn
@@ -20332,11 +20355,17 @@ def test_the_journal_says_a_link_in_the_instances_words () -> None:
 	unseen = re.search(r'^const UNSEEN = "([^"]*)";', source, re.MULTILINE)
 	block = re.search(r"const A_LINK = \{(.*?)\};", source, re.DOTALL)
 
-	assert unseen is not None and block is not None, "journal.js holds no link words, so nothing is compared"
+	assert (
+		unseen is not None and block is not None
+	), "journal.js holds no link words, so nothing is compared"
 	assert unseen.group(1) == subroutine.domain.scoping.UNSEEN
 
 	held = dict(re.findall(r'(\w+): "([^"]*)"', block.group(1)))
-	happened = {action: said for (kind, action), said in subroutine.views._HAPPENED.items() if kind == "link"}
+	happened = {
+		action: said
+		for (kind, action), said in subroutine.views._HAPPENED.items()
+		if kind == "link"
+	}
 
 	assert held and held == happened, f"the browser says {held} and the terminal says {happened}"
 
@@ -21097,7 +21126,9 @@ def test_a_hidden_status_control_draws_its_own_kind_and_keeps_what_it_does_not_d
 
 		process.stdout.write(JSON.stringify(app.hideableStatuses({{statuses: {{
 			task: [{{key: "open", label: "Open"}}, {{key: "superseded", label: "Superseded"}}],
-			document: [{{key: "draft", label: "Draft"}}, {{key: "superseded", label: "Superseded"}}],
+			document: [
+				{{key: "draft", label: "Draft"}}, {{key: "superseded", label: "Superseded"}},
+			],
 			project: [{{key: "on_hold", label: "On hold"}}],
 		}}}})));
 	""")
@@ -21116,9 +21147,9 @@ def test_a_hidden_status_control_draws_its_own_kind_and_keeps_what_it_does_not_d
 	assert "<legend" not in tasks + documents, "a legend repeats what the row's heading says"
 	assert 'value="open"' in tasks and 'value="draft"' not in tasks, tasks
 	assert 'value="draft"' in documents and 'value="open"' not in documents, documents
-	assert re.search(r'<input type="checkbox" name="value" value="superseded"[^>]*checked', tasks), (
-		f"the task status hidden here was drawn as offered: {tasks}"
-	)
+	assert re.search(
+		r'<input type="checkbox" name="value" value="superseded"[^>]*checked', tasks
+	), f"the task status hidden here was drawn as offered: {tasks}"
 	assert not re.search(r'value="superseded"[^>]*checked', documents), (
 		f"the document control drew the task list's superseded as hidden: {documents}"
 	)
@@ -21444,19 +21475,33 @@ def test_the_directory_folds_every_workspace_into_one_answer_per_person (
 def test_the_directory_says_where_an_agent_is_stopped_and_whose_membership_starts_it (
 	tmp_path: pathlib.Path
 ) -> None:
-	"""`SR#5062`: the People page showed an agent stopped in a workspace as holding its role there."""
+	"""`SR#5062`: the People page showed an agent stopped in a workspace as holding its role there.
+	"""
 
 	# The harness keeps the elements' names; the sentence is read across them, as a reader reads it.
 	said = " ".join(re.sub(r"<[^>]*>", "", _rendered(tmp_path, {"People": {
 		"people": [
-			{"username": "zion-bot", "is_service_account": True, "is_active": True, "answers_to": "hugo"},
+			{
+				"username": "zion-bot",
+				"is_service_account": True,
+				"is_active": True,
+				"answers_to": "hugo",
+			},
 		],
 		"rosters": [
 			{"slug": "zion", "title": "Zion", "members": [
-				{"user": {"username": "zion-bot", "answers_to": "hugo"}, "role": "contributor", "stopped": "outside"},
+				{
+					"user": {"username": "zion-bot", "answers_to": "hugo"},
+					"role": "contributor",
+					"stopped": "outside",
+				},
 			]},
 			{"slug": "web", "title": "Web", "members": [
-				{"user": {"username": "zion-bot", "answers_to": "hugo"}, "role": "contributor", "stopped": None},
+				{
+					"user": {"username": "zion-bot", "answers_to": "hugo"},
+					"role": "contributor",
+					"stopped": None,
+				},
 			]},
 		],
 		"asked": 2,

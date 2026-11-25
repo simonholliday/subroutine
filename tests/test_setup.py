@@ -329,7 +329,11 @@ def test_it_refuses_a_settings_file_it_cannot_read (
 		('{"hooks": {"SessionEnd": "x"}}', "hooks.SessionEnd", "a list"),
 		('{"hooks": {"SessionEnd": ["x"]}}', "hooks.SessionEnd[0]", "an object"),
 		('{"hooks": {"SessionEnd": [{"hooks": "x"}]}}', "hooks.SessionEnd[0].hooks", "a list"),
-		('{"hooks": {"SessionEnd": [{"hooks": ["x"]}]}}', "hooks.SessionEnd[0].hooks[0]", "an object"),
+		(
+			'{"hooks": {"SessionEnd": [{"hooks": ["x"]}]}}',
+			"hooks.SessionEnd[0].hooks[0]",
+			"an object",
+		),
 	],
 	ids=["a list", "a string", "an event", "an entry", "an entry's hooks", "a hook"],
 )
@@ -362,7 +366,8 @@ def test_it_refuses_hooks_it_cannot_add_a_hook_to (
 def test_it_leaves_an_env_it_does_not_add_to_as_it_is (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:
-	"""`SR#5158`: ``agent create --here`` refuses an ``env`` that is not an object, adding a variable.
+	"""`SR#5158`: ``agent create --here`` refuses an ``env`` that is not an object, adding
+	a variable.
 
 	This adds a hook, and that refusal says a variable cannot be added, so it is not asked here
 	(decision `#5097`).

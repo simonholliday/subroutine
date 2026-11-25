@@ -3207,7 +3207,8 @@ def agent_create (
 
 	workspace = _named_on_the_command_line(workspace, "agent create")
 
-	# **Not a profile for an agent, refused before anything is issued** (`SR#5119`, decision `#5097`).
+	# **Not a profile for an agent, refused before anything is issued** (`SR#5119`,
+	# decision `#5097`).
 	try:
 		subroutine.domain.profiles.refuse_for_an_agent(profile.strip())
 
@@ -4273,7 +4274,9 @@ def _nothing_to_save (settings: subroutine.config.Settings) -> bool:
 		return False
 
 	try:
-		with contextlib.closing(sqlite3.connect(subroutine.db.backup.read_only(path), uri=True)) as database:
+		with contextlib.closing(
+			sqlite3.connect(subroutine.db.backup.read_only(path), uri=True)
+		) as database:
 			tables = database.execute("SELECT count(*) FROM sqlite_master").fetchone()
 
 	except sqlite3.Error:

@@ -1,8 +1,9 @@
-"""What 1.0 promises is said where a stranger reads it, and no published page says otherwise - `SR#5263`.
+"""What 1.0 promises is said where a stranger reads it, and no published page says
+otherwise - `SR#5263`.
 
 Found scanning for what 1.0 owes before the tag. PyPI's page said *Alpha*, `SECURITY.md` said
-*`0.x`: it is early, the surface is still moving*, and the promise itself was written nowhere a stranger
-reads. Each was true when written and false by the number alone, so no test failed and
+*`0.x`: it is early, the surface is still moving*, and the promise itself was written nowhere a
+stranger reads. Each was true when written and false by the number alone, so no test failed and
 `scripts/release.py`, which touches none of them, could not notice.
 """
 
@@ -45,7 +46,8 @@ def _says_it_is_early (text: str) -> list[str]:
 
 
 def test_the_package_says_it_is_stable () -> None:
-	"""PyPI shows the classifier on the release's own page, beside the promise it would contradict."""
+	"""PyPI shows the classifier on the release's own page, beside the promise it would contradict.
+	"""
 
 	status = [one for one in test_packaging._classifiers() if one.startswith("Development Status")]
 

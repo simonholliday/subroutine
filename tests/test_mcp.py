@@ -5131,7 +5131,9 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone_however_its_workspa
 
 	for named in (place.slug, str(place.id)):
 		ref = _added(bound, "Sand the door")
-		changed, failed = _called(bound, "subroutine_update", ref=ref, plan="today", workspace=named)
+		changed, failed = _called(
+			bound, "subroutine_update", ref=ref, plan="today", workspace=named
+		)
 
 		assert not failed, changed
 
@@ -5142,8 +5144,8 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone_however_its_workspa
 		).one()
 
 		assert row.starts_at is not None, changed
-		assert row.starts_at.astimezone(zoneinfo.ZoneInfo("Pacific/Auckland")).date() == datetime.date(
-			2027, 8, 6
+		assert row.starts_at.astimezone(zoneinfo.ZoneInfo("Pacific/Auckland")).date() == (
+			datetime.date(2027, 8, 6)
 		), f"named {named!r}, 'today' was read in another zone"
 
 	assert subroutine.mcp.tools._account_zone(local_client, "nowhere") == "Pacific/Auckland"
@@ -8663,7 +8665,9 @@ def _behind (
 		"""The in-process instance refusing, as it does every message over a database behind it."""
 
 		status_code = 409
-		text = json.dumps({"status": 409, "code": "schema_mismatch", "detail": detail, "hint": hint})
+		text = json.dumps(
+			{"status": 409, "code": "schema_mismatch", "detail": detail, "hint": hint}
+		)
 
 	monkeypatch.setattr(subroutine.api.inprocess, "call", lambda *args, **kwargs: _Answered())
 
@@ -8712,7 +8716,9 @@ def test_a_plugin_ahead_of_the_terminal_says_to_upgrade_the_terminals_program_fi
 	said = answered[0]["error"]["message"]
 
 	assert "6c708db1582c" in said, "the instance's own sentence is kept"
-	assert f"This is Subroutine {subroutine.__version__}" in said, f"which program is speaking: {said}"
+	assert (
+		f"This is Subroutine {subroutine.__version__}" in said
+	), f"which program is speaking: {said}"
 	assert "terminal is 0.10.0" in said, said
 	assert f"Upgrade it to {subroutine.__version__}" in said, said
 	assert said.index("Upgrade it") < said.index("then run 'subroutine db upgrade'"), said
@@ -8874,7 +8880,9 @@ def test_a_machine_with_no_terminal_program_is_given_a_pinned_uvx_remedy (
 def test_a_profile_in_force_is_carried_into_the_plugins_remedy (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-	"""`SR#5059`: a server started under a profile names it, or the remedy upgrades another instance."""
+	"""`SR#5059`: a server started under a profile names it, or the remedy upgrades
+	another instance.
+	"""
 
 	monkeypatch.setenv(subroutine.config.PROFILE_VARIABLE, "scratch")
 
@@ -12266,8 +12274,8 @@ def test_a_rule_marked_inside_a_private_project_is_not_listed_as_one_for_the_who
 	elsewhere that binds the whole workspace*. It binds nobody outside the vault, so it is left out
 	and counted with what was; the rule in ``ops`` that does bind everybody is listed as before.
 	**Standing in the vault it is listed, as marked.** And where the credential may not list
-	projects the instance still says which of the two binds everybody (`SR#5120`): the agent guessed,
-	and listed both as marked, where the answer is the one the narrowed reader is given.
+	projects the instance still says which of the two binds everybody (`SR#5120`): the agent
+	guessed, and listed both as marked, where the answer is the one the narrowed reader is given.
 	"""
 
 	slug = _a_line_of_projects(session)

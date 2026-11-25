@@ -24,8 +24,8 @@ Resolution order, extending the server's own (``requested → pinned → sole �
 Steps 1 to 4 are answered here. **Step 3 is above the stored context and below the
 environment**, which is the only ordering that works: a marker describes *this checkout* and so
 must beat a machine-global `use`, while a flag or an exported variable is somebody saying
-something now and must beat a file they may have forgotten about. Steps 5 and 6 need a connection to have been asked what it
-reaches, so they belong to whoever holds a client.
+something now and must beat a file they may have forgotten about. Steps 5 and 6 need a connection to
+have been asked what it reaches, so they belong to whoever holds a client.
 
 **``use`` changes what a bare number means. It never changes what you can see.** That is the
 load-bearing rule: reads span everything reachable — §13.7 exists for the questions that cross

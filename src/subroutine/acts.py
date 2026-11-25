@@ -177,8 +177,8 @@ ACTS: tuple[Act, ...] = (
 			place=INSTALLATION,
 			reads=True,
 		),
-		# **The credential's permission alone** (`SR#5124`): every workspace it reaches is listed, so no
-		# one place is asked.
+		# **The credential's permission alone** (`SR#5124`): every workspace it reaches is listed,
+		# so no one place is asked.
 		Act(
 			"workspaces",
 			"List the workspaces one reaches",
@@ -212,7 +212,8 @@ ACTS: tuple[Act, ...] = (
 		Act("statuses", "List the statuses", place=WORKSPACE, reads=True),
 		Act("link types", "List the link types", place=WORKSPACE, reads=True),
 		Act("tags", "List the tags", place=WORKSPACE, reads=True),
-		# **A saved view is a saved question about work** (`SR#5124`), so reading one asks ``task:read``.
+		# **A saved view is a saved question about work** (`SR#5124`), so reading one
+		# asks ``task:read``.
 		Act(
 			"saved views",
 			"List the saved views",
@@ -304,8 +305,8 @@ ACTS: tuple[Act, ...] = (
 			place=WORKSPACE,
 			reads=True,
 		),
-		# **Each asks the permission of what it reads** (`SR#5124`): the work's for what happened to it,
-		# and each export's for its kind of row.
+		# **Each asks the permission of what it reads** (`SR#5124`): the work's for what happened to
+		# it, and each export's for its kind of row.
 		Act(
 			"changes",
 			"Read what changed",
@@ -863,8 +864,9 @@ ACTS: tuple[Act, ...] = (
 		Act(
 			"sign-in link for oneself",
 			"Mint a sign-in link for oneself",
-			# Decision `#4527`, as `SR#5117` applies it: the session a link buys carries no bounds and,
-			# kept in use, no end. `SR#5127`: driven on its own, not only as one for somebody else.
+			# Decision `#4527`, as `SR#5117` applies it: the session a link buys carries no
+			# bounds and, kept in use, no end. `SR#5127`: driven on its own, not only as one for
+			# somebody else.
 			rule="Only a person signs in, and only with a credential that never expires.",
 			secret=True,
 		),
@@ -945,9 +947,9 @@ def _also (act: Act) -> str:
 		said.append("Never through the agent tools.")
 
 	elif act.own or act.chain:
-		# **Everybody's part but an administrator's** (`SR#5123`, `SR#5183`): the owner, whoever they
-		# answer to and a project's stand-in ask nothing of the door, and an administrator's verb is
-		# above it. *Only on one's own* left out the chain and the stand-in.
+		# **Everybody's part but an administrator's** (`SR#5123`, `SR#5183`): the owner, whoever
+		# they answer to and a project's stand-in ask nothing of the door, and an administrator's
+		# verb is above it. *Only on one's own* left out the chain and the stand-in.
 		said.append("Through the agent tools, never as an administrator.")
 
 	return " ".join(said) or "-"

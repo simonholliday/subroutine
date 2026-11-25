@@ -42,7 +42,9 @@ _principal = test_sight_follows_the_chain._as
 def _whole (refused: subroutine.errors.SubroutineError) -> str:
 	"""Return everything a refusal says - its sentence, its hint and its fields' messages."""
 
-	return " ".join([refused.detail, refused.hint or "", *(error.message or "" for error in refused.errors)])
+	return " ".join(
+		[refused.detail, refused.hint or "", *(error.message or "" for error in refused.errors)]
+	)
 
 
 def test_taking_somebody_out_names_no_project_the_caller_cannot_see (
@@ -62,7 +64,9 @@ def test_taking_somebody_out_names_no_project_the_caller_cannot_see (
 	session.flush()
 
 	with pytest.raises(subroutine.errors.ValidationError) as refused:
-		subroutine.domain.workspaces.remove_member(session, workspace, keanu, actor=_principal(carrieanne))
+		subroutine.domain.workspaces.remove_member(
+			session, workspace, keanu, actor=_principal(carrieanne)
+		)
 
 	said = _whole(refused.value)
 
@@ -73,7 +77,9 @@ def test_taking_somebody_out_names_no_project_the_caller_cannot_see (
 	with pytest.raises(subroutine.errors.ValidationError) as asked_by_the_installation:
 		subroutine.domain.workspaces.remove_member(session, workspace, keanu, actor=None)
 
-	assert "severance" in asked_by_the_installation.value.detail, "an internal caller reads everything"
+	assert (
+		"severance" in asked_by_the_installation.value.detail
+	), "an internal caller reads everything"
 
 
 def _asking (person: typing.Any, sharing: str) -> str:

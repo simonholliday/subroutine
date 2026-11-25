@@ -1,10 +1,10 @@
 """Handing an agent over names what nobody could see afterwards - `SR#5101`'s transfer half.
 
-M-4 of the cold review of 2026-10-17, decided in `#5097`: a superuser handed ``bot`` - alice's agent,
-owner of a private ``lab`` she saw only through it - to bob, who is in no workspace, and nobody could
-see ``lab`` afterwards, while ``user transfer`` said only where the agent stops. **A transfer is never
-refused for it**: it names, before and after, what it leaves without anybody, as deactivating
-somebody does, asked of the instance with ``transferring`` and ``to``.
+M-4 of the cold review of 2026-10-17, decided in `#5097`: a superuser handed ``bot`` - alice's
+agent, owner of a private ``lab`` she saw only through it - to bob, who is in no workspace, and
+nobody could see ``lab`` afterwards, while ``user transfer`` said only where the agent stops. **A
+transfer is never refused for it**: it names, before and after, what it leaves without anybody, as
+deactivating somebody does, asked of the instance with ``transferring`` and ``to``.
 """
 
 import uuid
@@ -37,10 +37,11 @@ def _keys (rows: list[subroutine.domain.projects.Unreachable]) -> list[str]:
 def test_handing_an_agent_over_names_what_nobody_could_see_once_it_moves (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The measured case: ``lab``, which only alice's ``bot`` is shared into, and ``nook``, which only an
-	agent beneath ``bot`` is. **Both are named before the transfer to bob**, who is in no workspace, and
-	listed after it; alice's own ``den``, which ``bot`` is shared into too, is not, nor ``attic``, which
-	nobody could see already; and handing ``bot`` to carol, a member, strands nothing.
+	"""The measured case: ``lab``, which only alice's ``bot`` is shared into, and ``nook``, which
+	only an agent beneath ``bot`` is. **Both are named before the transfer to bob**, who is in no
+	workspace, and listed after it; alice's own ``den``, which ``bot`` is shared into too, is
+	not, nor ``attic``, which nobody could see already; and handing ``bot`` to carol, a member,
+	strands nothing.
 	"""
 
 	thomas = _person(session, "thomas")
@@ -130,7 +131,10 @@ def test_the_question_is_asked_over_http_with_transferring_and_to_and_refused_ha
 	for params, field in (
 		({"transferring": bot.username}, "query.to"),
 		({"to": bob.username}, "query.transferring"),
-		({"transferring": bot.username, "to": bob.username, "leaving": alice.username}, "query.transferring"),
+		(
+			{"transferring": bot.username, "to": bob.username, "leaving": alice.username},
+			"query.transferring",
+		),
 	):
 		refused = world.call("GET", path, params=params)
 

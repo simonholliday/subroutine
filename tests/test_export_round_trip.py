@@ -664,7 +664,8 @@ def _as (pair: Pair, account: subroutine.db.models.identity.User) -> subroutine.
 def test_an_export_taken_by_a_member_rebuilds_after_somebody_it_names_has_left (
 	pair: Pair, empty: sqlalchemy.orm.Session
 ) -> None:
-	"""`SR#5151`, M-11 of the cold review of 2026-10-17: the reader decision `#4049` was written for.
+	"""`SR#5151`, M-11 of the cold review of 2026-10-17: the reader decision `#4049` was
+	written for.
 
 	A member leaving with their work, after a colleague who filed and commented has left, beside an
 	agent whose person has left, and with a link to a task beneath a project in the trash. Their
@@ -702,7 +703,9 @@ def test_an_export_taken_by_a_member_rebuilds_after_somebody_it_names_has_left (
 	pair.remote.link(ref=clearing.ref, link_type="blocks", target=boxed.ref)
 	project = subroutine.db.models.project.Project
 	attic = session.scalars(
-		sqlalchemy.select(project).where(project.workspace_id == workspace.id, project.key == "attic")
+		sqlalchemy.select(project).where(
+			project.workspace_id == workspace.id, project.key == "attic"
+		)
 	).one()
 	subroutine.domain.projects.delete(session, attic)
 

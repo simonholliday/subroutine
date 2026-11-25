@@ -67,14 +67,18 @@ class Place:
 		workspace = subroutine.domain.workspaces.create(
 			session, slug=f"metacortex-{suffix}", title="MetaCortex", owner=self.keanu
 		)
-		subroutine.domain.workspaces.add_member(session, workspace, self.carrieanne, role_key="member")
+		subroutine.domain.workspaces.add_member(
+			session, workspace, self.carrieanne, role_key="member"
+		)
 		subroutine.domain.workspaces.add_member(
 			session, workspace, self.laurence, role_key="member"
 		)
 		self.secrets = {}
 
 		for who in (self.keanu, self.carrieanne, self.laurence):
-			_row, issued = subroutine.domain.authentication.issue_token(session, user=who, title="own")
+			_row, issued = subroutine.domain.authentication.issue_token(
+				session, user=who, title="own"
+			)
 			self.secrets[who.username] = issued.value.get_secret_value()
 
 		session.flush()
@@ -83,7 +87,12 @@ class Place:
 
 		for key in keys:
 			visibility = {"visibility": "private"} if private and key == "aaa" else {}
-			made = self.ask(self.keanu, "POST", "/v1/projects", json={"key": key, "title": key.title(), **visibility})
+			made = self.ask(
+				self.keanu,
+				"POST",
+				"/v1/projects",
+				json={"key": key, "title": key.title(), **visibility},
+			)
 
 			assert made.status_code == 201, made.text
 
@@ -94,7 +103,12 @@ class Place:
 			self.keanu,
 			"POST",
 			"/v1/tasks",
-			json={"title": "Water the plants", "project": "aaa", "recurrence": rule, "due": "2031-12-01"},
+			json={
+				"title": "Water the plants",
+				"project": "aaa",
+				"recurrence": rule,
+				"due": "2031-12-01",
+			},
 		)
 
 		assert made.status_code == 201, made.text
@@ -179,7 +193,13 @@ def _said (answer: httpx.Response) -> str:
 
 	body = answer.json()
 
-	return " ".join([body["detail"], body.get("hint") or "", *(one["message"] for one in body.get("errors", []))])
+	return " ".join(
+		[
+			body["detail"],
+			body.get("hint") or "",
+			*(one["message"] for one in body.get("errors", [])),
+		]
+	)
 
 
 @pytest.mark.parametrize("finish", ["complete", "skip", "done"])
@@ -192,7 +212,9 @@ def test_the_last_occurrence_of_a_series_beneath_the_trash_is_finished_and_the_s
 	place.trash_aaa()
 
 	if finish == "done":
-		answer = place.ask(place.carrieanne, "PATCH", f"/v1/tasks/{place.ref}", json={"status": "done"})
+		answer = place.ask(
+			place.carrieanne, "PATCH", f"/v1/tasks/{place.ref}", json={"status": "done"}
+		)
 
 	else:
 		answer = place.ask(place.carrieanne, "POST", f"/v1/tasks/{place.ref}/{finish}")
@@ -223,7 +245,9 @@ def test_how_a_series_beneath_the_trash_repeats_is_refused_until_it_is_restored 
 	assert place.series.completed_at is None
 
 
-def test_restarting_a_stopped_series_beneath_the_trash_is_refused (session: sqlalchemy.orm.Session) -> None:
+def test_restarting_a_stopped_series_beneath_the_trash_is_refused (
+	session: sqlalchemy.orm.Session
+) -> None:
 	"""H-5: setting a rule on a stopped series restarts it, and that writes the series too."""
 
 	place = Place(session, count=None)
@@ -232,7 +256,9 @@ def test_restarting_a_stopped_series_beneath_the_trash_is_refused (session: sqla
 	assert stopped.status_code == 200, stopped.text
 
 	place.trash_aaa()
-	answer = place.ask(place.keanu, "PATCH", f"/v1/tasks/{place.ref}", json={"recurrence": "every day"})
+	answer = place.ask(
+		place.keanu, "PATCH", f"/v1/tasks/{place.ref}", json={"recurrence": "every day"}
+	)
 
 	assert answer.status_code == 422, answer.text
 	assert answer.json()["detail"] == "How this repeats cannot change until aaa is restored."
@@ -261,7 +287,8 @@ def test_an_open_ended_series_beneath_the_trash_comes_back_with_its_next_occurre
 def test_an_assignee_who_cannot_see_the_series_finishes_its_last_occurrence (
 	session: sqlalchemy.orm.Session, finish: str
 ) -> None:
-	"""NEW-C-1: they were told there was no such project. The series is finished as a consequence."""
+	"""NEW-C-1: they were told there was no such project. The series is finished as a consequence.
+	"""
 
 	place = Place(session, private=True)
 

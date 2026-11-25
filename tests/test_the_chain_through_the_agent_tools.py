@@ -62,7 +62,9 @@ class Chain:
 			responsible_user_id=self.hugo.id,
 		)
 
-		for member, role in ((self.carrieanne, "admin"), (self.hugo, "member"), (self.claude, "member")):
+		for member, role in (
+			(self.carrieanne, "admin"), (self.hugo, "member"), (self.claude, "member")
+		):
 			subroutine.domain.workspaces.add_member(session, self.workspace, member, role_key=role)
 
 		session.flush()
@@ -78,7 +80,9 @@ class Chain:
 STOPPERS = [
 	pytest.param("hugo", True, True, id="hugo through the agent tools"),
 	pytest.param("laurence", False, True, id="the administrator of accounts at a terminal"),
-	pytest.param("laurence", True, False, id="the administrator of accounts through the agent tools"),
+	pytest.param(
+		"laurence", True, False, id="the administrator of accounts through the agent tools"
+	),
 	pytest.param("carrieanne", False, False, id="the workspace's administrator at a terminal"),
 ]
 
@@ -154,7 +158,9 @@ def _stopping (
 	)
 
 
-@pytest.mark.parametrize("act", ["revoke its credential", "revoke its feed", "sign it out", "mark it as having left"])
+@pytest.mark.parametrize(
+	"act", ["revoke its credential", "revoke its feed", "sign it out", "mark it as having left"]
+)
 @pytest.mark.parametrize(("who", "tools", "may"), STOPPERS)
 def test_whoever_an_agent_answers_to_stops_it_through_the_agent_tools (
 	session: sqlalchemy.orm.Session, act: str, who: str, tools: bool, may: bool
@@ -184,7 +190,9 @@ def test_whoever_an_agent_answers_to_stops_it_through_the_agent_tools (
 	assert not stopped(), f"refused to {act}, and it happened anyway"
 
 
-def test_whoever_an_agent_answers_to_starts_nothing_for_it (session: sqlalchemy.orm.Session) -> None:
+def test_whoever_an_agent_answers_to_starts_nothing_for_it (
+	session: sqlalchemy.orm.Session
+) -> None:
 	"""`SR#5123`: *"Only an administrator of accounts does this for another account."*"""
 
 	here = Chain(session)
@@ -209,7 +217,9 @@ def test_whoever_an_agent_answers_to_starts_nothing_for_it (session: sqlalchemy.
 MANAGERS = [
 	pytest.param("hugo", True, True, id="hugo through the agent tools"),
 	pytest.param("carrieanne", False, True, id="the workspace's administrator at a terminal"),
-	pytest.param("carrieanne", True, False, id="the workspace's administrator through the agent tools"),
+	pytest.param(
+		"carrieanne", True, False, id="the workspace's administrator through the agent tools"
+	),
 ]
 
 
@@ -260,7 +270,9 @@ def _manage (
 			lambda: notes.visibility == "private",
 		)
 
-	task = subroutine.domain.tasks.create(session, project=notes, title="Book the venue", actor=claude)
+	task = subroutine.domain.tasks.create(
+		session, project=notes, title="Book the venue", actor=claude
+	)
 	comment = subroutine.domain.comments.create(
 		session, entity_type="task", entity_id=task.id, body="Booked for Friday.", actor=claude
 	)
@@ -271,7 +283,9 @@ def _manage (
 	)
 
 
-@pytest.mark.parametrize("thing", ["forget its shared view", "delete its comment", "make its project private"])
+@pytest.mark.parametrize(
+	"thing", ["forget its shared view", "delete its comment", "make its project private"]
+)
 @pytest.mark.parametrize(("who", "tools", "may"), MANAGERS)
 def test_whoever_an_owner_answers_to_manages_what_it_owns_through_the_agent_tools (
 	session: sqlalchemy.orm.Session, thing: str, who: str, tools: bool, may: bool
@@ -306,7 +320,8 @@ def test_whoever_an_owner_answers_to_manages_what_it_owns_through_the_agent_tool
 def test_a_private_project_s_stand_in_acts_through_the_agent_tools (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#5183`: *never as an administrator*, and not *only by its owner or whoever they answer to*.
+	"""`SR#5183`: *never as an administrator*, and not *only by its owner or whoever they
+	answer to*.
 
 	When a private project's owner can no longer act, anybody who can see it stands in (`SR#5099`),
 	and nothing in that asks the door: keanu shares ``kp`` with hugo and leaves, and hugo makes it
@@ -332,6 +347,8 @@ def test_a_private_project_s_stand_in_acts_through_the_agent_tools (
 		)
 
 	subroutine.domain.workspaces.remove_member(session, here.workspace, keanu)
-	subroutine.domain.projects.update(session, kp, visibility="public", actor=here.at("hugo", tools=True))
+	subroutine.domain.projects.update(
+		session, kp, visibility="public", actor=here.at("hugo", tools=True)
+	)
 
 	assert kp.visibility == "public"

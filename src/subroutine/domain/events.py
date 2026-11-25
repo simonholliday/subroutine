@@ -1235,7 +1235,8 @@ NAMES_A_ROW: dict[str, str] = {
 #: Both sides of a change.
 SIDES = frozenset({"from", "to"})
 
-#: What one event's reader may not see in its changes: each field, and which of its sides (`SR#5148`).
+#: What one event's reader may not see in its changes: each field, and which of its
+#: sides (`SR#5148`).
 Unseen = dict[str, frozenset[str]]
 
 #: Fields that name a row only on one kind's events, by that kind (`SR#5241`): a project's
@@ -1251,10 +1252,11 @@ NAMES_A_ROW_ON: dict[tuple[str, str], str] = {
 	("workspace", "prioritised_project_id"): "project",
 }
 
-#: Fields holding a path of ancestors, by the kind of item whose events carry them, and the kind each
-#: ancestor is (`SR#5241`): a side is unseen when any row along it is. **A task's and a document's
-#: too** (`SR#5290`): this said they stayed inside one project, but one detached from its parent and
-#: then moved carries, in its older events, a path through a row its new readers cannot see.
+#: Fields holding a path of ancestors, by the kind of item whose events carry them, and the kind
+#: each ancestor is (`SR#5241`): a side is unseen when any row along it is. **A task's and a
+#: document's too** (`SR#5290`): this said they stayed inside one project, but one detached from
+#: its parent and then moved carries, in its older events, a path through a row its new readers
+#: cannot see.
 PATHS_ON: dict[tuple[str, str], str] = {
 	("project", "path"): "project",
 	("task", "path"): "task",
@@ -1272,8 +1274,9 @@ def identifier (value: typing.Any) -> uuid.UUID | None:
 
 	``event.changes`` is JSON, so what comes back is a string on both backends rather than the
 	``uuid.UUID`` the column held. Parsing is the check: a value that is not one raises and is
-	simply not an id, which is the same answer as a column nobody declared. **Here since `SR#5148`**,
-	beside the other reader of the same changes, :mod:`subroutine.domain.journal`, which imports this.
+	simply not an id, which is the same answer as a column nobody declared. **Here since
+	`SR#5148`**, beside the other reader of the same changes, :mod:`subroutine.domain.journal`,
+	which imports this.
 	"""
 
 	if isinstance(value, uuid.UUID):
@@ -1303,9 +1306,9 @@ def unseen_ends (
 	requires the answer, so none can forget. ``None`` is an internal caller, who sees everything.
 
 	**And a project, parent or series a change names** (`SR#5148`, decision `#5097`): an item moved
-	out of a private project is rightly shown to somebody outside it, and its ``project_id`` gave them
-	the private project's id. Only the side naming what they cannot see is unseen: the open project
-	it moved to is theirs to read.
+	out of a private project is rightly shown to somebody outside it, and its ``project_id`` gave
+	them the private project's id. Only the side naming what they cannot see is unseen: the open
+	project it moved to is theirs to read.
 	"""
 
 	if principal is None:
@@ -1331,7 +1334,8 @@ def unseen_ends_and_named (
 	"""
 
 	said: dict[uuid.UUID, Unseen] = {
-		event: {field: SIDES} for event, field in _unseen_link_ends(session, principal, rows).items()
+		event: {field: SIDES}
+		for event, field in _unseen_link_ends(session, principal, rows).items()
 	}
 	named, seen = _unseen_rows_named(session, principal, rows, also=also)
 
@@ -1346,7 +1350,8 @@ def _unseen_link_ends (
 	principal: subroutine.domain.authentication.Principal,
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
 ) -> dict[uuid.UUID, str]:
-	"""Return, for each link event whose other end this reader cannot see, the field that names it."""
+	"""Return, for each link event whose other end this reader cannot see, the field that names it.
+	"""
 
 	asked = [
 		row
@@ -1402,7 +1407,8 @@ def _unseen_rows_named (
 	*,
 	also: dict[str, set[uuid.UUID]],
 ) -> tuple[dict[uuid.UUID, Unseen], dict[str, set[uuid.UUID]]]:
-	"""Return, for each event, the sides of a change naming a row this reader cannot see - `SR#5148`.
+	"""Return, for each event, the sides of a change naming a row this reader cannot
+	see - `SR#5148`.
 
 	:data:`NAMES_A_ROW` on any item's events, :data:`NAMES_A_ROW_ON` on one kind's, a path of
 	:data:`PATHS_ON`, whose side is unseen when any row along it is (`SR#5241`), and a number of
@@ -1629,9 +1635,9 @@ def zones_then (
 
 	**A date is read in the zone it was written in** (`SR#5138`, M-14 of the cold review of
 	2026-10-17). Every entry was read in the item's zone as it stands now, so a date written before
-	the zone moved was shown on another day, or at another o'clock. A zone moves only with a recorded
-	change to it, so a row's zone is the ``from`` of the next later change to it on that task. A row
-	absent from the answer was written in the item's zone as it is now.
+	the zone moved was shown on another day, or at another o'clock. A zone moves only with a
+	recorded change to it, so a row's zone is the ``from`` of the next later change to it on that
+	task. A row absent from the answer was written in the item's zone as it is now.
 
 	**One statement for a page, and none where no row dates a task.** ``changes`` is never filtered
 	on in the database (:func:`subroutine.db.types.json_column`), so the tasks' later updates are

@@ -1,9 +1,10 @@
-"""A project moved out from under a private parent names that parent only to who can see it - `SR#5241`.
+"""A project moved out from under a private parent names that parent only to who can see
+it - `SR#5241`.
 
-Found building `SR#5148`, and placed in 1.0 in `#5097`. keanu's `plans` sat under `vault`, private to
-him, and was moved to the top of the tree, where carrieanne, a member who cannot see `vault`, can see
-it. Its history and the change feed gave her `vault`'s id twice: as the parent it left and inside the
-path it had.
+Found building `SR#5148`, and placed in 1.0 in `#5097`. keanu's `plans` sat under `vault`, private
+to him, and was moved to the top of the tree, where carrieanne, a member who cannot see `vault`, can
+see it. Its history and the change feed gave her `vault`'s id twice: as the parent it left and
+inside the path it had.
 """
 
 import datetime
@@ -41,11 +42,15 @@ class Moved:
 		workspace = subroutine.domain.workspaces.create(
 			session, slug=f"metacortex-{suffix}", title="MetaCortex", owner=self.keanu
 		)
-		subroutine.domain.workspaces.add_member(session, workspace, self.carrieanne, role_key="member")
+		subroutine.domain.workspaces.add_member(
+			session, workspace, self.carrieanne, role_key="member"
+		)
 		self.secrets = {}
 
 		for who in (self.keanu, self.carrieanne):
-			_row, issued = subroutine.domain.authentication.issue_token(session, user=who, title="own")
+			_row, issued = subroutine.domain.authentication.issue_token(
+				session, user=who, title="own"
+			)
 			self.secrets[who.username] = issued.value.get_secret_value()
 
 		session.flush()
@@ -112,8 +117,11 @@ def test_a_moved_projects_parent_and_path_are_unseen_to_who_cannot_see_the_paren
 	assert moved.vault in his["path"]["from"], his
 
 
-def test_the_journal_gives_carrieanne_nothing_of_vaults_id (session: sqlalchemy.orm.Session) -> None:
-	"""The journal printed the old path whole, ids and all; the side through `vault` is unseen now."""
+def test_the_journal_gives_carrieanne_nothing_of_vaults_id (
+	session: sqlalchemy.orm.Session
+) -> None:
+	"""The journal printed the old path whole, ids and all; the side through `vault` is unseen now.
+	"""
 
 	moved = Moved(session)
 	answer = moved.ask(moved.carrieanne, "GET", "/v1/journal")

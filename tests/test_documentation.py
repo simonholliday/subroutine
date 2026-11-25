@@ -160,7 +160,9 @@ def test_the_hosting_page_quotes_the_bind_refusal_as_it_is_actually_worded (
 #: older ones are pinned, because only they can silently absorb one.
 ILLUSTRATIVE_REVISIONS: dict[str, tuple[int, str]] = {
 	"d5d0458f5ad5": (2, "what `POST /v1/admin/backups` says on the server"),
-	"6c708db1582c": (2, "an older copy in the server's `db backups` listing, taken before an upgrade"),
+	"6c708db1582c": (
+		2, "an older copy in the server's `db backups` listing, taken before an upgrade"
+	),
 	"f159c8635e54": (3, "what the `db upgrade` walkthrough upgrades *from*"),
 	"233f898a2bee": (1, "a database behind the code, which `agenda` refuses by name"),
 	"4f177421eb91": (1, "a database behind the code, as `db current` reports it"),
@@ -2565,7 +2567,9 @@ def _backups_misquoted (text: str) -> tuple[int, list[str]]:
 		unknown = set(said) - set(subroutine.db.backup.COUNTED)
 
 		if unknown:
-			wrong.append(f"line {number}: {held!r} counts {sorted(unknown)}, which no backup counts")
+			wrong.append(
+				f"line {number}: {held!r} counts {sorted(unknown)}, which no backup counts"
+			)
 
 			continue
 

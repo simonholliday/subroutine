@@ -2667,10 +2667,10 @@ def _whoami_lines (
 	if credential is not None and (credential.narrows or credential.expires_at is not None):
 		lines.append(f"This credential may do {subroutine.views.credential_in_words(credential, me)}.")
 
-	# **A read-only session says so** (`SR#5126`, decision `#5097`), in the words its refusals use, so
-	# what follows is read as what it reads with. **By the connection's own setting**, which is what
-	# the instance was told, and which a local connection's session is read-only by with no credential
-	# to carry the flag.
+	# **A read-only session says so** (`SR#5126`, decision `#5097`), in the words its refusals use,
+	# so what follows is read as what it reads with. **By the connection's own setting**, which is
+	# what the instance was told, and which a local connection's session is read-only by with no
+	# credential to carry the flag.
 	if read_only:
 		lines.append(subroutine.domain.authentication.READ_ONLY)
 
@@ -3928,11 +3928,12 @@ def _listing (
 				parked_filled = parked_filled or deferred_here.has_more
 
 			# **And the finished work a search left out** (`SR#5145`). Leaving it out is decided - a
-			# search is the open listing with words (`#3549`) - and leaving it out in silence is not:
-			# `search water` found what was open and said nothing of what was done. **Never what
-			# this listed** (`SR#5300`, decided in `#5285`): a number, a date of completion or a
-			# `--filter` reaches finished work too, and the count took in the very rows just shown.
-			# Narrowed as the list is, by the function the agent tools count with, at `asked`.
+			# search is the open listing with words (`#3549`) - and leaving it out in silence is
+			# not: `search water` found what was open and said nothing of what was done. **Never
+			# what this listed** (`SR#5300`, decided in `#5285`): a number, a date of completion
+			# or a `--filter` reaches finished work too, and the count took in the very rows
+			# just shown. Narrowed as the list is, by the function the agent tools count with,
+			# at `asked`.
 			if searching and answered:
 				searched += subroutine.clients.base.left_out_of_a_search(
 					client,
@@ -5384,7 +5385,8 @@ ONE_VALUE_EACH = (
 #: singular and silently keeping the last (`#1484`).
 PROJECT_OPTION = typer.Option(None, "--project", help="Only this project, by key.")
 #: **Every word a search is given, as one search** (`SR#5145`): one argument refused ``search water
-#: plants`` as an extra argument, where what the reader meant was plain. Joined in :func:`_searched`.
+#: plants`` as an extra argument, where what the reader meant was plain. Joined
+#: in :func:`_searched`.
 SEARCH_TERMS = typer.Argument(None, help="What to look for. See 'explain searching'.")
 ASSIGNEE_OPTION = typer.Option(
 	None, "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
@@ -5645,8 +5647,8 @@ def _no_such_project (
 	"""Refuse a project nobody can find, saying where it was looked for — `#1501`.
 
 	**Where matters as soon as there is more than one place.** *"There is no project 'web'
-	that you can reach"* is a complete answer on an instance with one workspace and an assertion the reader
-	cannot check on an instance with four — they cannot tell a key they got wrong from a key
+	that you can reach"* is a complete answer on an instance with one workspace and an assertion the
+	reader cannot check on an instance with four — they cannot tell a key they got wrong from a key
 	in a workspace this credential does not reach.
 	"""
 
@@ -6726,9 +6728,10 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 	"""Hand an agent to somebody else, naming first what that leaves with nobody able to see it.
 
 	**Out of `register`**, for `#943`'s ratchet, as :func:`_deactivated` is. **What nobody will be
-	able to see afterwards is named before and after** (`SR#5101`, decision `#5097`), as deactivating
-	somebody names it: sight follows the chain upward, so a private project somebody saw only through
-	the agent moves with it, and nobody sees it where its new person is not in that workspace.
+	able to see afterwards is named before and after** (`SR#5101`, decision `#5097`), as
+	deactivating somebody names it: sight follows the chain upward, so a private project somebody
+	saw only through the agent moves with it, and nobody sees it where its new person is not in
+	that workspace.
 	"""
 
 	with program.opened() as world:
@@ -6765,8 +6768,8 @@ def _transferred (program: Program, *, username: str, to: str, yes: bool) -> Non
 
 		_name_stranded(program, stranded)
 
-		# **And where that stops it** (`#4546`, decision `#4518`): an agent works in a workspace only
-		# while the person at the top of its chain is a member there too.
+		# **And where that stops it** (`#4546`, decision `#4518`): an agent works in a workspace
+		# only while the person at the top of its chain is a member there too.
 		stops, unlisted = _where_it_stops(where.client, username, to)
 
 		for account, slugs in stops:
@@ -6999,7 +7002,8 @@ def _project_sharing (program: Program, *, key: str, json_output: bool) -> None:
 			whose = ""
 
 			# **One out of reach has no kind**, and is an agent where it answers to somebody
-			# (`SR#5103`); a whole row's ``answers_to`` names a person too, who answers for themselves.
+			# (`SR#5103`); a whole row's ``answers_to`` names a person too, who answers
+			# for themselves.
 			agent = (
 				one.user.answers_to is not None
 				if one.user.is_service_account is None
@@ -9789,9 +9793,9 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 		where = root / HARNESSES["claude"]
 
 		# **Refused rather than overwritten, as `agent create --here` refuses the same format**
-		# (`SR#5158`, a bullet of L-7 of the cold review of 2026-10-17). The file is the reader's and
-		# holds their permissions and their other hooks. This read it itself and caught two of the
-		# ways it can be wrong, so a file holding a list, or written in Latin-1, crashed.
+		# (`SR#5158`, a bullet of L-7 of the cold review of 2026-10-17). The file is the reader's
+		# and holds their permissions and their other hooks. This read it itself and caught two of
+		# the ways it can be wrong, so a file holding a list, or written in Latin-1, crashed.
 		try:
 			existing = subroutine.claude_code.settings_in(where, env=False)
 
@@ -9821,8 +9825,8 @@ def _register_setup (app: typer.Typer, program: Program) -> None:
 			return
 
 		# **Through a new file and a rename** (`SR#5158`), as `--here` writes its settings: written
-		# in place, an interrupted write could leave the reader's settings half there. The file keeps
-		# its own permissions, being one to commit and holding no credential.
+		# in place, an interrupted write could leave the reader's settings half there. The file
+		# keeps its own permissions, being one to commit and holding no credential.
 		kept = stat.S_IMODE(where.stat().st_mode) if where.is_file() else 0o644
 
 		# **Its mode, group and attributes too** (`SR#5325`, L-2 of the cold review of
@@ -10463,9 +10467,10 @@ def _where_it_stops (
 
 	**Where the agent is a member and the person who is now at the top of its chain is not** (`#4546`,
 	decision `#4518`). Every workspace on the instance is asked about where this credential may list
-	them, and its own otherwise, which is said. **The agents answering to it stop with it** (`SR#5105`,
-	M-23 of the cold review of 2026-10-17): their chain runs through it, so each is named, after it,
-	with where it stops. The second of the pair is why some went unasked, if any did.
+	them, and its own otherwise, which is said. **The agents answering to it stop with it**
+	(`SR#5105`, M-23 of the cold review of 2026-10-17): their chain runs through it, so each is
+	named, after it, with where it stops. The second of the pair is why some went unasked, if
+	any did.
 	"""
 
 	try:

@@ -860,7 +860,8 @@ def _member_by_name (
 	if found is not None:
 		return found
 
-	# **Only those who can act there** (`SR#5104`): the hint never offers somebody who would be refused.
+	# **Only those who can act there** (`SR#5104`): the hint never offers somebody who would
+	# be refused.
 	acting = [
 		one
 		for one in session.scalars(_members(workspace_id))

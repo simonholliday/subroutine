@@ -40,9 +40,10 @@ _sees = test_stewardship._sees
 def test_a_departed_owners_public_project_is_its_administrators_to_hide_or_hand_over (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""H-1, as measured: keanu's public ``pub``, and keanu taken out of the workspace. **Bob, a member,
-	may neither make it private nor make himself its owner**; thomas, who administers the workspace,
-	may, and making it private with nobody shared in asks him to make somebody its owner first.
+	"""H-1, as measured: keanu's public ``pub``, and keanu taken out of the workspace. **Bob, a
+	member, may neither make it private nor make himself its owner**; thomas, who administers the
+	workspace, may, and making it private with nobody shared in asks him to make somebody its
+	owner first.
 	"""
 
 	thomas = _person(session, "thomas")
@@ -54,8 +55,14 @@ def test_a_departed_owners_public_project_is_its_administrators_to_hide_or_hand_
 	subroutine.domain.workspaces.remove_member(session, workspace, keanu)
 
 	refusals: list[tuple[typing.Callable[[], object], str]] = [
-		(lambda: projects.update(session, pub, visibility="private", actor=_as(bob)), "make it private"),
-		(lambda: projects.update(session, pub, owner_id=bob.id, actor=_as(bob)), "change who owns it"),
+		(
+			lambda: projects.update(session, pub, visibility="private", actor=_as(bob)),
+			"make it private",
+		),
+		(
+			lambda: projects.update(session, pub, owner_id=bob.id, actor=_as(bob)),
+			"change who owns it",
+		),
 	]
 
 	for refused, act in refusals:
@@ -75,15 +82,17 @@ def test_a_departed_owners_public_project_is_its_administrators_to_hide_or_hand_
 
 	projects.update(session, pub, visibility="private", owner_id=thomas.id, actor=_as(thomas))
 
-	assert pub.visibility == "private" and _sees(session, thomas, pub) and not _sees(session, bob, pub)
+	assert (
+		pub.visibility == "private" and _sees(session, thomas, pub) and not _sees(session, bob, pub)
+	)
 
 
 def test_whoever_can_see_a_project_beneath_a_private_one_still_stands_in (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""H-1's rule is the private projects at or above, not the project's own visibility: alice's private
-	``vault`` holds keanu's public ``vault/pub``, and an administrator not shared into ``vault`` cannot
-	see it. Keanu leaves, and bob, shared into ``vault``, takes ``pub`` on.
+	"""H-1's rule is the private projects at or above, not the project's own visibility: alice's
+	private ``vault`` holds keanu's public ``vault/pub``, and an administrator not shared into
+	``vault`` cannot see it. Keanu leaves, and bob, shared into ``vault``, takes ``pub`` on.
 	"""
 
 	thomas = _person(session, "thomas")
@@ -145,17 +154,19 @@ def test_once_the_inbox_founder_leaves_a_contributor_still_moves_nobody_elses_wo
 		with pytest.raises(subroutine.errors.Forbidden) as refused:
 			subroutine.domain.tasks.update(session, task, project=mine, actor=_as(charlie))
 
-		assert "may move this task into a private project" in refused.value.detail, refused.value.detail
+		assert (
+			"may move this task into a private project" in refused.value.detail
+		), refused.value.detail
 		assert task.project_id == inbox.id
 
 
 def test_making_a_project_private_keeps_somebody_who_can_see_each_private_project_inside (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""M-4, as measured: jo makes her public ``outer`` private, and pat's private ``outer/inner``, which
-	pat saw without being shared into ``outer``, is seen by nobody. **Refused**, naming ``inner`` only
-	to somebody who can see it, and nothing changes; handing ``outer`` to pat in the same change keeps
-	pat seeing both.
+	"""M-4, as measured: jo makes her public ``outer`` private, and pat's private ``outer/inner``,
+	which pat saw without being shared into ``outer``, is seen by nobody. **Refused**, naming
+	``inner`` only to somebody who can see it, and nothing changes; handing ``outer`` to pat in the
+	same change keeps pat seeing both.
 	"""
 
 	thomas = _person(session, "thomas")
@@ -169,7 +180,8 @@ def test_making_a_project_private_keeps_somebody_who_can_see_each_private_projec
 		projects.update(session, outer, visibility="private", actor=_as(jo))
 
 	assert unseen.value.detail == (
-		"Making outer private would leave no person able to reach something you cannot see inside it."
+		"Making outer private would leave no person able to reach something you cannot see "
+		"inside it."
 	)
 	# **And who sees it, only to somebody who can see it** (`SR#5316`, decision `#5285`).
 	assert unseen.value.hint == "Make somebody who can act its owner first."
@@ -181,29 +193,36 @@ def test_making_a_project_private_keeps_somebody_who_can_see_each_private_projec
 	with pytest.raises(subroutine.errors.ValidationError) as seen:
 		projects.update(session, outer, visibility="private", actor=_as(thomas))
 
-	assert seen.value.detail == "Making outer private would leave no person able to reach inner inside it."
+	assert (
+		seen.value.detail
+		== "Making outer private would leave no person able to reach inner inside it."
+	)
 	assert seen.value.hint == f"Make {pat.username}, who can see inner, the owner of outer first."
 	assert outer.visibility == "public" and _sees(session, pat, inner)
 
 	projects.update(session, outer, visibility="private", owner_id=pat.id, actor=_as(jo))
 
-	assert outer.visibility == "private" and _sees(session, pat, outer) and _sees(session, pat, inner)
+	assert (
+		outer.visibility == "private" and _sees(session, pat, outer) and _sees(session, pat, inner)
+	)
 
 
-def test_moving_a_project_under_a_private_one_keeps_somebody_who_can_see_each_private_project_inside (
+def test_moving_a_project_under_a_private_one_keeps_somebody_who_sees_each_private_project_inside (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""M-4's move: jo moves ``outer`` under her private ``vault``, and pat, not shared into ``vault``,
-	loses ``outer/inner``, which nobody else sees. **Refused**, the hint the share that keeps pat
-	seeing it, or for bob, shared into ``vault`` and not its steward, whom to ask for it; once pat is
-	shared in, the move is made.
+	"""M-4's move: jo moves ``outer`` under her private ``vault``, and pat, not shared into
+	``vault``, loses ``outer/inner``, which nobody else sees. **Refused**, the hint the share that
+	keeps pat seeing it, or for bob, shared into ``vault`` and not its steward, whom to ask for it;
+	once pat is shared in, the move is made.
 	"""
 
 	thomas = _person(session, "thomas")
 	jo = _person(session, "jo")
 	pat = _person(session, "pat")
 	bob = _person(session, "bob")
-	workspace = _metacortex(session, thomas, jo=(jo, "member"), pat=(pat, "member"), bob=(bob, "member"))
+	workspace = _metacortex(
+		session, thomas, jo=(jo, "member"), pat=(pat, "member"), bob=(bob, "member")
+	)
 	vault = _project(session, workspace, "vault", jo)
 	outer = _project(session, workspace, "outer", jo, visibility="public")
 	inner = _project(session, workspace, "inner", pat, parent=outer)
@@ -212,7 +231,8 @@ def test_moving_a_project_under_a_private_one_keeps_somebody_who_can_see_each_pr
 		projects.move(session, outer, parent=vault, actor=_as(jo))
 
 	assert refused.value.detail == (
-		"Moving outer under vault would leave no person able to reach something you cannot see inside it."
+		"Moving outer under vault would leave no person able to reach something you cannot see "
+		"inside it."
 	)
 	# **Who sees it, only to somebody who can see it** (`SR#5316`, decision `#5285`).
 	assert refused.value.hint == "Share vault with whoever can see what is inside outer first."
@@ -296,9 +316,9 @@ def test_a_move_offers_the_share_only_to_whoever_may_share_on_this_credential (
 def test_what_nobody_could_see_already_is_not_this_acts_to_refuse (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Refusing only a change from somebody to nobody, as unsharing does: pat has left, so nobody sees
-	``outer/inner`` already, and making ``outer`` private strands nothing new. An administrator of the
-	installation is what brings it back.
+	"""Refusing only a change from somebody to nobody, as unsharing does: pat has left, so nobody
+	sees ``outer/inner`` already, and making ``outer`` private strands nothing new. An administrator
+	of the installation is what brings it back.
 	"""
 
 	thomas = _person(session, "thomas")
@@ -317,8 +337,8 @@ def test_what_nobody_could_see_already_is_not_this_acts_to_refuse (
 def test_making_a_project_private_over_http_is_refused_on_its_field_naming_nothing_unseen (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The same refusal through the API: 422 on ``visibility``, and the hidden project's key nowhere in
-	it - **nor, since `SR#5316`, who alone sees it** (decision `#5285`): that is an entry of a
+	"""The same refusal through the API: 422 on ``visibility``, and the hidden project's key nowhere
+	in it - **nor, since `SR#5316`, who alone sees it** (decision `#5285`): that is an entry of a
 	sharing list the caller cannot read.
 	"""
 

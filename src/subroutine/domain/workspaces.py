@@ -537,12 +537,15 @@ def for_restore (
 	# **An installation administrator restores what they may delete** (`SR#5108`, M-23 of the cold
 	# review of 2026-10-17, decision `#5097`): the one clause lets them delete any workspace, member
 	# or not, and the trash was searched among their memberships alone, so only a workspace's owners
-	# could bring it back and one whose owners had left stayed there. ``may_instance`` is the clause's
-	# own question, so a pinned or narrowed credential still finds only what it is a member of.
+	# could bring it back and one whose owners had left stayed there. ``may_instance`` is the
+	# clause's own question, so a pinned or narrowed credential still finds only what it is a
+	# member of.
 	if subroutine.domain.authorization.may_instance(
 		principal, subroutine.permissions.INSTANCE_ADMIN, reading=True
 	):
-		reachable = list(session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace)))
+		reachable = list(
+			session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace))
+		)
 
 	else:
 		reachable = readable(session, principal, include_deleted=True)
@@ -1245,8 +1248,8 @@ def _refuse_stranding_a_private_project (
 
 	**Named only to a caller who can see them** (`SR#5100`, H-4 of the cold review of 2026-10-17,
 	decision `#4521`): an administrator who could not see a private project read its key, and who
-	alone sees it, member by member. One the caller cannot see is *something you cannot see*, and the
-	hint names the person being taken out, who can, rather than an act on a project the caller
+	alone sees it, member by member. One the caller cannot see is *something you cannot see*, and
+	the hint names the person being taken out, who can, rather than an act on a project the caller
 	cannot reach.
 	"""
 

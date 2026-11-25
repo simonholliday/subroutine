@@ -818,8 +818,12 @@ def test_a_release_whose_rehearsal_fails_writes_nothing (
 
 	assert answer.returncode != 0, f"a failed rehearsal must stop the release: {answer.stdout}"
 	assert "rehearsal" in answer.stderr, f"the refusal must say what stopped it: {answer.stderr}"
-	assert _git(repository, "rev-parse", "HEAD") == before, "a commit was made after a failed rehearsal"
-	assert not _git(repository, "status", "--porcelain").strip(), "a file was written after a failed rehearsal"
+	assert (
+		_git(repository, "rev-parse", "HEAD") == before
+	), "a commit was made after a failed rehearsal"
+	assert not _git(
+		repository, "status", "--porcelain"
+	).strip(), "a file was written after a failed rehearsal"
 	assert not _git(repository, "tag", "--list", "v0.2.0").strip(), "a failed rehearsal was tagged"
 
 

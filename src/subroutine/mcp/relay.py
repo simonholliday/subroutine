@@ -218,7 +218,10 @@ def answering (
 			# **A remedy this machine can carry out** (`#5059`). The local instance says to run
 			# `db upgrade`, which is the terminal's program, and the plugin's copy is often the
 			# newer of the two. Recognised by the remedy itself, which is the case this answers.
-			if connection.is_local and trouble.get("hint") == subroutine.db.migrate.upgrade_remedy():
+			if (
+				connection.is_local
+				and trouble.get("hint") == subroutine.db.migrate.upgrade_remedy()
+			):
 				return _refused(raw, str(trouble.get("detail")), _how_to_upgrade_it())
 
 			# **An instance too old to hold a read-only connection refuses every message** by naming
@@ -899,21 +902,28 @@ def _how_to_upgrade_it () -> str:
 		)
 
 	run = subroutine.db.migrate.command(*words)
-	starter = "run by the plugin" if subroutine.installations.plugin() is not None else "serving these tools"
+	starter = (
+		"run by the plugin"
+		if subroutine.installations.plugin() is not None
+		else "serving these tools"
+	)
 	speaking = f"This is Subroutine {this}, {starter}"
 	version, schema = _program_at(found) or (None, None)
 
 	if schema is None:
-		return f"{speaking}. With {this} in a terminal, run '{run}' - it backs up first, then migrates."
+		return (
+			f"{speaking}. With {this} in a terminal, run '{run}' - it backs up first, "
+			"then migrates."
+		)
 
 	if schema == subroutine.db.migrate.head_revision():
 		return f"Run '{run}' in a terminal - it backs up first, then migrates."
 
 	if subroutine.db.migrate.knows_revision(schema):
 		return (
-			f"{speaking}, and the 'subroutine' in your terminal is {version}, which cannot migrate a "
-			f"database this far. Upgrade it to {this} the way it was installed, then run '{run}' - it "
-			"backs up first, then migrates."
+			f"{speaking}, and the 'subroutine' in your terminal is {version}, which cannot migrate "
+			f"a database this far. Upgrade it to {this} the way it was installed, then run "
+			f"'{run}' - it backs up first, then migrates."
 		)
 
 	return (

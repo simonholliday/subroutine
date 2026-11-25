@@ -50,10 +50,14 @@ def rehearsal () -> types.ModuleType:
 	return _load("rehearse_upgrade")
 
 
-def test_readyz_answering_503_before_the_upgrade_is_not_a_server_error (rehearsal: types.ModuleType) -> None:
+def test_readyz_answering_503_before_the_upgrade_is_not_a_server_error (
+	rehearsal: types.ModuleType
+) -> None:
 	"""Before ``db upgrade``, ``/readyz`` saying the database is behind is it doing its job."""
 
-	answers = [{"who": "keanu", "path": "/readyz", "status": 503, "detail": "This database is at schema x"}]
+	answers = [
+		{"who": "keanu", "path": "/readyz", "status": 503, "detail": "This database is at schema x"}
+	]
 
 	assert rehearsal.server_errors(answers, before_upgrade=True) == []
 
@@ -61,13 +65,16 @@ def test_readyz_answering_503_before_the_upgrade_is_not_a_server_error (rehearsa
 def test_after_the_upgrade_readyz_answering_503_is_one (rehearsal: types.ModuleType) -> None:
 	"""After it, the same answer means the upgrade left the database somewhere this cannot serve."""
 
-	answers = [{"who": "keanu", "path": "/readyz", "status": 503, "detail": "This database is at schema x"}]
+	answers = [
+		{"who": "keanu", "path": "/readyz", "status": 503, "detail": "This database is at schema x"}
+	]
 
 	assert len(rehearsal.server_errors(answers, before_upgrade=False)) == 1
 
 
 def test_every_other_server_error_before_the_upgrade_is_one (rehearsal: types.ModuleType) -> None:
-	"""`SR#5057`: a read in the window answered 500, where it should have said the schema was behind.
+	"""`SR#5057`: a read in the window answered 500, where it should have said the schema
+	was behind.
 
 	That is what the Hyperfence instance met on ``/v1/me``: an instance serves reads while it
 	waits for ``db upgrade``, so its reads are where an operator meets a fault first.
@@ -75,7 +82,12 @@ def test_every_other_server_error_before_the_upgrade_is_one (rehearsal: types.Mo
 
 	answers = [
 		{"who": "laurence", "path": "/v1/me", "status": 500, "detail": "Internal server error"},
-		{"who": "keanu", "path": "/v1/tasks?workspace_id=zion", "status": 409, "detail": "Schema mismatch"},
+		{
+			"who": "keanu",
+			"path": "/v1/tasks?workspace_id=zion",
+			"status": 409,
+			"detail": "Schema mismatch",
+		},
 	]
 
 	found = rehearsal.server_errors(answers, before_upgrade=True)
@@ -85,11 +97,17 @@ def test_every_other_server_error_before_the_upgrade_is_one (rehearsal: types.Mo
 	assert "laurence" in found[0], found
 
 
-def test_one_fault_on_every_item_is_one_line_naming_everybody_who_met_it (rehearsal: types.ModuleType) -> None:
+def test_one_fault_on_every_item_is_one_line_naming_everybody_who_met_it (
+	rehearsal: types.ModuleType
+) -> None:
 	"""An item's number is folded into the path's shape, and the commonest fault comes first."""
 
 	answers = [
-		*({"who": who, "path": f"/v1/tasks/{number}/events", "status": 500} for who in ("joe", "keanu") for number in (3, 17)),
+		*(
+			{"who": who, "path": f"/v1/tasks/{number}/events", "status": 500}
+			for who in ("joe", "keanu")
+			for number in (3, 17)
+		),
 		{"who": "hugo", "path": "/v1/journal?limit=2", "status": 502},
 	]
 
@@ -116,8 +134,11 @@ def test_one_fault_on_every_item_is_one_line_naming_everybody_who_met_it (rehear
 	     "the program's own crash report", "a command that hung", "a process killed",
 	     "an SQL error the local client words as unreadable"],
 )
-def test_what_counts_as_a_crash (rehearsal: types.ModuleType, code: int, said: str, crash: bool) -> None:
-	"""A refusal is an answer; a traceback, a hang and a command this build does not take are not."""
+def test_what_counts_as_a_crash (
+	rehearsal: types.ModuleType, code: int, said: str, crash: bool
+) -> None:
+	"""A refusal is an answer; a traceback, a hang and a command this build does not take are not.
+	"""
 
 	assert rehearsal.crashed(rehearsal.Ran(code, said)) is crash
 
@@ -215,7 +236,10 @@ def test_the_terminal_s_morning_after_sorts_what_it_ran (
 def test_a_refusal_drawn_in_a_panel_is_reported_as_its_words (rehearsal: types.ModuleType) -> None:
 	"""The command line draws a refusal in a box; a report line is the sentence, not the box."""
 
-	said = "\u256d\u2500 Error \u2500\u2500\u2500\u256e\n\u2502 Missing argument 'slug'.      \u2502\n\u2570\u2500\u2500\u2500\u256f\n"
+	said = (
+		"\u256d\u2500 Error \u2500\u2500\u2500\u256e\n"
+		"\u2502 Missing argument 'slug'.      \u2502\n\u2570\u2500\u2500\u2500\u256f\n"
+	)
 
 	assert rehearsal.tail(said) == "Error | Missing argument 'slug'."
 
@@ -230,7 +254,9 @@ def test_a_command_that_asks_a_question_reads_nothing_rather_than_waiting (
 	"""
 
 	here = rehearsal.Installation(tmp_path / "installation", "sqlite", None)
-	reader = rehearsal.Program("a reader", (sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"))
+	reader = rehearsal.Program(
+		"a reader", (sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))")
+	)
 	kept = os.dup(0)
 	reading, writing = os.pipe()
 	os.write(writing, b"typed by the operator\n")
@@ -476,19 +502,38 @@ def test_a_release_interrupted_mid_rehearsal_gives_it_time_to_put_away (
 def test_an_item_number_is_read_past_what_follows_the_answer (rehearsal: types.ModuleType) -> None:
 	"""A release told that input was piped in notes, after its answer, that it read none."""
 
-	said = '{\n  "ref": 21,\n  "title": "We run PostgreSQL in production"\n}\nAnything piped in was not read.\n'
+	said = (
+		'{\n  "ref": 21,\n  "title": "We run PostgreSQL in production"\n}\n'
+		'Anything piped in was not read.\n'
+	)
 
 	assert rehearsal.number_in(said) == 21
 	assert rehearsal.number_in("Nothing is numbered here.") is None
 
 
-def test_a_server_error_is_reported_in_the_problem_s_own_words (rehearsal: types.ModuleType) -> None:
+def test_a_server_error_is_reported_in_the_problem_s_own_words (
+	rehearsal: types.ModuleType
+) -> None:
 	"""The line is the sentence the problem document gives, not the end of its JSON."""
 
-	body = json.dumps({"detail": "Something went wrong that should not have.", "code": "internal_error", "instance": "/v1/me"})
-	found = rehearsal.server_errors([{"who": "keanu", "path": "/v1/me", "status": 500, "detail": body}], before_upgrade=True)
+	body = json.dumps(
+		{
+			"detail": "Something went wrong that should not have.",
+			"code": "internal_error",
+			"instance": "/v1/me",
+		}
+	)
+	found = rehearsal.server_errors(
+		[{"who": "keanu", "path": "/v1/me", "status": 500, "detail": body}], before_upgrade=True
+	)
 
-	assert found == ["1 x 500 on /v1/me, as keanu: Something went wrong that should not have. (internal_error)"], found
+	assert (
+		found
+		== [
+			"1 x 500 on /v1/me, as keanu: Something went wrong that should not "
+			"have. (internal_error)"
+		]
+	), found
 
 
 def test_it_starts_from_the_newest_release_the_record_names (
@@ -501,7 +546,9 @@ def test_it_starts_from_the_newest_release_the_record_names (
 	"""
 
 	record = tmp_path / "releases.json"
-	record.write_text(json.dumps({"releases": [{"version": "1.2.3"}, {"version": "1.2.2"}]}), encoding="utf-8")
+	record.write_text(
+		json.dumps({"releases": [{"version": "1.2.3"}, {"version": "1.2.2"}]}), encoding="utf-8"
+	)
 	monkeypatch.setattr(rehearsal, "RELEASES", record)
 
 	assert rehearsal.last_release() == "1.2.3"
@@ -523,9 +570,15 @@ def test_every_query_parameter_a_read_route_declares_is_asked () -> None:
 	}
 	covered = set(sweep.samples("1")) | set(sweep.NOT_SAMPLED)
 
-	assert not declared - covered, f"asked by no sample and excused nowhere: {sorted(declared - covered)}"
-	assert not covered - declared, f"a sample or an excuse for a parameter no read route declares: {sorted(covered - declared)}"
-	assert not set(sweep.samples("1")) & set(sweep.NOT_SAMPLED), "a parameter is both sampled and excused"
+	assert (
+		not declared - covered
+	), f"asked by no sample and excused nowhere: {sorted(declared - covered)}"
+	assert (
+		not covered - declared
+	), f"a sample or an excuse for a parameter no read route declares: {sorted(covered - declared)}"
+	assert (
+		not set(sweep.samples("1")) & set(sweep.NOT_SAMPLED)
+	), "a parameter is both sampled and excused"
 
 
 def test_every_route_taking_a_cursor_is_paged_unless_excused (

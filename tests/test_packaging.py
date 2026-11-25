@@ -135,7 +135,8 @@ def test_os_independent_is_never_the_claim () -> None:
 
 
 def _moving (runners: set[str]) -> list[str]:
-	"""Return the runner labels GitHub points at a new image by itself, such as ``ubuntu-latest``."""
+	"""Return the runner labels GitHub points at a new image by itself, such as ``ubuntu-latest``.
+	"""
 
 	return sorted(runner for runner in runners if runner.endswith("-latest"))
 

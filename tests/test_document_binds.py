@@ -309,8 +309,8 @@ def test_hiding_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	Making the rule's project private, moving it under a private one, or deleting it each took the
 	rule out of sight. **And the control**: a project holding no marked rule is deleted - bar making
 	it private or moving it under a private project, which a narrowed credential is refused whatever
-	the project holds, since who sees a project is the workspace's to decide (`SR#4558`, C I-3 of the
-	cold review of 2026-10-05, and `SR#5102`).
+	the project holds, since who sees a project is the workspace's to decide (`SR#4558`, C I-3 of
+	the cold review of 2026-10-05, and `SR#5102`).
 	"""
 
 	ops = world.call("POST", "/v1/projects", json={"key": "ops", "title": "Operations"}).json()["id"]
@@ -465,8 +465,8 @@ def test_showing_the_project_that_holds_a_marked_rule_takes_what_marking_takes (
 	assert "rule that binds the whole workspace" in refused.text, refused.text
 
 	# **Bar making it public, or moving it out from under a private project** (`SR#4558`, C I-3, and
-	# `SR#5102`): who sees a project is the workspace's to decide, so a narrowed credential is refused
-	# either whatever the project holds.
+	# `SR#5102`): who sees a project is the workspace's to decide, so a narrowed credential is
+	# refused either whatever the project holds.
 	control = through("docs")
 
 	if door in ("public", "out from under a private project"):

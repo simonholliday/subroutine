@@ -44,14 +44,19 @@ class Commented:
 		self.keanu = subroutine.domain.users.create(session, username=f"keanu-{suffix}")
 
 		for member in (self.carrieanne, self.keanu):
-			subroutine.domain.workspaces.add_member(session, setup.workspace, member, role_key="member")
+			subroutine.domain.workspaces.add_member(
+				session, setup.workspace, member, role_key="member"
+			)
 
 		session.flush()
 		self.application = api_support.build_app(api_support.factory_for(session))
 		self.document = self.call(
-			self.carrieanne, "POST", "/v1/documents", json={"title": "Venues are booked a month ahead", "type": "decision"}
+			self.carrieanne, "POST", "/v1/documents",
+			json={"title": "Venues are booked a month ahead", "type": "decision"}
 		)
-		self.task = self.call(self.carrieanne, "POST", "/v1/tasks", json={"title": "Book the venue"})
+		self.task = self.call(
+			self.carrieanne, "POST", "/v1/tasks", json={"title": "Book the venue"}
+		)
 		self.call(
 			self.keanu,
 			"POST",
@@ -60,7 +65,8 @@ class Commented:
 		)
 
 	def call (
-		self, user: User, method: str, path: str, *, scopes: list[str] | None = None, **kwargs: typing.Any
+		self, user: User, method: str, path: str, *, scopes: list[str] | None = None,
+		**kwargs: typing.Any
 	) -> typing.Any:
 		"""Make one request with a fresh credential of ``user``'s, failing unless it succeeds."""
 
@@ -123,7 +129,9 @@ def test_a_link_proposed_from_a_comment_needs_comment_read (
 
 
 @pytest.mark.parametrize(("scopes", "told"), READERS)
-@pytest.mark.parametrize("asked", ["touched_by.eq=KEANU", "touched_by.eq=KEANU&touched_at.gte=yesterday"])
+@pytest.mark.parametrize(
+	"asked", ["touched_by.eq=KEANU", "touched_by.eq=KEANU&touched_at.gte=yesterday"]
+)
 def test_work_found_by_a_comment_needs_comment_read (
 	session: sqlalchemy.orm.Session, scopes: list[str] | None, told: bool, asked: str
 ) -> None:

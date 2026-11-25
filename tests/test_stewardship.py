@@ -402,12 +402,16 @@ def test_a_public_project_nobody_owns_is_its_administrators_to_make_private (
 	with pytest.raises(subroutine.errors.Forbidden) as refused:
 		projects.update(session, nobodys, visibility="private", actor=_as(bob))
 
-	assert refused.value.detail == "Only somebody who administers this workspace may make it private."
+	assert (
+		refused.value.detail == "Only somebody who administers this workspace may make it private."
+	)
 
 	with pytest.raises(subroutine.errors.ValidationError) as stranding:
 		projects.update(session, nobodys, visibility="private", actor=_as(thomas))
 
-	assert stranding.value.detail == "Making nobodys private would leave no person able to reach it."
+	assert (
+		stranding.value.detail == "Making nobodys private would leave no person able to reach it."
+	)
 	assert stranding.value.hint == "Make somebody who can act its owner first."
 	assert nobodys.visibility == "public"
 
@@ -708,7 +712,8 @@ NOT_OWNERSHIP: dict[str, str] = {
 		"Which project rows are the caller's own memberships: sight of a private project, §7.3a."
 	),
 	"domain/authorization.py:_memberships": (
-		"Which workspaces the caller is a member of: reach, `#4674`, and where it is stopped, `SR#5105`."
+		"Which workspaces the caller is a member of: reach, `#4674`, and where it is "
+		"stopped, `SR#5105`."
 	),
 	"domain/authorization.py:_reached": "The caller's own role in a workspace, `#4674`.",
 	"domain/claims.py:claim": (

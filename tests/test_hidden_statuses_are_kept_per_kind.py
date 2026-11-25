@@ -1,10 +1,10 @@
 """A project or workspace hides task statuses and document statuses separately - `SR#5147`.
 
 L-7's bullet of the cold review of 2026-10-17, decided in `#5097`. Every workspace is seeded with
-``superseded`` for tasks and for documents, and with ``active`` and ``archived`` for documents and for
-projects, so one hidden list keyed by the word hid a task's status from documents too, and a rename
-or a removal of one kind's status rewrote what the other kind hid. ``statuses.hidden`` keeps its
-name for the tasks; ``document_statuses.hidden`` holds the documents'.
+``superseded`` for tasks and for documents, and with ``active`` and ``archived`` for documents and
+for projects, so one hidden list keyed by the word hid a task's status from documents too, and a
+rename or a removal of one kind's status rewrote what the other kind hid. ``statuses.hidden`` keeps
+its name for the tasks; ``document_statuses.hidden`` holds the documents'.
 """
 
 import json
@@ -58,7 +58,9 @@ def _web (world: test_api_tasks.World) -> dict[str, typing.Any]:
 	return dict(made.json())
 
 
-def _configured (world: test_api_tasks.World, settings: dict[str, typing.Any]) -> dict[str, typing.Any]:
+def _configured (
+	world: test_api_tasks.World, settings: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
 	"""Set settings on `web` and return the project as the API then reports it."""
 
 	changed = world.call("PATCH", "/v1/projects/web", json={"settings": settings})
@@ -76,7 +78,9 @@ def _stored (world: test_api_tasks.World) -> dict[str, typing.Any]:
 	return dict(world.workspace.settings)
 
 
-def test_hiding_one_kinds_status_leaves_the_other_kinds_offered (world: test_api_tasks.World) -> None:
+def test_hiding_one_kinds_status_leaves_the_other_kinds_offered (
+	world: test_api_tasks.World
+) -> None:
 	"""A project hiding the task status ``superseded`` still offers the document status, and back.
 
 	**Read through what publishes the answer**, the project's two resolved lists, since that is
@@ -122,7 +126,9 @@ def test_a_project_inherits_each_list_from_its_workspace_on_its_own (
 	)
 
 
-def test_renaming_one_kinds_status_leaves_the_other_kinds_list (world: test_api_tasks.World) -> None:
+def test_renaming_one_kinds_status_leaves_the_other_kinds_list (
+	world: test_api_tasks.World
+) -> None:
 	"""Renaming the task ``superseded`` rewrites the task list alone, and a project status neither.
 
 	`#5097`'s case: renaming the task status ``superseded`` to ``replaced`` rewrote the one list,
@@ -152,7 +158,9 @@ def test_renaming_one_kinds_status_leaves_the_other_kinds_list (world: test_api_
 
 	assert hid.status_code == 200, hid.text
 
-	for entity_type, was, now in (("task", "superseded", "replaced"), ("project", "archived", "retired")):
+	for entity_type, was, now in (
+		("task", "superseded", "replaced"), ("project", "archived", "retired")
+	):
 		which = test_api_vocabulary._keyed(
 			test_api_vocabulary._statuses(world, entity_type=entity_type), was
 		)["id"]
@@ -179,8 +187,12 @@ def test_renaming_one_kinds_status_leaves_the_other_kinds_list (world: test_api_
 	)
 
 
-def test_removing_one_kinds_status_leaves_the_other_kinds_list (world: test_api_tasks.World) -> None:
-	"""A task status and a document status both keyed ``later``: removing one keeps the other hidden."""
+def test_removing_one_kinds_status_leaves_the_other_kinds_list (
+	world: test_api_tasks.World
+) -> None:
+	"""A task status and a document status both keyed ``later``: removing one keeps the
+	other hidden.
+	"""
 
 	made = {
 		kind: world.call(
@@ -265,7 +277,8 @@ def test_what_a_shape_refusal_suggests_is_what_its_list_accepts (
 def test_the_terminal_hides_each_kind_and_hide_nothing_offers_both (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""`--hide-document-status` beside `--hide-status`, and `--hide-nothing` acting on both (`#5097`).
+	"""`--hide-document-status` beside `--hide-status`, and `--hide-nothing` acting on
+	both (`#5097`).
 
 	The workspace hides one of each, which is the arrangement where inheriting and offering
 	everything differ. Clearing the document list goes back to inheriting while the task list
@@ -274,7 +287,10 @@ def test_the_terminal_hides_each_kind_and_hide_nothing_offers_both (
 
 	run("init")
 	run("project", "create", "web", "Web")
-	run("workspace", "update", "projects", "--hide-status", "blocked", "--hide-document-status", "draft")
+	run(
+		"workspace", "update", "projects", "--hide-status", "blocked", "--hide-document-status",
+		"draft",
+	)
 
 	def hidden () -> tuple[list[str], list[str]]:
 		"""What the listing says `web` does not offer, tasks then documents."""
@@ -364,11 +380,15 @@ def test_the_upgrade_splits_each_list_by_kind_and_going_back_merges_them (
 		table = settings_of[kind]
 
 		with engine.begin() as connection:
-			connection.execute(table.update().where(table.c.id == identity).values(settings=settings))
+			connection.execute(
+				table.update().where(table.c.id == identity).values(settings=settings)
+			)
 
 	try:
 		with sqlalchemy.orm.Session(engine) as session:
-			workspace = subroutine.db.models.identity.Workspace(slug="metacortex", title="Metacortex")
+			workspace = subroutine.db.models.identity.Workspace(
+				slug="metacortex", title="Metacortex"
+			)
 
 			session.add(workspace)
 			subroutine.db.seed.seed_workspace(session, workspace)

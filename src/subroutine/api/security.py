@@ -521,7 +521,8 @@ def _as_stated (
 
 
 def read_only_asked (request: starlette.requests.Request) -> bool:
-	"""Report whether this request says its session is read-only, refusing a value that says neither.
+	"""Report whether this request says its session is read-only, refusing a value that
+	says neither.
 
 	**Read by the agent tools' client too** (`SR#5126`), whose ``whoami`` says a read-only session
 	is one where no credential was presented to carry the flag.

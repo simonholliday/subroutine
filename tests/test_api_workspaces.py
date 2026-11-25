@@ -373,7 +373,12 @@ def test_the_member_listing_over_http_says_which_agents_are_stopped_here (
 
 		return {row["user"]["username"]: row["stopped"] for row in listed.json()["items"]}
 
-	assert world.call("POST", members, json={"username": person.username, "role": "member"}).status_code == 201
+	assert (
+		world.call(
+			"POST", members, json={"username": person.username, "role": "member"}
+		).status_code
+		== 201
+	)
 
 	added = world.call("POST", members, json={"username": agent.username, "role": "member"})
 
@@ -388,9 +393,16 @@ def test_the_member_listing_over_http_says_which_agents_are_stopped_here (
 	regraded = world.call("PATCH", f"{members}/{agent.username}", json={"role": "contributor"})
 
 	assert regraded.status_code == 200, regraded.text
-	assert regraded.json()["stopped"] == "outside", "the answer to an act says it as the listing does"
+	assert (
+		regraded.json()["stopped"] == "outside"
+	), "the answer to an act says it as the listing does"
 
-	assert world.call("POST", members, json={"username": person.username, "role": "member"}).status_code == 201
+	assert (
+		world.call(
+			"POST", members, json={"username": person.username, "role": "member"}
+		).status_code
+		== 201
+	)
 	assert stopped()[agent.username] is None, "and it starts again with nothing re-issued"
 
 

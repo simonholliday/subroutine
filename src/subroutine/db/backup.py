@@ -2574,7 +2574,8 @@ _TOOL_VERSION = re.compile(r"\(PostgreSQL\) (\d+)")
 
 
 def _major_version (printed: str) -> int | None:
-	"""Return the major version a PostgreSQL tool says it is, or ``None`` if it says so another way."""
+	"""Return the major version a PostgreSQL tool says it is, or ``None`` if it says so another way.
+	"""
 
 	found = _TOOL_VERSION.search(printed)
 

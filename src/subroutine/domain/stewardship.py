@@ -512,14 +512,15 @@ def refuse_narrowed_crossing (
 	permission: str,
 	field: str,
 ) -> None:
-	"""Refuse a move across a privacy boundary to a credential narrowed to some projects - `SR#5102`.
+	"""Refuse a move across a privacy boundary to a credential narrowed to some
+	projects - `SR#5102`.
 
 	**A credential narrowed to some projects makes no crossing move** (M-5 of the cold review of
-	2026-10-17, decision `#5097`): it may not make a project private or public, and moved one, a task
-	or a document across the same boundary, changing who sees it as surely. So a crossing asks the
-	workspace's place, as changing a project's visibility does, and a narrowed agent asks somebody
-	whose credential reaches the whole workspace. **Asked by each caller after the rules' own
-	refusals**, whose reasons are the more particular: asked first, it shadowed them.
+	2026-10-17, decision `#5097`): it may not make a project private or public, and moved one, a
+	task or a document across the same boundary, changing who sees it as surely. So a crossing asks
+	the workspace's place, as changing a project's visibility does, and a narrowed agent asks
+	somebody whose credential reaches the whole workspace. **Asked by each caller after the rules'
+	own refusals**, whose reasons are the more particular: asked first, it shadowed them.
 	"""
 
 	if actor is None or leaving == arriving:
@@ -575,7 +576,9 @@ def refuse_acting_on_an_account (
 	if stopping and subroutine.domain.accountability.answers_to(session, account, actor.user):
 		return
 
-	subroutine.domain.authorization.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
+	subroutine.domain.authorization.authorize_instance(
+		actor, subroutine.permissions.INSTANCE_USER_CREATE
+	)
 
 
 def accounts_acted_on (

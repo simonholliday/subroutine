@@ -3,8 +3,8 @@
 M-23 of the cold review of 2026-10-17 (`#5096`), its *Restore after delete* bullet, decided in
 `#5097`: **section 7.3's one clause lets an installation administrator delete any live workspace,
 member or not, and now names restoring it too.** The trash was searched among the caller's own
-memberships, so a superuser who deleted a workspace they were not in could not bring it back, and one
-whose owners had left stayed in the trash.
+memberships, so a superuser who deleted a workspace they were not in could not bring it back, and
+one whose owners had left stayed in the trash.
 """
 
 import uuid
@@ -53,7 +53,8 @@ class Installation:
 		session.flush()
 
 	def headers (self, user: User, *, pinned: bool = False) -> dict[str, str]:
-		"""Return the headers presenting a fresh credential of ``user``'s, pinned to Zion if asked."""
+		"""Return the headers presenting a fresh credential of ``user``'s, pinned to Zion if asked.
+		"""
 
 		_row, issued = subroutine.domain.authentication.issue_token(
 			self.session,
@@ -101,7 +102,9 @@ def test_an_administrator_outside_a_workspace_restores_what_they_deleted (
 
 
 def test_the_terminal_restores_it_the_same_way (session: sqlalchemy.orm.Session) -> None:
-	"""laurence's terminal, on the database itself, deletes and restores MetaCortex as the route does."""
+	"""laurence's terminal, on the database itself, deletes and restores MetaCortex as the
+	route does.
+	"""
 
 	here = Installation(session)
 	client = subroutine.clients.local.Client(
@@ -117,7 +120,9 @@ def test_the_terminal_restores_it_the_same_way (session: sqlalchemy.orm.Session)
 	assert back.id == here.metacortex.id, back
 
 
-@pytest.mark.parametrize("who", ["pinned", "marcus"], ids=["pinned elsewhere", "another workspace's owner"])
+@pytest.mark.parametrize(
+	"who", ["pinned", "marcus"], ids=["pinned elsewhere", "another workspace's owner"]
+)
 def test_nobody_else_outside_it_finds_it_in_the_trash (
 	session: sqlalchemy.orm.Session, who: str
 ) -> None:

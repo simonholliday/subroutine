@@ -557,7 +557,11 @@ def create (
 			subroutine.domain.tasks.refuse_linking_the_repeat_itself(
 				session,
 				row,
-				field="ref" if (each.entity_type, each.id) == (named.entity_type, named.id) else "target",
+				field=(
+					"ref"
+					if (each.entity_type, each.id) == (named.entity_type, named.id)
+					else "target"
+				),
 			)
 
 	_refuse_what_cannot_count(
@@ -951,9 +955,9 @@ def _why_a_ring_is_wrong (
 
 	if not withdrawable:
 		return (
-			f"{wrong} Join them with {instead.title!r} instead, which says they are connected without "
-			"saying which is first, or ask somebody who may change both ends of a link in that "
-			"chain to withdraw it."
+			f"{wrong} Join them with {instead.title!r} instead, which says they are connected "
+			"without saying which is first, or ask somebody who may change both ends of a link in "
+			"that chain to withdraw it."
 		)
 
 	return (
@@ -1746,7 +1750,8 @@ def _citations (
 				one.id: one
 				for one in session.scalars(
 					sqlalchemy.select(comment).where(
-						comment.id.in_({row.source_id for row in rows}), comment.deleted_at.is_(None)
+						comment.id.in_({row.source_id for row in rows}),
+						comment.deleted_at.is_(None)
 					)
 				)
 			}

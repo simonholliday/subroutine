@@ -69,7 +69,8 @@ class Workspace:
 def test_an_owner_through_the_agent_tools_is_refused_by_the_ceiling (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""keanu, an owner, demoting carrieanne through the agent tools, hears that the tools refused."""
+	"""keanu, an owner, demoting carrieanne through the agent tools, hears that the tools refused.
+	"""
 
 	here = Workspace(session)
 	through = dataclasses.replace(here.presenting(here.keanu), through_the_agent_tools=True)

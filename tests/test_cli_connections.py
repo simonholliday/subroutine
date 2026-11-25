@@ -518,7 +518,8 @@ def test_the_agenda_merges_both_instances_into_one_day (
 
 
 def _behind_on_this_machine (run: typing.Callable[..., typer.testing.Result]) -> None:
-	"""Leave this machine's own list at the schema 0.10.0 left, beside a served one that is current."""
+	"""Leave this machine's own list at the schema 0.10.0 left, beside a served one that is current.
+	"""
 
 	_schema_recorded_as("6c708db1582c")
 
@@ -536,7 +537,8 @@ def test_an_act_on_a_list_that_is_behind_says_so_beside_another_connection (
 	run: typing.Callable[..., typer.testing.Result],
 	command: tuple[str, ...],
 ) -> None:
-	"""`SR#5060`: with a second connection, a list waiting on ``db upgrade`` was called out of reach.
+	"""`SR#5060`: with a second connection, a list waiting on ``db upgrade`` was called out
+	of reach.
 
 	Found by the upgrade rehearsal of 2026-10-13, on the machine docs/connecting.md describes: a
 	list of its own, made by 0.10.0 and not yet upgraded, and a connection to a served instance.
@@ -558,7 +560,8 @@ def test_an_act_on_a_list_that_is_behind_says_so_beside_another_connection (
 def test_a_read_across_connections_gives_the_remedy_for_a_list_that_is_behind (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
-	"""`SR#5060`: the read showed the other connection's work and named the cause without the remedy.
+	"""`SR#5060`: the read showed the other connection's work and named the cause without
+	the remedy.
 
 	The same read over that connection alone printed it. Beside a dead server a remedy per
 	connection is noise (`SR#2954`), and the rule stays for every other refusal: a database behind
@@ -2632,7 +2635,9 @@ def test_starting_a_server_over_a_database_that_is_behind_says_so (
 	expected = subroutine.db.migrate.head_revision()
 
 	assert expected is not None and expected != "6c708db1582c"
-	assert f"database is at schema 6c708db1582c, and this build expects {expected}" in printed, printed
+	assert (
+		f"database is at schema 6c708db1582c, and this build expects {expected}" in printed
+	), printed
 	assert "Run 'subroutine db upgrade'" in printed, printed
 	assert "refuses every write" in printed, printed
 	assert started, "and it still starts: serving what can be read is the decision"
@@ -2640,7 +2645,9 @@ def test_starting_a_server_over_a_database_that_is_behind_says_so (
 	lines = printed.splitlines()
 	said = next(index for index, line in enumerate(lines) if "6c708db1582c" in line)
 
-	assert any("/v1" in line for line in lines[:said]), "after what it serves, with the other warnings"
+	assert any(
+		"/v1" in line for line in lines[:said]
+	), "after what it serves, with the other warnings"
 
 
 def test_starting_a_server_over_a_database_from_a_newer_build_says_to_update_the_software (
@@ -2678,7 +2685,8 @@ def test_starting_a_server_over_the_schema_it_expects_says_nothing_of_it (
 def test_starting_a_server_does_not_wait_on_a_database_that_does_not_answer (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-	"""`SR#5058`: asking is the first thing ``serve`` does that waits on the database, so it is bounded.
+	"""`SR#5058`: asking is the first thing ``serve`` does that waits on the database, so it
+	is bounded.
 
 	A database that is not up yet is why ``/readyz`` exists, and one whose host does not answer
 	keeps a connection attempt waiting for as long as the operating system goes on trying. The
@@ -3046,7 +3054,8 @@ def test_whoami_on_a_read_only_local_connection_says_the_session_only_reads (
 	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
 	"""`SR#5126`, decision `#5097`: a local connection presents no credential to carry the flag, so
-	the line is said from the connection's own setting - beside the installation's permissions, which
+	the line is said from the connection's own setting - beside the installation's
+	permissions, which
 	are listed as what the session reads with and would otherwise read as what it may change."""
 
 	run("init", "--username", "si", "--workspace", "Projects")

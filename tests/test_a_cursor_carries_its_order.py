@@ -114,7 +114,9 @@ def test_a_cursor_continues_in_its_own_order_and_refuses_another_by_name (
 	reverse it is refused, naming its order, where it answered one row already seen as the end."""
 
 	path = _listing(world, kind)
-	whole = [one["id"] for one in world.call("GET", f"{path}?order={field}&limit=100").json()["items"]]
+	whole = [
+		one["id"] for one in world.call("GET", f"{path}?order={field}&limit=100").json()["items"]
+	]
 	first = world.call("GET", f"{path}?order={field}&limit=2")
 	cursor = first.json()["page"]["next_cursor"]
 

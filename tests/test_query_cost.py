@@ -2033,7 +2033,9 @@ def test_nothing_has_its_own_ceiling_that_is_not_measured_here () -> None:
 		)
 
 
-def _asked_while (bind: sqlalchemy.Connection, work: typing.Callable[[], typing.Any]) -> tuple[int, typing.Any]:
+def _asked_while (
+	bind: sqlalchemy.Connection, work: typing.Callable[[], typing.Any]
+) -> tuple[int, typing.Any]:
 	"""Return how many statements ``work`` sent through ``bind``, and what it returned."""
 
 	statements: list[str] = []
@@ -2083,7 +2085,8 @@ def test_naming_a_credentials_projects_asks_the_same_however_many_it_has (
 	session.flush()
 
 	one, named = _asked_while(
-		session.connection(), lambda: subroutine.domain.projects.keys_for(session, principal, ids[:1])
+		session.connection(),
+		lambda: subroutine.domain.projects.keys_for(session, principal, ids[:1]),
 	)
 	five, all_named = _asked_while(
 		session.connection(), lambda: subroutine.domain.projects.keys_for(session, principal, ids)
@@ -2176,7 +2179,8 @@ def test_the_workspaces_nobody_administers_are_found_in_the_same_few_questions (
 
 	for number in range(4):
 		subroutine.domain.workspaces.create(
-			session, slug=f"nebuchadnezzar-{number}-{uuid.uuid4().hex[:6]}", title="Ship", owner=leaving
+			session, slug=f"nebuchadnezzar-{number}-{uuid.uuid4().hex[:6]}", title="Ship",
+			owner=leaving
 		)
 
 	session.flush()
@@ -2192,7 +2196,8 @@ def test_a_list_of_views_asks_for_task_write_once_however_many_it_holds (
 	"""`SR#5177`: every act on a view asked ``task:write`` of its workspace, once an act a view.
 
 	A listing asks it once for each way an act asks it, as the reader's own account or not, however
-	many views it holds. Each act's own refusal is still asked of each view, which is `#4577`'s point.
+	many views it holds. Each act's own refusal is still asked of each view, which is
+	`#4577`'s point.
 	"""
 
 	world = test_api_tasks._world(session)

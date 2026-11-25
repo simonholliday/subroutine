@@ -65,9 +65,9 @@ class Afterwards:
 	**Computed, not rehearsed** (decision `#5097`): ``private`` is the projects the act makes
 	private, ``moved`` the project it moves and ``above`` the path it moves to, outermost first and
 	ending at the new parent, or empty for the top level. ``granted`` is the rows the act writes, as
-	a project and an account: a new owner is shared in by the same act that makes the project private.
-	``handed`` is an agent handed to somebody else and who it goes to, and ``moving`` that agent and
-	every agent beneath it, whose shares are seen through the new chain once it moves.
+	a project and an account: a new owner is shared in by the same act that makes the project
+	private. ``handed`` is an agent handed to somebody else and who it goes to, and ``moving`` that
+	agent and every agent beneath it, whose shares are seen through the new chain once it moves.
 	"""
 
 	private: frozenset[uuid.UUID] = frozenset()
@@ -143,8 +143,8 @@ def lock_for_counting (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID)
 	has flushed whatever was pending.
 
 	**By a write that changes nothing** (`#3899`), which takes SQLite's one writer's lock where a
-	read takes none, and on PostgreSQL the lock ``FOR NO KEY UPDATE`` takes: ``FOR UPDATE`` waited on
-	the check a foreign key makes on the workspace, so a promotion recording its event beside a
+	read takes none, and on PostgreSQL the lock ``FOR NO KEY UPDATE`` takes: ``FOR UPDATE`` waited
+	on the check a foreign key makes on the workspace, so a promotion recording its event beside a
 	removal deadlocked with it.
 	"""
 
@@ -181,8 +181,8 @@ def repairers (
 	demoting them - takes their id out of the answer, since that is all the act changes.
 	**``unsharing`` asks it of a private project with one row gone** (`SR#4944`): an agent's row
 	is what whoever it answers to sees by, so taking it away can change somebody else's answer.
-	**``afterwards`` asks it of a private project once a change to who sees it is made** (`SR#5101`):
-	made private, moved, or given a new owner.
+	**``afterwards`` asks it of a private project once a change to who sees it is made**
+	(`SR#5101`): made private, moved, or given a new owner.
 	"""
 
 	model = subroutine.db.models.identity.User
@@ -244,7 +244,9 @@ def repairers_of_each (
 		for person in people
 	}
 
-	return {where: {person.id for person in people if acts[person.id]} for where, people in held.items()}
+	return {
+		where: {person.id for person in people if acts[person.id]} for where, people in held.items()
+	}
 
 
 def _people () -> sqlalchemy.Select[subroutine.db.models.identity.User]:
@@ -359,7 +361,8 @@ def taking_part (
 	workspace_ids: typing.Collection[uuid.UUID],
 	accounts: typing.Collection[uuid.UUID],
 ) -> set[uuid.UUID]:
-	"""Return the workspaces whose administration or ownership any of these accounts holds a part in.
+	"""Return the workspaces whose administration or ownership any of these accounts holds a
+	part in.
 
 	:func:`takes_part` for many workspaces, asked once (`SR#5177`), and its statement of the rule.
 	"""
@@ -375,7 +378,9 @@ def taking_part (
 		.where(member.workspace_id.in_(workspace_ids), member.user_id.in_(accounts))
 	).all()
 
-	return {workspace_id for workspace_id, permissions in rows if _VERB[kind] in (permissions or [])}
+	return {
+		workspace_id for workspace_id, permissions in rows if _VERB[kind] in (permissions or [])
+	}
 
 
 def departing (
@@ -412,7 +417,9 @@ def takes_part (
 		return False
 
 	if isinstance(scope, (Administration, Ownership)):
-		return scope.workspace_id in taking_part(session, type(scope), [scope.workspace_id], accounts)
+		return (
+			scope.workspace_id in taking_part(session, type(scope), [scope.workspace_id], accounts)
+		)
 
 	membership = subroutine.db.models.project.ProjectMember
 

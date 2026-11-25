@@ -187,9 +187,9 @@ def cast (session: sqlalchemy.orm.Session) -> Cast:
 		is_service_account=True,
 		responsible_user_id=people["hugo"].id,
 	)
-	# **Scout, Claude's own agent, is acted on and never acts** (`SR#5124`, M-22 of the cold review of
-	# 2026-10-17): two levels below Hugo, so the acts whoever an account answers to may take on it are
-	# driven where two principals answer for it, and one of them only through Claude.
+	# **Scout, Claude's own agent, is acted on and never acts** (`SR#5124`, M-22 of the cold review
+	# of 2026-10-17): two levels below Hugo, so the acts whoever an account answers to may take on
+	# it are driven where two principals answer for it, and one of them only through Claude.
 	people["scout"] = subroutine.domain.users.create(
 		session,
 		username=f"scout-{suffix}",
@@ -1215,7 +1215,9 @@ RULE_SAYS: dict[str, tuple[str, ...]] = {
 		"cannot write in more projects",
 		"cannot issue one that is not",
 	),
-	"sign-in link for oneself": ("holds less than it would take to mint a sign-in link", "a person's act"),
+	"sign-in link for oneself": (
+		"holds less than it would take to mint a sign-in link", "a person's act"
+	),
 	"create calendar": ("holds less than it would take to mint this calendar feed",),
 	"create user": ("a person's act",),
 	"issue token for somebody": ("needs the 'instance:user_create'", "a person's act"),
@@ -1237,11 +1239,12 @@ RULE_UNMET: dict[str, str] = {}
 
 
 def _writable (who: Who) -> Who:
-	"""Return the principal holding this one's credential, narrowed alike, on a connection that writes.
+	"""Return the principal holding this one's credential, narrowed alike, on a connection
+	that writes.
 
-	**Narrowed alike** (`SR#5124`): the only read-only principal was an unnarrowed superuser, so this
-	returned the person's whole credential, and a read-only connection narrowed to a project would
-	have been held to reading every project its person can.
+	**Narrowed alike** (`SR#5124`): the only read-only principal was an unnarrowed superuser, so
+	this returned the person's whole credential, and a read-only connection narrowed to a project
+	would have been held to reading every project its person can.
 	"""
 
 	twin = dataclasses.replace(who, read_only=False)
@@ -1689,15 +1692,19 @@ COVERS: dict[str, frozenset[str]] = {
 	"revoke somebody's token": _WHOLE,
 	"deactivate somebody": _WHOLE,
 	"revoke somebody's feed": _WHOLE
-	| {"scoped to reading tasks", "scoped to reading tasks and commenting", "writing only in another project"},
+	| {
+		"scoped to reading tasks",
+		"scoped to reading tasks and commenting",
+		"writing only in another project",
+	},
 }
 
 
 def _answers_for (who: Who, act: Act) -> bool:
 	"""Say whether this principal may take an act whoever its target answers to may (`SR#5124`).
 
-	Decision `#4516`, kept in `#5097`: whoever an account answers to may stop it, through every door,
-	with a credential that covers what it stops.
+	Decision `#4516`, kept in `#5097`: whoever an account answers to may stop it, through every
+	door, with a credential that covers what it stops.
 	"""
 
 	return act.described.chain and who.person in act.answering and who.key in COVERS[act.key]
@@ -1766,15 +1773,24 @@ def _disagreements (act: Act, cast: Cast, who: Who, outcomes: dict[str, Outcome]
 
 	for transport, outcome in outcomes.items():
 		if not allowed and not outcome.refused:
-			found.append(f"{transport} answered what the decision refuses ({act.verbs or 'nothing'})")
+			found.append(
+				f"{transport} answered what the decision refuses ({act.verbs or 'nothing'})"
+			)
 
-		if not allowed or not outcome.refused or (ceiling and transport in DOORS["the agent tools"]):
+		if (
+			not allowed
+			or not outcome.refused
+			or (ceiling and transport in DOORS["the agent tools"])
+		):
 			continue
 
 		# **A rule excuses only its own refusal** (`SR#5124`): a refusal in other words is a
 		# permission the table does not list, or a rule it does not say.
 		if not _by_its_rule(act, outcome):
-			found.append(f"{transport} refused what the decision allows ({act.verbs or 'nothing'}): {outcome}")
+			found.append(
+				f"{transport} refused what the decision allows "
+				f"({act.verbs or 'nothing'}): {outcome}"
+			)
 
 	for canary in cast.canaries:
 		if _allowed(who, canary.verb, canary.place, reading=True):
@@ -1869,7 +1885,9 @@ def test_the_decision_is_as_written (cast: Cast) -> None:
 
 
 def test_every_rule_says_how_it_refuses () -> None:
-	"""`SR#5124`: every act with a rule of its own has the words it refuses in, and nothing else does."""
+	"""`SR#5124`: every act with a rule of its own has the words it refuses in, and nothing
+	else does.
+	"""
 
 	ruled = {act.key for act in subroutine.acts.ACTS if act.rule is not None}
 

@@ -885,7 +885,8 @@ def test_a_superuser_acts_by_their_role_inside_a_workspace (
 def test_a_superuser_holding_a_lesser_role_is_offered_what_the_instance_lets_them_do (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#5161`, a bullet of L-7 of the cold review of 2026-10-17: offered their role's verbs alone.
+	"""`SR#5161`, a bullet of L-7 of the cold review of 2026-10-17: offered their role's
+	verbs alone.
 
 	``explain`` asked the decision only about the verbs the role holds, while the decision grants
 	an instance administrator three in any live workspace, so ``/v1/me``, ``whoami`` and the
@@ -899,10 +900,14 @@ def test_a_superuser_holding_a_lesser_role_is_offered_what_the_instance_lets_the
 	viewer.user.is_superuser = True
 	session.flush()
 
-	def offered_as_granted (principal: subroutine.domain.authentication.Principal) -> frozenset[str]:
+	def offered_as_granted (
+		principal: subroutine.domain.authentication.Principal
+	) -> frozenset[str]:
 		"""Return what ``explain`` offers, asserting the decision grants exactly that."""
 
-		offered = subroutine.domain.authorization.explain(session, principal, workspace.id).permissions
+		offered = (
+			subroutine.domain.authorization.explain(session, principal, workspace.id).permissions
+		)
 		granted = frozenset(
 			verb
 			for verb in subroutine.permissions.WORKSPACE_LEVEL

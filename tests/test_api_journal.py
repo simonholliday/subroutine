@@ -981,8 +981,9 @@ def test_a_date_is_read_in_the_zone_it_was_written_in (
 	world: test_api_tasks.World, session: sqlalchemy.orm.Session, dates: tuple[str, str, str]
 ) -> None:
 	"""`SR#5138`, M-14 of the cold review of 2026-10-17: every date in the journal was read in the
-	item's zone as it is now. A deadline written in London, moved in the same edit as the zone to New
-	York, then again to Tokyo, reads in each entry as it was written - the same edit's sides in their
+	item's zone as it is now. A deadline written in London, moved in the same edit as the zone to
+	New York, then again to Tokyo, reads in each entry as it was written - the same edit's sides
+	in their
 	own zones, and an earlier entry in the zone the item had until it next moved."""
 
 	created = world.call(

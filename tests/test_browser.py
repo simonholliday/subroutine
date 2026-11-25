@@ -7161,7 +7161,9 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 		"**/v1/agenda?**",
 		lambda route: route.fulfill(
 			status=404,
-			body=json.dumps({"status": 404, "detail": "There is no project 'websites' that you can reach."}),
+			body=json.dumps(
+				{"status": 404, "detail": "There is no project 'websites' that you can reach."}
+			),
 			content_type="application/problem+json",
 		),
 	)

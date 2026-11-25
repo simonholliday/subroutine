@@ -173,7 +173,9 @@ class Client:
 		answer = self._call(
 			verb,
 			subroutine.clients.base.require_a_route(path),
-			params={**(query or {}), **(subroutine.clients.base.read_only_query(self.connection) or {})},
+			params={
+				**(query or {}), **(subroutine.clients.base.read_only_query(self.connection) or {})
+			},
 			json=body,
 		)
 
@@ -2665,7 +2667,8 @@ class Client:
 
 
 #: **The first release a read-only connection cannot write to** (`SR#5116`): from 0.7.5 every route
-#: refuses a query parameter it does not know, so ``read_only`` is refused or enforced, never ignored.
+#: refuses a query parameter it does not know, so ``read_only`` is refused or enforced,
+#: never ignored.
 READ_ONLY_FLOOR = (0, 7, 5)
 
 

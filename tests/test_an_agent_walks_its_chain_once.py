@@ -1,4 +1,5 @@
-"""An agent's request walks its accountability chain once, and a change to it is read at once - `SR#5174`.
+"""An agent's request walks its accountability chain once, and a change to it is read at
+once - `SR#5174`.
 
 **Decided in `#5097`**, "The accountability chain is walked once per request": every check an
 agent's request asked walked the chain again, one fresh select per level, so measured over HTTP a
@@ -121,14 +122,16 @@ def _busy (world: test_api_tasks.World) -> None:
 def test_an_agent_asks_what_its_person_asks_plus_one_walk (
 	session: sqlalchemy.orm.Session, path: str
 ) -> None:
-	"""The journal's and the agenda's statement guards, for an agent and an agent's agent over HTTP."""
+	"""The journal's and the agenda's statement guards, for an agent and an agent's agent over HTTP.
+	"""
 
 	world = test_api_tasks._world(session)
 	_busy(world)
 	secrets = _chained(world)
 
 	# **Each credential used once first**: its first use records when it was used, which one used a
-	# moment ago does not, so a fresh agent's credential would be charged a write its person's is not.
+	# moment ago does not, so a fresh agent's credential would be charged a write its person's
+	# is not.
 	for secret in secrets.values():
 		_asked(world, secret, path)
 

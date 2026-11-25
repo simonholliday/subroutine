@@ -268,8 +268,8 @@ NOT_DECIDING: dict[str, str] = {
 	),
 	"authorization.py:_memberships": (
 		"An agent reaches a workspace only while the person at the top of its chain is a member "
-		"there, and is stopped in one where they are not - its standing in that workspace, the same "
-		"for every act (decision `#4518`, `SR#5105`)."
+		"there, and is stopped in one where they are not - its standing in that workspace, the "
+		"same for every act (decision `#4518`, `SR#5105`)."
 	),
 	"local.py:_live_users": (
 		"Local mode is the sole person when nobody is named, so this counts people - which "
@@ -288,13 +288,14 @@ NOT_DECIDING: dict[str, str] = {
 		"what was asked for, not what the actor may do. `#348`."
 	),
 	"users.py:refuse_transferring": (
-		"Only an agent has somebody answering for it, so handing over a person is refused as a "
-		"request that means nothing. `#478`; the transfer's checks, asked before it too (`SR#5101`)."
+		"Only an agent has somebody answering for it, so handing over a person is refused "
+		"as a request that means nothing. `#478`; the transfer's checks, asked before it "
+		"too (`SR#5101`)."
 	),
 	"projects.py:member_who_sees": (
 		"Says *has left* of a person and *has stopped working here* of an agent, refusing to hand "
-		"work to one who cannot act (decision `#4509`, `SR#5104`): what the sentence says, never what "
-		"the actor may do."
+		"work to one who cannot act (decision `#4509`, `SR#5104`): what the sentence says, never "
+		"what the actor may do."
 	),
 	"workspaces.py:_refuse_administering_by_who_cannot_act": (
 		"Says *has left* of a person and *has stopped working here* of an agent, refusing a role "

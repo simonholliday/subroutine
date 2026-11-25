@@ -295,10 +295,10 @@ def explain (
 	# gates nothing grants nothing, so it is left out.
 	#
 	# **With what the instance lets an administrator do in any live workspace** (`SR#5161`, a bullet
-	# of L-7 of the cold review of 2026-10-17). Asked only about the role's verbs, a superuser holding
-	# ``viewer`` was offered less than the decision grants them, and the browser hid the controls for
-	# the rest. Each is still decided below, so a credential the instance clause does not reach is
-	# offered none of them.
+	# of L-7 of the cold review of 2026-10-17). Asked only about the role's verbs, a superuser
+	# holding ``viewer`` was offered less than the decision grants them, and the browser hid the
+	# controls for the rest. Each is still decided below, so a credential the instance clause does
+	# not reach is offered none of them.
 	held = (
 		reached.permissions | subroutine.permissions.ADMINISTERED_FROM_THE_INSTANCE
 	) & subroutine.permissions.WORKSPACE_LEVEL
@@ -306,9 +306,9 @@ def explain (
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
 	candidates = held if not scopes else held & frozenset(scopes)
 
-	# **A verb is offered anywhere inside only where the credential writes there at all** (`SR#5126`,
-	# M-23 of the cold review of 2026-10-17): one writing in a project of another workspace was
-	# offered its write verbs here too, where it writes nothing.
+	# **A verb is offered anywhere inside only where the credential writes there at all**
+	# (`SR#5126`, M-23 of the cold review of 2026-10-17): one writing in a project of another
+	# workspace was offered its write verbs here too, where it writes nothing.
 	anywhere_inside = project is None and _writes_inside(session, principal, workspace_id)
 
 	# Ask the real decision about each candidate rather than reproducing its checks here.
@@ -614,7 +614,9 @@ def _read_by (
 		return False
 
 	try:
-		statement = reading.readable_documents(session, principal, workspace_ids=[item.workspace_id])
+		statement = reading.readable_documents(
+			session, principal, workspace_ids=[item.workspace_id]
+		)
 
 	except subroutine.errors.Forbidden:
 		return False
@@ -980,11 +982,11 @@ def stopped_in (
 ) -> list[tuple[subroutine.db.models.identity.Workspace, str]]:
 	"""Return the workspaces this agent is a member of and stopped in, and whose absence stops it.
 
-	`SR#5105`, M-23 of the cold review of 2026-10-17, decision `#5097`. **What :func:`reaches` leaves
-	out of an agent's memberships because the person at the top of its chain is not seated there**,
-	so an agent told it reaches nothing can be told why. Narrowed by the credential as reach is, so a
-	pinned one names only its own workspace. Empty for a person, and for an agent nobody who can act
-	answers for, which is stopped everywhere and refused as it authenticates.
+	`SR#5105`, M-23 of the cold review of 2026-10-17, decision `#5097`. **What :func:`reaches`
+	leaves out of an agent's memberships because the person at the top of its chain is not seated
+	there**, so an agent told it reaches nothing can be told why. Narrowed by the credential as
+	reach is, so a pinned one names only its own workspace. Empty for a person, and for an agent
+	nobody who can act answers for, which is stopped everywhere and refused as it authenticates.
 	"""
 
 	statement = _memberships(session, principal, include_deleted=False, seated=False)

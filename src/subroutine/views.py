@@ -2451,10 +2451,10 @@ class Me(pydantic.BaseModel):
 
 	workspaces: list[WorkspaceAccess]
 
-	#: **The workspaces this agent is a member of and stopped in** (`SR#5105`, decision `#5097`): each
-	#: one where the person at the top of its chain is not a member, with who that is. ``workspaces``
-	#: leaves them out, since nothing there can be reached; this says why. Empty for a person, and
-	#: narrowed by the credential as ``workspaces`` is. Defaulted for `#345`'s reason.
+	#: **The workspaces this agent is a member of and stopped in** (`SR#5105`, decision `#5097`):
+	#: each one where the person at the top of its chain is not a member, with who that is.
+	#: ``workspaces`` leaves them out, since nothing there can be reached; this says why. Empty for
+	#: a person, and narrowed by the credential as ``workspaces`` is. Defaulted for `#345`'s reason.
 	stopped_in: list[StoppedIn] = pydantic.Field(default_factory=list)
 
 	#: **What this instance has found out about releases** (`#2223`), so ``whoami``, the agent
@@ -3028,8 +3028,8 @@ class Document(pydantic.BaseModel):
 	binds: str = "project"
 
 	#: **Whether it binds everyone in its workspace** (`SR#5120`, decision `#5097`): marked
-	#: ``workspace``, of a governing type, in force, live and beneath no private project - worked out
-	#: by the instance, which sees the whole tree, where a reader narrowed to a project inside a
+	#: ``workspace``, of a governing type, in force, live and beneath no private project - worked
+	#: out by the instance, which sees the whole tree, where a reader narrowed to a project inside a
 	#: private one could not see that project to tell. **Null from an older instance**, which does
 	#: not say; defaulted for `#345`'s reason.
 	binds_everyone: bool | None = None
@@ -3735,8 +3735,9 @@ class Vocabulary:
 			session, document_ids
 		)
 
-		# **And whether each binds everyone in its workspace** (`SR#5120`): the instance's answer, from
-		# the whole tree, which a narrowed reader cannot see. One statement for the page, the same shape.
+		# **And whether each binds everyone in its workspace** (`SR#5120`): the instance's answer,
+		# from the whole tree, which a narrowed reader cannot see. One statement for the page, the
+		# same shape.
 		self.binding_everyone = subroutine.domain.documents.binding_among(session, document_ids)
 
 		# **And what each of those is filed under** — `#2201`. The task pair below has existed
@@ -3785,14 +3786,15 @@ class Vocabulary:
 				"recurrence_text",
 				"recurrence_anchor",
 				"recurrence_trigger",
-				# **And where each is filed** (`SR#5148`), so that only a series filed apart from its
-				# occurrence is asked about: see :func:`_unseen_series`.
+				# **And where each is filed** (`SR#5148`), so that only a series filed apart from
+				# its occurrence is asked about: see :func:`_unseen_series`.
 				"project_id",
 			),
 		)
 
-		#: The series on this page its reader cannot see, whose number is not said (`SR#5148`). Filled
-		#: by :meth:`for_tasks`, the one way a page of tasks is loaded for a reader; empty elsewhere.
+		#: The series on this page its reader cannot see, whose number is not said (`SR#5148`).
+		#: Filled by :meth:`for_tasks`, the one way a page of tasks is loaded for a reader;
+		#: empty elsewhere.
 		self.unseen_series: frozenset[uuid.UUID] = frozenset()
 
 		# **One query for every assignee on the page** (`#511`), for the reason the parents load
@@ -3964,8 +3966,8 @@ def repeats (task: Task) -> bool:
 	so they cannot drift quietly.
 
 	**And a rule** (`SR#5148`, decision `#5097`): an occurrence of a series its reader cannot see is
-	given no number, and is given the series' rule while it runs. One of a stopped series filed out of
-	its reader's sight reads as not repeating, so an edit to it is refused once for not saying.
+	given no number, and is given the series' rule while it runs. One of a stopped series filed out
+	of its reader's sight reads as not repeating, so an edit to it is refused once for not saying.
 	"""
 
 	return (
@@ -4622,7 +4624,8 @@ def journal_entries (
 
 	entries = (
 		journal_entry(
-			row, vocabulary=vocabulary, unseen=unseen, described=described, bodies=bodies, zones=zones
+			row, vocabulary=vocabulary, unseen=unseen, described=described, bodies=bodies,
+			zones=zones
 		)
 		for row in rows
 	)
@@ -4694,8 +4697,8 @@ def event (
 		subject_id=row.subject_id,
 		action=row.action,
 		# **The other end of a link, or a project, parent or series, the reader cannot see, said as
-		# unseen** (`SR#4575`, `SR#5148`): ``unseen`` is :func:`subroutine.domain.events.unseen_ends`,
-		# required so that no renderer can forget it.
+		# unseen** (`SR#4575`, `SR#5148`): ``unseen`` is
+		# :func:`subroutine.domain.events.unseen_ends`, required so that no renderer can forget it.
 		changes=subroutine.domain.events.shown(
 			None if row.changes is None else dict(row.changes), unseen.get(row.id)
 		),
@@ -5311,7 +5314,8 @@ def _moved_in_words (
 		return None
 
 	# **A link's end its reader cannot see is said as unseen** (`SR#5136`), as every other surface
-	# says it: the journal's ``after`` for it was the stored marker's own repr, ``{'visible': False}``.
+	# says it: the journal's ``after`` for it was the stored marker's own repr,
+	# ``{'visible': False}``.
 	if value == subroutine.domain.events.UNSEEN_END:
 		return subroutine.domain.scoping.UNSEEN
 
@@ -7365,8 +7369,8 @@ def _unseen_series (
 
 	**Asked only of a series filed in another project than its occurrence.** A task is seen by its
 	workspace and its project, the two share a workspace, and the occurrence is on this page because
-	its reader can see it: so a series beside it is seen too, and a page of those, which is every page
-	but a rare one, costs no statement. ``None`` is nobody reading, who is told every number.
+	its reader can see it: so a series beside it is seen too, and a page of those, which is every
+	page but a rare one, costs no statement. ``None`` is nobody reading, who is told every number.
 	"""
 
 	elsewhere = {

@@ -155,9 +155,16 @@ def test_every_view_act_asks_task_write () -> None:
 	# **The three on a shared view find it first, which asks ``task:read``** (`SR#5124`).
 	for key, act in views.items():
 		if key != "save view":
-			assert act.verbs == (subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE), key
+			assert (
+				act.verbs == (subroutine.permissions.TASK_READ, subroutine.permissions.TASK_WRITE)
+			), key
 
 	assert views["save view"].place == subroutine.acts.ACCOUNT
-	assert {act.place for key, act in views.items() if key != "save view"} == {subroutine.acts.WORKSPACE}
+	assert (
+		{act.place for key, act in views.items() if key != "save view"}
+		== {subroutine.acts.WORKSPACE}
+	)
 	assert "whoever they answer to" in (views["forget saved view"].rule or "")
-	assert "| Save a view | `task:write` | one's own account | - |" in subroutine.acts.page_markdown()
+	assert (
+		"| Save a view | `task:write` | one's own account | - |" in subroutine.acts.page_markdown()
+	)

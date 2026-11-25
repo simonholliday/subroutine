@@ -661,7 +661,8 @@ def _conventions (
 	if listed:
 		lines += [
 			"",
-			f"{len(listed)} in force{_counted(listed, project, place, own, where)}. Findings and notes",
+			f"{len(listed)} in force{_counted(listed, project, place, own, where)}. Findings "
+			"and notes",
 			"are not listed here: they describe rather than bind, and",
 			'`subroutine_list` with `filter={"type.eq": "finding"}`, or "note", finds those. A code',
 			"review's *Not issues* section is worth reading before re-raising something it already",

@@ -1,4 +1,5 @@
-"""`--hide-nothing` beside an empty `--hide-status` or `--hide-document-status` is refused - `SR#5243`.
+"""`--hide-nothing` beside an empty `--hide-status` or `--hide-document-status` is
+refused - `SR#5243`.
 
 Found building `SR#5147`, and placed in 1.0 in `#5097`. ``''`` asks for a list to go back to
 inheriting what is above it, and `--hide-nothing` for everything to be offered: the two say opposite

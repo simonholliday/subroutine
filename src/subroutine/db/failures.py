@@ -182,14 +182,18 @@ def duplicated (exception: BaseException) -> subroutine.errors.Conflict | None:
 	`#5097`). A key this program refuses by name is checked before it is written, so meeting the
 	index instead means another request's row landed in between: two requests making project
 	``web`` at once left the second a 500 on both backends. It is ``versions.raced``' rule for a
-	lost update, one constraint over - what a caller does about it does not change with when it lost.
+	lost update, one constraint over - what a caller does about it does not change with when
+	it lost.
 
 	**Naming no index and no value** (`#161`): the index's name is this program's, and the value is
 	the caller's own. Any other integrity fault answers ``None``, so it is reported as the defect
 	it is.
 	"""
 
-	if sqlstate(exception) not in DUPLICATED_STATES and errorname(exception) not in DUPLICATED_NAMES:
+	if (
+		sqlstate(exception) not in DUPLICATED_STATES
+		and errorname(exception) not in DUPLICATED_NAMES
+	):
 		return None
 
 	columns = _columns(exception)

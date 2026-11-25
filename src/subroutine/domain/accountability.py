@@ -260,7 +260,9 @@ def outside_in (
 
 	# **Every member, not only agents**: a person answers for themselves and is seated here, so the
 	# rule reads no further for them, as :func:`standing`'s does not.
-	persons = {account.id: answerable[account.id] for account in accounts if account.id in answerable}
+	persons = {
+		account.id: answerable[account.id] for account in accounts if account.id in answerable
+	}
 
 	if not persons:
 		return set()
@@ -305,12 +307,13 @@ def live (
 def stopped_refusal (
 	slugs: typing.Sequence[str], person: str, *, on: str = ""
 ) -> tuple[str, str]:
-	"""Return what an agent stopped in these workspaces is told, and what to do about it - `SR#5105`.
+	"""Return what an agent stopped in these workspaces is told, and what to do about
+	it - `SR#5105`.
 
-	**One sentence for every surface** (M-23 of the cold review of 2026-10-17, decision `#5097`): the
-	instance's refusal, and the terminal's, which reads where it is stopped off ``/v1/me``. It names
-	which workspace and whose absence stops the agent there (`#4546`), so the agent tells its person
-	the right thing to fix. ``on`` is the connection, where the terminal has several.
+	**One sentence for every surface** (M-23 of the cold review of 2026-10-17, decision `#5097`):
+	the instance's refusal, and the terminal's, which reads where it is stopped off ``/v1/me``. It
+	names which workspace and whose absence stops the agent there (`#4546`), so the agent tells its
+	person the right thing to fix. ``on`` is the connection, where the terminal has several.
 	"""
 
 	if len(slugs) == 1:
