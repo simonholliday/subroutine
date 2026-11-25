@@ -349,6 +349,9 @@ upgrade involves.
   `workspace list` and the agent tools' `subroutine_whoami` say so too, below any workspace it
   still reaches. Handing an agent to somebody else also names the agents answering to it that
   stop with it.
+- **The plugins' skill teaches what a stopped agent is told**: to pass the hint on to the
+  person it answers to, rather than ask for another token. It also says that only somebody who
+  may make accounts can hand an agent over, where it said any person could.
 - **A refusal's hint offers only what you may do.** Handing work to somebody who could not see
   it offered the command to share the project with them, and removing a project's last viewer
   offered to make it public, to a credential that would then be refused either; a ring of links

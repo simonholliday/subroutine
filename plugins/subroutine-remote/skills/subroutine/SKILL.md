@@ -229,7 +229,7 @@ It names the account, the credential by its title, what that credential is limit
 versions of everything in play and, for an agent, its *account parent* — whom a question goes to
 when nobody assigned you the work. One machine commonly holds more than one credential — the
 person's own, and one per agent — so the answer is not obvious and is not something to assume.
-Five answers are worth acting on:
+Six answers are worth acting on:
 
 - **A person's name where you expected an agent's** means your work is being recorded as
   theirs. Say so rather than carrying on: attribution is the reason a person hands over work
@@ -251,6 +251,12 @@ Five answers are worth acting on:
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
+- **`You are a member of metacortex, and stopped there because laurence, whom you answer to, is
+  not a member`** means nothing can be done as you in that workspace until the person you answer
+  to is a member there too. That is theirs to put right, not your credential's: pass on the hint
+  that follows, which names whom to ask, and do not ask for another token, which would be
+  stopped the same way. It comes below the workspaces you do reach, or in place of the line
+  above where you reach none.
 - **More than one workspace** means a number can name a different item in each, so a call that
   does not say which is refused, naming them. Pass `workspace` on every call from the first one,
   or ask the person to set a default, which every tool then takes: the `workspace` setting on
@@ -339,8 +345,9 @@ the credential never passes through this conversation.
 - **Say whose it will be.** The new agent answers to whoever runs the command. If
   `subroutine_whoami` names you, an agent, rather than the person, it will answer to you, and a
   question it hands back will reach you before them: say so when you ask. `agent create` then
-  prints the `subroutine user transfer` command that makes the person its parent. Pass it on,
-  because only a person may run it.
+  prints the `subroutine user transfer` command that makes the person its parent. Pass it on:
+  only a person who may make accounts can run it, so it may be theirs to pass to an
+  administrator in turn.
 - **Say what changed**: the settings file, and `.gitignore` if it gained a line. Committing that is
   theirs.
 - **Ask for a reload, and write nothing until it has happened.** This session may already act as
